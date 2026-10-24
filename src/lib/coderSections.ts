@@ -630,7 +630,7 @@ async function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: 
     const last = [...st.messages].reverse().find((m) => m.role === "user");
     const title = st.run.title || String(last?.content || "").slice(0, 200);
     st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
-    await taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, threadId: st.run.slot ? null : st.threadId || null }, db);
+    await taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, botId: _botRow.id, threadId: st.run.slot ? null : st.threadId || null }, db);
   }
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
@@ -1338,3 +1338,13 @@ export async function startScheduledRun(
 }
 
 export { splitForTelegram };
+
+/** A run whose worker disappeared (server replaced mid-leg): continue it from the saved state, the Studio job included. */
+export async function resumeOrphan(chatId: number, runId: string, slot: string, botRow: BotRow, db: Db = prismaDb): Promise<boolean> {
+  const st = await loadState(chatId, db, slot);
+  const run = st.run;
+  if (!run || run.id !== runId || run.pending || run.asking) return false;
+  await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
+  later(() => continueRun(botRow, chatId, run.chain, db, slot));
+  return true;
+}

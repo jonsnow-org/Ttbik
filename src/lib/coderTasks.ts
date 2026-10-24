@@ -2,7 +2,7 @@
 // The Mini App's live list and history read these; the bot writes them as the agent loop runs (src/lib/coderSections.ts).
 // A run lives in a "slot": "" for the chat itself, "s:<scheduleId>" for a scheduled task (its own state, its own fresh step counter).
 // Rows are keyed by the salted chat hash; titles/texts are the user's own task text and the bot's visible messages, capped.
-import { coderChatKey, prismaDb, type Db } from "@/lib/coderAuth";
+import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/lib/coderAuth";
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event";
@@ -25,6 +25,9 @@ export function ensureTaskTables(db: Db): Promise<void> {
       // conversation threads (src/lib/coderThreads.ts): the request's conversation; older rows keep NULL
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS thread_id TEXT`);
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`);
+      // who to resume a run for if its server is replaced mid-task (the chat id stays encrypted, like in coder_schedules)
+      await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS chat_enc TEXT`);
+      await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS bot_id TEXT`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -33,7 +36,7 @@ export function ensureTaskTables(db: Db): Promise<void> {
   return ready;
 }
 
-export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null }, db: Db = prismaDb): Promise<void> {
+export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null; botId?: string }, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);
     // Only a genuinely new task row receives a START event; retries must not duplicate it.
@@ -41,7 +44,10 @@ export async function taskStart(chatId: number | string, t: { runId: string; slo
       `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) ON CONFLICT (run_id) DO NOTHING RETURNING run_id`,
       t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
     );
-    if (inserted.length) await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
+    if (inserted.length) {
+      await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
+      if (t.botId) await db.exec(`UPDATE coder_tasks SET chat_enc = $2, bot_id = $3 WHERE run_id = $1`, t.runId, encryptToken(String(chatId)), t.botId);
+    }
   } catch {
     /* history is best-effort: never blocks the task */
   }
@@ -175,6 +181,31 @@ export async function taskEvents(chatId: number | string, runId: string, after =
       `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.run_id = $1 AND t.chat_key = $2 AND t.archived_at IS NULL AND e.id > $3 ORDER BY e.id ASC LIMIT 500`,
       runId, coderChatKey(chatId), after,
     );
+  } catch {
+    return [];
+  }
+}
+
+export type OrphanTask = { run_id: string; chatId: number; botId: string; slot: string };
+
+/**
+ * Running tasks whose worker stopped beating (the server was replaced or killed mid-leg). Each one is CLAIMED by an atomic UPDATE of its
+ * heartbeat, so two ticks (or a tick and a live runner) never resume the same run. A live runner beats every 15 s, so 90 s of silence
+ * means it is gone. Tasks older than `maxAgeMs` are left to the normal "recovered as failed" path.
+ */
+export async function claimOrphanTasks(db: Db = prismaDb, staleMs = 90000, maxAgeMs = 30 * 60000): Promise<OrphanTask[]> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ run_id: string; chat_enc: string; bot_id: string; slot: string }>(
+      `UPDATE coder_tasks SET updated_at = now() WHERE status = 'running' AND chat_enc IS NOT NULL AND bot_id IS NOT NULL AND updated_at < now() - ($1 || ' milliseconds')::interval AND updated_at > now() - ($2 || ' milliseconds')::interval RETURNING run_id, chat_enc, bot_id, slot`,
+      String(staleMs), String(maxAgeMs),
+    );
+    const out: OrphanTask[] = [];
+    for (const r of rows) {
+      const id = Number(decryptToken(r.chat_enc));
+      if (Number.isFinite(id) && id !== 0) out.push({ run_id: r.run_id, chatId: id, botId: r.bot_id, slot: r.slot || "" });
+    }
+    return out;
   } catch {
     return [];
   }
