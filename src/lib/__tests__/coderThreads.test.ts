@@ -17,6 +17,7 @@ beforeEach(() => {
   urls.length = 0;
   (global as any).fetch = jest.fn(async (url: string) => {
     urls.push(url);
+    if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
     if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
     if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "done", job: "j", text: "أهلاً! كيف بقدر ساعدك؟", tool_calls: [], timings: { prompt_n: 900, predicted_n: 12 } }), { status: 200 });
     return new Response("{}", { status: 404 });

@@ -1,5 +1,5 @@
 import { chunkRanges, parseCoderSse, renderRange, splitForTelegram, openFenceAt } from "@/lib/openCoderStudio";
-import { guardCall, githubClient, trimMessages, coderTools } from "@/lib/coderAgent";
+import { guardCall, githubClient, trimMessages, coderTools, coderSystemPrompt } from "@/lib/coderAgent";
 import { drive, handleCoderSections, loadState, saveState, signContinue, verifyContinue, type Db } from "@/lib/coderSections";
 
 const CHAT = 4242;
@@ -114,6 +114,21 @@ describe("guard (the only guardrail)", () => {
     studio([], { "GET /repos/a/b/pulls/1": () => [200, { base: { ref: "main" } }], "GET /repos/a/b/pulls/2": () => [200, { base: { ref: "dev" } }], "GET /repos/a/b": () => [200, { default_branch: "main" }] });
     expect((await guardCall(call("github_merge_pr", { repo: "a/b", number: 1 }), gh)).confirm).toBe(true);
     expect((await guardCall(call("github_merge_pr", { repo: "a/b", number: 2 }), gh)).confirm).toBe(false);
+  });
+  it("keeps the start of the prompt stable between steps (the model server's prompt cache)", () => {
+    const at = (m: number) => coderSystemPrompt({ github: true, notes: "", now: new Date(Date.UTC(2026, 9, 24, 12, m)) });
+    expect(at(1)).toBe(at(40));                                    // the minute never reaches the prompt
+    const hist = Array.from({ length: 120 }, (_, k) => ({ role: k % 3 === 0 ? "user" : k % 3 === 1 ? "assistant" : "tool", content: "x".repeat(100) })) as any[];
+    let moves = 0;
+    let prev = -1;
+    for (let n = 40; n <= 120; n++) {
+      const t = trimMessages(hist.slice(0, n), 3000);
+      expect(t.reduce((a, m) => a + m.content.length, 0)).toBeLessThanOrEqual(3000);
+      const start = n - t.length;
+      if (prev >= 0 && start !== prev) moves++;
+      prev = start;
+    }
+    expect(moves).toBeLessThan(20);                                // a sliding window would move on nearly every one of the 80 steps
   });
   it("trims history to whole turns", () => {
     const m = [{ role: "user", content: "a".repeat(50) }, { role: "assistant", content: "b".repeat(50) }, { role: "tool", content: "c".repeat(50) }, { role: "user", content: "d" }] as any;

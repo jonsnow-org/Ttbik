@@ -18,6 +18,7 @@ function studio(replies: object[], github: Record<string, (b: any) => [number, a
   (global as any).fetch = jest.fn(async (url: string, init?: any) => {
     const body = init?.body ? JSON.parse(init.body) : undefined;
     calls.push({ url, body });
+    if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
     if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: `e${calls.length}` }), { status: 200 });
     if (url.includes("/gradio_api/call/")) return new Response(sse(replies[Math.min(i++, replies.length - 1)]), { status: 200 });
     if (url.startsWith("https://api.github.com")) {

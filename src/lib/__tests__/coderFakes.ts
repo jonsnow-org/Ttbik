@@ -64,6 +64,11 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
       if (sql.includes("DELETE FROM coder_schedules")) return void (t.schedules = t.schedules.filter((s) => !(s.id === a[0] && s.chat_key === a[1])));
     },
     query: async (sql: string, ...a: any[]) => {
+      if (sql.includes("INSERT INTO coder_tasks")) {                // taskStart: ON CONFLICT DO NOTHING RETURNING run_id
+        if (t.tasks.find((x) => x.run_id === a[0])) return [];
+        t.tasks.push({ run_id: a[0], chat_key: a[1], slot: a[2], source: a[3], schedule_id: a[4], title: a[5], status: "running", steps: 0, thread_id: a[6] ?? null });
+        return [{ run_id: a[0] }];
+      }
       if (sql.includes("FROM coder_threads t")) return t.threads.filter((r) => !r.deleted_at && r.memory_due).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) })).slice(0, 1);
       if (sql.includes("FROM coder_threads WHERE id = $1")) return t.threads.filter((r) => r.id === a[0] && r.chat_key === a[1]).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) }));
       if (sql.includes("FROM coder_threads WHERE chat_key")) return t.threads.filter((r) => r.chat_key === a[0] && !r.deleted_at).slice().reverse().map((r) => ({ ...r, messages_count: r.messages.length }));
@@ -118,6 +123,7 @@ export function fakeBot() {
     sendChatAction: jest.fn(async () => ({})),
     answerCallbackQuery: jest.fn(async () => ({})),
     editMessageReplyMarkup: jest.fn(async () => ({})),
+    editMessageText: jest.fn(async () => ({})),
   };
   return { bot: { api } as any, sent, api };
 }

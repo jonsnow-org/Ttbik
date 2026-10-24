@@ -101,6 +101,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     let stopped = false;
     let controller: AbortController | undefined;
     let retryMs = 800;
+    let finished = false;                       // a done/failed event was seen: nothing more will come, stop reconnecting
     cursor.current = 0;
     setEvents([]);
     setStreamState("connecting");
@@ -138,6 +139,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
                   const ev = JSON.parse(dataLine.slice(5).trim()) as Ev;
                   if (typeof ev.id === "number" && ev.id > cursor.current) {
                     cursor.current = ev.id;
+                    if (ev.kind === "done" || ev.kind === "failed") finished = true;
                     setEvents((old) => old.some((x) => x.id === ev.id) ? old : [...old, ev].slice(-400));
                   }
                 } catch { /* ignore malformed frames and continue the stream */ }
@@ -154,6 +156,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         } finally {
           controller = undefined;
         }
+        if (finished) { setStreamState("connected"); return; }
         if (!stopped) {
           setStreamState("connecting");
           await new Promise((resolve) => setTimeout(resolve, retryMs));

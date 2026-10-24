@@ -67,6 +67,7 @@ describe("segments in the agent loop", () => {
     let step = 0;
     let lastBody: any = null;
     (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });   // the next-leg handoff must be accepted
       if (url.includes("/gradio_api/call/v2/")) {
         lastBody = init?.body ? JSON.parse(init.body) : null;
         return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
