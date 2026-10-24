@@ -248,7 +248,7 @@ export function githubClient(token: string, fetchImpl?: typeof fetch): Gh {
   return async (method, path, body) => {
     const res = await (fetchImpl || globalThis.fetch)(`${GH}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "coder-bot", ...(body ? { "Content-Type": "application/json" } : {}) },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "coder-bot", ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(20000),
     });

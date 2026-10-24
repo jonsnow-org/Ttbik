@@ -1306,20 +1306,23 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const out = await withHeartbeat(ioBot, chatId, run, "بحث معمّق", () => runTool(call, ctx));
         st.messages.push({ role: "assistant", content: "", tool_calls: [call] }, { role: "tool", content: out, tool_call_id: call.id, name: "deep_research" });
         // "search GitHub" requests: the engine also asks GitHub itself (repositories by stars) and reads the top READMEs, so the report names real projects
-        if (/github|جيتهوب|جيت هاب|git hub/i.test(q) && ctx.gh) {
+        let ghFound = 0;
+        if (/github|جيتهوب|جيت هاب|git hub/i.test(q)) {
+          const pub: ToolCtx = ctx.gh ? ctx : { ...ctx, gh: githubClient("") };      // public repositories need no token (read only)
           const lists: string[] = [];
-          for (const qq of queries.slice(0, 2)) lists.push(await runTool({ id: "pre_gh", type: "function", function: { name: "github_search_repos", arguments: JSON.stringify({ query: qq, sort: "stars" }) } }, ctx));
+          for (const qq of queries.slice(0, 2)) lists.push(await runTool({ id: "pre_gh", type: "function", function: { name: "github_search_repos", arguments: JSON.stringify({ query: qq, sort: "stars" }) } }, pub));
           const repos = [...new Set(lists.join("\n").split("\n").map((l) => /^([\w.-]+\/[\w.-]+) ★/.exec(l)?.[1] || "").filter(Boolean))].slice(0, 3);
           const readmes: string[] = [];
           for (const r of repos) {
-            const t = await runTool({ id: "pre_rd", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: r, path: "README.md" }) } }, ctx);
+            const t = await runTool({ id: "pre_rd", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: r, path: "README.md" }) } }, pub);
             if (!/^error/.test(t)) readmes.push(`## ${r} README (start)\n${t.slice(0, 1500)}`);
           }
+          ghFound = repos.length;
           const text = `GitHub repository search:\n${lists.join("\n") || "(none)"}${readmes.length ? `\n\n${readmes.join("\n\n")}` : ""}`;
           await taskEvent(run.id, "tool", `🔭 بحث عن مستودعات: ${repos.join(", ") || "لا نتائج"}`, db);
           st.messages.push({ role: "assistant", content: "", tool_calls: [{ id: "pre_gh", type: "function" as const, function: { name: "github_search_repos", arguments: JSON.stringify({ query: queries[0] || q, sort: "stars" }) } }] }, { role: "tool", content: text, tool_call_id: "pre_gh", name: "github_search_repos" });
         }
-        const thin = out.length < 700 || /no (?:usable )?sources|لم يُعثر/i.test(out.slice(0, 400));
+        const thin = !ghFound && out.length < 700 || /no (?:usable )?sources|لم يُعثر/i.test(out.slice(0, 400));
         st.messages.push({ role: "user", content: thin
           ? "[harness] The research above found little or nothing. Do NOT invent names or facts. Run at most two precise web_search queries, then answer only from what they return; if still nothing, say plainly what you could not find."
           : "[harness] The research above was already run for you. Write the final answer / report NOW from these sources (cite them by number, in the user's language). Use only what the sources say; if they are not enough, say exactly what is missing; at most one more search." });
