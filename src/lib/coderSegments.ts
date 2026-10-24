@@ -2,12 +2,12 @@
 // running task grows past CODER_SEGMENT_CHARS, the agent writes a compact progress summary (goal, plan, done, remaining, key files,
 // decisions, next step), the summary is kept in persistent task memory (coder_task_memory + the task's timeline), the context is reset to
 // that summary, and the task carries on in a new segment in the background. Results still go to the user's Telegram chat.
+import { segmentCharsFor } from "@/lib/coderContext";
 import type { CoderMessage } from "@/lib/openCoderStudio";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export const SEGMENT_MIN_STEPS = 3;                                     // never compact twice in a row without real work in between
-export const segmentChars = () =>
-  Math.max(8000, Number(process.env.CODER_SEGMENT_CHARS || Math.floor(Number(process.env.CODER_HISTORY_CHARS || 70000) * 0.75)));
+export const segmentChars = () => segmentCharsFor();
 
 export const msgChars = (msgs: CoderMessage[]) =>
   msgs.reduce((n, m) => n + (m.content || "").length + JSON.stringify((m as { tool_calls?: unknown }).tool_calls || "").length, 0);

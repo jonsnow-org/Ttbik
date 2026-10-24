@@ -13,13 +13,13 @@ What it serves
       /gradio_api/call/v2/cancel           {job_id}
       /gradio_api/call/v2/status           {}                 phase, model, context, queue length
   * one shared FIFO queue: one generation at a time on the CPU, every other request waits its turn (never refused).
-  * NO answer-length cap: max_tokens 0 (default) = generate until the model stops or the context (-c, default 32768) is full.
+  * NO answer-length cap: max_tokens 0 (default) = generate until the model stops or the context (-c, default 65536) is full.
   * native tool calling (OpenAI `tools`, `--jinja` chat template): the bot's agent harness (src/lib/coderAgent.ts) runs the tools.
 
 Settings (Studio settings -> environment variables; all optional):
   CODER_MODEL_REPO / CODER_MODEL_FILE   override the GGUF (default: the primary above, then the fallback)
   CODER_MODEL_PATH a GGUF already on disk (skips the download)
-  CODER_CTX        context tokens for llama-server -c        (default 32768; never below 8192)
+  CODER_CTX        context tokens for llama-server -c        (default 65536; never below 8192; 8 GB box: do not go above 65536)
   CODER_THREADS    CPU threads                               (default: all cores)
   CODER_API_PREFIX prefix for the api names ("coder_" in the combined variant, combined_app.py)
   MODELSCOPE_API_TOKEN  only if a private model repo is used (the defaults are public)
@@ -56,7 +56,9 @@ MODELS = [
 ]
 if os.environ.get("CODER_MODEL_REPO") and os.environ.get("CODER_MODEL_FILE"):
     MODELS.insert(0, (os.environ["CODER_MODEL_REPO"], os.environ["CODER_MODEL_FILE"]))
-CTX = max(8192, int(os.environ.get("CODER_CTX", "32768")))
+# 65,536 since 2026-10-24: measured on this exact model + llama.cpp build with 2 cores (.github/workflows/nova-ctx-probe.yml), peak memory is
+# 5.07 GB at 32k, 6.07 GB at 64k, 7.06 GB at 96k, 8.06 GB at 128k. The Studio has 8 GB in total, so 64k is the highest safe value.
+CTX = max(8192, int(os.environ.get("CODER_CTX", "65536")))
 THREADS = int(os.environ.get("CODER_THREADS", "0")) or (os.cpu_count() or 2)
 PREFIX = os.environ.get("CODER_API_PREFIX", "")
 LLAMA_PORT = int(os.environ.get("CODER_LLAMA_PORT", "8081"))
@@ -404,7 +406,13 @@ def status() -> str:
     _purge()
     with JOBS_LOCK:
         q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running") and not j.get("cancel"))
-    return json.dumps(dict(STATE, queue=q, uptime_s=int(time.time() - STATE["started_at"])), ensure_ascii=False)
+    mem = {}
+    try:      # the box's real memory, so the context size can be checked against it (kB -> GB)
+        info = dict(l.split(":", 1) for l in open("/proc/meminfo").read().splitlines() if ":" in l)
+        mem = {"mem_total_gb": round(int(info["MemTotal"].split()[0]) / 1048576, 2), "mem_available_gb": round(int(info["MemAvailable"].split()[0]) / 1048576, 2)}
+    except Exception:
+        pass
+    return json.dumps(dict(STATE, queue=q, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 
 def start_background() -> None:

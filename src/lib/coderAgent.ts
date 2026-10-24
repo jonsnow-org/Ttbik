@@ -3,6 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
+import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, type AgentRole } from "@/lib/coderAgents";
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
@@ -206,7 +207,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
 const TRIM_STEP = 8;
 
 /** Keep the conversation inside the model's context: newest messages first, whole turns only (never start on a tool result). */
-export function trimMessages(msgs: CoderMessage[], maxChars = Number(process.env.CODER_HISTORY_CHARS || 40000)): CoderMessage[] {
+export function trimMessages(msgs: CoderMessage[], maxChars = historyChars()): CoderMessage[] {
   let total = 0;
   let i = msgs.length;
   while (i > 0) {

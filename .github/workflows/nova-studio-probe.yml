@@ -14,7 +14,7 @@ jobs:
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          for n in coder-inference-server coder-inference-server-2; do
+          for n in coder-inference-server coder-inference-server-2 coder-inference-server-3 coder-inference-server-4 coder-inference-server-5; do
             B="https://studio-novaai2026-$n.api-inference.modelscope.net"
             echo "== $n"
             echo "no token  : $(curl -sS -m 25 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$B/gradio_api/call/v2/status")"

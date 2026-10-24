@@ -17,6 +17,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
+import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
@@ -1152,7 +1153,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type === "error" && (run.retries || 0) < MAX_RETRIES) {
           // e.g. the context overflowed: same step again with a smaller history, the task goes on
           run.retries = (run.retries || 0) + 1;
-          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 70000)) / 2));
+          run.histChars = Math.max(12000, Math.floor((run.histChars || historyChars()) / 2));
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
@@ -1234,7 +1235,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         run.logged = 0;
         if ((run.retries || 0) < 1) {
           run.retries = (run.retries || 0) + 1;
-          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 40000)) / 2));
+          run.histChars = Math.max(12000, Math.floor((run.histChars || historyChars()) / 2));
           run.promptEst = undefined;
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned done with empty text and no tool calls; retrying once with smaller context" }, db);
           await saveState(chatId, st, db, slot);

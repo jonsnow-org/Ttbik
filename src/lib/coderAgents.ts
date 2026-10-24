@@ -5,6 +5,8 @@
 // state row (`agentResult`). The parent only polls those rows, so there is no shared write and no race between finishing children.
 // CODER_AGENTS=off removes the tool.
 
+import { reportsHardChars } from "@/lib/coderContext";
+
 export const AGENT_MAX = 5;          // agents one run can start at once
 export const SUB_AGENT_MAX = 2;      // sub-agents ONE "worker" agent can start (read-only helpers, one level only)
 export const AGENT_MAX_DEPTH = 2;    // run (0) → agents (1) → sub-agents (2); sub-agents cannot start anything
@@ -15,7 +17,7 @@ export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = f
 export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 /** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
-export const agentReportsHard = (): number => Math.max(12000, Number(process.env.CODER_AGENT_REPORTS_HARD || 60000));
+export const agentReportsHard = (): number => reportsHardChars();
 
 export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toLowerCase() !== "off";
 

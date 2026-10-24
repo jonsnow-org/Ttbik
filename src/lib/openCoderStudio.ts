@@ -6,6 +6,7 @@
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { noteStudioCtx } from "@/lib/coderContext";
 import { providerConfig, providerChat, shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
@@ -74,11 +75,13 @@ export function parseCoderSse(body: string): CoderReply | null {
 /** Which Studio last answered a conversation: llama.cpp keeps the conversation's prompt cache per Studio, so the next step goes back to it when it is free (a different Studio would read the whole context again, ~2 minutes on a free CPU). */
 const lastStudio = new Map<string, string>();
 let pickLock: Promise<void> = Promise.resolve();
+let ctxAskedAt = 0;
 const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
 const rememberStudio = (key: string, base: string) => { lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
+  if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
   if (typeof payload.job_id === "string") {
     // a job lives on one Studio
@@ -254,7 +257,9 @@ async function studioStatus(base: string, timeoutMs: number): Promise<Record<str
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return null;
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) });
-    return res.ok ? parseStatusSse(await res.text()) : null;
+    const st = res.ok ? parseStatusSse(await res.text()) : null;
+    if (st && st.ctx != null) noteStudioCtx(base, st.ctx);        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
+    return st;
   } catch {
     return null;
   }

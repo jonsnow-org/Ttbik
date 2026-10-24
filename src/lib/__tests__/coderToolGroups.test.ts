@@ -92,3 +92,29 @@ describe("githubQuery", () => {
     expect(githubQuery("telegram bot language:python stars:>500")).toBe("telegram bot language:python stars:>500");
   });
 });
+
+describe("one context size for every budget", () => {
+  const ctx = require("@/lib/coderContext");
+  afterEach(() => { ctx.forgetStudioCtx(); delete process.env.CODER_CTX_TOKENS; });
+  it("at the old 32,768 tokens every budget keeps its old value", () => {
+    expect(ctx.ctxTokens()).toBe(32768);
+    expect(ctx.historyChars()).toBe(40000);
+    expect(ctx.segmentCharsFor()).toBe(52500);
+    expect(ctx.reportsHardChars()).toBe(60000);
+  });
+  it("they all follow the Studios' own context, and the smallest Studio wins", () => {
+    ctx.noteStudioCtx("https://a", 131072);
+    expect(ctx.historyChars()).toBe(160000);
+    ctx.noteStudioCtx("https://b", 65536);
+    expect(ctx.ctxTokens()).toBe(65536);
+    expect(ctx.historyChars()).toBe(80000);
+    expect(ctx.reportsHardChars()).toBe(120000);
+    expect(require("@/lib/coderAgent").trimMessages([{ role: "user", content: "x".repeat(70000) }, { role: "assistant", content: "y".repeat(5000) }]).length).toBe(2);   // 75,000 characters now fit the history window
+  });
+  it("CODER_CTX_TOKENS forces a value; nonsense is ignored", () => {
+    process.env.CODER_CTX_TOKENS = "98304";
+    expect(ctx.ctxTokens()).toBe(98304);
+    process.env.CODER_CTX_TOKENS = "5";
+    expect(ctx.ctxTokens()).toBe(32768);
+  });
+});
