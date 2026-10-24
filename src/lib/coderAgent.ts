@@ -3,7 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
-import { AGENT_SYSTEM, AGENT_TOOL_NAMES, agentsEnabled } from "@/lib/coderAgents";
+import { AGENT_SYSTEM, AGENT_TOOL_NAMES, TESTER_TOOL_NAMES, agentsEnabled, type AgentRole } from "@/lib/coderAgents";
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
@@ -90,11 +90,12 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 3 INDEPENDENT read-only investigations to sub-agents that work in parallel (they read files, search code and the web, and each returns a short report). Use it when a task splits into separate things to look into (different parts of a repo, different sources, a comparison). Not for small questions, and not for anything that writes or runs. Write each task as a complete standalone instruction (a sub-agent sees nothing of this conversation).",
-  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("the full instruction, with repo names / paths / what to report") }, ["task"]), description: "1 to 3 tasks" } }, ["tasks"]));
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 3 independent investigations to sub-agents that work in parallel; each returns a short report. reader (default) reads files, searches code and the web; tester (max one) runs the project's tests in its own VM. Each task must be a complete standalone instruction.",
+  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "tester"] } }, ["task"]) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
-export function agentToolDefs(github: boolean): CoderTool[] {
-  return [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS].filter((t) => AGENT_TOOL_NAMES.has(t.function.name));
+export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
+  const all = [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS, ...(role === "tester" ? SANDBOX_TOOL_DEFS : [])];
+  return all.filter((t) => AGENT_TOOL_NAMES.has(t.function.name) || (role === "tester" && TESTER_TOOL_NAMES.has(t.function.name)));
 }
 export function coderTools(github: boolean, connectors = false): CoderTool[] {
   const base = github ? [...GITHUB_TOOLS, ...COMMON_TOOLS] : COMMON_TOOLS;
@@ -164,11 +165,11 @@ export type Accuracy = "fast" | "balanced" | "precise";
 export const ACCURACY_TEMPERATURE: Record<Accuracy, number> = { fast: 0.7, balanced: 0.6, precise: 0.2 };
 export const isAccuracy = (x: unknown): x is Accuracy => x === "fast" || x === "balanced" || x === "precise";
 
-export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: Date; owner?: boolean; accuracy?: Accuracy; connectors?: string[]; agent?: "ar" | "en" }): string {
+export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: Date; owner?: boolean; accuracy?: Accuracy; connectors?: string[]; agent?: "ar" | "en"; agentRole?: AgentRole }): string {
   // date only: a time that moves every minute would change the very start of the prompt on every step, and the model server would
   // re-read the whole conversation each time (minutes per step on a CPU) instead of reusing its prompt cache
   const now = (opts.now || new Date()).toISOString().slice(0, 10);
-  if (opts.agent) return AGENT_SYSTEM(now, opts.agent) + (opts.github ? "" : "\nGitHub tools are not connected.") + (opts.notes ? `\n${opts.notes}` : "");
+  if (opts.agent) return AGENT_SYSTEM(now, opts.agent, opts.agentRole) + (opts.github ? "" : "\nGitHub tools are not connected.") + (opts.notes ? `\n${opts.notes}` : "");
   return [
     "You are Nova AI, the coding assistant by the Sham team: an expert software engineer and agent. Reply in the user's language (Arabic or English); code and identifiers stay in English.",
     "Work like a senior engineer on a real project, in a loop:",

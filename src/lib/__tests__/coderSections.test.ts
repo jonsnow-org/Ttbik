@@ -62,6 +62,7 @@ function studio(replies: Step[], github: Record<string, (body: any, method: stri
 }
 
 beforeEach(() => {
+  process.env.CODER_OUTAGE_STEP_MS = "5";
   process.env.OPEN_CODER_STUDIO_URL = "https://coder.test";
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.CODER_POLL_MS = "5";
@@ -313,6 +314,53 @@ describe("no pause: loops are detected, logged and recovered", () => {
     await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "h", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     expect(sent.map((s) => s.text)).toContain("تم");
+  });
+
+  it("a longer Studio outage is waited out (several failed submits), the task still finishes", async () => {
+    process.env.CODER_OUTAGE_STEP_MS = "5";
+    let n = 0;
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/call/v2/chat") && n++ < 6) return new Response("down", { status: 503 });
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      return new Response(sse({ type: "done", job: "j", text: "عاد الخادم وتم", tool_calls: [] }), { status: 200 });
+    });
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "o1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    delete process.env.CODER_OUTAGE_STEP_MS;
+    expect(n).toBeGreaterThanOrEqual(7);                                                    // more attempts than the old cap (5 retries) allowed
+    expect(sent.map((s) => s.text)).toContain("عاد الخادم وتم");
+    expect(sent.filter((s) => /غير متاح لحظياً/.test(s.text))).toHaveLength(1);              // told once, not on every try
+  }, 60000);
+
+  it("an outage that outlasts the patience ends the task visibly (never silently)", async () => {
+    process.env.CODER_OUTAGE_MS = "150";
+    process.env.CODER_OUTAGE_STEP_MS = "5";
+    (global as any).fetch = jest.fn(async (url: string) => (url.includes("/call/v2/chat") ? new Response("down", { status: 503 }) : new Response("{}", { status: 200 })));
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "o2", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    delete process.env.CODER_OUTAGE_MS;
+    delete process.env.CODER_OUTAGE_STEP_MS;
+    expect((await loadState(CHAT, db)).run).toBeNull();
+    expect(sent[sent.length - 1].text).toMatch(/مشغولة|تعذّر|الخدمة/);
+  });
+
+  it("a job the restarted Studio no longer knows is asked again, not failed", async () => {
+    let polls = 0;
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("/gradio_api/call/job_result/")) return new Response(sse({ type: "gone", job: "j1" }), { status: 200 });
+      if (url.includes("/gradio_api/call/chat/")) return new Response(sse(polls++ === 0 ? { type: "pending", job: "j1" } : { type: "done", job: "j2", text: "أجبتُ بعد إعادة الإرسال", tool_calls: [] }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "g1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect(sent.map((s) => s.text)).toContain("أجبتُ بعد إعادة الإرسال");
   });
 });
 

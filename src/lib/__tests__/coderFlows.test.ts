@@ -332,3 +332,72 @@ describe("delegate: read-only sub-agents report back to the parent run", () => {
     expect(calls.some((c) => c.url.includes("api.github.com") && /git\/refs/.test(c.url))).toBe(false);   // nothing was deleted
   });
 });
+
+describe("delegate: the tester sub-agent", () => {
+  it("only the tester gets the sandbox tools (reader does not), at most one tester per call", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "اختبار", task: "شغّل اختبارات a/b", role: "tester" }, { title: "اختبار ثان", task: "شغّل اختبارات a/b أيضاً", role: "tester" }, { title: "قراءة", task: "اقرأ README في a/b" }] })] },
+      { type: "done", job: "j2", text: "تقرير 1", tool_calls: [] },
+      { type: "done", job: "j3", text: "تقرير 2", tool_calls: [] },
+      { type: "done", job: "j4", text: "تقرير 3", tool_calls: [] },
+      { type: "done", job: "j5", text: "انتهى.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اختبر المشروع a/b" } }, db);
+    await new Promise((r) => setTimeout(r, 3000));
+    const chat = calls.filter((c) => c.url.includes("/call/v2/chat")).map((c) => JSON.stringify(c.body));
+    expect(chat).toHaveLength(5);
+    const withSandbox = chat.filter((b) => /sandbox_exec/.test(b) && /test-runner sub-agent/.test(b));
+    expect(withSandbox).toHaveLength(1);                                                  // the second "tester" became a reader
+    expect(chat.filter((b) => /read-only research sub-agent/.test(b))).toHaveLength(2);
+    expect(chat.filter((b) => /read-only research sub-agent/.test(b)).some((b) => /sandbox_exec/.test(b))).toBe(false);
+    expect(withSandbox[0]).not.toMatch(/sandbox_write_file|github_write_files|github_delete_branch/);   // no writing tools, even for the tester
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+  });
+
+  it("the tester cannot write files into the VM or touch GitHub: those calls are refused and it still reports", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "اختبار", task: "شغّل اختبارات a/b", role: "tester" }] })] },
+      { type: "done", job: "j2", text: "", tool_calls: [call("x1", "sandbox_write_file", { path: "a.txt", content: "x" }), call("x2", "github_write_files", { repo: "a/b", branch: "main", message: "m", files: [] })] },
+      { type: "done", job: "j3", text: "تقرير: لم أستطع تعديل شيء، تشغيل فقط.", tool_calls: [] },
+      { type: "done", job: "j4", text: "تم.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اختبر a/b" } }, db);
+    await new Promise((r) => setTimeout(r, 3000));
+    const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    expect(chat).toHaveLength(4);
+    expect(JSON.stringify(chat[2].body)).toMatch(/DENIED: sub-agents are read-only/);          // the tester's next step shows both refusals
+    expect(calls.some((c) => c.url.includes("api.github.com") && /git\/(blobs|commits|refs)/.test(c.url))).toBe(false);
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    expect((st.messages.find((m: any) => m.name === "delegate") as any).content).toMatch(/تشغيل فقط/);
+  });
+});
+
+describe("delegate inside a scheduled task", () => {
+  it("a scheduled run can delegate: the children stay silent, the scheduled run finishes and reports to the chat", async () => {
+    const db = fakeDb();
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "الفروع", task: "اقرأ قائمة الفروع في a/b" }, { title: "الطلبات", task: "اقرأ طلبات الدمج المفتوحة في a/b" }] })] },
+      { type: "done", job: "j2", text: "تقرير داخلي: ثلاثة فروع.", tool_calls: [] },
+      { type: "done", job: "j3", text: "تقرير داخلي: طلب دمج واحد.", tool_calls: [] },
+      { type: "done", job: "j4", text: "تقرير الساعة: ثلاثة فروع وطلب دمج.", tool_calls: [] },
+    ]);
+    const { bot, sent } = fakeBot();
+    const r = await startScheduledRun(bot, botRow, USER, { scheduleId: "abcdefabcdef", title: "تقرير كل ساعة", prompt: "لخّص حالة المستودع a/b", source: "scheduled" }, db);
+    expect(r).toBe("started");
+    await new Promise((res) => setTimeout(res, 3000));
+    const parent = await loadState(USER, db, "s:abcdefabcdef");
+    expect(parent.run).toBeNull();
+    expect((parent.messages.find((m: any) => m.name === "delegate") as any).content).toMatch(/ثلاثة فروع[\s\S]*طلب دمج واحد/);
+    expect(db.t.tasks.find((x: any) => x.slot === "s:abcdefabcdef")).toMatchObject({ source: "scheduled", status: "done" });
+    const texts = sent.map((s) => s.text);
+    expect(texts).toContain("تقرير الساعة: ثلاثة فروع وطلب دمج.");
+    expect(texts.some((t) => /تقرير داخلي/.test(t))).toBe(false);                     // children never write to the chat
+    expect(calls.filter((c) => c.url.includes("/call/v2/chat")).length).toBeGreaterThanOrEqual(4);   // (a scheduled run also learns memories afterwards)
+  });
+});

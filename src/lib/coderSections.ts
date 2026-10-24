@@ -16,7 +16,7 @@ import { ACCURACY_TEMPERATURE, agentToolDefs, coderSystemPrompt, coderToolsFor, 
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
-import { AGENT_MAX_STEPS, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentTask } from "@/lib/coderAgents";
+import { agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -29,7 +29,8 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
-  agent?: boolean; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  agent?: boolean; agentRole?: AgentRole; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -52,6 +53,8 @@ const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI 
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
 // The CPU-only Studio can spend several minutes in prompt prefill before the first token, especially on repo-wide tasks.
 // Allow a longer default before declaring a genuine stall; CODER_JOB_STALL_MS overrides (minimum 60 s).
+/** How long a run waits patiently for the model server to come back (restart, wake-up, deploy) before it gives up. */
+const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 20 * 60000));
 const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000));
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
@@ -937,7 +940,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
-      if (run.agent && !agentToolAllowed(call.function.name)) {
+      if (run.agent && !agentToolAllowed(call.function.name, run.agentRole)) {
         // a sub-agent is read-only: enforced here, whatever the model asks for
         st.messages.push({ role: "tool", content: "DENIED: sub-agents are read-only and have no such tool. Use only the tools you were given, or write your report now.", tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
@@ -1011,6 +1014,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
+      if (g.action === "ask" && run.agent) {
+        // a sub-agent cannot ask the user (it is silent): what needs a confirmation is simply not allowed for it
+        st.messages.push({ role: "tool", content: `NOT PERMITTED: ${call.function.name} needs the user's confirmation, which a sub-agent cannot request. Skip it and report what you could not do.`, tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        await taskEvent(run.id, "auto_denied", `sub-agent: ${call.function.name} needs confirmation — refused`, db);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       if (g.action === "ask") {
         const nonce = randomUUID().slice(0, 6);
         run.pending = { calls: run.queued, reason: g.reason, summary: g.summary, nonce, categories: categoriesOf(g.ask), at: Date.now() };
@@ -1072,9 +1083,32 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         if (!r && (o.failure === "timeout" || o.failure === "network")) {
+          run.pollFailSince = run.pollFailSince || Date.now();
+          if (Date.now() - run.pollFailSince > jobStallMs() && (run.goneRetries || 0) < 3) {
+            // the server has not answered for minutes: it probably restarted and lost the job: ask again (same step)
+            run.goneRetries = (run.goneRetries || 0) + 1;
+            run.pollFailSince = undefined;
+            run.job = undefined;
+            run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+            run.logged = 0;
+            await taskEvent(run.id, "info", `🔁 فُقد اتصال الخادم بالطلب؛ أعيد إرسال الخطوة (محاولة ${run.goneRetries}).`, db);
+            await saveState(chatId, st, db, slot);
+            continue;
+          }
           await saveState(chatId, st, db, slot);
           await new Promise((res) => setTimeout(res, pollMs()));
           continue;                                   // a slow / flaky poll is not the end of the job
+        }
+        run.pollFailSince = undefined;
+        if (r?.type === "gone" && (run.goneRetries || 0) < 3) {
+          // the Studio restarted and no longer knows the job: the same step goes again (the history is intact)
+          run.goneRetries = (run.goneRetries || 0) + 1;
+          run.job = undefined;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+          run.logged = 0;
+          await taskEvent(run.id, "info", `🔁 خادم النموذج أُعيد تشغيله وفقد الطلب؛ أعيد إرسال الخطوة (محاولة ${run.goneRetries}).`, db);
+          await saveState(chatId, st, db, slot);
+          continue;
         }
         if (r?.type === "error" && (run.retries || 0) < MAX_RETRIES) {
           // e.g. the context overflowed: same step again with a smaller history, the task goes on
@@ -1111,6 +1145,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
           await coderCancel(run.job).catch(() => null);
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
+          if ((run.stallRetries || 0) < 2) {
+            // a stuck generation is not the end of a long task: the same step goes again, twice at most
+            run.stallRetries = (run.stallRetries || 0) + 1;
+            run.job = undefined;
+            run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+            run.logged = 0;
+            await taskEvent(run.id, "info", `🔁 توقف الخادم عن الإخراج (${where})؛ أعيد إرسال الخطوة (محاولة ${run.stallRetries}).`, db);
+            await saveState(chatId, st, db, slot);
+            continue;
+          }
           if (run.progress?.msgId) await (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `❌ توقفت المهمة بسبب عدم وصول أي تقدم من خادم النموذج.\nالسبب: ${where}\nيمكنك إعادة المحاولة أو فتح الطرفية لعرض السجلات.`).catch(() => null);
           await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
           await saveState(chatId, st, db, slot);
@@ -1141,6 +1185,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
+      run.stallRetries = 0; run.goneRetries = 0;
       const completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
       // Some Studio/model responses finish with neither text nor tool calls. Never report that as success:
       // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
@@ -1251,12 +1296,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    if (run.agent && run.step >= AGENT_MAX_STEPS - 1 && !run.agentWarned) {
+    if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
-    const agentLast = Boolean(run.agent && run.step >= AGENT_MAX_STEPS - 1);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    const agentLast = Boolean(run.agent && run.step >= agentMaxSteps(run.agentRole) - 1);
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
@@ -1264,14 +1309,24 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? "coder" : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github)) : coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? "coder" : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
-    if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
-      run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
-      await saveState(chatId, st, db, slot);
-      await new Promise((res) => setTimeout(res, Math.min(10000, pollMs() * 2 * run.retries!)));
-      continue;
+    if ((!r || !r.job) && o.failure && o.failure !== "off") {
+      // the model server is away (restart, wake-up, a deploy): wait for it, minutes if need be, instead of failing a long task
+      run.outageSince = run.outageSince || Date.now();
+      if (Date.now() - run.outageSince < outageMs()) {
+        run.retries = (run.retries || 0) + 1;
+        if (!run.outageNoted) {
+          run.outageNoted = true;
+          await taskEvent(run.id, "info", `⏳ خادم النموذج غير متاح الآن (${o.failure})؛ أعاود تلقائياً لمدة تصل إلى ${Math.round(outageMs() / 60000)} دقيقة.`, db);
+          await send(ioBot, chatId, "⏳ خادم النموذج غير متاح لحظياً؛ أعاود تلقائياً وسأكمل المهمة حين يعود.");
+        }
+        await saveState(chatId, st, db, slot);
+        const wait = Math.min(60000, Number(process.env.CODER_OUTAGE_STEP_MS ?? 5000) * run.retries!);          // 5 s, 10 s … at most a minute
+        await new Promise((res) => setTimeout(res, Math.max(200, Math.min(wait, left() - 7000))));
+        continue;
+      }
     }
     if (!r || !r.job) {
       await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.");
@@ -1281,6 +1336,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return;
     }
     run.job = r.job;
+    run.outageSince = undefined; run.outageNoted = undefined;
     run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
     run.jobAt = Date.now();
@@ -1420,7 +1476,7 @@ async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, par
   for (let i = 0; i < tasks.length; i++) {
     const slot = agentSlot(run.id, i);
     const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
-    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, title: tasks[i].title, goal: tasks[i].task }, db);
+    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, title: tasks[i].title, goal: tasks[i].task }, db);
     await saveState(chatId, st, db, slot);
     later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS, slot));
     slots.push(slot);
