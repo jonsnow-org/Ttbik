@@ -64,6 +64,8 @@ export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
+  // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
+  tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -78,6 +80,7 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
   tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
 ];
 
+export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
 export function coderTools(github: boolean, connectors = false): CoderTool[] {
   const base = github ? [...GITHUB_TOOLS, ...COMMON_TOOLS] : COMMON_TOOLS;
   return connectors ? [...base, ...CONNECTOR_TOOLS] : base;
@@ -135,7 +138,7 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
   const groups = toolGroups(github, connectors);
   const loaded = loadedGroups(msgs, groups);
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
-  return [...(rest.length ? [loadToolsTool(rest)] : []), ...[...loaded].flatMap((g) => groups[g])];
+  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...[...loaded].flatMap((g) => groups[g])];
 }
 
 export type Accuracy = "fast" | "balanced" | "precise";
@@ -195,6 +198,11 @@ export function trimMessages(msgs: CoderMessage[], maxChars = Number(process.env
     const aligned = Math.ceil(i / TRIM_STEP) * TRIM_STEP;
     if (aligned < msgs.length) i = aligned;
   }
+  // the window must still contain the user's last request: the model's chat template refuses a conversation without a user message
+  // ("No user query found in messages", HTTP 500), which is what ended long tool-heavy tasks after a few steps
+  let lastUser = -1;
+  for (let k = msgs.length - 1; k >= 0; k--) if (msgs[k].role === "user") { lastUser = k; break; }
+  if (lastUser >= 0 && i > lastUser) i = lastUser;
   let out = msgs.slice(i);
   while (out.length > 1 && out[0].role !== "user") out = out.slice(1);
   return out;
@@ -663,7 +671,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
   sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
-  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"],
+  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };

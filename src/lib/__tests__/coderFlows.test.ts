@@ -231,3 +231,28 @@ describe("schedule store and dispatcher", () => {
     expect(eventSummary("workflow_run", { action: "completed", workflow_run: { conclusion: "failure", name: "CI", head_branch: "x", head_sha: "1234567890" }, repository: { full_name: "o/r" }, sender: {} })).toMatch(/FAILED/);
   });
 });
+
+describe("ask_user: the agent asks one question and waits for the answer", () => {
+  it("asks in the chat, waits without a time limit, takes the next message as the answer and goes on", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("q1", "ask_user", { question: "أي فرع تقصد؟", options: ["main", "dev"] })] },
+      { type: "done", job: "j2", text: "حسناً، سأعمل على dev.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "نظّف الفروع" } }, db);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(sent.some((s) => /أي فرع تقصد/.test(s.text) && /1\. main/.test(s.text))).toBe(true);
+    let st = await loadState(CHAT, db);
+    expect(st.run?.asking?.id).toBe("q1");
+    const before = calls.filter((c) => c.url.includes("/call/v2/chat")).length;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls.filter((c) => c.url.includes("/call/v2/chat")).length).toBe(before);   // nothing more is asked of the model while it waits
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "dev" } }, db);   // the answer
+    await new Promise((r) => setTimeout(r, 600));
+    st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    expect(st.messages.some((m: any) => m.role === "tool" && m.name === "ask_user" && m.content === "dev")).toBe(true);
+    expect(sent.some((s) => /سأعمل على dev/.test(s.text))).toBe(true);
+  });
+});

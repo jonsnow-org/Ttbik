@@ -130,6 +130,15 @@ describe("guard (the only guardrail)", () => {
     }
     expect(moves).toBeLessThan(20);                                // a sliding window would move on nearly every one of the 80 steps
   });
+  it("never trims away the user's request, however large the tool results after it are", () => {
+    const m: any[] = [{ role: "user", content: "اقرأ وحلّل" }];
+    for (let k = 0; k < 6; k++) m.push({ role: "assistant", content: "", tool_calls: [{ id: `c${k}`, type: "function", function: { name: "fetch_page", arguments: "{}" } }] }, { role: "tool", content: "x".repeat(20000), tool_call_id: `c${k}`, name: "fetch_page" });
+    for (const max of [1000, 40000, 70000]) {
+      const t = trimMessages(m, max);
+      expect(t[0].role).toBe("user");
+      expect(t.some((x: any) => x.role === "user")).toBe(true);
+    }
+  });
   it("trims history to whole turns", () => {
     const m = [{ role: "user", content: "a".repeat(50) }, { role: "assistant", content: "b".repeat(50) }, { role: "tool", content: "c".repeat(50) }, { role: "user", content: "d" }] as any;
     const t = trimMessages(m, 60);
@@ -382,5 +391,18 @@ describe("delivery to the chat by what is happening", () => {
     const { bot, sent } = mk("none");
     await deliverToChat(bot, 5, "رد قصير", { id: "r", surface: "app" } as any, true);
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe("notices of a task started from the chat", () => {
+  it("a chat-started task keeps its failure notices in the chat; an app-started one stays quiet", async () => {
+    const { surfaceBot } = await import("@/lib/coderSections");
+    const mk = () => { const sent: string[] = []; return { sent, bot: { api: { sendMessage: jest.fn(async (_c: number, t: string) => { sent.push(t); return { message_id: 1 }; }) } } as any }; };
+    const a = mk();
+    await surfaceBot(a.bot, "app", "chat").api.sendMessage(1, "⚠️ توقفت المهمة");
+    expect(a.sent).toEqual(["⚠️ توقفت المهمة"]);
+    const b = mk();
+    await surfaceBot(b.bot, "app").api.sendMessage(1, "⚠️ توقفت المهمة");
+    expect(b.sent).toEqual([]);
   });
 });

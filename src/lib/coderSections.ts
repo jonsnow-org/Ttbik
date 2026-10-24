@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
@@ -26,7 +26,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -79,7 +79,7 @@ export function smallTalkReply(text: string, name = ""): string {
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
   const run = st.run;
-  if (!run || run.pending) return false;
+  if (!run || run.pending || run.asking) return false;     // waiting for the user's tap or answer is not a dead run
   // The persisted task heartbeat is authoritative: Vercel can kill a background leg while the chat-state lease
   // still looks fresh. Recover from a missing heartbeat quickly instead of queuing messages behind a dead runner.
   const heartbeatFresh = await taskHeartbeatFresh(run.id, 300000, db);
@@ -212,8 +212,10 @@ async function send(bot: TelegramBot, chatId: number, text: string, extra: Recor
 
 /** Route user-visible output to its originating surface. App tasks keep their answer in task events;
  * confirmation keyboards remain in Telegram so an explicit approval can still resume the shared run. */
-function surfaceBot(bot: TelegramBot, surface: "telegram" | "app" | undefined): TelegramBot {
-  if (surface !== "app") return bot;
+export function surfaceBot(bot: TelegramBot, surface: "telegram" | "app" | undefined, origin?: "chat"): TelegramBot {
+  // a task the user started by writing in the chat keeps ALL its notices in the chat (failures, queue, confirmations); only tasks started
+  // from the Mini App (and scheduled ones) keep the chat quiet and report to the terminal
+  if (surface !== "app" || origin === "chat") return bot;
   const api = new Proxy(bot.api as any, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target);
@@ -235,6 +237,19 @@ function surfaceBot(bot: TelegramBot, surface: "telegram" | "app" | undefined): 
     },
   });
   return new Proxy(bot as any, { get(target, prop, receiver) { return prop === "api" ? api : Reflect.get(target, prop, receiver); } }) as TelegramBot;
+}
+
+/** The user's chat message (or terminal command) answers the question the agent asked with ask_user; the task goes on. */
+async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, text: string, db: Db, slot = ""): Promise<void> {
+  const run = st.run!;
+  const ask = run.asking!;
+  run.asking = undefined;
+  st.messages.push({ role: "tool", content: text.slice(0, 4000), tool_call_id: ask.id, name: ask.name });
+  await startChain(botRow, chatId, st, {}, db);
+  await taskEvent(run.id, "approved", `✅ جواب المستخدم: ${text.slice(0, 300)}`, db);
+  await taskStatus(run.id, "running", run.step, db);
+  await saveState(chatId, st, db, slot);
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot));
 }
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
@@ -369,6 +384,10 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
     return true;
   }
+  if (st.run?.asking) {                                     // the agent asked a question: this message is the answer
+    await answerAsk(bot, botRow, chatId, st, content, db);
+    return true;
+  }
   if (st.run && !st.run.pending) {
     // Check the persisted worker heartbeat before queueing: the state lease can look fresh after Vercel killed the worker.
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
@@ -393,7 +412,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
-  await startChain(botRow, chatId, st, { surface: "app" }, db);
+  await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
   // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
   // waits for this short Telegram API call; all heavy work remains in the background continuation.
   const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
@@ -413,6 +432,10 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   if (!content) throw new Error("empty task");
   if (!coderEnabled()) throw new Error("coder service is not configured");
   const st = await loadStateStrict(chatId, db);
+  if (st.run?.asking) {                                     // a terminal command answers the agent's question
+    await answerAsk(bot, botRow, chatId, st, content, db);
+    return { runId: st.run.id, queued: true };
+  }
   if (st.run && !st.run.pending) {
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
   }
@@ -561,7 +584,7 @@ export async function resolvePending(
     return false;
   }
   if (!run.pending || run.pending.nonce !== nonce) return false;
-  const ioBot = surfaceBot(bot, run.surface);
+  const ioBot = surfaceBot(bot, run.surface, run.origin);
   const pending = run.pending;
   run.pending = undefined;
   const [first, ...rest] = pending.calls;
@@ -718,6 +741,14 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   p.msgId = (m as any)?.message_id || undefined;
 }
 
+/** The live progress card must never stay on "working…" after the task ended: it says so. */
+async function closeCard(bot: TelegramBot, chatId: number, run: Run | null | undefined, text: string): Promise<void> {
+  const mid = run?.progress?.msgId;
+  if (!mid) return;
+  run!.progress = undefined;
+  await (bot.api as any).editMessageText?.(chatId, mid, text)?.catch?.(() => null);
+}
+
 /** Keep the existing progress message alive while a slow Studio/GitHub call is in flight. */
 async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, label: string, work: () => Promise<T>): Promise<T> {
   let beat = 0;
@@ -852,8 +883,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       continue;
     }
     const run = st.run;
-    if (!run || run.chain !== chain || run.pending) return;
-    const ioBot = surfaceBot(bot, run.surface);
+    if (!run || run.chain !== chain || run.pending || run.asking) return;
+    const ioBot = surfaceBot(bot, run.surface, run.origin);
     run.stall = run.stall || newStallState();
     run.lease = Date.now();
     if (left() < 6000) {
@@ -867,6 +898,20 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
+      if (call.function.name === "ask_user") {
+        // not a tool that runs: the question goes to the chat and the task waits (without a time limit) for the user's answer
+        const a = parseArgs(call);
+        const q = String(a.question || "").trim().slice(0, 900) || "؟";
+        const opts = (Array.isArray(a.options) ? a.options : []).map((x: unknown) => String(x).slice(0, 80)).filter(Boolean).slice(0, 6);
+        run.queued = rest;
+        run.asking = { id: call.id || "ask", name: "ask_user", question: q, at: Date.now() };
+        await closeCard(ioBot, chatId, run, "❓ بانتظار جوابك.");
+        await taskEvent(run.id, "confirm", `❓ سؤال للمستخدم: ${q}`, db);
+        await taskStatus(run.id, "waiting", run.step, db);
+        await saveState(chatId, st, db, slot);
+        await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
+        return;
+      }
       const approvedKey = toolCallKey(call);
       const wasApproved = (run.approved || []).includes(approvedKey);
       const skip = wasApproved ? null : beforeCall(run.stall, call);
@@ -981,6 +1026,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
+        await closeCard(ioBot, chatId, run, r?.type === "cancelled" ? "⏹️ أُوقفت المهمة." : "❌ توقفت المهمة بسبب خطأ من خادم النموذج.");
         await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
         await saveState(chatId, st, db, slot);
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
@@ -1161,6 +1207,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       continue;
     }
     if (!r || !r.job) {
+      await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.");
       await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       await send(ioBot, chatId, userFailureText(o, chatId));

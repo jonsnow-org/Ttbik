@@ -3,9 +3,9 @@ import { coderTools, coderToolsFor, loadedGroups, runTool, toolGroups } from "@/
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
 
 describe("tool groups the model loads itself", () => {
-  it("a fresh conversation carries only load_tools, with the groups available here", () => {
+  it("a fresh conversation carries only load_tools and ask_user, with the groups available here", () => {
     const t = coderToolsFor(true, false, [{ role: "user", content: "من انت" }]);
-    expect(names(t)).toEqual(["load_tools"]);
+    expect(names(t)).toEqual(["load_tools", "ask_user"]);
     const en = (t[0].function.parameters as any).properties.groups.items.enum;
     expect(en).toEqual(expect.arrayContaining(["github", "computer", "web", "memory"]));
     expect(en).not.toContain("connectors");
