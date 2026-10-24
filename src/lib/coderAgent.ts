@@ -769,5 +769,5 @@ export function parseQueries(text: string): string[] {
 }
 export const queryDraftPrompt = (request: string): CoderMessage[] => [{
   role: "user",
-  content: `Turn this request into 4 short web-search queries (3 to 7 words each, keywords only, no commands or questions; mix English technical terms with the request's own terms; aim at GitHub projects, documentation and technical articles). Output the queries only, one per line.\n\nRequest: ${request.slice(0, 500)}`,
+  content: `Turn this request into 4 short web-search queries (3 to 7 words each, keywords only, no commands or questions; mix English technical terms with the request's own terms; aim at GitHub projects, documentation and technical articles). Names of bots, products or people in the request are NOT search topics to translate or guess: never turn them into a different English word, and leave them out of the queries unless the request is about them. Output the queries only, one per line.\n\nRequest: ${request.slice(0, 500)}`,
 }];

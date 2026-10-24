@@ -385,8 +385,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     return true;
   }
   if (cmd === "/stop") {
+    const was = await loadState(chatId, db);
+    const had = Boolean(was.run?.progress?.msgId);
+    await closeCard(bot, chatId, was.run, "⏹️ أوقفت المهمة الجارية.", true);       // the top card goes, the notice is the last message
     await stopRun(chatId, "", undefined, db);
-    await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
+    if (!had) await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
     return true;
   }
   if (st.menu !== appUrl()) await ensureMenuButton(bot, chatId, st, db);
@@ -759,6 +762,14 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
 }
 
 /** The live progress card must never stay on "working…" after the task ended: it says so. */
+/** A small model sometimes drops Chinese/Japanese/Korean words into an Arabic or English answer (seen in the owner's tests). Removed char by char (so a streamed prefix stays a prefix) when the user wrote in neither. */
+const FOREIGN_RX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]/g;
+export function stripForeignScript(text: string, userText: string): string {
+  if (FOREIGN_RX.test(userText)) { FOREIGN_RX.lastIndex = 0; return text; }
+  FOREIGN_RX.lastIndex = 0;
+  return text.replace(FOREIGN_RX, "").replace(/ {2,}/g, " ");
+}
+
 async function closeCard(bot: TelegramBot, chatId: number, run: Run | null | undefined, text: string, atEnd = false): Promise<void> {
   const mid = run?.progress?.msgId;
   if (!mid) return;
@@ -1133,7 +1144,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
       }
-      const text = r.text || "";
+      const text = stripForeignScript(r.text || "", String([...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || ""));
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= 12000) {

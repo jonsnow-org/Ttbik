@@ -211,3 +211,14 @@ export async function claimOrphanTasks(db: Db = prismaDb, staleMs = 90000, maxAg
     return [];
   }
 }
+
+/** Nova tasks that are making progress right now (a recent event). The Oracle updater waits for 0 before it swaps the site container, so a deploy never cuts a running task. */
+export async function activeTaskCount(db: Db = prismaDb, freshMs = 90000): Promise<number> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM coder_tasks WHERE status = 'running' AND updated_at > now() - ($1 || ' milliseconds')::interval`, String(freshMs));
+    return Number(rows[0]?.n || 0);
+  } catch {
+    return 0;       // unknown: never block a deploy
+  }
+}

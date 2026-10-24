@@ -8,6 +8,16 @@ exec 9>/var/lock/ttbik-updater.lock; flock -n 9 || exit 0
 # The production line is `main` (the same one Vercel and Cloudflare deploy), never a working branch: the file agent/BRANCH can name another
 # branch for an emergency (e.g. to pin an older fix), and deleting it falls back to main.
 BR="${BRANCH:-$(tr -d ' \n' < "$OR/agent/BRANCH" 2>/dev/null)}"; BR="${BR:-main}"
+wait_idle() {   # fail-open: any problem with the check means "idle"
+  local i b
+  for i in $(seq 1 40); do
+    b=$(cd "$OR" && timeout 20 docker compose --profile site exec -T site node -e "fetch('http://127.0.0.1:3000/api/ops/coder-busy',{headers:{authorization:'Bearer '+process.env.CRON_SECRET}}).then(r=>r.json()).then(j=>console.log(j.busy)).catch(()=>console.log(0))" 2>/dev/null | tr -dc '0-9')
+    [ -z "$b" ] && return 0
+    [ "$b" = 0 ] && return 0
+    sleep 15
+  done
+  return 0
+}
 cd /opt/ttbik || exit 0
 if ! git fetch -q --depth 1 origin "$BR" 2>/dev/null; then echo "$(now) fetch failed" > "$STATE/last_update"; report; exit 0; fi
 NEW=$(git rev-parse FETCH_HEAD); CUR=$(git rev-parse HEAD)
@@ -28,7 +38,9 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     rm -f "$STATE/force-update"
     cd "$OR"
     # shellcheck disable=SC2086
-    if docker compose $PROFILES up -d --build > "$STATE/update.log" 2>&1; then
+    # build first (the old containers keep serving), then let running Nova tasks finish (at most 10 minutes) before the swap, so a deploy never
+    # cuts a task in the middle. If the check cannot be made, the swap goes ahead at once.
+    if docker compose $PROFILES build > "$STATE/update.log" 2>&1 && { wait_idle; docker compose $PROFILES up -d >> "$STATE/update.log" 2>&1; }; then
       echo "$(now) OK $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       docker image prune -f >/dev/null 2>&1
       docker builder prune -f --reserved-space 12GB >/dev/null 2>&1 || docker builder prune -f --keep-storage 12GB >/dev/null 2>&1 || true   # the build cache never grows past about 12 GB
