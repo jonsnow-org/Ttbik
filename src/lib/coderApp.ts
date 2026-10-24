@@ -315,6 +315,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const all = await listModels(db);
       return { models: publicModels(all, st.model), ...(user.tier === "owner" ? { owner: ownerModels(all, st.model) } : {}) };
     }
+    case "lessons": {
+      // the owner's finished runs kept as training examples (coderLessons.ts): how many, and the JSON Lines to take
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const L = await import("@/lib/coderLessons");
+      if (body.clear === true) await L.clearLessons(db);
+      const stats = await L.lessonStats(db);
+      return body.export === true ? { ...stats, ...(await L.exportLessons(db, Number(body.limit) || 200)) } : stats;
+    }
     case "model_update": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { updateModel } = await import("@/lib/coderModels");

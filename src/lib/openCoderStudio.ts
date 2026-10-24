@@ -174,7 +174,7 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0) });   // a sub-agent probing Sham (owner only, set by the runner)
+  if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop" });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
   const prov = providerConfig(opts.model);                       // a hand-picked API model (Nova Pro); everything else is our Studio
   if (opts.model === "nova_pro" && !prov) return Promise.resolve({ reply: null, failure: "off" });   // chosen by hand but not set up: say so, never answer from another model
   if (prov) return providerChat(prov, messages, { tools: opts.tools, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0, 240000) });

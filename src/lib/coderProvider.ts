@@ -59,9 +59,9 @@ export async function providerChat(
  * its raw answer comes back for the parent to judge. Sham has no tool calling and no system prompt here: only the task text is sent.
  * An unreachable / loading Studio is reported as a failure, so the run's patience loop waits for it like for any model server.
  */
-export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number } = {}): Promise<CoderOutcome> {
+export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean } = {}): Promise<CoderOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
-  const prompt = String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
+  const prompt = opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
   if (!prompt) return { reply: null, failure: "unreadable" };
   const r = await shamGenerateAny(prompt, Math.min(200, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
   if (!r) return { reply: null, failure: "network" };
@@ -69,4 +69,21 @@ export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: 
   if (r.type === "text" && (r.text || "").trim()) return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
   if (r.type === "image" || r.type === "audio" || r.type === "video") return { reply: { type: "done", job, text: `[Sham answered with ${r.type}, not shown here]${r.text ? ` ${String(r.text).slice(0, 300)}` : ""}`, tool_calls: [] } };
   return { reply: null, failure: r.type === "pending" ? "timeout" : "http" };     // loading / busy / gone / notice: not an answer
+}
+
+/**
+ * Sham as the chosen model inside Nova's engine. Sham is a small model with a short context and no tool calling, so it gets neither Nova's
+ * system prompt nor tool schemas: only the last few turns, and, when the engine ran a research for it, a short excerpt of the SOURCES to
+ * write from. The engine (not Sham) does the searching, the retrying, the long-task bookkeeping.
+ */
+export function shamConversationPrompt(messages: CoderMessage[]): string {
+  const turns = messages.filter((m) => (m.role === "user" || m.role === "assistant") && String(m.content || "").trim() && !String(m.content).startsWith("[harness]"));
+  const tool = [...messages].reverse().find((m) => m.role === "tool" && String(m.content || "").trim().length > 40);
+  const last = [...turns].reverse().find((m) => m.role === "user");
+  const history = turns.slice(-7, -1).map((m) => `${m.role === "user" ? "المستخدم" : "شام"}: ${String(m.content).trim().slice(0, 300)}`);
+  const parts: string[] = [];
+  if (tool) parts.push(`المصادر:\n${String(tool.content).trim().slice(0, 1800)}`);
+  if (history.length) parts.push(history.join("\n"));
+  parts.push(`${tool ? "السؤال" : "المستخدم"}: ${String(last?.content || "").trim().slice(0, 700)}\nشام:`);
+  return parts.join("\n\n").slice(0, 3200);
 }

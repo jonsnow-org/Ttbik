@@ -21,3 +21,9 @@ Facts this rests on (read from the code and the logs, not assumed):
 
 ## What Sham cannot do yet (so it is not offered)
 Tool-calling agents: Sham's text loss is ~4.5, it has no tool format; a Sham agent loop would fail at the first call. Sham is therefore used as a **worker that answers a plain question** (owner-only `delegate` role `sham`) and as a patient of the judge, not as an agent brain.
+
+
+## Built on 2026-10-24 (owner asked for the engine's innovations to reach Sham)
+- **Sham (advanced)** (`sham_loop`, owner only, in the one model picker): Sham answers INSIDE Nova's engine, so it gets what the engine gives any model: the research fast path (the engine runs one deep research and hands Sham a short excerpt as SOURCES), retry/patience on outages, resume after a server swap, step tracking in the terminal and the app. Sham gets no Nova system prompt and no tool schemas (it has no tool calling): the engine does the searching and the bookkeeping. The old "Sham" entry (legacy path, exactly as before) stays for testing training progress.
+- **Lessons** (`coderLessons.ts`): every finished, successful run of the OWNER is kept as one clean example (research with its sources, tool use with results, chat) in `coder_lessons`. Secret-looking text drops the whole run; the system prompt is never kept; owner only; `CODER_LESSONS=off` stops it. Owner op `lessons` (counts; `export:true` returns JSON Lines; `clear:true` empties). Nothing leaves the database by itself.
+- Not done, needs the owner's decision: where lessons are published for Sham's trainer (a private Kaggle/HF dataset in the format above) — it uploads her conversations to a third party.

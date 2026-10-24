@@ -469,3 +469,22 @@ describe("research fast path: one deep research first, then the report", () => {
     expect(JSON.stringify(calls.filter((c) => c.url.includes("/call/v2/chat"))[0]?.body)).not.toMatch(/already run for you/);
   });
 });
+
+describe("Sham (advanced): Sham inside the engine, with the engine's research as its sources", () => {
+  it("the owner's research request runs deep research first, hands Sham the sources, and Sham's answer is delivered", async () => {
+    const calls = studio([{ type: "text", text: "بحسب المصادر: الطوابير وإعادة المحاولة هي الحل الشائع للانقطاع في بوتات تلجرام الذكية." }]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { ...st0("x", null), model: "sham_loop", messages: [] } as any, db);
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث عن مشاريع ذكاء اصطناعي تستخدم تلجرام كواجهة وكيف تحل مشكلة التأخر وانقطاع الاتصال" } }, db);
+    for (let i = 0; i < 80 && !calls.some((c) => c.url.includes("/call/v2/generate_any")); i++) await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 1500));
+    const sham = calls.find((c) => c.url.includes("/call/v2/generate_any"))!;
+    expect(sham).toBeTruthy();
+    expect(String(sham.body.prompt)).toMatch(/السؤال: اذهب وابحث عن مشاريع/);
+    expect(String(sham.body.prompt)).not.toMatch(/Nova AI|IDENTITY|load_tools/);              // no Nova system prompt or tool schemas for Sham
+    expect(calls.some((c) => c.url.includes("/call/v2/chat"))).toBe(false);                    // the coder Studio was not used for the answer
+    expect(sent.some((s) => /الطوابير وإعادة المحاولة هي الحل الشائع/.test(s.text))).toBe(true);
+    expect((await loadState(CHAT, db)).run).toBeNull();
+  }, 40000);
+});

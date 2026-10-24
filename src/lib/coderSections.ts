@@ -348,9 +348,9 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro")) {
+  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop")) {
     st.mode = "coder";                                        // Sham and Nova Pro are the owner's only
-    if (st.model === "sham" || st.model === "nova_pro") st.model = undefined;
+    if (st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop") st.model = undefined;
     await saveState(chatId, st, db);
   }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
@@ -1244,6 +1244,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
       if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
       if (run.agent) st.agentResult = { status: "done", text: text.trim().slice(0, 6000) || "(empty report)", at: Date.now() };
+      else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
+        // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
+        const snap = [...st.messages], id = run.id, steps = run.step;
+        later(() => import("@/lib/coderLessons").then((m) => m.recordLesson(id, steps, snap, db)).then(() => undefined).catch(() => undefined));
+      }
       await endRun(st, "done", db, "✓", coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
