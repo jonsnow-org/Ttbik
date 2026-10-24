@@ -285,3 +285,50 @@ describe("the model schedules a task from the chat, and the tick runs it", () =>
     expect((await runCoderTick(db, later1)).due).toBe(0);                    // claimed once: a second tick in the same minute does not start it again
   });
 });
+
+describe("delegate: read-only sub-agents report back to the parent run", () => {
+  it("two sub-agents run quietly on their own slots, the parent waits, gets both reports and answers", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "قراءة الواجهة", task: "اقرأ مجلد web في a/b وصف ملفاته" }, { title: "قراءة الخادم", task: "اقرأ مجلد api في a/b وصف ملفاته" }] })] },
+      { type: "done", job: "j2", text: "تقرير الوكيل: الواجهة فيها ثلاثة ملفات.", tool_calls: [] },
+      { type: "done", job: "j3", text: "تقرير الوكيل: الخادم فيه ملفان.", tool_calls: [] },
+      { type: "done", job: "j4", text: "الخلاصة: المشروع واجهة وخادم.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "حلّل المشروع a/b: الواجهة والخادم" } }, db);
+    await new Promise((r) => setTimeout(r, 2500));
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    const tool = st.messages.find((m: any) => m.role === "tool" && m.name === "delegate") as any;
+    expect(tool.tool_call_id).toBe("d1");
+    expect(tool.content).toMatch(/## Agent 1: قراءة الواجهة/);
+    expect(tool.content).toMatch(/## Agent 2: قراءة الخادم/);
+    expect(tool.content).toMatch(/الواجهة فيها ثلاثة ملفات/);
+    expect(tool.content).toMatch(/الخادم فيه ملفان/);
+    expect(sent.some((s) => /الخلاصة: المشروع واجهة وخادم/.test(s.text))).toBe(true);
+    expect(sent.some((s) => /تقرير الوكيل/.test(s.text))).toBe(false);               // a sub-agent never writes to the chat
+    const chatCalls = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    expect(chatCalls).toHaveLength(4);
+    const childCall = chatCalls.find((c) => /read-only research sub-agent/.test(String(c.body?.data?.[0] ?? JSON.stringify(c.body))))!;
+    expect(childCall).toBeTruthy();
+    expect(JSON.stringify(childCall.body)).not.toMatch(/github_write_files|sandbox_exec|ask_user|delegate/);   // only the read-only tools
+  });
+
+  it("a sub-agent that asks for a writing tool is refused by the runner and still reports", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { task: "نظّف الفروع القديمة في a/b" })] },
+      { type: "done", job: "j2", text: "", tool_calls: [call("x1", "github_delete_branch", { repo: "a/b", branch: "old" })] },
+      { type: "done", job: "j3", text: "تقرير: لم أستطع الحذف، قراءة فقط.", tool_calls: [] },
+      { type: "done", job: "j4", text: "تم.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "نظّف a/b" } }, db);
+    await new Promise((r) => setTimeout(r, 2500));
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    expect((st.messages.find((m: any) => m.name === "delegate") as any).content).toMatch(/قراءة فقط/);
+    expect(calls.some((c) => c.url.includes("api.github.com") && /git\/refs/.test(c.url))).toBe(false);   // nothing was deleted
+  });
+});

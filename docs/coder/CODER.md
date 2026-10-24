@@ -39,3 +39,12 @@ One Studio runs ONE generation at a time (2 free vCPU, ~5 tokens/s), so users qu
 - `ai-system/modelscope-coder/STUDIOS` lists the Studios (one per line). `deploy-modelscope-coder.yml` deploys every one of them on each push of `ai-system/modelscope-coder/**`, so replicas never drift from the primary. `workflow_dispatch` with `studio=<name>` deploys (or creates) a single one.
 - The site sends a new completion to the first idle Studio (shortest queue, then failover) — `openCoderStudio.ts` — once the addresses are in `OPEN_CODER_STUDIO_URLS` (comma list, replicas only; the primary stays in `OPEN_CODER_STUDIO_URL`): `https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net`. Then "move settings to Oracle" copies it to Oracle.
 - Add a replica: add its name to STUDIOS, push, then add its address to `OPEN_CODER_STUDIO_URLS`. The free ModelScope account's Studio quota is the limit (the workflow stops with the platform's message if it refuses).
+
+## Sub-agents: `delegate` (2026-10-24)
+The model can hand up to 3 independent **read-only** investigations to sub-agents (`src/lib/coderAgents.ts`). Each is an ordinary run in its own state slot `a:<parentRunId>:<i>`, on OUR Studio model (whatever model the parent uses), so it gets the same legs, hand-offs, heartbeats and orphan recovery. Rules, all enforced by the runner:
+- tools: only `github_repo_info/list_files/read_file/search_code/list_branches/list_prs/list_issues`, `web_search`, `fetch_page`, `memory_search`; anything else is answered "DENIED" (no writes, no VM, no `ask_user`, no nested `delegate`);
+- at most 6 steps (the last one has no tools: the report is written then); quiet (nothing reaches the chat; its task row is archived so it stays out of the history);
+- the report is left in the child's own state row (`agentResult`); the parent only **polls** those rows (no shared write, no race), then receives one tool message with the reports. Parent timeout 25 min (children are stopped); `/stop` and the app's ⏹ stop the children too.
+- Speed: each child step costs what any Studio step costs (CPU, ~5 tok/s, one generation at a time per Studio), so 3 children on one Studio run one after another; replicas (`STUDIOS`) run them in parallel. That is the price of free hardware.
+- `CODER_AGENTS=off` removes the tool.
+Runs whose server was replaced mid-task are resumed by the every-minute tick (`claimOrphanTasks`, `coderTick.ts`).

@@ -25,6 +25,7 @@ export const ENV_NAMES: readonly string[] = [
   "CODER_CSB_RUNNER_SECRET",
   "CODER_CSB_TEMPLATE",
   "CODER_DEFAULT_MODE",
+  "CODER_AGENTS",
   "NOVA_PRO_MODEL",
   "NOVA_PRO_API_KEY",
   "NOVA_PRO_API_URL",

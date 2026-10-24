@@ -12,10 +12,11 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, agentToolDefs, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
+import { AGENT_MAX_STEPS, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -27,7 +28,8 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
+  agent?: boolean; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -38,7 +40,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string; agentResult?: AgentResult };
 export type { Db };
 export { coderChatKey };
 
@@ -96,6 +98,12 @@ export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb,
 
 export function defaultMode(): Mode {
   return (process.env.CODER_DEFAULT_MODE || "coder").trim().toLowerCase() === "sham" ? "sham" : "coder";
+}
+
+/** A sub-agent run never writes to the chat: every Telegram call is swallowed (its work is visible in the task events). */
+function silentBot(bot: TelegramBot): TelegramBot {
+  const api = new Proxy(bot.api as any, { get: (target, prop) => (typeof Reflect.get(target, prop, target) === "function" ? async () => null : Reflect.get(target, prop, target)) });
+  return new Proxy(bot as any, { get(target, prop, receiver) { return prop === "api" ? api : Reflect.get(target, prop, receiver); } }) as TelegramBot;
 }
 
 const emptyState = (): ChatState => ({ mode: defaultMode(), think: false, messages: [], notes: "", inbox: [], run: null });
@@ -543,6 +551,7 @@ export async function stopRun(chatId: number, slot = "", runId?: string, db: Db 
   const st = await loadState(chatId, db, slot);
   if (!st.run || (runId && st.run.id !== runId)) return false;
   if (st.run.job) await coderCancel(st.run.job).catch(() => null);
+  if (st.run.delegating) await cancelAgents(chatId, st.run.delegating.slots, db);
   await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
   if (!slot && st.convId) {
     const conv = st.convId;
@@ -646,6 +655,7 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
     const job = run.job;
     later(() => coderCancel(job).catch(() => null));
   }
+  if (run.agent && !st.agentResult) st.agentResult = { status, text: note || status, at: Date.now() };   // a sub-agent always leaves a report row, even when it failed or was stopped
   if (note) await taskEvent(run.id, status === "done" ? "done" : status === "stopped" ? "info" : "failed", note, db);
   await taskStatus(run.id, status, run.step, db);
   // the conversation's saved copy follows each finished request (memories are learned from it later, in quiet time)
@@ -899,9 +909,56 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const ctx = await toolCtx(chatId, st, db, run, botRow.id);
     const github = Boolean(ctx.gh);
 
+    // 0) sub-agents running for this run: wait for their reports (they are separate runs; this leg only polls their state rows)
+    if (run.delegating) {
+      const d = run.delegating;
+      const kids = await Promise.all(d.slots.map((sl) => loadState(chatId, db, sl)));
+      const finished = kids.map((k) => (k.agentResult && !k.run ? k.agentResult : undefined));
+      const timedOut = Date.now() - d.at > AGENT_TIMEOUT_MS;
+      if (finished.every(Boolean) || timedOut) {
+        if (timedOut) await cancelAgents(chatId, d.slots, db);
+        st.messages.push({ role: "tool", content: composeResults(d.titles.map((title, i) => ({ title, result: finished[i] }))), tool_call_id: d.id, name: "delegate" });
+        run.delegating = undefined;
+        await taskEvent(run.id, "info", `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})${timedOut ? " — انتهت المهلة" : ""}.`, db);
+        await progressLine(ioBot, chatId, run, `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})`);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      if (Date.now() - (d.noted || d.at) > 60000) {
+        d.noted = Date.now();
+        await taskEvent(run.id, "info", `⏳ بانتظار الوكلاء: ${finished.filter(Boolean).length}/${d.slots.length} أنهوا.`, db);
+        await saveState(chatId, st, db, slot);
+      }
+      await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await new Promise((res) => setTimeout(res, Math.max(200, Math.min(pollMs() * 2, 3000, left() - 7000))));
+      continue;
+    }
+
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
+      if (run.agent && !agentToolAllowed(call.function.name)) {
+        // a sub-agent is read-only: enforced here, whatever the model asks for
+        st.messages.push({ role: "tool", content: "DENIED: sub-agents are read-only and have no such tool. Use only the tools you were given, or write your report now.", tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      if (call.function.name === "delegate") {
+        const tasks = normalizeTasks(parseArgs(call));
+        run.queued = rest;
+        if (!agentsEnabled() || !tasks.length) {
+          st.messages.push({ role: "tool", content: tasks.length ? "error: sub-agents are switched off" : "error: delegate needs tasks:[{title, task}] (1 to 3)", tool_call_id: call.id, name: "delegate" });
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        const slots = await startAgents(bot, botRow, chatId, st, run, tasks, db);
+        run.delegating = { id: call.id || "delegate", slots, titles: tasks.map((t) => t.title), at: Date.now() };
+        await progressLine(ioBot, chatId, run, `🧩 وكلاء فرعيون للقراءة (${tasks.length}): ${tasks.map((t) => t.title).join(" · ").slice(0, 120)}`);
+        await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل فرعي (قراءة فقط): ${tasks.map((t) => t.title).join(" | ")}`, db);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       if (call.function.name === "ask_user") {
         // not a tool that runs: the question goes to the chat and the task waits (without a time limit) for the user's answer
         const a = parseArgs(call);
@@ -1140,7 +1197,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
-      if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
+      if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
+      if (run.agent) st.agentResult = { status: "done", text: text.trim().slice(0, 6000) || "(empty report)", at: Date.now() };
       await endRun(st, "done", db, "✓", coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
@@ -1193,7 +1251,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    if (run.agent && run.step >= AGENT_MAX_STEPS - 1 && !run.agentWarned) {
+      run.agentWarned = true;
+      st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
+    }
+    const agentLast = Boolean(run.agent && run.step >= AGENT_MAX_STEPS - 1);
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
@@ -1201,7 +1264,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: st.model, tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? "coder" : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github)) : coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
@@ -1257,6 +1320,7 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+  if (isAgentSlot(slot)) bot = silentBot(bot);
   let runId = "";
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let heartbeatBusy = false;
@@ -1285,6 +1349,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         const run = st.run;
         runId = run.id;
         st.run = null;
+        if (run.agent && !st.agentResult) st.agentResult = { status: "failed", text: "the sub-agent stopped on an internal error", at: Date.now() };
         await saveStateStrict(chatId, st, db, slot); // persist the terminal state before best-effort cleanup
         if (run.job) later(() => coderCancel(run.job!).catch(() => null));
         await taskEvent(run.id, "failed", "توقف العامل الخلفي بسبب خطأ غير متوقع. أعد إرسال الطلب؛ لن تبقى المهمة عالقة بصمت.", db);
@@ -1347,4 +1412,29 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
   await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
   later(() => continueRun(botRow, chatId, run.chain, db, slot));
   return true;
+}
+
+/** Starts one quiet, read-only child run per task (own slot, own state) on our Studio model; returns their slots. */
+async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, parent: ChatState, run: Run, tasks: AgentTask[], db: Db): Promise<string[]> {
+  const slots: string[] = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const slot = agentSlot(run.id, i);
+    const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
+    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, title: tasks[i].title, goal: tasks[i].task }, db);
+    await saveState(chatId, st, db, slot);
+    later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS, slot));
+    slots.push(slot);
+  }
+  return slots;
+}
+
+/** Stops children that are still running (the parent was stopped, or their time ran out). Each leaves a "stopped" report row. */
+export async function cancelAgents(chatId: number, slots: string[], db: Db = prismaDb): Promise<void> {
+  for (const slot of slots) {
+    const st = await loadState(chatId, db, slot);
+    if (!st.run) continue;
+    if (st.run.job) await coderCancel(st.run.job).catch(() => null);
+    await endRun(st, "stopped", db, "stopped (parent finished or stopped)", coderChatKey(chatId));
+    await saveState(chatId, st, db, slot);
+  }
 }

@@ -5,7 +5,7 @@
 import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/lib/coderAuth";
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
-export type TaskSource = "interactive" | "scheduled" | "event";
+export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
@@ -45,6 +45,7 @@ export async function taskStart(chatId: number | string, t: { runId: string; slo
       t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
     );
     if (inserted.length) {
+      if (t.source === "agent") await db.exec(`UPDATE coder_tasks SET archived_at = now() WHERE run_id = $1`, t.runId);   // a sub-agent's task stays out of the user's history
       await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
       if (t.botId) await db.exec(`UPDATE coder_tasks SET chat_enc = $2, bot_id = $3 WHERE run_id = $1`, t.runId, encryptToken(String(chatId)), t.botId);
     }
