@@ -1,0 +1,66 @@
+name: Nova local model bake-off (free)
+# Which model should RUN ON our free ModelScope Studio (2 vCPU / 8 GB, llama.cpp)? Each candidate GGUF is served by the same pinned
+# llama.cpp release with the same flags as ai-system/modelscope-coder/app.py, pinned to 2 CPU cores (taskset) to mimic the Studio, and
+# graded by scripts/nova-eval/model_eval.py (tool calling in Nova's format, coding tasks graded by tests, speed) plus peak memory.
+# Manual only; free GitHub runners; nothing secret is used. GitHub runners are faster than the Studio's CPU: compare models with each
+# other (and with the current one), do not read the absolute speed as the Studio's.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "run only this candidate id (empty = all)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: nova-local-eval
+  cancel-in-progress: false
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: qwen3.5-4b-current, repo: unsloth/Qwen3.5-4B-GGUF, file: Qwen3.5-4B-Q4_K_M.gguf }
+          - { id: qwen3.5-9b, repo: unsloth/Qwen3.5-9B-GGUF, file: Qwen3.5-9B-Q4_K_M.gguf }
+          - { id: qwen3-8b, repo: Qwen/Qwen3-8B-GGUF, file: Qwen3-8B-Q4_K_M.gguf }
+          - { id: qwen2.5-coder-7b, repo: Qwen/Qwen2.5-Coder-7B-Instruct-GGUF, file: qwen2.5-coder-7b-instruct-q4_k_m.gguf }
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.only == '' || inputs.only == matrix.id
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the model
+        if: inputs.only == '' || inputs.only == matrix.id
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/${{ matrix.repo }}/resolve/main/${{ matrix.file }}"
+          ls -l model.gguf
+      - name: serve (2 cores, same flags as the Studio) and evaluate
+        if: inputs.only == '' || inputs.only == matrix.id
+        run: |
+          set -o pipefail
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do
+            curl -sf http://127.0.0.1:8080/health >/dev/null && break
+            kill -0 $PID 2>/dev/null || { tail -30 server.log; echo "::error::server exited"; exit 1; }
+            sleep 5
+          done
+          curl -sf http://127.0.0.1:8080/health >/dev/null || { tail -30 server.log; echo "::error::server not healthy"; exit 1; }
+          EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "${{ matrix.id }}" | tee eval.txt
+          RSS=$(awk '/VmHWM/ {printf "%.1f", $2/1048576}' /proc/$PID/status)
+          echo "peak memory of the model server: ${RSS} GB (the Studio has 8 GB in total)"
+          { echo "## ${{ matrix.id }}"; sed -n '/^| rank/,$p' eval.txt; echo; echo "peak memory: ${RSS} GB"; } >> "$GITHUB_STEP_SUMMARY"
+          kill $PID

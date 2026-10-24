@@ -3,7 +3,7 @@
 
 Calls ModelScope API-Inference (free daily quota, OpenAI-compatible) for a list of candidate models and measures what decides whether a
 model can run Nova's agent loop: (1) native tool calling in OUR tool format, (2) small coding tasks graded by real tests, (3) speed.
-Standard library only. The token comes from the environment (MODELSCOPE_TOKEN), is never printed.
+Standard library only. The token comes from the environment (MODELSCOPE_TOKEN), is never printed. With EVAL_BASE set it tests a local llama.cpp server instead (no token).
 
   python3 scripts/nova-eval/model_eval.py [--models a,b] [--selftest]
 """
@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse, json, os, re, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
-BASE = "https://api-inference.modelscope.cn/v1"
+BASE = os.environ.get("EVAL_BASE", "https://api-inference.modelscope.cn/v1").rstrip("/")   # EVAL_BASE=http://127.0.0.1:8080/v1 = a local llama-server
+LOCAL = "EVAL_BASE" in os.environ                                       # local: no token, long timeouts (CPU speed), shorter code answers
+TIMEOUT = int(os.environ.get("EVAL_TIMEOUT", "900" if LOCAL else "150"))
+CODE_TOKENS = int(os.environ.get("EVAL_CODE_TOKENS", "900" if LOCAL else "1800"))
 CANDIDATES = [
     "deepseek-ai/DeepSeek-V4-Pro", "deepseek-ai/DeepSeek-V4.1-Flash", "ZhipuAI/GLM-5.2", "MiniMax/MiniMax-M3",
     "Qwen/Qwen3.5-397B-A17B", "Qwen/Qwen3.8-27B", "Qwen/Qwen3.5-122B-A10B", "nex-agi/Nex-N2.5-Pro", "stepfun-ai/Step-3.7-Flash",
@@ -54,10 +57,11 @@ CODE_TASKS = [
      "assert bsearch([1,3,5,7,9],7)==3 and bsearch([1,3,5,7,9],1)==0 and bsearch([1,3,5,7,9],9)==4 and bsearch([1,3],2)==-1 and bsearch([],1)==-1"),
 ]
 
-def call(model, messages, tools=None, max_tokens=1500, timeout=150):
+def call(model, messages, tools=None, max_tokens=1500, timeout=None):
+    timeout = timeout or TIMEOUT
     """One streamed chat completion. Returns dict(text, tool_calls, ttft, total, error, status)."""
     body = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens, "temperature": 0.2,
-            "enable_thinking": False, "stream_options": {"include_usage": True}}
+            "enable_thinking": False, "chat_template_kwargs": {"enable_thinking": False}, "stream_options": {"include_usage": True}}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
@@ -135,7 +139,7 @@ def eval_model(model):
         if res["status"] == 429:
             out["errors"].append("quota"); break
     for spec, test in CODE_TASKS:
-        res = call(model, [{"role": "user", "content": spec + "\nReply with ONE ```python block containing only the code."}], None, max_tokens=1800)
+        res = call(model, [{"role": "user", "content": spec + "\nReply with ONE ```python block containing only the code."}], None, max_tokens=CODE_TOKENS)
         note(res)
         if res["text"]:
             out["code"] += int(run_tests(extract_code(res["text"]), test))
@@ -160,7 +164,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
-    if not os.environ.get("MODELSCOPE_TOKEN"):
+    if not LOCAL and not os.environ.get("MODELSCOPE_TOKEN"):
         sys.exit("MODELSCOPE_TOKEN is not set")
     rows = []
     for m in [x.strip() for x in a.models.split(",") if x.strip()]:
