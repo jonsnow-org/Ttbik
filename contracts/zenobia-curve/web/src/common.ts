@@ -3,7 +3,8 @@ import { TonClient } from '@ton/ton';
 import { LaunchpadV2 } from '../../sdk/dist/index.js';
 
 export const OWNER = Address.parse('UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz');
-export const client = new TonClient({ endpoint: 'https://toncenter.com/api/v2/jsonRPC' });
+// Same-origin read-only proxy (src/app/api/ton/rpc), added by the owner's order 2026-10-24: the server adds the toncenter key, so the browser is not rate limited and no key is exposed.
+export const client = new TonClient({ endpoint: `${location.origin}/api/ton/rpc` });
 export const sdk = new LaunchpadV2((a: Address) => client.provider(a));
 export const $ = (id: string) => document.getElementById(id) as HTMLElement;
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
