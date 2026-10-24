@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-24 11:14 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-24 16:05 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -31,7 +31,7 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ❌ فشل | مسار ترميز الصوت 3 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-✅ اكتمل | دفتر المسارين A وB 1 | primary
+⏳ يعمل الآن | دفتر المسارين A وB 1 | primary
 ✅ اكتمل | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | primary
