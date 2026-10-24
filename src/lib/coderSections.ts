@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, researchQuestion, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -29,7 +29,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
-  keepGroups?: string[]; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -54,7 +54,7 @@ const MAX_RETRIES = 5;                                                // Studio 
 // The CPU-only Studio can spend several minutes in prompt prefill before the first token, especially on repo-wide tasks.
 // Allow a longer default before declaring a genuine stall; CODER_JOB_STALL_MS overrides (minimum 60 s).
 /** How long a run waits patiently for the model server to come back (restart, wake-up, deploy) before it gives up. */
-const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 20 * 60000));
+const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 2 * 60000));
 const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000));
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
@@ -1276,6 +1276,27 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       st.messages.push({ role: "user", content: run.recovery });       // the reflection / re-plan step after a detected loop
       run.recovery = undefined;
     }
+    // A plain "go and find out" request does not need the small model to plan searches one slow step at a time (it loops on broad queries,
+    // 30+ minutes): the harness runs ONE deep research first, and the model's first step already has the sources to write the report from.
+    if (!run.prefetched && !run.agent && run.step === 0 && run.source === "interactive" && !run.slot && process.env.CODER_RESEARCH_FASTPATH !== "off") {
+      run.prefetched = true;
+      const q = researchQuestion(run.goal || String([...st.messages].reverse().find((m) => m.role === "user")?.content || ""));
+      if (q) {
+        const call = { id: "pre_research", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: q }) } };
+        await progressLine(ioBot, chatId, run, "بحث معمّق");
+        await taskEvent(run.id, "tool", toolLabel(call), db);
+        const out = await withHeartbeat(ioBot, chatId, run, "بحث معمّق", () => runTool(call, ctx));
+        st.messages.push({ role: "assistant", content: "", tool_calls: [call] }, { role: "tool", content: out, tool_call_id: call.id, name: "deep_research" });
+        st.messages.push({ role: "user", content: "[harness] The research above was already run for you. Write the final answer / report NOW from these sources (cite them by number, in the user's language). If they are not enough, say exactly what is missing; at most one more search." });
+        run.softSteps = 6;                                                 // a research task ends in a few steps, not in half an hour
+        await saveState(chatId, st, db, slot);
+      }
+    }
+    const softLast = Boolean(run.softSteps && run.step >= run.softSteps - 1);
+    if (softLast && !run.softWarned) {
+      run.softWarned = true;
+      st.messages.push({ role: "user", content: "[harness] Step budget reached: no more tools. Write the final report now from what you have, and say what is still missing." });
+    }
     {
       // plan limits per model step: steps and model tokens (rolling week; the owner has none). Reached = the task ends gracefully.
       const lim = (await checkLimit(chatId, "steps", 1, db)) as LimitCheck;
@@ -1309,9 +1330,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
-    await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") : "") + ".", db);
+    await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
       // the model server is away (restart, wake-up, a deploy): wait for it, minutes if need be, instead of failing a long task
       run.outageSince = run.outageSince || Date.now();

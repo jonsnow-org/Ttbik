@@ -439,3 +439,33 @@ describe("delegate: the sham role (owner only) puts a question to Sham and bring
     expect(calls.filter((c) => c.url.includes("/call/v2/chat")).some((c) => /read-only research sub-agent/.test(JSON.stringify(c.body)))).toBe(true);
   });
 });
+
+describe("research fast path: one deep research first, then the report", () => {
+  it("a plain research request gets the sources before the first model step and ends in one model step", async () => {
+    const calls = studio([{ type: "done", job: "j1", text: "التقرير: الطوابير وإعادة المحاولة هي الحل الشائع [1].", tool_calls: [] }]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث عن مشاريع ذكاء اصطناعي تستخدم تلجرام كواجهة وكيف تحل مشكلة التأخر وانقطاع الاتصال" } }, db);
+    for (let i = 0; i < 80 && !calls.some((c) => c.url.includes("/call/v2/chat")); i++) await new Promise((r) => setTimeout(r, 250));   // the searches run first
+    await new Promise((r) => setTimeout(r, 1500));
+    const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    expect(chat).toHaveLength(1);                                                         // the harness did the searching; the model wrote the report in ONE step
+    const body = JSON.stringify(chat[0].body);
+    expect(body).toMatch(/deep_research/);
+    expect(body).toMatch(/already run for you/);
+    expect(JSON.parse(chat[0].body.tools).length).toBeGreaterThan(0);
+    expect(sent.some((s) => /التقرير: الطوابير/.test(s.text))).toBe(true);
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    expect(st.messages.some((m: any) => m.role === "tool" && m.name === "deep_research")).toBe(true);
+  }, 40000);
+
+  it("a request that writes, schedules or is about the user's own repo is NOT turned into a research", async () => {
+    const calls = studio([{ type: "done", job: "j1", text: "تم.", tool_calls: [] }]);
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اكتب لي دالة بايثون تبحث عن أكبر رقم في قائمة وتعيده مع شرح" } }, db);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(JSON.stringify(calls.filter((c) => c.url.includes("/call/v2/chat"))[0]?.body)).not.toMatch(/already run for you/);
+  });
+});

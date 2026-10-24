@@ -64,3 +64,20 @@ describe("tool groups the model loads itself", () => {
     expect(names(coderTools(true))).toContain("github_search_repos");
   });
 });
+
+import { researchQuestion } from "@/lib/coderAgent";
+describe("researchQuestion: when a message is a plain research request", () => {
+  it("recognises 'go and find out' requests", () => {
+    expect(researchQuestion("اذهب وابحث على جيتهوب عن مشاريع ذكاء اصطناعي تستخدم تلجرام كواجهة وحلل كيف حلوا التأخر")).not.toBe("");
+    expect(researchQuestion("research how open source Telegram AI bots handle rate limits and message size")).not.toBe("");
+    expect(researchQuestion("قارن بين أفضل مكتبات بوتات تلجرام بايثون من حيث الأداء")).not.toBe("");
+  });
+  it("leaves writing, scheduling, own-repo and short chat messages alone", () => {
+    expect(researchQuestion("مرحبا كيف حالك")).toBe("");
+    expect(researchQuestion("اكتب لي دالة بايثون تبحث عن أكبر رقم في قائمة مع شرح مفصل")).toBe("");
+    expect(researchQuestion("ابحث في مستودعي عن الملفات الكبيرة وأخبرني بأسمائها")).toBe("");
+    expect(researchQuestion("كل يوم الساعة 9 ابحث عن أخبار الذكاء الاصطناعي ولخصها لي")).toBe("");
+    expect(researchQuestion("ابحث عن الخطأ في github.com/acme/site وأصلحه وادفع التعديل")).toBe("");
+    expect(researchQuestion("x".repeat(2000))).toBe("");
+  });
+});
