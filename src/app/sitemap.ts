@@ -88,6 +88,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/free-tools/percentage-calculator`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/free-tools/pregnancy-calculator`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/free-tools/date-difference`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/shared-costs`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/en/free-tools/qr-generator`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/url-shortener`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/image-optimizer`, changeFrequency: "monthly", priority: 0.85 },
