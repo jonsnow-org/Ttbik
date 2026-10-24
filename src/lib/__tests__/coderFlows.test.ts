@@ -644,3 +644,27 @@ describe("helper presets (the helpers an agent starts)", () => {
     expect(t[0].task).toBe("read a/b");
   });
 });
+
+describe("several Studios: a conversation goes back to the Studio that holds its prompt cache", () => {
+  it("every step of one conversation lands on the same free Studio; a different conversation started at once takes another", async () => {
+    process.env.OPEN_CODER_STUDIO_URL = "https://s1.test";
+    process.env.OPEN_CODER_STUDIO_URLS = "https://s1.test,https://s2.test,https://s3.test";
+    const hits: string[] = [];
+    (global as any).fetch = jest.fn(async (url: string) => {
+      const host = new URL(url).origin;
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) { hits.push(host); return new Response(sse({ type: "done", job: "j", text: "ok", tool_calls: [] }), { status: 200 }); }
+      return new Response("{}", { status: 202 });
+    });
+    const { coderChat } = require("@/lib/openCoderStudio");
+    await coderChat([{ role: "user", content: "a" }], { affinity: "chatA" });
+    await coderChat([{ role: "user", content: "a2" }], { affinity: "chatA" });
+    await coderChat([{ role: "user", content: "a3" }], { affinity: "chatA" });
+    expect(new Set(hits).size).toBe(1);                         // one conversation, one Studio, whoever answers its status first
+    const first = hits[0];
+    await coderChat([{ role: "user", content: "b" }], { affinity: "chatB" });
+    expect(hits[3]).not.toBe(first);                             // a second conversation right after goes elsewhere
+    delete process.env.OPEN_CODER_STUDIO_URLS;
+  });
+});

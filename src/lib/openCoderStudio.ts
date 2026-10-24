@@ -71,7 +71,12 @@ export function parseCoderSse(body: string): CoderReply | null {
   return null;
 }
 
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
+/** Which Studio last answered a conversation: llama.cpp keeps the conversation's prompt cache per Studio, so the next step goes back to it when it is free (a different Studio would read the whole context again, ~2 minutes on a free CPU). */
+const lastStudio = new Map<string, string>();
+const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
+const rememberStudio = (key: string, base: string) => { lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
+
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (!bases.length) return { reply: null, failure: "off" };
   if (typeof payload.job_id === "string") {
@@ -83,13 +88,14 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
   let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
-  if (api === "chat" && bases.length > 1) order = await idleFirst(order);
+  if (api === "chat" && bases.length > 1) { order = await idleFirst(order, affinity ? lastStudio.get(affinity) : undefined); recentPick.set(order[0].b, Date.now()); }
   let last: CoderOutcome = { reply: null, failure: "network" };
   const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
   for (const { b, i } of order.slice(0, 2)) {
     last = await callOne(b, api, fitWait(payload, per), per);
     if (last.reply) {
       studioCooling.delete(b);
+      if (affinity) rememberStudio(affinity, b);
       return i ? tagJob(last, i) : last;
     }
     studioCooling.set(b, Date.now() + COOL_MS);
@@ -101,20 +107,27 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
  * wait behind the first on one Studio while the other is idle. Each Studio's `status` is asked at once; the first idle one wins without
  * waiting for the rest; otherwise the shortest queue; a Studio that is loading / down goes last. CODER_STUDIO_BALANCE=off = first healthy.
  */
-async function idleFirst(order: { b: string; i: number }[]): Promise<{ b: string; i: number }[]> {
+async function idleFirst(order: { b: string; i: number }[], preferred?: string): Promise<{ b: string; i: number }[]> {
   if ((process.env.CODER_STUDIO_BALANCE || "").toLowerCase() === "off") return order;
   const capMs = Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900));
   const seen = new Map<string, number>();                                  // base -> queue length (Infinity = not ready / no answer)
   const score = (st: Record<string, unknown> | null) => (st && st.phase === "ready" ? Number(st.queue) || 0 : Infinity);
   const idle = await new Promise<string | null>((resolve) => {
     let left = order.length;
-    const timer = setTimeout(() => resolve(null), capMs);
+    let firstIdle: string | null = null;
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && seen.get(preferred) === 0 ? preferred : firstIdle); };
+    const timer = setTimeout(finish, capMs);
     for (const { b } of order) {
       studioStatus(b, capMs).then((st) => {
-        const q = score(st);
+        const q0 = score(st);
+        const q = q0 === 0 && b !== preferred && Date.now() - (recentPick.get(b) || 0) < 4000 ? 0.5 : q0;
         seen.set(b, q);
-        if (q === 0) { clearTimeout(timer); resolve(b); }
-        else if (--left === 0) { clearTimeout(timer); resolve(null); }
+        left--;
+        if (q === 0 && !firstIdle) firstIdle = b;
+        // the Studio that holds this conversation's prompt cache wins when it is free; another idle one is taken only once the preferred one has answered (or the time is up)
+        if (q === 0 && (!preferred || b === preferred || seen.has(preferred))) finish();
+        else if (left === 0) finish();
       });
     }
   });
@@ -171,7 +184,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop" });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
@@ -189,6 +202,7 @@ export function coderChat(
       wait_s: waitS,
     },
     opts.timeoutMs ?? (waitS + 12) * 1000,
+    opts.affinity,
   );
 }
 
