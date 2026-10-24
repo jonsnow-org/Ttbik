@@ -64,6 +64,11 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
       if (sql.includes("DELETE FROM coder_schedules")) return void (t.schedules = t.schedules.filter((s) => !(s.id === a[0] && s.chat_key === a[1])));
     },
     query: async (sql: string, ...a: any[]) => {
+      if (sql.includes("UPDATE coder_tasks SET archived_at") && sql.includes("RETURNING run_id")) {   // archiveTask (one finished task)
+        const x = t.tasks.find((r) => r.run_id === a[0] && r.chat_key === a[1] && !r.archived && r.status !== "running" && r.status !== "waiting");
+        if (x) x.archived = true;
+        return x ? [{ run_id: x.run_id }] : [];
+      }
       if (sql.includes("INSERT INTO coder_tasks")) {                // taskStart: ON CONFLICT DO NOTHING RETURNING run_id
         if (t.tasks.find((x) => x.run_id === a[0])) return [];
         t.tasks.push({ run_id: a[0], chat_key: a[1], slot: a[2], source: a[3], schedule_id: a[4], title: a[5], status: "running", steps: 0, thread_id: a[6] ?? null });

@@ -55,6 +55,16 @@ export async function archiveFinishedTasks(chatId: number | string, db: Db = pri
   return rows[0]?.count || 0;
 }
 
+/** Hides ONE finished task from the user's history (a running or waiting one is never touched). Returns whether a row was hidden. */
+export async function archiveTask(chatId: number | string, runId: string, db: Db = prismaDb): Promise<boolean> {
+  await ensureTaskTables(db);
+  const rows = await db.query<{ run_id: string }>(
+    `UPDATE coder_tasks SET archived_at = now(), updated_at = now() WHERE run_id = $1 AND chat_key = $2 AND archived_at IS NULL AND status NOT IN ('running','waiting') RETURNING run_id`,
+    runId, coderChatKey(chatId),
+  );
+  return rows.length > 0;
+}
+
 export async function taskEvent(runId: string, kind: EventKind, text: string, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);

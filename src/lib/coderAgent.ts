@@ -66,6 +66,14 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
+  // scheduled tasks (src/lib/coderSchedules.ts): the user asks in plain words, the model creates the schedule itself; the dispatcher runs it
+  tool("schedule_create", "Schedule a task that runs by itself later and reports back to the user in this chat. kind 'cron' = repeats on a time pattern; kind 'event' = runs when something happens in a GitHub repository. Write the prompt as a complete standalone instruction (the scheduled run does not see this conversation).", obj({
+    title: s("short name"), prompt: s("the full instruction the scheduled run will carry out"), kind: { type: "string", enum: ["cron", "event"] },
+    recurrence: s("for cron: 'daily 09:00', 'weekdays 08:30', 'weekly mon,thu 18:00', 'monthly 1 09:00', 'hourly :15' or a raw 5-field cron; times are in the user's time zone"),
+    repo: s("owner/name (required for event, optional for cron)"), events: { type: "array", items: { type: "string" } },
+  }, ["prompt", "kind"])),
+  tool("schedule_list", "List the user's scheduled tasks (id, title, when, next run, status).", obj({})),
+  tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -90,12 +98,13 @@ export function coderTools(github: boolean, connectors = false): CoderTool[] {
 // ~4,700 of a ~5,300-token first step, ~2 of its ~2.3 minutes; the system text alone is ~600 tokens. So a step carries only
 // load_tools (one short schema) plus the groups this conversation has already used; the model picks a group when it needs one and its
 // tools are there from the next step. CODER_TOOL_GROUPS=off sends every tool on every step (the earlier behaviour).
-export type ToolGroup = "github" | "computer" | "web" | "memory" | "connectors";
+export type ToolGroup = "github" | "computer" | "web" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
   computer: "computer (a private Linux VM: clone a repo, run commands and tests, read and write files)",
   web: "web (web search, read a page, deep research)",
   memory: "memory (notes for this task, long-term memory about this user)",
+  schedule: "schedule (create, list and delete tasks that run by themselves at a time or on a GitHub event)",
   connectors: "connectors (services the user linked in the app, MCP servers)",
 };
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
@@ -104,6 +113,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     computer: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch"]),
     memory: by(["memory_note", "memory_save", "memory_search", "memory_forget"]),
+    schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
   if (connectors) g.connectors = CONNECTOR_TOOLS;
@@ -160,6 +170,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
+    "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs; never just promise. The scheduled run starts by itself and reports in this chat.",
     "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
@@ -443,6 +454,7 @@ export type ToolCtx = {
   gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
   userId?: number | string; db?: import("@/lib/coderAuth").Db;           // long-term memory and plan metering: whose, and where
   tier?: "owner" | "user";
+  botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
 };
 
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
@@ -459,6 +471,22 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     if (name === "memory_note") {
       ctx.addNote(String(a.text || "").slice(0, 1500));
       return "saved";
+    }
+    if (name === "schedule_create" || name === "schedule_list" || name === "schedule_delete") {
+      if (!ctx.userId || !ctx.botId) return "error: scheduling is not available here";
+      const S = await import("@/lib/coderSchedules");
+      if (name === "schedule_list") {
+        const rows = await S.listSchedules(ctx.userId, ctx.db);
+        return rows.length ? rows.map((r) => { const p = S.publicSchedule(r, "ar"); return `${r.id} | ${r.title} | ${p.describe}${r.paused ? " (paused)" : ""} | next: ${r.next_run_at || "-"}`; }).join("\n") : "no scheduled tasks";
+      }
+      if (name === "schedule_delete") {
+        const r = await S.deleteSchedule(ctx.userId, String(a.id || ""), true, ctx.db);
+        return r === "deleted" ? `deleted schedule ${a.id}` : "error: no such schedule";
+      }
+      const r = await S.createSchedule(ctx.userId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events, tz: ctx.tz }, ctx.db);
+      if (!r.ok) return `error: ${r.error}`;
+      const p = S.publicSchedule(r.schedule, "ar");
+      return `scheduled ${r.schedule.id}: ${p.describe} (${r.schedule.tz})${r.schedule.next_run_at ? `; first run ${r.schedule.next_run_at}` : ""}${r.hook ? `; ${r.hook.note}` : ""}. It runs by itself and reports in this chat.`;
     }
     if (name === "memory_save" || name === "memory_search" || name === "memory_forget") {
       if (!ctx.userId) return "error: memory is not available here";
@@ -671,7 +699,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
   sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
-  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"],
+  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };

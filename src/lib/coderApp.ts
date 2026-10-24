@@ -147,6 +147,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
     }
+    case "task_delete": {
+      if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
+      const { archiveTask } = await import("@/lib/coderTasks");
+      if (!(await archiveTask(chatId, String(body.runId), db))) throw new AppError(409, "the task is still running or does not exist");
+      return { ok: true };
+    }
     case "tasks_clear": {
       const archived = await archiveFinishedTasks(chatId, db);
       return { ok: true, archived };

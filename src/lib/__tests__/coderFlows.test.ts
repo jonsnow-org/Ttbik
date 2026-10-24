@@ -256,3 +256,32 @@ describe("ask_user: the agent asks one question and waits for the answer", () =>
     expect(sent.some((s) => /سأعمل على dev/.test(s.text))).toBe(true);
   });
 });
+
+describe("the model schedules a task from the chat, and the tick runs it", () => {
+  it("schedule_create from a chat message creates the schedule; the next due tick starts the run", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("l1", "load_tools", { groups: ["schedule"] })] },
+      { type: "done", job: "j2", text: "", tool_calls: [call("s1", "schedule_create", { title: "تقرير يومي", prompt: "اكتب تقرير حالة المستودع a/b", kind: "cron", recurrence: "daily 09:00" })] },
+      { type: "done", job: "j3", text: "جدولتُ المهمة يومياً الساعة 09:00.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "كل صباح الساعة 9 اكتب تقرير حالة المستودع a/b" } }, db);
+    await new Promise((r) => setTimeout(r, 900));
+    expect(db.t.schedules).toHaveLength(1);
+    const sch = db.t.schedules[0];
+    expect(sch).toMatchObject({ kind: "cron", cron: "0 9 * * *", paused: false, title: "تقرير يومي" });
+    expect(sch.next_run_at).toBeTruthy();
+    expect(sent.some((s) => /جدولتُ المهمة/.test(s.text))).toBe(true);
+    // the dispatcher: not yet due -> nothing; due -> one signed run request, and the next run moves forward
+    const { runCoderTick } = await import("@/lib/coderTick");
+    const before = calls.length;
+    expect((await runCoderTick(db, new Date(Date.now() - 3600_000))).due).toBe(0);
+    const later1 = new Date(new Date(sch.next_run_at).getTime() + 60_000);
+    const r1 = await runCoderTick(db, later1);
+    expect(r1).toMatchObject({ due: 1 });
+    expect(calls.slice(before).some((c) => c.url.endsWith("/api/coder/schedules/run"))).toBe(true);
+    expect(new Date(db.t.schedules[0].next_run_at).getTime()).toBeGreaterThan(later1.getTime());
+    expect((await runCoderTick(db, later1)).due).toBe(0);                    // claimed once: a second tick in the same minute does not start it again
+  });
+});

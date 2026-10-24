@@ -235,7 +235,7 @@ export function extractionConvo(msgs: CoderMessage[], maxChars = 12000): { convo
 
 export type Llm = (messages: CoderMessage[]) => Promise<string>;
 /** Free model call through the coder Studio (submit, then poll), bounded in time. */
-export const studioLlm = (deadlineMs = 40000): Llm => async (messages) => {
+export const studioLlm = (deadlineMs = 200000): Llm => async (messages) => {
   const { coderChat, coderJobResult } = await import("@/lib/openCoderStudio");
   const t0 = Date.now();
   const o = await coderChat(messages, { think: false, temperature: 0.2, waitS: 15, timeoutMs: 25000 });

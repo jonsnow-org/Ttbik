@@ -2,10 +2,9 @@
 // scheduler (.github/workflows/coder-schedules.yml) with CRON_SECRET; a Vercel Cron GET with the same secret works too (Hobby: daily only).
 // Each tick also does one piece of the threads' quiet-time work. It claims the due rows and fans out one signed request per run, so each run gets its own function invocation.
 import { NextRequest, NextResponse } from "next/server";
-import { claimDue, fanOut } from "@/lib/coderSchedules";
-import { later, selfUrl } from "@/lib/coderSections";
+import { runCoderTick } from "@/lib/coderTick";
 
-export const maxDuration = 60;
+export const maxDuration = 300;   // the quiet-time work (a model call on the free CPU Studio) runs after the answer and needs minutes
 export const dynamic = "force-dynamic";
 
 function authorized(req: NextRequest): boolean {
@@ -16,12 +15,7 @@ function authorized(req: NextRequest): boolean {
 
 async function tick(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const claimed = await claimDue().catch(() => []);
-  const sent = await fanOut(claimed, selfUrl());
-  // quiet-time work of the conversation threads (long-term memories, summaries of long threads): after the answer, one item per tick,
-  // only while the Studio queue is empty and that user is quiet (src/lib/coderThreads.ts)
-  later(() => import("@/lib/coderThreads").then((m) => m.quietWork()).then(() => undefined).catch(() => undefined));
-  return NextResponse.json({ due: claimed.length, sent: sent.filter((x) => x.ok).length, failed: sent.filter((x) => !x.ok).map((x) => x.id) });
+  return NextResponse.json(await runCoderTick());
 }
 export const GET = tick;
 export const POST = tick;

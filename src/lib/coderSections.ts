@@ -675,13 +675,15 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
 }
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
-async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null): Promise<ToolCtx & { tier: Tier }> {
+async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, botId?: string): Promise<ToolCtx & { tier: Tier }> {
   const conn = await resolveConnections(chatId, db);
   return {
     tier: tierFor(chatId),
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
     chatKey: coderChatKey(chatId),
     userId: chatId,
+    botId,
+    tz: st.tz || defaultTz(),
     db,
     githubToken: conn.github?.token || null,
     gh: conn.github ? githubClient(conn.github.token) : null,
@@ -892,7 +894,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       await handOff(botRow, chatId, chain, slot);
       return;
     }
-    const ctx = await toolCtx(chatId, st, db, run);
+    const ctx = await toolCtx(chatId, st, db, run, botRow.id);
     const github = Boolean(ctx.gh);
 
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)

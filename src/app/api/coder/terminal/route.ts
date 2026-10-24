@@ -44,7 +44,8 @@ export async function GET(req: NextRequest) {
         tool: p.calls?.[0]?.function?.name || "", categories: p.categories || [],
         title: run.title || "", slot: run.slot || "", at: p.at || null,
       }] : [];
-      return NextResponse.json({ tasks, pending }, { headers: { "Cache-Control": "no-store" } });
+      const asking = run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;   // the agent waits for the user's answer
+      return NextResponse.json({ tasks, pending, asking }, { headers: { "Cache-Control": "no-store" } });
     }
     const events = await taskEvents(user.id, runId, after);
     return NextResponse.json({ events: events.slice(0, 200) }, { headers: { "Cache-Control": "no-store" } });

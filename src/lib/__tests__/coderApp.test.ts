@@ -154,3 +154,19 @@ describe("ready-made MCP servers", () => {
     expect(JSON.stringify(after)).not.toContain("ghp_x");
   });
 });
+
+describe("deleting one task from the history", () => {
+  it("hides a finished task, never a running one", async () => {
+    const { taskStart, taskStatus } = await import("@/lib/coderTasks");
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    const u = { chatId: USER, tier: "user" as const };
+    await taskStart(USER, { runId: "run-done-1", slot: "", source: "interactive", title: "x" }, db);
+    await taskStart(USER, { runId: "run-live-1", slot: "", source: "interactive", title: "y" }, db);
+    await taskStatus("run-done-1", "failed", 2, db);
+    await expect(appOp(u, "task_delete", { runId: "run-live-1" }, { db, bot, botRow })).rejects.toMatchObject({ status: 409 });
+    expect(await appOp(u, "task_delete", { runId: "run-done-1" }, { db, bot, botRow })).toEqual({ ok: true });
+    await expect(appOp(u, "task_delete", { runId: "run-done-1" }, { db, bot, botRow })).rejects.toMatchObject({ status: 409 });   // already hidden
+    await expect(appOp(u, "task_delete", { runId: "../x" }, { db, bot, botRow })).rejects.toMatchObject({ status: 400 });
+  });
+});

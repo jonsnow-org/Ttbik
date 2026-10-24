@@ -188,7 +188,12 @@ export async function quietWork(db: Db = prismaDb, deps: QuietDeps = {}): Promis
       const chatId = r.chat_enc ? decryptToken(String(r.chat_enc)) : null;
       if (chatId && (process.env.CODER_MEMORY || "").toLowerCase() !== "off") {
         const { extractMemories, studioLlm } = await import("@/lib/coderMemory");
-        await extractMemories(chatId, msgs.slice(-40), { runId: `thread:${r.id}`, llm: deps.llm || studioLlm(35000) }, db).catch(() => null);
+        const base = deps.llm || studioLlm(240000);
+        let answered = false;
+        // the model's answer is what counts: a timeout or an empty answer must not mark the thread as learned from (it is retried next tick)
+        const llm = async (m: CoderMessage[]) => { const out = await base(m); if (String(out || "").trim()) answered = true; return out; };
+        await extractMemories(chatId, msgs.slice(-16), { runId: `thread:${r.id}`, llm }, db).catch(() => null);
+        if (!answered) return `memory ${r.id}: the model gave no answer, will retry`;
       }
       await db.exec(`UPDATE coder_threads SET memory_due = false, memory_at = now() WHERE id = $1`, r.id);
       return `memory ${r.id}`;

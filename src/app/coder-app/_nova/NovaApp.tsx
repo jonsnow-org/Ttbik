@@ -65,6 +65,10 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [sending, setSending] = useState(false);
   const [logsOpen, setLogsOpen] = useState(true);
   const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
+  const [loaded, setLoaded] = useState(false);                 // the first answer of the terminal API arrived (REST link is up)
+  const [asking, setAsking] = useState<{ runId: string; question: string } | null>(null);   // the agent waits for the user's answer
+  const userPicked = useRef(false);                            // the user chose a task by hand: do not jump to another one
+  const activeRef = useRef(0);
   const [notice, setNotice] = useState("");
   const logsRef = useRef<HTMLDivElement | null>(null);
   const loadBusy = useRef(false);
@@ -85,18 +89,36 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       const d = await fetchJson("/api/coder/terminal?limit=40");
       setTasks(d.tasks || []);
       setPending(d.pending || []);
+      setAsking(d.asking || null);
       setSelected((old) => {
         if (fixedRunId) return fixedRunId;
-        const list = d.tasks || [];
-        if (old && list.some((x: Task) => x.run_id === old)) return old;
-        const running = list.find((x: Task) => x.status === "running" || x.status === "waiting" || x.status === "pending");
-        return running?.run_id || list[0]?.run_id || "";
+        const list: Task[] = d.tasks || [];
+        const live = (x: Task) => x.status === "running" || x.status === "waiting" || x.status === "pending";
+        const cur = list.find((x) => x.run_id === old);
+        // a task started from the chat (or the other screen) is followed automatically, unless the user picked one by hand
+        if (cur && (live(cur) || userPicked.current)) return old;
+        const running = list.find(live);
+        return running?.run_id || (cur ? old : list[0]?.run_id || "");
       });
+      setLoaded(true);
       setError("");
     } catch (e: any) { setError(e?.message || "API error"); }
     finally { loadBusy.current = false; }
   }, [fetchJson]);
-  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 10000); return () => clearInterval(id); }, [load]);
+  useEffect(() => {
+    // quick while a task runs (status, approvals, questions), relaxed when idle; always one request at a time
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (stop) return;
+      if (document.visibilityState === "visible") await load();
+      if (!stop) timer = setTimeout(tick, activeRef.current > 0 ? 3000 : 8000);
+    };
+    void tick();
+    const wake = () => document.visibilityState === "visible" && void load();
+    document.addEventListener("visibilitychange", wake);
+    return () => { stop = true; clearTimeout(timer); document.removeEventListener("visibilitychange", wake); };
+  }, [load]);
   useEffect(() => {
     let stopped = false;
     let controller: AbortController | undefined;
@@ -104,8 +126,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     let finished = false;                       // a done/failed event was seen: nothing more will come, stop reconnecting
     cursor.current = 0;
     setEvents([]);
+    if (!selected) { setStreamState("connected"); return; }
     setStreamState("connecting");
-    if (!selected) return;
     const connect = async () => {
       while (!stopped) {
         controller = new AbortController();
@@ -171,6 +193,16 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     if (logsOpen && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [events, logsOpen]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  activeRef.current = active;
+  const selTask = tasks.find((t) => t.run_id === selected);
+  const selLive = !!selTask && (selTask.status === "running" || selTask.status === "waiting");
+  const selDone = !!selTask && !selLive;
+  const link: "connecting" | "reconnecting" | "live" | "online" = !loaded && !error ? "connecting" : error ? "reconnecting" : selLive && streamState === "connected" ? "live" : selLive ? "connecting" : "online";
+  const NOISE = /العامل الخلفي حيّ|جارٍ انتظار أول مخرجات|إرسال الخطوة|استجابة خادم النموذج/;
+  const isNoise = (e: Ev) => e.kind === "info" && NOISE.test(e.text);
+  const lastNoise = [...events].reverse().find(isNoise);
+  const shownEvents = events.filter((e) => !isNoise(e));
+  const askingHere = !!asking && asking.runId === selected;
   const resolveApproval = async (p: Pending, answer: "yes" | "all" | "no") => {
     const key = `${p.runId}:${answer}`;
     setPendingBusy(key);
@@ -202,6 +234,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const stopSelected = async () => {
     const task = tasks.find((t) => t.run_id === selected);
     if (!task || (task.status !== "running" && task.status !== "waiting")) return;
+    if (!window.confirm(ar ? "إيقاف هذه المهمة الآن؟" : "Stop this task now?")) return;
     try {
       const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "stop", runId: selected, slot: task.slot }) });
       const d = await r.json().catch(() => ({}));
@@ -210,8 +243,25 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       await load();
     } catch (e: any) { setError(e?.message || "تعذّر إيقاف المهمة"); }
   };
-  const sendCmd = async () => {
-    const txt = input.trim();
+  const continueTask = async () => {
+    if (!selTask || sending) return;
+    const t = (selTask.title || "").slice(0, 160);
+    await sendCmd(ar ? `تابع المهمة السابقة من حيث توقفت${t ? `: ${t}` : "."}` : `Continue the previous task from where it stopped${t ? `: ${t}` : "."}`);
+  };
+  const deleteSelected = async () => {
+    if (!selTask || !selDone) return;
+    if (!window.confirm(ar ? "حذف هذه المهمة من السجل؟" : "Remove this task from the history?")) return;
+    try {
+      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "task_delete", runId: selTask.run_id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || (ar ? "تعذّر الحذف" : "Could not remove"));
+      userPicked.current = false; cursor.current = 0; setEvents([]); setSelected("");
+      await load();
+      setNotice(ar ? "حُذفت المهمة من السجل." : "Task removed from the history.");
+    } catch (e: any) { setError(e?.message || "تعذّر الحذف"); }
+  };
+  const sendCmd = async (override?: string) => {
+    const txt = (override ?? input).trim();
     if (!txt || sendLock.current) return;
     sendLock.current = true;
     setSending(true);
@@ -226,6 +276,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       if (!r.ok) throw new Error(d.error || "فشل الإرسال");
       setInput("");
       if (d.runId) {
+        userPicked.current = false;                      // follow the task that was just started / answered
         cursor.current = 0;
         setEvents([]);
         setSelected(d.runId);
@@ -238,15 +289,19 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
-        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span style={{ color: streamState === "connected" ? "#5eead4" : streamState === "reconnecting" ? "#fbbf24" : "#94a3b8", fontSize: 10, whiteSpace: "nowrap" }}>{ar ? (streamState === "connected" ? "● اتصال مباشر" : streamState === "reconnecting" ? "↻ إعادة الاتصال" : "◌ جارٍ الاتصال") : (streamState === "connected" ? "● Live" : streamState === "reconnecting" ? "↻ Reconnecting" : "◌ Connecting")}</span>
-          <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
-          {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
-          {tasks.some((t) => t.run_id === selected && (t.status === "running" || t.status === "waiting")) && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "6px 8px", background: "#450a0a", color: "#fecaca", fontSize: 11 }}>{ar ? "إيقاف" : "Stop"}</button>}
+        <div style={{ color: link === "live" ? "#5eead4" : link === "online" ? "#86efac" : link === "reconnecting" ? "#fbbf24" : "#94a3b8", fontSize: 11, whiteSpace: "nowrap", fontWeight: 700 }}>
+          {ar ? (link === "live" ? "● مباشر" : link === "online" ? "● متصل" : link === "reconnecting" ? "↻ إعادة الاتصال…" : "◌ جارٍ الاتصال…") : (link === "live" ? "● Live" : link === "online" ? "● Connected" : link === "reconnecting" ? "↻ Reconnecting…" : "◌ Connecting…")}
         </div>
       </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {selLive && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "7px 10px", background: "#450a0a", color: "#fecaca", fontSize: 12, fontWeight: 700 }}>⏹ {ar ? "إيقاف" : "Stop"}</button>}
+        {selDone && selTask && selTask.status !== "done" && <button type="button" disabled={sending} onClick={() => void continueTask()} style={{ border: "1px solid #166534", borderRadius: 8, padding: "7px 10px", background: "#052e16", color: "#bbf7d0", fontSize: 12, fontWeight: 700 }}>▶ {ar ? "متابعة" : "Continue"}</button>}
+        {selDone && <button type="button" onClick={() => void deleteSelected()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#fca5a5", fontSize: 12 }}>🗑 {ar ? "حذف" : "Delete"}</button>}
+        {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#a5f3fc", fontSize: 12 }}>🧹 {ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
+        <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#a5f3fc", fontSize: 12 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
+      </div>
       {tasks.length > 1 && (
-        <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 8, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 8, fontSize: 13 }}>
+        <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => { userPicked.current = true; setSelected(e.target.value); }} style={{ width: "100%", padding: 8, borderRadius: 8, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 8, fontSize: 13 }}>
           {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 50)} · {t.status}</option>)}
         </select>
       )}
@@ -267,12 +322,19 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
-        {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
+        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
+        {selLive && lastNoise && <div style={{ color: "#64748b", padding: "4px 0" }}>⏳ {lastNoise.text}</div>}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
       </div>}
+      {askingHere && asking && (
+        <div style={{ margin: "10px 0 0", padding: 12, border: "1px solid #38bdf8", borderRadius: 12, background: "#082f49", color: "#e0f2fe" }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>❓ {ar ? "الوكيل ينتظر جوابك" : "The agent is waiting for your answer"}</div>
+          <div dir="auto" style={{ fontSize: 13, whiteSpace: "pre-wrap", overflowWrap: "anywhere", unicodeBidi: "plaintext" }}>{asking.question}</div>
+        </div>
+      )}
       <div dir="ltr" style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "stretch" }}>
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendCmd(); } }} rows={2} placeholder={ar ? "اكتب طلبك… Enter للإرسال، Shift+Enter لسطر جديد" : "Write a task… Enter to send, Shift+Enter for a new line"} style={{ flex: 1, padding: "12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, lineHeight: 1.5, outline: "none", minWidth: 0, minHeight: 56, maxHeight: 140, resize: "vertical", fontFamily: "inherit" }} />
-        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
+        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendCmd(); } }} rows={2} placeholder={askingHere ? (ar ? "اكتب جوابك هنا…" : "Type your answer here…") : (ar ? "اكتب طلبك… Enter للإرسال، Shift+Enter لسطر جديد" : "Write a task… Enter to send, Shift+Enter for a new line")} style={{ flex: 1, padding: "12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, lineHeight: 1.5, outline: "none", minWidth: 0, minHeight: 56, maxHeight: 140, resize: "vertical", fontFamily: "inherit" }} />
+        <button type="button" onClick={() => void sendCmd()} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
       {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
     </div>
@@ -502,7 +564,7 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
         </Card>
         <Head lang={lang} title={n.tools} action={<button type="button" className="n-link" onClick={() => { haptic("light"); open({ k: "connect" }); }}>{n.showAll}</button>} />
         <Card cap={n.toolsSub}>
-          {!conns ? <Loading /> : conns.slice(0, 6).map((x) => (
+          {!conns ? <Loading /> : conns.filter((x) => x.status !== "soon").slice(0, 6).map((x) => (   /* a service that is not set up yet ("soon") is not offered here: it lives in the Connectors page */
             <Row key={x.id} icon={<BrandIcon c={x} />} title={x.name} sub={x.status === "connected" ? `${t.connected}${x.label ? ` · ${x.label}` : ""}` : x.desc[lang]}
               badge={CAT[x.id] ? <span className="n-cat">{n[CAT[x.id]]}</span> : undefined}
               after={x.status === "connected" ? <span className="n-plus n-ok" aria-label={t.connected}>✓</span>
@@ -727,7 +789,7 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section" | "tz">("");
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -745,6 +807,11 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
     try { await api("settings", p); haptic("success"); if (p.lang || p.mode) reload(); } catch { setS(prev); haptic("error"); }
   };
   const closeSheet = useCallback(() => setSheet(""), []);
+  // the time zone decides when weekly usage resets and when scheduled tasks run: a user who never chose one gets the device's own zone
+  const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
+  useEffect(() => { if (!me.settings.tz && deviceTz) void set({ tz: deviceTz }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  const TZS = ["Asia/Damascus", "Asia/Riyadh", "Asia/Baghdad", "Asia/Amman", "Asia/Beirut", "Asia/Dubai", "Africa/Cairo", "Africa/Casablanca", "Europe/Istanbul", "UTC"];
+  const tzItems = [...new Set([deviceTz, ...TZS].filter(Boolean))].map((z) => ({ id: z, label: z, sub: z === deviceTz ? (lang === "ar" ? "منطقة جهازك" : "Your device's zone") : undefined }));
   const acc = s.accuracy || "balanced";
   const themeLabel = { auto: n.th_auto, light: n.th_light, black: n.th_black, oled: n.th_oled }[mode];
   const planLabel = owner ? `∞ ${n.unlimitedOwner}` : b ? b.usage.plan.name[lang] : "…";
@@ -767,7 +834,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
         <Row icon="🌐" title={n.s_lang} value={lang === "ar" ? "العربية" : "English"} onClick={() => setSheet("lang")} />
         <Row icon="🎨" title={n.s_theme} value={themeLabel} onClick={() => setSheet("theme")} />
-        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} />
+        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} onClick={() => setSheet("tz")} />
         {(canAddToHome() || home === "added") && <Row icon="📲" title={n.s_home} value={home === "added" ? "✓" : ""} onClick={home === "added" ? undefined : () => addToHome()} />}
         <Row icon="🔒" title={n.s_bio} sub={bio.ok === false ? t.biometricNo : t.biometricHint}
           after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={bio.on} disabled={bio.ok === false} aria-label={n.s_bio} onChange={async (e) => { const v = e.currentTarget.checked; const ok = await setBio(v); setBioState({ on: v && ok, ok: v ? ok : bio.ok }); haptic(ok ? "success" : "error"); }} /></span>} />
@@ -788,6 +855,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         items={[{ id: "ar" as Lang, label: "العربية" }, { id: "en" as Lang, label: "English" }]} />
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
+      <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
       <Options open={sheet === "section"} title={n.s_section} value={s.mode} onClose={closeSheet} onPick={(v) => set({ mode: v })}
         items={[{ id: "coder" as const, label: t.coder }, { id: "sham" as const, label: t.sham }]} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
