@@ -597,7 +597,10 @@ describe("worker agents: full tools, the user's own permission settings, and the
     const ask = sent.find((s) => /وكيل «دمج» يطلب إذنك/.test(s.text));
     expect(ask).toBeTruthy();
     expect(JSON.stringify(ask!.extra)).toMatch(/ccf\|/);
-    await resolvePending(bot, botRow, CHAT, child.run!.id, child.run!.pending!.nonce, "yes", db);
+    await resolvePending(bot, botRow, CHAT, child.run!.id, child.run!.pending!.nonce, "all", db);
+    // "allow for the rest of the task" given on the agent's card is for the whole task: the parent has it too (checked at once, before the parent finishes)
+    const after = await loadState(CHAT, db);
+    expect([...(after.run?.allowCats || [])]).toContain("merge");
     await new Promise((r) => setTimeout(r, 3500));
     expect(calls.some((c) => c.url.includes("/pulls/5/merge"))).toBe(true);
   }, 20000);

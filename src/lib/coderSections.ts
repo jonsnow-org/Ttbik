@@ -30,7 +30,7 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
-  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -609,7 +609,17 @@ export async function resolvePending(
   run.pending = undefined;
   const [first, ...rest] = pending.calls;
   if (answer !== "no") {
-    if (answer === "all") run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
+    if (answer === "all") {
+      run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
+      if (run.agent && run.parentRunId) {      // the user's "for the rest of the task" on an agent's card is for the whole task
+        const pslot = (await taskSlot(run.parentRunId, chatId, db)) ?? "";
+        const pst = await loadState(chatId, db, pslot);
+        if (pst.run?.id === run.parentRunId) {
+          pst.run.allowCats = [...new Set([...(pst.run.allowCats || []), ...(pending.categories || [])])];
+          await saveState(chatId, pst, db, pslot);
+        }
+      }
+    }
     await send(ioBot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
     await taskEvent(run.id, "approved", `${answer === "all" ? "[rest of task] " : ""}${pending.reason} — ${first.function.name}`, db);
     // Never execute a potentially slow GitHub/sandbox tool inside the 30-second Mini App HTTP request.
@@ -765,6 +775,14 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
 }
 
 /** The live progress card must never stay on "working…" after the task ended: it says so. */
+/** "Allow for the rest of this task" is one thing for the whole task tree: an agent sees what its parent allowed (also later), and what the user allowed on an agent's card reaches the parent (and so its other agents). */
+async function parentAllowCats(chatId: number, run: Run, db: Db): Promise<Category[]> {
+  if (!run.agent || !run.parentRunId) return [];
+  const slot = (await taskSlot(run.parentRunId, chatId, db)) ?? "";
+  const st = await loadState(chatId, db, slot);
+  return st.run?.id === run.parentRunId ? st.run.allowCats || [] : [];
+}
+
 /** A small model sometimes drops Chinese/Japanese/Korean words into an Arabic or English answer (seen in the owner's tests). Removed char by char (so a streamed prefix stays a prefix) when the user wrote in neither. */
 const FOREIGN_RX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]/g;
 export function stripForeignScript(text: string, userText: string): string {
@@ -1024,7 +1042,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       // permissions: tier defaults + the user's own policy (coder_permission_prefs) + "allow for the rest of this task"
-      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), run.allowCats || []);
+      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), [...new Set([...(run.allowCats || []), ...(await parentAllowCats(chatId, run, db))])]);
       if (g.action === "deny") {
         await taskEvent(run.id, "auto_denied", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
         await send(ioBot, chatId, `⛔ رُفض تلقائياً حسب إعداداتك: ${g.reason}\n${call.function.name}`);
@@ -1559,7 +1577,7 @@ async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, par
     const slot = agentSlot(run.id, i);
     const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
     // an agent inherits the parent's settings: the same permission rules (through the parent's context) and what the user already allowed for this task
-    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, agentDepth: (run.agent ? run.agentDepth || 1 : 0) + 1, parentCtx: contextOf(run), allowCats: run.allowCats, title: tasks[i].title, goal: tasks[i].task }, db);
+    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, agentDepth: (run.agent ? run.agentDepth || 1 : 0) + 1, parentCtx: contextOf(run), parentRunId: run.id, allowCats: run.allowCats, title: tasks[i].title, goal: tasks[i].task }, db);
     await saveState(chatId, st, db, slot);
     later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS, slot));
     slots.push(slot);
