@@ -37,20 +37,58 @@ export function summaryRequest(goal: string, segment: number): CoderMessage {
   };
 }
 
-/** If the model's summary is unusable, the harness writes one from what it knows (never blocks the task). */
+/** One line for a tool call: its name and the argument that says what it looked at (query, url, repo:path, command). */
+function callLine(name: string, argsJson: string): string {
+  let a: Record<string, unknown> = {};
+  try { a = JSON.parse(argsJson || "{}") || {}; } catch { /* keep empty */ }
+  const what = a.query ?? a.question ?? a.url ?? (a.repo ? `${a.repo}${a.path ? `:${a.path}` : ""}` : undefined) ?? a.command ?? a.path ?? a.text ?? a.title;
+  return `${name}${what !== undefined ? `: ${String(what).replace(/\s+/g, " ").slice(0, 160)}` : ""}`;
+}
+
+/** The facts a tool result carried, shortened: a read page keeps its opening, a search its top lines, a file its head. */
+function resultExcerpt(name: string, content: string): string {
+  const t = (content || "").replace(/\r/g, "").trim();
+  if (!t || /^error|^DENIED|^NOT PERMITTED/i.test(t)) return "";
+  const n = /^(fetch_page|web_fetch|deep_research)$/.test(name) ? 700 : /^(web_search|github_search_repos|github_search_code)$/.test(name) ? 450 : /^(github_read_file|sandbox_read_file)$/.test(name) ? 300 : /^(sandbox_exec|sandbox_wait)$/.test(name) ? 500 : 200;
+  return t.slice(0, n).replace(/\n{2,}/g, "\n");
+}
+
+/**
+ * If the model's own summary is unusable, the harness writes one from what happened (never blocks the task). It must carry the FACTS, not
+ * just the names of the tools used: a fresh segment that only knows "web_search, fetch_page, …" repeats the same searches from scratch.
+ */
 export function fallbackSummary(goal: string, msgs: CoderMessage[], touched: string[], notes: string): string {
-  const calls: string[] = [];
-  for (const m of msgs) for (const c of ((m as any).tool_calls || []) as any[]) if (c?.function?.name) calls.push(c.function.name);
+  const byId = new Map<string, { name: string; line: string }>();
+  const done: string[] = [];
+  for (const m of msgs) for (const c of ((m as any).tool_calls || []) as any[]) {
+    if (!c?.function?.name) continue;
+    const line = callLine(c.function.name, c.function.arguments);
+    done.push(line);
+    if (c.id) byId.set(c.id, { name: c.function.name, line });
+  }
+  const finds: string[] = [];
+  for (const m of msgs) {
+    if (m.role !== "tool") continue;
+    const meta = byId.get((m as any).tool_call_id || "");
+    const ex = resultExcerpt(meta?.name || (m as any).name || "tool", m.content || "");
+    if (ex && meta && !/^(load_tools|memory_note|memory_save|memory_search|ask_user)$/.test(meta.name)) finds.push(`• ${meta.line}\n  ${ex.replace(/\n/g, "\n  ")}`);
+  }
+  const reasoning = msgs.filter((m) => m.role === "assistant" && (m.content || "").trim().length > 80).slice(-3).map((m) => (m.content || "").trim().slice(0, 700));
   const lastText = [...msgs].reverse().find((m) => m.role === "assistant" && (m.content || "").trim())?.content || "";
+  // newest findings first matter most; keep the block bounded so the summary stays a summary
+  let budget = 6500;
+  const kept: string[] = [];
+  for (const f of finds.reverse()) { if (f.length > budget) continue; budget -= f.length; kept.push(f); }
   return [
     `GOAL:\n${goal.slice(0, 3000) || "(see the request above)"}`,
     `PLAN:\n${notes.slice(-1500) || "(re-plan from the goal)"}`,
-    `DONE:\n${calls.length} tool calls so far; recent: ${calls.slice(-15).join(", ") || "none"}`,
-    `REMAINING:\nCheck the current state of the files below against the goal and finish what is missing.`,
+    `DONE:\n(${done.length} tool calls; do NOT repeat these searches/pages, build on what they gave)\n${done.slice(-40).map((d) => `- ${d}`).join("\n") || "none"}`,
+    `FINDINGS SO FAR (what the tools returned, newest first):\n${kept.join("\n") || "(nothing useful was returned yet)"}`,
+    reasoning.length ? `YOUR OWN CONCLUSIONS SO FAR:\n${reasoning.reverse().join("\n---\n")}` : "",
+    `REMAINING:\nCompare what was found with the goal and finish what is missing; when enough is found, STOP searching and write the final answer.`,
     `KEY FILES:\n${touched.join("\n") || "(none recorded)"}`,
-    `DECISIONS:\n(not recorded)`,
-    `NEXT STEP:\n${lastText.slice(-1200) || "Re-read the key files and continue."}`,
-  ].join("\n\n");
+    `NEXT STEP:\n${lastText.slice(-1200) || "Use the findings above to continue."}`,
+  ].filter(Boolean).join("\n\n");
 }
 
 export function usableSummary(text: string): boolean {

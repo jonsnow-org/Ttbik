@@ -28,6 +28,28 @@ describe("segments: pure parts", () => {
     expect(msgChars([{ role: "assistant", content: "ab", tool_calls: [call("1", "t", {})] } as any])).toBeGreaterThan(2);
   });
 
+  it("the harness summary carries what the tools FOUND (pages, searches, files), not only their names, so the next segment does not start the research over", () => {
+    const msgs: any[] = [
+      { role: "user", content: "ابحث عن مشاريع بوتات تلجرام" },
+      { role: "assistant", content: "", tool_calls: [call("a1", "web_search", { query: "telegram bot ai gateway github" })] },
+      { role: "tool", tool_call_id: "a1", name: "web_search", content: "1. sm1ck/awesome-telegram-ai-bots — curated list\n2. habr article on bot queues" },
+      { role: "assistant", content: "", tool_calls: [call("a2", "fetch_page", { url: "https://github.com/sm1ck/awesome-telegram-ai-bots" })] },
+      { role: "tool", tool_call_id: "a2", name: "fetch_page", content: "# awesome-telegram-ai-bots\nHoneyChat uses Redis queues and retries sendMessage with backoff on 429." },
+      { role: "assistant", content: "", tool_calls: [call("a3", "fetch_page", { url: "https://bad.example" })] },
+      { role: "tool", tool_call_id: "a3", name: "fetch_page", content: "error: could not read https://bad.example: timeout" },
+      { role: "assistant", content: "الخلاصة المبدئية: أغلب المشاريع تستعمل طوابير Redis وإعادة المحاولة مع تأخر متزايد عند خطأ 429 في تلجرام.", tool_calls: [] },
+    ];
+    const fb = fallbackSummary("ابحث عن مشاريع بوتات تلجرام", msgs, [], "");
+    expect(usableSummary(fb)).toBe(true);
+    expect(fb).toContain("web_search: telegram bot ai gateway github");
+    expect(fb).toContain("fetch_page: https://github.com/sm1ck/awesome-telegram-ai-bots");
+    expect(fb).toMatch(/HoneyChat uses Redis queues and retries sendMessage with backoff on 429/);   // the finding itself
+    expect(fb).toMatch(/sm1ck\/awesome-telegram-ai-bots — curated list/);                          // the search's top lines
+    expect(fb).not.toContain("could not read https://bad.example: timeout");                           // errors are not facts
+    expect(fb).toMatch(/YOUR OWN CONCLUSIONS SO FAR:[\s\S]*طوابير Redis/);
+    expect(fb.length).toBeLessThan(12000);
+  });
+
   it("summary request names every section; usable summaries are recognised; the fallback covers goal, files and next step", () => {
     const q = summaryRequest("fix the CI", 2).content;
     for (const h of ["GOAL:", "PLAN:", "DONE:", "REMAINING:", "KEY FILES:", "DECISIONS:", "NEXT STEP:"]) expect(q).toContain(h);
