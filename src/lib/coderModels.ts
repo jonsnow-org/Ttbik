@@ -3,6 +3,7 @@
 // branch training/nova1) and "Sham" are listed but hidden until the owner turns them on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { prismaDb, type Db } from "@/lib/coderAuth";
+import { providerReady } from "@/lib/coderProvider";
 
 export type CoderModel = {
   id: string;
@@ -11,6 +12,7 @@ export type CoderModel = {
   price_stars: number | null;          // null or 0 = no extra charge
   visible: boolean;                    // owner switch: shown to users
   isDefault?: boolean;
+  ownerOnly?: boolean;                 // never offered to users, whatever the visible switch says (Sham, Nova Pro)
   serveEnv?: string;                   // the env var that will hold its serving address (owner-side only)
   sort: number;
 };
@@ -18,7 +20,8 @@ export type CoderModel = {
 export const DEFAULT_MODELS: CoderModel[] = [
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "النموذج الحالي، متاح للجميع.", en: "The current model, for everyone." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
   { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نموذج برمجة عربي مُدرَّب خصيصاً (قيد التحضير).", en: "Our Arabic-tuned coding model (in preparation)." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 1 },
-  { id: "sham", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذج شام.", en: "The Sham model." }, price_stars: null, visible: false, serveEnv: "SHAM_MODEL_URL", sort: 2 },
+  { id: "sham", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذج شام.", en: "The Sham model." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 2 },
+  { id: "nova_pro", name: { ar: "نوفا برو", en: "Nova Pro" }, desc: { ar: "نموذج أقوى للمهام الصعبة (للمالك فقط).", en: "A stronger model for hard tasks (owner only)." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "NOVA_PRO_MODEL", sort: 3 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -48,7 +51,7 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
         ...base,
         name: { ar: String(d.name?.ar || base.name.ar).slice(0, 40), en: String(d.name?.en || base.name.en).slice(0, 40) },
         price_stars: d.price_stars === undefined ? base.price_stars : cleanStars(d.price_stars),
-        visible: base.isDefault ? true : d.visible === undefined ? base.visible : Boolean(d.visible),
+        visible: base.isDefault ? true : base.ownerOnly ? false : d.visible === undefined ? base.visible : Boolean(d.visible),
       });
     }
   } catch {
@@ -63,7 +66,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   if (!cur) throw new Error("unknown model");
   const next: CoderModel = {
     ...cur,
-    visible: cur.isDefault ? true : patch.visible === undefined ? cur.visible : Boolean(patch.visible),
+    visible: cur.isDefault ? true : cur.ownerOnly ? false : patch.visible === undefined ? cur.visible : Boolean(patch.visible),
     price_stars: patch.price_stars === undefined ? cur.price_stars : cleanStars(patch.price_stars),
     name: { ar: String(patch.name?.ar ?? cur.name.ar).slice(0, 40), en: String(patch.name?.en ?? cur.name.en).slice(0, 40) },
   };
@@ -78,18 +81,29 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 /** The model a chat may use: its pick if still visible (the owner may use hidden ones to test), else the default. */
 export function effectiveModel(models: CoderModel[], picked: string | undefined, owner: boolean): CoderModel {
   const m = models.find((x) => x.id === picked);
-  if (m && (m.visible || owner)) return m;
+  if (m && (owner || (m.visible && !m.ownerOnly))) return m;
   return models.find((x) => x.isDefault) || models[0];
 }
 
 export type PublicModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
 export function publicModels(models: CoderModel[], picked: string | undefined): PublicModel[] {
   const sel = effectiveModel(models, picked, false).id;
-  return models.filter((m) => m.visible).map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, selected: m.id === sel }));
+  return models.filter((m) => m.visible && !m.ownerOnly).map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, selected: m.id === sel }));
 }
 
 /** Owner view: every model, its switch, its price, and whether its serving address is set (never the address itself). */
 export function ownerModels(models: CoderModel[], picked: string | undefined) {
   const sel = effectiveModel(models, picked, true).id;
-  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: m.isDefault ? true : Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim()) }));
+  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: m.isDefault || m.id === "sham" ? true : m.id === "nova_pro" ? providerReady("nova_pro") : Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim()) }));
+}
+
+/** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of
+ *  truth, and the old Nova/Sham section follows from it. Returns false when this person may not use that model. */
+export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
+  const m = models.find((x) => x.id === id);
+  if (!m || !(owner || (m.visible && !m.ownerOnly))) return false;
+  if (m.id === "nova_pro" && !providerReady("nova_pro")) return false;     // not set up yet: it cannot be chosen
+  st.model = m.id;
+  st.mode = m.id === "sham" ? "sham" : "coder";
+  return true;
 }

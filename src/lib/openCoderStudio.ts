@@ -6,6 +6,7 @@
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { providerConfig, providerChat, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
   | { role: "system" | "user"; content: string }
@@ -161,9 +162,12 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
+  const prov = providerConfig(opts.model);                       // a hand-picked API model (Nova Pro); everything else is our Studio
+  if (opts.model === "nova_pro" && !prov) return Promise.resolve({ reply: null, failure: "off" });   // chosen by hand but not set up: say so, never answer from another model
+  if (prov) return providerChat(prov, messages, { tools: opts.tools, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0, 240000) });
   return coderCall(
     "chat",
     {
@@ -179,6 +183,7 @@ export function coderChat(
 }
 
 export function coderJobResult(job: string, offset = 0, timeoutMs = 10000): Promise<CoderOutcome> {
+  if (job.startsWith(PROVIDER_JOB_PREFIX)) return Promise.resolve({ reply: { type: "gone", job } });   // an API answer is never polled; it was consumed inline
   return coderCall("job_result", { job_id: job, offset }, timeoutMs);
 }
 export function coderCancel(job: string, timeoutMs = 8000): Promise<CoderOutcome> {

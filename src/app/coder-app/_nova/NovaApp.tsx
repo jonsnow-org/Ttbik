@@ -383,7 +383,7 @@ function Card({ title, cap, children, className = "" }: { title?: string; cap?: 
 function Head({ lang, title, action }: { lang: Lang; title: string; action?: React.ReactNode }) {
   return <div className="n-h" lang={lang}><h2>{title}</h2>{action}</div>;
 }
-/** Option list in a bottom sheet (theme, language, accuracy, section). */
+/** Option list in a bottom sheet (theme, language, accuracy). */
 function Options<T extends string>({ open, title, value, items, onPick, onClose }: {
   open: boolean; title: string; value: T; items: { id: T; label: string; sub?: string; icon?: string }[]; onPick: (v: T) => void; onClose: () => void;
 }) {
@@ -789,7 +789,7 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section" | "tz">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz">("");
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -804,7 +804,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   const set = async (p: Partial<Me["settings"]>) => {
     const prev = s;
     setS({ ...s, ...p });
-    try { await api("settings", p); haptic("success"); if (p.lang || p.mode) reload(); } catch { setS(prev); haptic("error"); }
+    try { await api("settings", p); haptic("success"); if (p.lang) reload(); } catch { setS(prev); haptic("error"); }
   };
   const closeSheet = useCallback(() => setSheet(""), []);
   // the time zone decides when weekly usage resets and when scheduled tasks run: a user who never chose one gets the device's own zone
@@ -823,7 +823,6 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.think} aria-label={n.s_think} onChange={(e) => set({ think: e.currentTarget.checked })} /></span>} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
-        {me.features?.sham && <Row icon="🗂" title={n.s_section} value={s.mode === "sham" ? t.sham : t.coder} onClick={() => setSheet("section")} />}
       </Card>
       <Card title={n.g_profile}>
         <Row icon="👤" title={n.s_mem} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />
@@ -856,8 +855,6 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
-      <Options open={sheet === "section"} title={n.s_section} value={s.mode} onClose={closeSheet} onPick={(v) => set({ mode: v })}
-        items={[{ id: "coder" as const, label: t.coder }, { id: "sham" as const, label: t.sham }]} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
     </div>
   );

@@ -174,6 +174,8 @@ def main():
     for i, r in enumerate(rows, 1):
         avg = lambda xs: (sum(xs) / len(xs)) if xs else 0
         print(f"| {i} | {r['model']} | {r['tool']}/{len(TOOL_CASES)} | {r['code']}/{len(CODE_TASKS)} | {avg(r['ttft']):.1f}s | {avg(r['tps']):.0f} | {', '.join(sorted(set(r['errors']))) or '-'} |")
+    if not any(r["ttft"] for r in rows):
+        sys.exit("no model answered at all (" + ", ".join(sorted({e for r in rows for e in r["errors"]})) + "): this is not a ranking; check the token / API-Inference access of the account")
 
 if __name__ == "__main__":
     main()

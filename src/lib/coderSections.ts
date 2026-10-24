@@ -15,6 +15,7 @@ import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, code
 import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
+import { chooseModel } from "@/lib/coderModels";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -293,12 +294,12 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       return true;
     }
     const st = await loadState(chatId, db);
-    if (data === "cmode|sham" && !owner) {
-      await bot.api.answerCallbackQuery(cq.id, { text: "هذا القسم غير متاح حالياً." }).catch(() => null);
-      return true;
-    }
     if (data.startsWith("cmode|")) {
-      st.mode = data === "cmode|sham" ? "sham" : "coder";
+      const { listModels } = await import("@/lib/coderModels");
+      if (!chooseModel(st, await listModels(db), data.slice(6) === "sham" ? "sham" : "coder", owner)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "هذا القسم غير متاح حالياً." }).catch(() => null);
+        return true;
+      }
       await saveState(chatId, st, db);
       await bot.api.answerCallbackQuery(cq.id, { text: st.mode === "coder" ? "💻 قسم Nova AI" : "🧪 قسم شام" }).catch(() => null);
       await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: modeKeyboard(st.mode) }).catch(() => null);
@@ -336,8 +337,9 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  if (st.mode === "sham" && tierFor(chatId) !== "owner") {
-    st.mode = "coder";                                        // the Sham section is the owner's only
+  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro")) {
+    st.mode = "coder";                                        // Sham and Nova Pro are the owner's only
+    if (st.model === "sham" || st.model === "nova_pro") st.model = undefined;
     await saveState(chatId, st, db);
   }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
@@ -1199,7 +1201,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: st.model, tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {

@@ -16,7 +16,7 @@ describe("coder models", () => {
   it("the current model is the default and visible; Nova 1 and Sham are hidden until the owner turns them on", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "nova1", "sham"]);
+    expect(all.map((m) => m.id)).toEqual(["coder", "nova1", "sham", "nova_pro"]);
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "nova1", false).id).toBe("coder");          // a user cannot use a hidden one
     expect(effectiveModel(all, "nova1", true).id).toBe("nova1");           // the owner can try it
@@ -28,6 +28,13 @@ describe("coder models", () => {
     await updateModel("coder", { visible: false }, db);                    // the default cannot be hidden
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(true);
     await expect(updateModel("nope", { visible: true }, db)).rejects.toThrow();
-    expect(ownerModels(after, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: false, ready: false });
+    expect(ownerModels(after, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: false, ready: true });
+    // Sham and Nova Pro are the owner's only: the visible switch can never show them to users
+    await updateModel("sham", { visible: true }, db);
+    await updateModel("nova_pro", { visible: true }, db);
+    const again = await listModels(db);
+    expect(publicModels(again, "sham").map((m) => m.id)).toEqual(["coder", "nova1"]);
+    expect(effectiveModel(again, "nova_pro", false).id).toBe("coder");
+    expect(effectiveModel(again, "nova_pro", true).id).toBe("nova_pro");
   });
 });

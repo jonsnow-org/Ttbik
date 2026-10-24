@@ -99,7 +99,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const owner = user.tier === "owner";
       return {
         tier: user.tier,
-        settings: { mode: owner ? st.mode : "coder", think: st.think, accuracy: isAccuracy(st.accuracy) ? st.accuracy : "balanced", lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        settings: { model: st.model || "coder", think: st.think, accuracy: isAccuracy(st.accuracy) ? st.accuracy : "balanced", lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -109,14 +109,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "settings": {
       const st = await loadState(chatId, db);
-      if (body.mode === "coder" || (body.mode === "sham" && user.tier === "owner")) st.mode = body.mode;
       if (typeof body.think === "boolean") st.think = body.think;
       if (isAccuracy(body.accuracy)) st.accuracy = body.accuracy;
       if (typeof body.model === "string") {
-        // a user may pick only a model the owner made visible; the owner may also pick hidden ones to try them
-        const { listModels } = await import("@/lib/coderModels");
-        const m = (await listModels(db)).find((x) => x.id === body.model);
-        if (m && (m.visible || user.tier === "owner")) st.model = m.id;
+        // the one place a model is chosen: a user may pick only what the owner made visible; Sham and Nova Pro are the owner's only
+        const { listModels, chooseModel } = await import("@/lib/coderModels");
+        if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
       }
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
