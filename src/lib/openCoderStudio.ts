@@ -73,6 +73,7 @@ export function parseCoderSse(body: string): CoderReply | null {
 
 /** Which Studio last answered a conversation: llama.cpp keeps the conversation's prompt cache per Studio, so the next step goes back to it when it is free (a different Studio would read the whole context again, ~2 minutes on a free CPU). */
 const lastStudio = new Map<string, string>();
+let pickLock: Promise<void> = Promise.resolve();
 const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
 const rememberStudio = (key: string, base: string) => { lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
@@ -88,7 +89,12 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
   let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
-  if (api === "chat" && bases.length > 1) { order = await idleFirst(order, affinity ? lastStudio.get(affinity) : undefined); recentPick.set(order[0].b, Date.now()); }
+  if (api === "chat" && bases.length > 1) {
+    // choosing is one at a time: calls that start together (parallel agents / report sections) must not all see the same Studio idle
+    const turn = pickLock.then(async () => { const o = await idleFirst(order, affinity ? lastStudio.get(affinity) : undefined); recentPick.set(o[0].b, Date.now()); return o; });
+    pickLock = turn.then(() => undefined, () => undefined);
+    order = await turn;
+  }
   let last: CoderOutcome = { reply: null, failure: "network" };
   const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
   for (const { b, i } of order.slice(0, 2)) {

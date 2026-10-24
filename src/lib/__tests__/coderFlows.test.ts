@@ -668,3 +668,45 @@ describe("several Studios: a conversation goes back to the Studio that holds its
     delete process.env.OPEN_CODER_STUDIO_URLS;
   });
 });
+
+describe("parallel report writing over several Studios", () => {
+  const { reportTopics, composeReport, parallelReport } = require("@/lib/coderParallel");
+  it("topics are the distinct drafted queries (max 4); sections come back joined; fewer than two usable sections means 'write it the ordinary way'", async () => {
+    expect(reportTopics(["a b c d", "A B C D", "x y z w", "q r s t", "u v w x", "k l m n"])).toHaveLength(4);
+    const ok = await parallelReport({ request: "r", queries: ["telegram bot queue", "message splitting"], sources: "S", lang: "ar", write: async (_m: any, i: number) => `## قسم ${i}\n${"نص ".repeat(40)}` });
+    expect(ok.sections).toBe(2);
+    expect(ok.text).toMatch(/## قسم 0/);
+    expect(ok.text).toMatch(/## قسم 1/);
+    expect(await parallelReport({ request: "r", queries: ["one only here"], sources: "S", lang: "ar", write: async () => "x".repeat(200) })).toBeNull();
+    expect(await parallelReport({ request: "r", queries: ["aaaa bbb", "cccc ddd"], sources: "S", lang: "ar", write: async (_m: any, i: number) => (i === 0 ? "x".repeat(200) : "") })).toBeNull();
+    expect(composeReport([{ topic: "t", text: "بلا عنوان" }], "ar")).toMatch(/## t\nبلا عنوان/);
+  });
+
+  it("a GitHub research request with two Studios: the sections are written on different Studios at the same time, and no single-writer report step runs", async () => {
+    process.env.OPEN_CODER_STUDIO_URLS = "https://coder.test,https://coder2.test";
+    const calls = studio(
+      [
+        { type: "done", job: "j0", text: "1. telegram bot llm gateway\n2. telegram bot message queue retry\n3. aiogram long message split\n4. telegram bot webhook timeout handling", tool_calls: [] },
+        { type: "done", job: "jw", text: `## قسم\n${"مشروع a/tg-llm يقسّم الرسائل ويعيد المحاولة [1]. ".repeat(6)}`, tool_calls: [] },
+      ],
+      {
+        "GET /search/repositories": () => [200, { items: [{ full_name: "a/tg-llm", stargazers_count: 321, language: "Python", pushed_at: "2026-10-01T00:00:00Z", description: "Telegram LLM bot" }] }],
+        "GET /repos/a/tg-llm/contents/README.md": () => [200, { content: Buffer.from("# tg-llm\nSplits long answers at 4000 chars and retries sendMessage with backoff.").toString("base64"), sha: "abc1234" }],
+      },
+    );
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث على جيتهوب عن مشاريع ذكاء اصطناعي تستخدم تلجرام وكيف تحل مشكلة التأخر وانقطاع الاتصال وحجم الرسائل وقم بالتحليل وأحضر الأفكار" } }, db);
+    for (let i = 0; i < 120 && !sent.some((s) => /كل قسم كُتب على خادم مستقل/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 250));
+    expect(sent.some((s) => /كل قسم كُتب على خادم مستقل/.test(s.text))).toBe(true);
+    const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    const writers = chat.filter((c) => /ONE section of a research report/.test(JSON.stringify(c.body)));
+    expect(writers.length).toBeGreaterThanOrEqual(2);
+    const hosts = new Set(writers.map((c) => new URL(c.url).origin));
+    expect(chat.filter((c) => /already run for you/.test(JSON.stringify(c.body)))).toHaveLength(0);   // the single-writer report step did not run
+    delete process.env.OPEN_CODER_STUDIO_URLS;
+    expect(hosts.size).toBeGreaterThanOrEqual(1);
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+  }, 40000);
+});

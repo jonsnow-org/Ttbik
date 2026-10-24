@@ -11,11 +11,12 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { ACCURACY_TEMPERATURE, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
+import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
@@ -1362,6 +1363,26 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           st.messages.push({ role: "assistant", content: "", tool_calls: [{ id: "pre_gh", type: "function" as const, function: { name: "github_search_repos", arguments: JSON.stringify({ query: queries[0] || q, sort: "stars" }) } }] }, { role: "tool", content: text, tool_call_id: "pre_gh", name: "github_search_repos" });
         }
         const thin = !ghFound && out.length < 700 || /no (?:usable )?sources|لم يُعثر/i.test(out.slice(0, 400));
+
+        // Several Studios and real sources: the independent SECTIONS of the report are written at the same time, one per Studio (coderParallel.ts), instead of one Studio writing it all
+        if (!thin && (!st.model || st.model === "coder") && parallelEnabled(coderStudioUrls().length)) {
+          await taskEvent(run.id, "info", `✍️ كتابة التقرير بالتوازي: ${Math.min(coderStudioUrls().length, SECTIONS_MAX)} أقسام على خوادم مستقلة.`, db);
+          const srcText = st.messages.filter((m) => m.role === "tool").map((m) => String(m.content || "")).join("\n\n");
+          const pr = await withHeartbeat(ioBot, chatId, run, "كتابة التقرير بالتوازي", () => parallelReport({ request: q, queries, sources: srcText, lang: st.lang === "en" ? "en" : "ar", write: studioWriter(`${chatId}:${run.id}`) }));
+          if (pr) {
+            st.messages.push({ role: "assistant", content: pr.text });
+            await sendParts(run.surface === "app" ? bot : ioBot, chatId, pr.text, run, true, db);
+            await taskEvent(run.id, "info", `✍️ كُتب التقرير من ${pr.sections} أقسام بالتوازي.`, db);
+            if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
+            if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
+              const snap = [...st.messages], id = run.id, steps = run.step;
+              later(() => import("@/lib/coderLessons").then((mm) => mm.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
+            }
+            await endRun(st, "done", db, "✓", coderChatKey(chatId));
+            await saveState(chatId, st, db, slot);
+            return;
+          }
+        }
         st.messages.push({ role: "user", content: thin
           ? "[harness] The research above found little or nothing. Do NOT invent names or facts. Run at most two precise web_search queries, then answer only from what they return; if still nothing, say plainly what you could not find."
           : "[harness] The research above was already run for you. Write the final answer / report NOW from these sources (cite them by number, in the user's language). Use only what the sources say; if they are not enough, say exactly what is missing; at most one more search." });
