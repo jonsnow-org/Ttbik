@@ -540,3 +540,17 @@ describe("announce-only replies", () => {
     expect(calls.filter((c) => c.url.includes("/gradio_api/call/") && !c.url.includes("/v2/")).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("stop notice placement", () => {
+  it("a stopped task removes the progress card at the top and says so in a NEW last message", async () => {
+    studio([{ type: "cancelled", job: "j1" }]);
+    const db = fakeDb();
+    const { bot, sent, api } = fakeBot();
+    const r: any = { ...run("st1"), progress: { msgId: 55, lines: ["📥 تم استلام الطلب"] } };
+    await saveState(CHAT, st0("اشرح لي الفكرة", r), db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect(api.deleteMessage).toHaveBeenCalledWith(CHAT, 55);
+    expect(sent[sent.length - 1].text).toMatch(/أُوقفت المهمة/);
+    expect(api.editMessageText).not.toHaveBeenCalledWith(CHAT, 55, expect.stringMatching(/أُوقفت/));
+  });
+});

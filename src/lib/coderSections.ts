@@ -759,10 +759,16 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
 }
 
 /** The live progress card must never stay on "working…" after the task ended: it says so. */
-async function closeCard(bot: TelegramBot, chatId: number, run: Run | null | undefined, text: string): Promise<void> {
+async function closeCard(bot: TelegramBot, chatId: number, run: Run | null | undefined, text: string, atEnd = false): Promise<void> {
   const mid = run?.progress?.msgId;
   if (!mid) return;
   run!.progress = undefined;
+  if (atEnd) {
+    // a stop / failure notice belongs AFTER the replies already shown, not in the card at the top of the conversation: the card goes, the notice is a new last message
+    await (bot.api as any).deleteMessage?.(chatId, mid)?.catch?.(() => null);
+    await (bot.api as any).sendMessage?.(chatId, text)?.catch?.(() => null);
+    return;
+  }
   await (bot.api as any).editMessageText?.(chatId, mid, text)?.catch?.(() => null);
 }
 
@@ -1121,7 +1127,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
-        await closeCard(ioBot, chatId, run, r?.type === "cancelled" ? "⏹️ أُوقفت المهمة." : "❌ توقفت المهمة بسبب خطأ من خادم النموذج.");
+        await closeCard(ioBot, chatId, run, r?.type === "cancelled" ? "⏹️ أُوقفت المهمة." : "❌ توقفت المهمة بسبب خطأ من خادم النموذج.", true);
         await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
         await saveState(chatId, st, db, slot);
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
@@ -1389,7 +1395,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
     }
     if (!r || !r.job) {
-      await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.");
+      await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.", true);
       await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       await send(ioBot, chatId, userFailureText(o, chatId));

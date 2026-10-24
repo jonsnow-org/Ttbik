@@ -129,6 +129,7 @@ export function fakeBot() {
     answerCallbackQuery: jest.fn(async () => ({})),
     editMessageReplyMarkup: jest.fn(async () => ({})),
     editMessageText: jest.fn(async () => ({})),
+    deleteMessage: jest.fn(async () => true),
   };
   return { bot: { api } as any, sent, api };
 }
