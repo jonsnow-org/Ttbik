@@ -1,3 +1,4 @@
+import { MCP_PRESETS } from "@/lib/coderConnectors";
 import { appOp, AppError, oauthStartUrl, signState, verifyState } from "@/lib/coderApp";
 import { drive, loadState, saveState } from "@/lib/coderSections";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -147,23 +148,51 @@ describe("mini app api", () => {
 
 describe("ready-made MCP servers", () => {
   it("lists the catalog, adds one in a tap, needs a token only where the server does, and shows what is added", async () => {
+    MCP_PRESETS.push({ id: "needs-token", name: "Needs Token", url: "https://mcp.needs-token.example/mcp", token: "required", desc: { ar: "x", en: "x" } });   // a server that needs a token
+    try {
+      const db = fakeDb();
+      const { bot } = fakeBot();
+      const ctx = { db, bot, botRow, fetchImpl: (async () => new Response("{}")) as any };
+      const u = { chatId: USER, tier: "user" as const };
+      const first = await appOp(u, "connectors", {}, ctx);
+      expect(first.presets.map((p: any) => p.id)).toEqual(expect.arrayContaining(["deepwiki", "context7", "mslearn"]));
+      expect(first.presets.map((p: any) => p.id)).not.toContain("github-mcp");                // GitHub is one connector, not two
+      expect(first.presets.every((p: any) => p.added === false)).toBe(true);
+      expect(JSON.stringify(first.presets)).not.toMatch(/https:\/\//);                       // the catalog view carries no address or secret
+      await expect(appOp(u, "mcp_add", { preset: "nope" }, ctx)).rejects.toBeInstanceOf(AppError);
+      await expect(appOp(u, "mcp_add", { preset: "needs-token" }, ctx)).rejects.toMatchObject({ status: 400 });   // token required
+      await appOp(u, "mcp_add", { preset: "deepwiki", url: "https://evil.example/mcp" }, ctx);                    // the preset's own address wins
+      await appOp(u, "mcp_add", { preset: "needs-token", token: "ghp_x" }, ctx);
+      const after = await appOp(u, "connectors", {}, ctx);
+      expect(after.presets.find((p: any) => p.id === "deepwiki").added).toBe(true);
+      expect(after.presets.find((p: any) => p.id === "needs-token").added).toBe(true);
+      expect(after.mcp.map((m: any) => m.url)).toEqual(expect.arrayContaining(["https://mcp.deepwiki.com", "https://mcp.needs-token.example"]));
+      expect(JSON.stringify(after)).not.toContain("ghp_x");
+    } finally {
+      MCP_PRESETS.pop();
+    }
+  });
+});
+
+describe("connectors tab: one list, every service linkable", () => {
+  it("every service shows how it can be linked; only the owner sees the sign-in setup; a token links through connector_link", async () => {
     const db = fakeDb();
     const { bot } = fakeBot();
-    const ctx = { db, bot, botRow, fetchImpl: (async () => new Response("{}")) as any };
+    const f = (async (url: string, init: any) => (url === "https://api.vercel.com/v2/user" && init?.headers?.Authorization === "Bearer vercel-token-ok-1" ? new Response(JSON.stringify({ user: { username: "ahmad" } })) : new Response("{}", { status: 401 }))) as any;
+    const ctx = { db, bot, botRow, fetchImpl: f };
     const u = { chatId: USER, tier: "user" as const };
-    const first = await appOp(u, "connectors", {}, ctx);
-    expect(first.presets.map((p: any) => p.id)).toEqual(expect.arrayContaining(["deepwiki", "context7", "mslearn", "github-mcp"]));
-    expect(first.presets.every((p: any) => p.added === false)).toBe(true);
-    expect(JSON.stringify(first.presets)).not.toMatch(/https:\/\//);                       // the catalog view carries no address or secret
-    await expect(appOp(u, "mcp_add", { preset: "nope" }, ctx)).rejects.toBeInstanceOf(AppError);
-    await expect(appOp(u, "mcp_add", { preset: "github-mcp" }, ctx)).rejects.toMatchObject({ status: 400 });   // token required
-    await appOp(u, "mcp_add", { preset: "deepwiki", url: "https://evil.example/mcp" }, ctx);                    // the preset's own address wins
-    await appOp(u, "mcp_add", { preset: "github-mcp", token: "ghp_x" }, ctx);
-    const after = await appOp(u, "connectors", {}, ctx);
-    expect(after.presets.find((p: any) => p.id === "deepwiki").added).toBe(true);
-    expect(after.presets.find((p: any) => p.id === "github-mcp").added).toBe(true);
-    expect(after.mcp.map((m: any) => m.url)).toEqual(expect.arrayContaining(["https://mcp.deepwiki.com", "https://api.githubcopilot.com"]));
-    expect(JSON.stringify(after)).not.toContain("ghp_x");
+    const o = { chatId: OWNER, tier: "owner" as const };
+    const user = await appOp(u, "connectors", {}, ctx);
+    expect(user.connectors.filter((c: any) => c.status === "available").map((c: any) => c.id)).toEqual(expect.arrayContaining(["github", "notion", "vercel", "supabase", "slack", "discord"]));
+    expect(user.connectors.find((c: any) => c.id === "gmail").status).toBe("setup");
+    expect(user.connectors.every((c: any) => c.setup === undefined)).toBe(true);               // a user never sees the owner's setup steps
+    const owner = await appOp(o, "connectors", {}, ctx);
+    expect(owner.connectors.find((c: any) => c.id === "gmail").setup).toMatchObject({ callback: expect.stringMatching(/\/api\/coder\/app\/connectors\/gmail\/callback$/), env: ["CODER_GOOGLE_CLIENT_ID", "CODER_GOOGLE_CLIENT_SECRET"] });
+    await expect(appOp(u, "connector_link", { id: "vercel", token: "wrong-token-123" }, ctx)).rejects.toMatchObject({ status: 400 });
+    await expect(appOp(u, "connector_link", { id: "nope", token: "x".repeat(20) }, ctx)).rejects.toMatchObject({ status: 404 });
+    expect(await appOp(u, "connector_link", { id: "vercel", token: "vercel-token-ok-1" }, ctx)).toMatchObject({ ok: true, label: "ahmad" });
+    expect((await appOp(u, "connectors", {}, ctx)).connectors.find((c: any) => c.id === "vercel")).toMatchObject({ status: "connected", label: "ahmad" });
+    await expect(appOp(u, "connector_start", { id: "slack" }, ctx)).rejects.toMatchObject({ status: 400 });   // sign-in not set up: told to use a token
   });
 });
 

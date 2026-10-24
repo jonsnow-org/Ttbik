@@ -21,7 +21,7 @@ export type Accuracy = "fast" | "balanced" | "precise";
 export type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean }; settings: { model: string; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
 export type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 export type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
-export type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link" };
+export type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "setup"; oauth: boolean; token?: { create: string; help: { ar: string; en: string }; placeholder: string }; setup?: { create: string; callback: string; env: string[]; scope: string }; label?: string; source?: "owner-env" | "user-link" };
 export type McpView = { id: string; url: string; label: string };
 export type McpPresetView = { id: string; name: string; desc: { ar: string; en: string }; token: "none" | "optional" | "required"; tokenHelp: { ar: string; en: string } | null; added: boolean };
 export type PubModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
@@ -320,7 +320,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   const [msg, setMsg] = useState("");
   const [adv, setAdv] = useState(false);
   const [mcp, setMcp] = useState({ url: "", token: "", label: "" });
-  const [pat, setPat] = useState("");
+  const [open, setOpen] = useState("");                  // the service whose "how to connect" panel is open
+  const [tokens, setTokens] = useState<Record<string, string>>({});
   const [tokFor, setTokFor] = useState("");                 // the ready-made MCP server whose token box is open
   const [tokVal, setTokVal] = useState("");
   const load = useCallback(async () => { try { setList(await api("connectors")); } catch (e: any) { setMsg(e.message); } }, []);
@@ -345,7 +346,7 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
       openExternal(url);
     } catch (e: any) {
       haptic("error");
-      setMsg(e.message === "soon" ? t.soon : e.message);
+      setMsg(e.message);
     } finally {
       setBusy("");
     }
@@ -360,16 +361,46 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   return (
     <List>
       <Section header={t.tabConnectors} footer={t.connectorsHint}>
-        {list.connectors.map((c) => (
-          <Cell key={c.id} multiline before={<BrandIcon c={c} />}
-            titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
-            subtitle={<span dir="auto">{c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang]}</span>}
-            after={c.status === "connected" ? (c.source === "owner-env" ? undefined : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>)
-              : c.status === "soon" ? <Badge type="number" mode="gray">{t.soon}</Badge>
-              : <Button size="s" loading={busy === c.id} onClick={() => start(c)}>{t.connect}</Button>}>
-            {c.name}
-          </Cell>
-        ))}
+        {list.connectors.filter((c) => c.status !== "setup" || me.tier === "owner").map((c) => {
+          const link = async () => {
+            const token = (tokens[c.id] || "").trim();
+            if (!token) return;
+            haptic("medium"); setBusy(c.id); setMsg("");
+            try { await api("connector_link", { id: c.id, token }); haptic("success"); setTokens((x) => ({ ...x, [c.id]: "" })); setOpen(""); await load(); reload(); } catch (e: any) { haptic("error"); setMsg(e.message); } finally { setBusy(""); }
+          };
+          return (
+            <div key={c.id}>
+              <Cell multiline before={<BrandIcon c={c} />}
+                titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
+                subtitle={<span dir="auto">{c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang]}</span>}
+                after={c.status === "connected" ? (c.source === "owner-env" ? undefined : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>)
+                  : <Button size="s" mode={open === c.id ? "gray" : "filled"} loading={busy === c.id} onClick={() => { haptic("select"); setOpen(open === c.id ? "" : c.id); setMsg(""); }}>{c.status === "setup" ? t.setupBtn : t.connect}</Button>}>
+                {c.name}
+              </Cell>
+              {open === c.id && c.status !== "connected" && (
+                <>
+                  {c.oauth && <ButtonCell onClick={() => start(c)}>🔐 {t.signInWith} {c.name}</ButtonCell>}
+                  {c.token && (
+                    <>
+                      <Cell multiline subtitle={<span dir="auto">{c.token.help[lang]}</span>}>{c.oauth ? t.orToken : t.linkToken}</Cell>
+                      <ButtonCell onClick={() => { haptic("select"); openExternal(c.token!.create); }}>🔗 {t.openCreate}</ButtonCell>
+                      <Input header={c.name} dir="ltr" type="password" autoComplete="off" placeholder={c.token.placeholder} value={tokens[c.id] || ""} onChange={(e) => setTokens((x) => ({ ...x, [c.id]: e.target.value }))} />
+                      <ButtonCell disabled={!(tokens[c.id] || "").trim()} onClick={link}>＋ {t.tokenLinkBtn}</ButtonCell>
+                    </>
+                  )}
+                  {c.setup && (
+                    <>
+                      <Cell multiline subtitle={<span dir="auto">{t.setupSteps}</span>}>{t.setupTitle}</Cell>
+                      <ButtonCell onClick={() => { haptic("select"); openExternal(c.setup!.create); }}>🔗 {t.openCreateApp}</ButtonCell>
+                      <Cell multiline subtitle={<span dir="ltr" style={{ userSelect: "all", wordBreak: "break-all" }}>{c.setup.callback}</span>}>{t.redirectUri}</Cell>
+                      <Cell multiline subtitle={<span dir="ltr" style={{ userSelect: "all" }}>{c.setup.env.join("  ·  ")}</span>}>{t.envNames}</Cell>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
       </Section>
       {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
       {!!list.presets?.length && (
@@ -413,19 +444,6 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
             <Input header={t.mcpToken} dir="ltr" type="password" autoComplete="off" value={mcp.token} onChange={(e) => setMcp({ ...mcp, token: e.target.value })} />
             <ButtonCell disabled={!/^https:\/\//.test(mcp.url)} onClick={async () => { try { await api("mcp_add", mcp); setMcp({ url: "", token: "", label: "" }); haptic("success"); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>＋ {t.add2}</ButtonCell>
           </Section>
-          {gh?.source !== "owner-env" && (
-            <Section header={t.tokenFallback} footer={me.oauth ? t.pasteToken : t.tokenHelp}>
-              {me.connections.github.linked ? (
-                <ButtonCell mode="destructive" onClick={async () => { await api("github_unlink"); haptic("success"); reload(); void load(); }}>{t.unlink}</ButtonCell>
-              ) : (
-                <>
-                  {me.oauth && <ButtonCell onClick={async () => { haptic("medium"); try { const { url } = await api<{ url: string }>("github_start"); openExternal(url); } catch (e: any) { setMsg(e.message); } }}>{t.signIn}</ButtonCell>}
-                  <Input header="GitHub token" dir="ltr" type="password" autoComplete="off" placeholder="github_pat_…" value={pat} onChange={(e) => setPat(e.target.value)} />
-                  <ButtonCell disabled={!pat} onClick={async () => { try { await api("github_token", { token: pat }); setPat(""); haptic("success"); reload(); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>{t.link}</ButtonCell>
-                </>
-              )}
-            </Section>
-          )}
         </>
       )}
     </List>

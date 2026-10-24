@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import type { Db } from "@/lib/coderAuth";
 import { DEFAULT_PLANS, publicPlans, publicUsage, upsertPlan, usageSummary, getSubscription, limitMessage } from "@/lib/coderPlans";
 import { parseStarsPayload, preCheckoutCoder, recordCoderPayment, starsPayload } from "@/lib/coderStars";
-import { callbackUrl, CONNECTORS, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, verifyConnectorState } from "@/lib/coderConnectors";
+import { callbackUrl, CONNECTORS, connectorApi, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, linkWithToken, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, verifyConnectorState } from "@/lib/coderConnectors";
 
 function memDb(): Db & { conns: any[]; pays: Set<string> } {
   const plans = new Map<string, any>();
@@ -86,15 +86,45 @@ describe("Telegram Stars", () => {
 });
 
 describe("connectors", () => {
-  it("missing app keys → «soon»; set keys → available", async () => {
+  it("no app keys: services with a personal-token option are offered, Google (OAuth only) is «setup»; set keys → sign-in works too", async () => {
     const db = memDb();
     let l = await listConnectors(USER, {}, db);
-    expect(l.every((c) => c.status === "soon")).toBe(true);
+    expect(l.map((c) => [c.id, c.status, c.oauth])).toEqual([
+      ["github", "available", false], ["google_drive", "setup", false], ["gmail", "setup", false], ["notion", "available", false],
+      ["vercel", "available", false], ["supabase", "available", false], ["slack", "available", false], ["discord", "available", false],
+    ]);
+    expect(l.find((c) => c.id === "notion")?.token?.create).toMatch(/^https:\/\//);
+    expect(JSON.stringify(l)).not.toMatch(/soon/);
     process.env.CODER_NOTION_CLIENT_ID = "nid";
     process.env.CODER_NOTION_CLIENT_SECRET = "nsec";
     l = await listConnectors(USER, {}, db);
-    expect(l.find((c) => c.id === "notion")?.status).toBe("available");
+    expect(l.find((c) => c.id === "notion")).toMatchObject({ status: "available", oauth: true });
     expect(callbackUrl("notion")).toBe("https://site.test/api/coder/app/connectors/notion/callback");
+  });
+  it("linking with a personal token: checked with the service first, stored encrypted, usable by connector_api, Discord with the Bot scheme", async () => {
+    const db = memDb();
+    const seen: { url: string; auth: string }[] = [];
+    const f = (async (url: string, init: any) => {
+      const auth = String(init?.headers?.Authorization || "");
+      seen.push({ url, auth });
+      if (url === "https://api.notion.com/v1/users/me") return new Response(JSON.stringify(auth === "Bearer ntn_good_token_123" ? { bot: { workspace_name: "فريقي" } } : {}), { status: auth === "Bearer ntn_good_token_123" ? 200 : 401 });
+      if (url === "https://discord.com/api/users/@me") return new Response(JSON.stringify({ username: "nova-bot" }), { status: auth === "Bot discord.token.value" ? 200 : 401 });
+      return new Response("{}", { status: 200 });
+    }) as any;
+    await expect(linkWithToken(USER, "notion", "ntn_bad_token_12345", db, f)).rejects.toThrow(/rejected/);
+    await expect(linkWithToken(USER, "notion", "short", db, f)).rejects.toThrow(/does not look/);
+    await expect(linkWithToken(USER, "gmail", "x".repeat(20), db, f)).rejects.toThrow(/cannot be linked/);
+    expect((await listConnectors(USER, {}, db)).find((c) => c.id === "notion")?.status).toBe("available");   // a rejected token stores nothing
+    expect(await linkWithToken(USER, "notion", "ntn_good_token_123", db, f)).toEqual({ label: "فريقي" });
+    const l = await listConnectors(USER, {}, db);
+    expect(l.find((c) => c.id === "notion")).toMatchObject({ status: "connected", label: "فريقي", source: "user-link" });
+    expect(JSON.stringify(l)).not.toContain("ntn_good_token_123");
+    await linkWithToken(USER, "discord", "discord.token.value", db, f);
+    seen.length = 0;
+    await connectorApi(USER, { service: "discord", path: "users/@me/guilds" }, db, f);
+    expect(seen[0].auth).toBe("Bot discord.token.value");                                                // the stored scheme is used for API calls
+    await disconnectConnector(USER, "notion", db, f);
+    expect((await listConnectors(USER, {}, db)).find((c) => c.id === "notion")?.status).toBe("available");
   });
   it("state is signed, bound to the user and the service, and expires; PKCE challenge is S256 of the verifier", () => {
     const s = signConnectorState(USER, "vercel");

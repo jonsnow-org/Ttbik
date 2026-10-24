@@ -5,7 +5,9 @@
 //     15-minute expiry
 //   • PKCE (S256) where the service supports it; the code_verifier is derived from the signed state with a server key, so nothing
 //     has to be kept between the two legs and an attacker who sees the state still cannot compute it
-//   • a service whose client id / secret env vars are not set shows as «قريباً» (soon), never as a broken button
+//   • a service can ALSO be linked with a personal token the user creates in their own account (no app of ours needed): TOKEN_LINKS below.
+//     So a service is offered when either way works; one that needs an OAuth app nobody set up yet (Google) is shown to the owner as «setup»
+//     with the exact steps and hidden from users: never a «soon» label or a broken button
 //   • disconnect deletes the stored token and asks the service to revoke it where it offers that
 // Callback: <site>/api/coder/app/connectors/<id>/callback (src/app/api/coder/app/connectors/[id]/callback/route.ts).
 // An MCP server by URL is the "advanced" option: its URL (+ optional bearer token) is stored the same way under "mcp:<id>".
@@ -39,7 +41,7 @@ export type ConnectorDef = {
 
 const T = (ms = 12000) => AbortSignal.timeout(ms);
 const json = async (r: Response | null) => (r && r.ok ? r.json().catch(() => null) : null);
-const bearer = (t: TokenSet, more: Record<string, string> = {}) => ({ Authorization: `Bearer ${t.access}`, Accept: "application/json", "User-Agent": "coder-bot", ...more });
+const bearer = (t: TokenSet, more: Record<string, string> = {}) => ({ Authorization: `${t.extra?.scheme || "Bearer"} ${t.access}`, Accept: "application/json", "User-Agent": "coder-bot", ...more });
 const cid = (d: ConnectorDef) => (process.env[d.env.id] || "").trim();
 const csec = (d: ConnectorDef) => (process.env[d.env.secret] || "").trim();
 const basic = (d: ConnectorDef) => `Basic ${Buffer.from(`${cid(d)}:${csec(d)}`).toString("base64")}`;
@@ -149,6 +151,57 @@ export const CONNECTORS: ConnectorDef[] = [
 ];
 export const connectorById = (id: string) => CONNECTORS.find((c) => c.id === id) || null;
 export const connectorReady = (d: ConnectorDef) => Boolean(cid(d) && csec(d));
+
+/** Linking with a personal token instead of the sign-in flow: where to create it, what to tell the user, and how it is checked (returns who it belongs to, or null = rejected). */
+export type TokenLink = { create: string; help: { ar: string; en: string }; placeholder: string; scheme?: "Bearer" | "Bot"; check: (t: TokenSet, f: F) => Promise<string | null> };
+const get = async (url: string, t: TokenSet, f: F, more: Record<string, string> = {}) => (await f(url, { headers: bearer(t, more), signal: T() }).catch(() => null)) as Response | null;
+export const TOKEN_LINKS: Partial<Record<ConnectorId, TokenLink>> = {
+  github: {
+    create: "https://github.com/settings/personal-access-tokens/new", placeholder: "github_pat_…",
+    help: { ar: "أنشئ توكناً (Fine-grained) وأعطه صلاحية المستودعات التي تريدها: Contents وPull requests وIssues وActions. ثم الصقه هنا.", en: "Create a fine-grained token with access to the repositories you want (Contents, Pull requests, Issues, Actions) and paste it here." },
+    check: async (t, f) => { const r = await get("https://api.github.com/user", t, f, { Accept: "application/vnd.github+json" }); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.login ? String(d.login) : null; },
+  },
+  notion: {
+    create: "https://www.notion.so/profile/integrations", placeholder: "ntn_… / secret_…",
+    help: { ar: "أنشئ تكاملاً داخلياً (Internal integration)، انسخ مفتاحه السري، ثم من أي صفحة تريده أن يراها اختر ••• ← Connections ← أضف التكامل. الصق المفتاح هنا.", en: "Create an internal integration, copy its secret, then on each page it should see choose ••• → Connections → add it. Paste the secret here." },
+    check: async (t, f) => { const r = await get("https://api.notion.com/v1/users/me", t, f, { "Notion-Version": "2022-06-28" }); const d = r && r.ok ? await r.json().catch(() => null) : null; return d ? String(d.bot?.workspace_name || d.name || "Notion") : null; },
+  },
+  vercel: {
+    create: "https://vercel.com/account/settings/tokens", placeholder: "vercel token",
+    help: { ar: "أنشئ توكناً جديداً (Create Token) واختر الفريق الذي تريده، ثم الصقه هنا.", en: "Create a token for the team you want and paste it here." },
+    check: async (t, f) => { const r = await get("https://api.vercel.com/v2/user", t, f); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.user ? String(d.user.username || d.user.email || "Vercel") : null; },
+  },
+  supabase: {
+    create: "https://supabase.com/dashboard/account/tokens", placeholder: "sbp_…",
+    help: { ar: "أنشئ Access Token شخصياً (Generate new token) والصقه هنا.", en: "Generate a personal access token and paste it here." },
+    check: async (t, f) => { const r = await get("https://api.supabase.com/v1/organizations", t, f); const d = r && r.ok ? await r.json().catch(() => null) : null; return Array.isArray(d) ? d.map((o: any) => String(o?.name || "")).filter(Boolean).slice(0, 3).join(", ") || "Supabase" : null; },
+  },
+  slack: {
+    create: "https://api.slack.com/apps", placeholder: "xoxp-… / xoxb-…",
+    help: { ar: "أنشئ تطبيقاً (From scratch)، وفي OAuth & Permissions أضف صلاحيات القراءة (channels:read, channels:history, users:read) ثم Install to Workspace وانسخ التوكن (xoxp للمستخدم أو xoxb للبوت).", en: "Create an app (From scratch), add read scopes (channels:read, channels:history, users:read) under OAuth & Permissions, Install to Workspace, and copy the token (xoxp user or xoxb bot)." },
+    check: async (t, f) => { const r = await f("https://slack.com/api/auth.test", { method: "POST", headers: bearer(t), signal: T() }).catch(() => null); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.ok ? String(d.team || d.user || "Slack") : null; },
+  },
+  discord: {
+    create: "https://discord.com/developers/applications", placeholder: "bot token", scheme: "Bot",
+    help: { ar: "أنشئ تطبيقاً، ومن Bot اضغط Reset Token وانسخ توكن البوت، ثم أضف البوت إلى خادمك. الصق التوكن هنا.", en: "Create an application, under Bot press Reset Token and copy the bot token, then add the bot to your server. Paste it here." },
+    check: async (t, f) => { const r = await get("https://discord.com/api/users/@me", t, f); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.username ? String(d.username) : null; },
+  },
+};
+
+/** Link a service with a token the user created themselves: checked with the service first, stored like any other connection. */
+export async function linkWithToken(chatId: number, id: string, raw: string, db: Db = prismaDb, f: F = globalThis.fetch): Promise<{ label: string }> {
+  const d = connectorById(id);
+  const link = TOKEN_LINKS[id as ConnectorId];
+  if (!d || !link) throw new ConnectorError("this service cannot be linked with a token");
+  const token = String(raw || "").trim();
+  if (token.length < 8 || token.length > 600 || /\s/.test(token)) throw new ConnectorError("that does not look like a token");
+  const t: TokenSet = { access: token, extra: { via: "token", ...(link.scheme && link.scheme !== "Bearer" ? { scheme: link.scheme } : {}) } };
+  const label = await link.check(t, f);
+  if (label === null) throw new ConnectorError(`${d.name} rejected this token`);
+  if (id === "github") await saveConnection(chatId, "github", token, label, db);
+  else await saveConnection(chatId, provKey(id) as any, packTokens(t), label.slice(0, 120), db);
+  return { label };
+}
 
 /** The fixed, registered callback URL of a connector (the same value the owner pastes into the service's app settings). */
 export function callbackUrl(id: string, base = siteBase()): string {
@@ -281,15 +334,24 @@ export async function connectorToken(chatId: number | string, id: string, db: Db
   return t;
 }
 
-export type ConnectorView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link"; since?: string | null };
+export type ConnectorView = {
+  id: string; name: string; desc: { ar: string; en: string }; color: string;
+  status: "connected" | "available" | "setup";          // setup = needs the owner to create an OAuth app first (and it has no token option)
+  oauth: boolean;                                        // the sign-in flow works now
+  token?: { create: string; help: { ar: string; en: string }; placeholder: string };   // linking with a personal token works
+  label?: string; source?: "owner-env" | "user-link"; since?: string | null;
+};
 /** What the app may show: status and account label only, never a token. */
 export async function listConnectors(chatId: number | string, opts: { githubOwnerEnv?: boolean } = {}, db: Db = prismaDb): Promise<ConnectorView[]> {
   const all = await rows(chatId, db);
   return CONNECTORS.map((d) => {
     const row = all.find((r) => r.provider === (d.id === "github" ? "github" : provKey(d.id)));
-    if (d.id === "github" && opts.githubOwnerEnv) return { id: d.id, name: d.name, desc: d.desc, color: d.color, status: "connected", source: "owner-env", label: "" };
-    if (row && decryptToken(row.token_enc)) return { id: d.id, name: d.name, desc: d.desc, color: d.color, status: "connected", label: row.login || "", source: "user-link", since: row.updated_at ? String(row.updated_at) : null };
-    return { id: d.id, name: d.name, desc: d.desc, color: d.color, status: connectorReady(d) ? "available" : "soon" };
+    const oauth = connectorReady(d);
+    const tl = TOKEN_LINKS[d.id];
+    const base = { id: d.id, name: d.name, desc: d.desc, color: d.color, oauth, ...(tl ? { token: { create: tl.create, help: tl.help, placeholder: tl.placeholder } } : {}) };
+    if (d.id === "github" && opts.githubOwnerEnv) return { ...base, status: "connected" as const, source: "owner-env" as const, label: "" };
+    if (row && decryptToken(row.token_enc)) return { ...base, status: "connected" as const, label: row.login || "", source: "user-link" as const, since: row.updated_at ? String(row.updated_at) : null };
+    return { ...base, status: oauth || tl ? ("available" as const) : ("setup" as const) };
   });
 }
 
@@ -298,7 +360,7 @@ export async function disconnectConnector(chatId: number | string, id: string, d
   const d = connectorById(id);
   if (!d) throw new ConnectorError("unknown connector");
   const t = await connectorToken(chatId, id, db, f).catch(() => null);
-  if (t && d.revoke && connectorReady(d)) await d.revoke(t, f).catch(() => null);
+  if (t && d.revoke && connectorReady(d) && t.extra?.via !== "token") await d.revoke(t, f).catch(() => null);   // a pasted token is the user's own: they revoke it where they made it
   await deleteConnection(chatId, (id === "github" ? "github" : provKey(id)) as any, db);
 }
 
@@ -347,7 +409,6 @@ export const MCP_PRESETS: McpPreset[] = [
   { id: "cloudflare-docs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", token: "none", desc: { ar: "وثائق Cloudflare (Workers وR2 وغيرها)", en: "Cloudflare docs (Workers, R2 and more)" } },
   { id: "huggingface", name: "Hugging Face", url: "https://huggingface.co/mcp", token: "optional", desc: { ar: "البحث في النماذج والمجموعات والأوراق", en: "Search models, datasets and papers" }, tokenHelp: { ar: "توكن Hugging Face (للمحتوى الخاص بك)", en: "Your Hugging Face token (for your private content)" } },
   { id: "exa", name: "Exa", url: "https://mcp.exa.ai/mcp", token: "none", desc: { ar: "بحث ويب دلالي وقراءة الصفحات", en: "Semantic web search and page reading" } },
-  { id: "github-mcp", name: "GitHub MCP", url: "https://api.githubcopilot.com/mcp/", token: "required", desc: { ar: "أدوات GitHub الرسمية عبر MCP", en: "GitHub's official tools over MCP" }, tokenHelp: { ar: "توكن GitHub شخصي (PAT)", en: "A GitHub personal access token (PAT)" } },
 ];
 export const mcpPresetById = (id: string) => MCP_PRESETS.find((p) => p.id === id) || null;
 

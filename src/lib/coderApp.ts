@@ -400,14 +400,32 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const mcp = await c.listMcpServers(chatId, db);
       const have = new Set(mcp.map((m) => m.url));
       const presets = c.MCP_PRESETS.map((p) => ({ id: p.id, name: p.name, desc: p.desc, token: p.token, tokenHelp: p.tokenHelp || null, added: have.has(new URL(p.url).origin) }));
-      return { connectors: await c.listConnectors(chatId, { githubOwnerEnv: ownerEnv }, db), mcp, presets };
+      const list = await c.listConnectors(chatId, { githubOwnerEnv: ownerEnv }, db);
+      // only the owner sees how to switch the sign-in flow on (creating the OAuth app is the owner's, one time per service)
+      const connectors = list.map((v) => {
+        const d = c.connectorById(v.id)!;
+        return user.tier === "owner" && !v.oauth ? { ...v, setup: { create: d.createUrl, callback: c.callbackUrl(d.id), env: [d.env.id, d.env.secret], scope: d.scope } } : v;
+      });
+      return { connectors, mcp, presets };
     }
     case "connector_start": {
       const c = await import("@/lib/coderConnectors");
       const d = c.connectorById(String(body.id || ""));
       if (!d) throw new AppError(404, "unknown connector");
-      if (!c.connectorReady(d)) throw new AppError(400, "soon");
+      if (!c.connectorReady(d)) throw new AppError(400, "sign-in is not set up for this service yet; link it with a token instead");
       return { url: c.connectorStartUrl(chatId, d.id) };
+    }
+    case "connector_link": {
+      // linking with a personal token the user created in their own account (checked with the service before it is stored)
+      const c = await import("@/lib/coderConnectors");
+      const id = String(body.id || "");
+      if (!c.connectorById(id)) throw new AppError(404, "unknown connector");
+      try {
+        return { ok: true, ...(await c.linkWithToken(chatId, id, String(body.token || ""), db, deps.fetchImpl || globalThis.fetch)) };
+      } catch (e) {
+        if (e instanceof c.ConnectorError) throw new AppError(400, e.message);
+        throw e;
+      }
     }
     case "connector_disconnect": {
       const c = await import("@/lib/coderConnectors");

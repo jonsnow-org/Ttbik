@@ -564,11 +564,10 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
         </Card>
         <Head lang={lang} title={n.tools} action={<button type="button" className="n-link" onClick={() => { haptic("light"); open({ k: "connect" }); }}>{n.showAll}</button>} />
         <Card cap={n.toolsSub}>
-          {!conns ? <Loading /> : conns.filter((x) => x.status !== "soon").slice(0, 6).map((x) => (   /* a service that is not set up yet ("soon") is not offered here: it lives in the Connectors page */
+          {!conns ? <Loading /> : conns.filter((x) => x.status !== "setup").slice(0, 6).map((x) => (   /* a service that is not set up yet ("soon") is not offered here: it lives in the Connectors page */
             <Row key={x.id} icon={<BrandIcon c={x} />} title={x.name} sub={x.status === "connected" ? `${t.connected}${x.label ? ` · ${x.label}` : ""}` : x.desc[lang]}
               badge={CAT[x.id] ? <span className="n-cat">{n[CAT[x.id]]}</span> : undefined}
               after={x.status === "connected" ? <span className="n-plus n-ok" aria-label={t.connected}>✓</span>
-                : x.status === "soon" ? <span className="n-chip">{t.soon}</span>
                 : <button type="button" className="n-plus" aria-label={`${t.connect} ${x.name}`} disabled={busy === x.id} onClick={(e) => { e.stopPropagation(); void start(x); }}>{busy === x.id ? "…" : "+"}</button>} />
           ))}
         </Card>

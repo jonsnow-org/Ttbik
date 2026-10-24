@@ -48,3 +48,10 @@ The model can hand up to 3 independent **read-only** investigations to sub-agent
 - Speed: each child step costs what any Studio step costs (CPU, ~5 tok/s, one generation at a time per Studio), so 3 children on one Studio run one after another; replicas (`STUDIOS`) run them in parallel. That is the price of free hardware.
 - `CODER_AGENTS=off` removes the tool.
 Runs whose server was replaced mid-task are resumed by the every-minute tick (`claimOrphanTasks`, `coderTick.ts`).
+
+## Connectors tab (2026-10-24)
+One list of services (GitHub, Google Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord) and the ready-made MCP catalog under it; the custom-MCP box stays under "advanced". Each service can be linked two ways, shown in the row's own panel:
+- **sign-in** (OAuth) when the owner has created the service's OAuth app (`CODER_<SERVICE>_CLIENT_ID/SECRET`), and/or
+- **a personal token** the user creates in their own account (`TOKEN_LINKS` in `coderConnectors.ts`): the page to create it and the steps are shown, the token is checked with the service before it is stored (encrypted, like OAuth tokens), `connector_api` uses it (Discord with the `Bot` scheme). GitHub's token option lives here too (the old separate box is gone); GitHub's official MCP preset was removed as a duplicate.
+- Google (Drive, Gmail) has no personal-token form: it shows **«setup»** to the owner only, with the redirect URI and variable names; users do not see it until sign-in is configured. There is no «soon» label anywhere.
+- Op `connector_link {id, token}`; `connectors` returns per service `{status: connected|available|setup, oauth, token?, setup? (owner only)}`.
