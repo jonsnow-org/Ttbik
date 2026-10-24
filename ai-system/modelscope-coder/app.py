@@ -227,7 +227,8 @@ def _gc() -> None:
 
 
 def _stream(job: dict) -> None:
-    body = {"messages": job["messages"], "stream": True, "temperature": job["temperature"],
+    # cache_prompt: the part of the conversation that did not change since the last step is not read again (a CPU reads ~20-40 prompt tokens/s)
+    body = {"messages": job["messages"], "stream": True, "temperature": job["temperature"], "cache_prompt": True,
             "chat_template_kwargs": {"enable_thinking": bool(job["think"])}}
     if job["tools"]:
         body["tools"] = job["tools"]
