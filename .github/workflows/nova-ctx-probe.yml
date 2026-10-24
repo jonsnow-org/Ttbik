@@ -48,12 +48,14 @@ jobs:
           ans = (r["choices"][0]["message"].get("content") or "").strip()
           print(f"{sys.argv[1]:28s} peak {sys.argv[2]} GB | prefill {t.get('prompt_per_second', 0):5.1f} tok/s | generation {t.get('predicted_per_second', 0):5.2f} tok/s | recall {'OK' if 'MANGO-4471' in ans else 'FAILED'}")
           PY
+            echo "    server says: $(grep -ioE 'flash_attn[^,]*' server.log | head -1)"
             kill $PID; wait $PID 2>/dev/null; sleep 2
           }
-          { run_one "f16 FA-off (now) #1" off f16 f16
-            run_one "f16 FA-on        #1" on f16 f16
-            run_one "f16 FA-off (now) #2" off f16 f16
-            run_one "f16 FA-on        #2" on f16 f16
+          { run_one "default (no flag = Studio) #1" auto f16 f16
+            run_one "f16 FA-off  #1" off f16 f16
+            run_one "f16 FA-on   #1" on f16 f16
+            run_one "default (no flag = Studio) #2" auto f16 f16
+            run_one "f16 FA-on   #2" on f16 f16
             run_one "q8_0 FA-on" on q8_0 q8_0
             run_one "q4_0 FA-on" on q4_0 q4_0
           } | tee result.txt
