@@ -1207,9 +1207,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
         return;
       }
-      // the model only announced what it will do ("سأقوم الآن بالبحث...") and stopped: not an answer. Nothing is sent; it is told to act now (twice at most).
+      // the model only announced what it will do ("سأقوم الآن بالبحث...") and stopped: not an answer. The text is still sent (a streamed draft that is not finalised vanishes in Telegram); the model is then told to act now (twice at most).
       if (!completedCalls.length && !run.agent && (run.announceNudges || 0) < 2 && text.trim().length < 900 && /(?:سأقوم|سوف أقوم|سأبدأ|سأبحث|سأحاول|سأستخدم|لذلك،? سأ)|\b(?:I(?:'ll| will) (?:now )?(?:search|try|run|use|look)|Let me (?:search|try|look))/i.test(text) && !/[؟?]\s*$/.test(text.trim())) {
         run.announceNudges = (run.announceNudges || 0) + 1;
+        await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
         st.messages.push({ role: "assistant", content: text });
         st.messages.push({ role: "user", content: "[harness] You only announced a plan and stopped. Do NOT announce: call the tool NOW, or, if the sources you already have are enough, write the final answer from them. Never repeat an earlier message." });
         run.job = undefined; run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined; run.logged = 0;
