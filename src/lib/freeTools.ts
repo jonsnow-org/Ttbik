@@ -157,4 +157,9 @@ export const FREE_TOOLS = [
     title: "حاسبة الفرق بين تاريخين",
     desc: "احسب عدد الأيام بين تاريخين أو التاريخ بعد عدد أيام.",
   },
+  {
+    href: "/free-tools/json-workbench",
+    title: "🧩 منسّق JSON ومحوّل CSV",
+    desc: "تحقق من JSON ونسّقه أو صغّره وحوّل CSV إلى JSON داخل المتصفح بلا رفع بيانات.",
+  },
 ] as const;
