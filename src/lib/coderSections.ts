@@ -26,7 +26,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number;
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -751,6 +751,57 @@ async function sendRich(bot: TelegramBot, chatId: number, text: string) {
   for (const piece of splitForTelegram(stripMarkdown(text), 4000)) await send(bot, chatId, piece);
 }
 
+const DRAFT_MAX = 3600;           // characters one live draft may hold (Telegram: 4096 after formatting)
+const DRAFT_EVERY_MS = 1500;      // at most one draft update this often (Bot API rate limits)
+let draftRefusedAt = 0;           // Telegram refused drafts for this bot: not tried again for an hour (every run would pay one failed call)
+const liveDraftOn = () => (process.env.CODER_LIVE_DRAFT || "").toLowerCase() !== "off" && Date.now() - draftRefusedAt > 3600_000;
+
+async function commitMessages(bot: TelegramBot, chatId: number, text: string, run: Run, ranges: [number, number][]) {
+  for (const [a, b] of ranges) {
+    const part = renderRange(text, a, b);
+    if (part.trim()) await sendRich(bot, chatId, part);
+    run.botSent = b;
+    run.draftId = undefined;                                            // the next stretch starts a fresh draft
+  }
+}
+
+/** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
+export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
+  const from = Math.max(0, Math.min(text.length, run.botSent || 0));
+  const unsent = text.length - from;
+  if (unsent <= 0 || !text.slice(from).trim()) return;
+  if (final) {
+    await commitMessages(bot, chatId, text, run, chunkRanges(text, from, true, 3800));
+    run.botProgressAt = Date.now();
+    return;
+  }
+  const api = bot.api as any;
+  const canDraft = liveDraftOn() && !run.noDraft && chatId > 0 && typeof api.sendMessageDraft === "function";
+  if (canDraft) {
+    if (unsent > DRAFT_MAX) {                                           // too long for one draft: commit the finished part
+      await commitMessages(bot, chatId, text, run, chunkRanges(text, from, false, 3000));
+    }
+    const start = Math.max(0, Math.min(text.length, run.botSent || 0));
+    const tail = renderRange(text, start, text.length);
+    if (tail.trim() && tail !== run.draftText && Date.now() - (run.draftAt || 0) >= DRAFT_EVERY_MS) {
+      run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
+      const { markdownToTelegramHtml } = await import("@/lib/telegramMarkdown");
+      const html = markdownToTelegramHtml(tail);
+      let ok = html.length <= 4096 && await api.sendMessageDraft(chatId, run.draftId, html, { parse_mode: "HTML" }).then(() => true).catch(() => false);
+      if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, tail.slice(0, 4096)).then(() => true).catch(() => false);
+      if (ok) { run.draftAt = Date.now(); run.draftText = tail; }
+      else { run.noDraft = true; draftRefusedAt = Date.now(); }         // refused (not supported here): batches from now on
+    }
+    return;
+  }
+  // no live draft: readable batches, not every token
+  if (unsent > 1000 || (unsent >= 300 && Date.now() - (run.botProgressAt || 0) > 25000)) {
+    const batchSize = Math.max(250, Math.min(1200, unsent - 1));
+    await commitMessages(bot, chatId, text, run, chunkRanges(text, from, false, batchSize));
+    run.botProgressAt = Date.now();
+  }
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
   if (run.surface === "app") {
     const from = Math.max(0, Math.min(text.length, run.logged || 0));
@@ -759,18 +810,11 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
     run.logged = text.length;
     run.sent = text.length;
 
-    // The terminal is the detailed live feed; Telegram receives readable batches, not every token.
-    const botFrom = Math.max(0, Math.min(text.length, run.botSent || 0));
-    const unsent = text.length - botFrom;
-    if (text.slice(botFrom).trim() && (final || unsent > 1000 || (unsent >= 300 && Date.now() - (run.botProgressAt || 0) > 25000))) {
-      const batchSize = final ? 1200 : Math.max(250, Math.min(1200, unsent - 1));
-      for (const [a, b] of chunkRanges(text, botFrom, final, batchSize)) {
-        const part = renderRange(text, a, b);
-        if (part.trim()) await sendRich(bot, chatId, part);
-        run.botSent = b;
-      }
-      run.botProgressAt = Date.now();
-    }
+    // The terminal is the detailed live feed. In the chat the text is delivered by what is actually happening (never by what the
+    // request says): while the model writes, the tail streams live in a Telegram draft (sendMessageDraft, private chats); whatever
+    // no longer fits one draft is committed as real messages cut at paragraph/line ends; the rest is sent as the final message
+    // (one message when it fits 4096 characters, never fragments). If drafts are refused, the same text goes in readable batches.
+    await deliverToChat(bot, chatId, text, run, final);
     // a plain answer (no tool ran): the "request received" card has nothing more to say, so it is removed instead of staying stuck
     if (final && text.trim() && run.progress?.msgId && run.progress.lines.length <= 2) {
       const mid = run.progress.msgId;
@@ -915,7 +959,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
         if (run.compacting && r?.type !== "cancelled" && !(!r && (o.failure === "timeout" || o.failure === "network"))) {
           run.job = undefined;                        // the summary job failed: the harness writes the summary itself
-          run.sent = 0;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
           await startSegment(ioBot, chatId, st, run, "", db);
           await saveState(chatId, st, db, slot);
@@ -931,7 +975,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.retries = (run.retries || 0) + 1;
           run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 70000)) / 2));
           run.job = undefined;
-          run.sent = 0;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
           await saveState(chatId, st, db, slot);
@@ -984,7 +1028,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (run.compacting) {
         // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
         run.job = undefined;
-        run.sent = 0;
+        run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
         await startSegment(ioBot, chatId, st, run, text, db);
         await saveState(chatId, st, db, slot);
@@ -995,7 +1039,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
       if (!text.trim() && completedCalls.length === 0) {
         run.job = undefined;
-        run.sent = 0;
+        run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
         if ((run.retries || 0) < 1) {
           run.retries = (run.retries || 0) + 1;
@@ -1015,7 +1059,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const calls = completedCalls;
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;
-      run.sent = 0;
+      run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
       run.retries = 0;
       if (calls.length) {
@@ -1061,7 +1105,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const o = await coderChat(sumMsgs, { think: false, temperature: 0.3, waitS, timeoutMs: waitS * 1000 + 9000 });
       if (o.reply?.job) {
         run.job = o.reply.job;
-        run.sent = 0;
+        run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
         run.jobAt = run.jobMovedAt = Date.now();
         run.jobSize = "";
@@ -1123,7 +1167,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return;
     }
     run.job = r.job;
-    run.sent = 0;
+    run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
     run.jobAt = Date.now();
     run.jobMovedAt = Date.now();

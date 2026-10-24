@@ -334,3 +334,53 @@ describe("tiers in the loop", () => {
     expect(b2.sent.map((s) => s.text)).toContain("تم.");
   });
 });
+
+describe("delivery to the chat by what is happening", () => {
+  const mk = (draft: "ok" | "refuse" | "none") => {
+    const sent: string[] = [];
+    const drafts: string[] = [];
+    const api: any = { sendMessage: jest.fn(async (_c: number, t: string) => { sent.push(t); return { message_id: 1 }; }) };
+    if (draft !== "none") api.sendMessageDraft = jest.fn(async (_c: number, _id: number, t: string) => { if (draft === "refuse") throw new Error("not allowed"); drafts.push(t); return true; });
+    return { bot: { api } as any, sent, drafts };
+  };
+  const para = (n: number) => Array.from({ length: n }, (_, i) => `فقرة رقم ${i} ` + "x".repeat(90)).join("\n\n");
+  it("a short answer streams in a draft and arrives as one message", async () => {
+    const { deliverToChat } = await import("@/lib/coderSections");
+    const { bot, sent, drafts } = mk("ok");
+    const run: any = { id: "r", surface: "app" };
+    await deliverToChat(bot, 5, "أهلاً! كيف", run, false);
+    await deliverToChat(bot, 5, "أهلاً! كيف حالك؟", run, false);        // inside the throttle window: no second draft
+    expect(drafts).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+    await deliverToChat(bot, 5, "أهلاً! كيف حالك؟", run, true);
+    expect(sent).toHaveLength(1);
+  });
+  it("a long answer commits finished parts as messages and keeps streaming the tail; the final is not fragmented", async () => {
+    const { deliverToChat } = await import("@/lib/coderSections");
+    const { bot, sent, drafts } = mk("ok");
+    const run: any = { id: "r", surface: "app" };
+    const text = para(60);                                              // ~6000 characters
+    await deliverToChat(bot, 5, text, run, false);
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    expect(sent.every((m) => m.length <= 4096)).toBe(true);
+    expect(drafts.length).toBe(1);
+    await deliverToChat(bot, 5, text, run, true);
+    expect(sent.join("\n").replace(/<[^>]+>/g, "").length).toBeGreaterThan(5000);
+    expect(sent.length).toBeLessThanOrEqual(3);                          // not 1,200-character fragments
+  });
+  it("a refused draft falls back to readable batches", async () => {
+    const { deliverToChat } = await import("@/lib/coderSections");
+    const { bot, sent } = mk("refuse");
+    const run: any = { id: "r", surface: "app" };
+    await deliverToChat(bot, 5, para(15), run, false);                   // ~1,500 characters
+    expect(run.noDraft).toBe(true);
+    await deliverToChat(bot, 5, para(15), run, false);
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+  });
+  it("without the draft method (old API) it still delivers", async () => {
+    const { deliverToChat } = await import("@/lib/coderSections");
+    const { bot, sent } = mk("none");
+    await deliverToChat(bot, 5, "رد قصير", { id: "r", surface: "app" } as any, true);
+    expect(sent).toHaveLength(1);
+  });
+});
