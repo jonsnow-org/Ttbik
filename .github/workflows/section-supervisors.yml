@@ -3,7 +3,7 @@
 name: section-supervisors
 on:
   schedule:
-    - cron: "43 */6 * * *"
+    - cron: "7,37 * * * *"   # every 30 min so a failure is picked up soon after its 15-minute grace
   workflow_dispatch:
 concurrency:
   group: section-supervisors
