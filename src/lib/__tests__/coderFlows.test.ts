@@ -743,18 +743,26 @@ describe("agent reports: each covers only its own job, in one shape, organised b
     expect(out).toMatch(/## Agent 2: ب\n\[status: done\] \(not in the report format\)\nجواب خام/);
     expect(out).toMatch(/## Agent 3: ج\n\[status: no report/);
   });
-  it("only beyond the parent's budget: the LONGEST findings are shortened to one common length, short reports and NOT DONE / OUTPUT are never touched, and the cut is marked", () => {
-    process.env.CODER_AGENT_REPORTS_CHARS = "6000";
-    const big = "س".repeat(9000), small = "قصير ومفيد.";
-    const out = composeResults([
-      { title: "كبير", result: { status: "done", text: `JOB: ج\nDONE: ${big}\nNOT DONE: رُفض الدمج\nOUTPUT: PR #7` } },
-      { title: "صغير", result: { status: "done", text: `JOB: ج2\nDONE: ${small}\nNOT DONE: nothing\nOUTPUT: none` } },
-    ]);
-    delete process.env.CODER_AGENT_REPORTS_CHARS;
-    expect(out).toContain(small);
-    expect(out).toMatch(/NOT DONE: رُفض الدمج\nOUTPUT: PR #7/);
-    expect(out).toMatch(/more characters of this report were left out/);
-    expect(out.length).toBeLessThan(6600);
-    expect(out.length).toBeGreaterThan(5000);                            // as much as the budget allows, not a small fixed share
+  it("nothing is ever cut: even a huge report arrives exactly as written", () => {
+    const big = "س".repeat(40000);
+    const out = composeResults([{ title: "كبير", result: { status: "done", text: `JOB: ج\nDONE: ${big}\nNOT DONE: رُفض الدمج\nOUTPUT: PR #7` } }]);
+    expect(out).toContain(big);
+    expect(out).not.toMatch(/left out|condensed/);
+  });
+  it("only when ALL reports together cannot fit the model's context: the system condenses the longest (never cuts), marks it, and leaves the rest untouched", async () => {
+    const { fitReports } = require("@/lib/coderAgents");
+    const mk = (n: number) => ({ status: "done", text: `JOB: j\nDONE: ${"ك".repeat(n)}\nNOT DONE: nothing\nOUTPUT: none` });
+    const items = [{ title: "a", result: mk(9000) }, { title: "b", result: mk(500) }, { title: "c", result: mk(14000) }];
+    const seen: number[] = [];
+    const out = await fitReports(items, async (t: string) => { seen.push(t.length); return `JOB: j\nDONE: ملخص\nNOT DONE: nothing\nOUTPUT: none`; }, 12000);
+    expect(seen[0]).toBeGreaterThan(14000);                       // the longest first
+    expect(out[2].result.text).toMatch(/condensed by the system/);
+    expect(out[1].result.text).toBe(items[1].result.text);        // the short one is untouched
+    // everything fits: nothing is touched at all
+    const same = await fitReports(items, async () => "x", 100000);
+    expect(same.map((x: any) => x.result.text)).toEqual(items.map((x: any) => x.result.text));
+    // a failing condenser leaves the report exactly as it was
+    const kept = await fitReports(items, async () => { throw new Error("down"); }, 12000);
+    expect(kept.map((x: any) => x.result.text)).toEqual(items.map((x: any) => x.result.text));
   });
 });

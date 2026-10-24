@@ -14,8 +14,8 @@ export const WORKER_MAX_STEPS = 12;
 export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does; sham = the owner's own model, raw answer, owner only
 export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
-export const AGENT_REPORT_STORE = 30000;      // what an agent's report may hold (it is the agent's own full text)
-export const agentReportsBudget = (): number => Math.max(6000, Number(process.env.CODER_AGENT_REPORTS_CHARS || 20000));   // what ALL the reports together may take of the parent's context
+/** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
+export const agentReportsHard = (): number => Math.max(12000, Number(process.env.CODER_AGENT_REPORTS_HARD || 60000));
 
 export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toLowerCase() !== "off";
 
@@ -137,35 +137,41 @@ export function parseAgentReport(text: string): ParsedReport | null {
 const none = (x: string) => !x || /^(none|nothing|لا شيء|لا يوجد|بلا|-)\.?$/i.test(x.trim());
 
 /**
- * The tool message the parent receives: one block per agent, in order, each in the same shape. The harness itself organises them (no model call:
- * a "collector" model step would cost a slow generation and would not know the user's request); the parent writes the one answer for the user.
- * Nothing is cut while all the reports fit the parent's context (agentReportsBudget). Only beyond that are the findings (DONE) of the LONGEST
- * reports shortened, to one common length, so short reports are never touched; JOB, NOT DONE and OUTPUT are never cut, and a cut is marked.
+ * The tool message the parent receives: one block per agent, in order, each in the same shape. The harness organises them (no model call: a
+ * "collector" model step would be slow and would not know the user's request); the parent writes the one answer for the user.
+ * NOTHING is cut here: every report arrives exactly as its agent wrote it.
  */
 export function composeResults(items: { title: string; result?: AgentResult }[]): string {
   const head = `Reports of ${items.length} agent${items.length === 1 ? "" : "s"}. Each covers ONLY that agent's own job. The user's request is yours: combine them, resolve conflicts between them, say plainly what was NOT DONE, and never present an agent's NOT DONE as done.`;
-  type Row = { title: string; fixed: string; body: string; label: string };
-  const rows: Row[] = items.map((it, i) => {
+  const blocks = items.map((it, i) => {
     const r = it.result;
     const title = `## Agent ${i + 1}: ${it.title}`;
-    if (!r) return { title, fixed: "[status: no report — it did not finish in time]", body: "", label: "" };
+    if (!r) return `${title}\n[status: no report — it did not finish in time]`;
     const status = `[status: ${r.status}]`;
     const p = parseAgentReport(r.text);
-    if (!p) return { title, fixed: `${status} (not in the report format)`, body: r.text, label: "" };
-    return { title, fixed: [status, `JOB: ${p.job || it.title}`, `NOT DONE: ${none(p.notDone) ? "nothing" : p.notDone}`, `OUTPUT: ${none(p.output) ? "none" : p.output}`].join("\n"), body: p.done || "(empty)", label: "DONE: " };
-  });
-  const budget = agentReportsBudget();
-  const size = (cap: number) => rows.reduce((n, r) => n + r.title.length + r.fixed.length + r.label.length + Math.min(r.body.length, cap) + 4, 0);
-  let cap = Infinity;
-  if (size(Infinity) > budget) {                       // one common cap, as high as the budget allows (never below 800 characters)
-    let lo = 800, hi = Math.max(...rows.map((r) => r.body.length), 800);
-    while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (size(mid) <= budget) lo = mid; else hi = mid - 1; }
-    cap = lo;
-  }
-  const blocks = rows.map((r) => {
-    const cut = r.body.length > cap;
-    const body = cut ? `${r.body.slice(0, cap)}\n[… ${r.body.length - cap} more characters of this report were left out to fit; the full text is in the agent's own task log]` : r.body;
-    return [r.title, r.fixed, body ? `${r.label}${body}` : ""].filter(Boolean).join("\n");
+    if (!p) return `${title}\n${status} (not in the report format)\n${r.text}`;
+    return [title, status, `JOB: ${p.job || it.title}`, `NOT DONE: ${none(p.notDone) ? "nothing" : p.notDone}`, `OUTPUT: ${none(p.output) ? "none" : p.output}`, `DONE: ${p.done || "(empty)"}`].join("\n");
   });
   return `${head}\n\n${blocks.join("\n\n")}`;
+}
+
+/**
+ * The one situation in which the system decides something about report size: all reports together would not fit the model's context at all
+ * (the call would fail). Then the longest report is not cut but CONDENSED by the model, asked to keep every name, path, number and the NOT DONE
+ * part, and marked as condensed; repeated on the next longest until the total fits. A failed condensing leaves the report as it was.
+ */
+export async function fitReports(items: { title: string; result?: AgentResult }[], condense: (text: string) => Promise<string>, hard = agentReportsHard()): Promise<{ title: string; result?: AgentResult }[]> {
+  const out = items.map((it) => ({ ...it, result: it.result ? { ...it.result } : undefined }));
+  const total = () => out.reduce((n, it) => n + (it.result?.text.length || 0), 0);
+  const tried = new Set<number>();
+  while (total() > hard) {
+    let k = -1;
+    out.forEach((it, i) => { if (!tried.has(i) && it.result && (k < 0 || it.result.text.length > out[k].result!.text.length)) k = i; });
+    if (k < 0) break;
+    tried.add(k);
+    const text = out[k].result!.text;
+    const short = (await condense(text).catch(() => "")).trim();
+    if (short && short.length < text.length) out[k].result!.text = `${short}\n[condensed by the system because all the reports together were too long for the model; the full text is in the agent's own task log]`;
+  }
+  return out;
 }

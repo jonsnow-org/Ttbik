@@ -17,7 +17,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
-import { AGENT_REPORT_STORE, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
+import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -959,7 +959,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const timedOut = Date.now() - d.at > AGENT_TIMEOUT_MS;
       if (finished.every(Boolean) || timedOut) {
         if (timedOut) await cancelAgents(chatId, d.slots, db);
-        st.messages.push({ role: "tool", content: composeResults(d.titles.map((title, i) => ({ title, result: finished[i] }))), tool_call_id: d.id, name: "delegate" });
+        st.messages.push({ role: "tool", content: composeResults(await fitReports(d.titles.map((title, i) => ({ title, result: finished[i] })), async (t) => (await import("@/lib/coderMemory")).studioLlm(150000)([{ role: "user", content: `Condense this agent report to about half its length. Keep EVERY name, path, number, version, source and the whole NOT DONE and OUTPUT lines exactly; drop only repetition and filler. Keep the four labelled lines (JOB, DONE, NOT DONE, OUTPUT).\n\n${t}` }]))), tool_call_id: d.id, name: "delegate" });
         run.delegating = undefined;
         await taskEvent(run.id, "info", `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})${timedOut ? " — انتهت المهلة" : ""}.`, db);
         await progressLine(ioBot, chatId, run, `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})`);
@@ -1292,7 +1292,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
       if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
-      if (run.agent) st.agentResult = { status: "done", text: text.trim().slice(0, AGENT_REPORT_STORE) || "(empty report)", at: Date.now() };
+      if (run.agent) st.agentResult = { status: "done", text: text.trim() || "(empty report)", at: Date.now() };
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
         const snap = [...st.messages], id = run.id, steps = run.step;
