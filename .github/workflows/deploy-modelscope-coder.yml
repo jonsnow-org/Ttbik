@@ -19,6 +19,10 @@ on:
         description: "true = ask ModelScope to (re)deploy after pushing the files"
         required: false
         default: "true"
+      studio:
+        description: "Deploy only this Studio (coder-inference-server or a replica coder-inference-server-<n>). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
+        required: false
+        default: ""
 
 concurrency:
   group: deploy-modelscope-coder
@@ -27,13 +31,43 @@ concurrency:
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
-  REPO: coder-inference-server
   LLAMA_BUILD: b11757
   LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
 
 jobs:
-  deploy:
+  plan:
+    # one Studio per line in ai-system/modelscope-coder/STUDIOS: the primary and its replicas always run the same app.py (adding capacity = one line)
     runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.p.outputs.list }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: p
+        env:
+          ONLY: ${{ inputs.studio }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          only = os.environ.get("ONLY", "").strip()
+          names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
+          ok = re.compile(r"^coder-inference-server(-[0-9]{1,2})?$")
+          bad = [n for n in names if not ok.match(n)]
+          if bad or not names:
+              raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server and coder-inference-server-<n>; never Sham's)")
+          open(os.environ["GITHUB_OUTPUT"], "a").write("list=" + json.dumps(names) + "\n")
+          print("studios:", names)
+          PY
+
+  deploy:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        studio: ${{ fromJson(needs.plan.outputs.list) }}
+    env:
+      REPO: ${{ matrix.studio }}
     steps:
       - uses: actions/checkout@v7
 
@@ -72,7 +106,7 @@ jobs:
           )
           echo "hardware pick: $HW"
           case "$HW" in paid/*) echo "refusing paid hardware"; exit 1;; esac
-          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':'coder-inference-server'}))")
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
           code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
           echo "create http $code"; head -c 2000 create.json; echo
           [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above: quota / verification / one-Studio limit)"; exit 1; }

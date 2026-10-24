@@ -1,0 +1,4 @@
+# One Studio per line. The primary and its replicas are deployed together from the same app.py (workflow deploy-modelscope-coder.yml).
+# A new replica: add its name here (coder-inference-server-<n>, never Sham's), then put its address in OPEN_CODER_STUDIO_URLS (docs/coder/CODER.md).
+coder-inference-server
+coder-inference-server-2

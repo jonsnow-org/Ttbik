@@ -33,3 +33,9 @@ Connectors tab → "خوادم MCP جاهزة": one tap adds a remote Streamable
 
 ## ask_user
 The agent can ask the user one question (`ask_user`); the task waits without a time limit and the next chat message (or terminal command) is the answer. `/stop` ends it like any task.
+
+## Capacity: more than one user (2026-10-24)
+One Studio runs ONE generation at a time (2 free vCPU, ~5 tokens/s), so users queue behind each other. Capacity grows by replicas, each a free Studio running the same `app.py`:
+- `ai-system/modelscope-coder/STUDIOS` lists the Studios (one per line). `deploy-modelscope-coder.yml` deploys every one of them on each push of `ai-system/modelscope-coder/**`, so replicas never drift from the primary. `workflow_dispatch` with `studio=<name>` deploys (or creates) a single one.
+- The site sends a new completion to the first idle Studio (shortest queue, then failover) — `openCoderStudio.ts` — once the addresses are in `OPEN_CODER_STUDIO_URLS` (comma list, replicas only; the primary stays in `OPEN_CODER_STUDIO_URL`): `https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net`. Then "move settings to Oracle" copies it to Oracle.
+- Add a replica: add its name to STUDIOS, push, then add its address to `OPEN_CODER_STUDIO_URLS`. The free ModelScope account's Studio quota is the limit (the workflow stops with the platform's message if it refuses).
