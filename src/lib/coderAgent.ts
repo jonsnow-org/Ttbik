@@ -91,8 +91,8 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 3 independent investigations to sub-agents that work in parallel; each returns a short report. reader (default) reads files, searches code and the web; tester (max one) runs the project's tests in its own VM; sham (owner only) puts the task, as a plain question, to Sham, the owner's own model, and returns its raw answer for you to judge. Each task must be a complete standalone instruction.",
-  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "tester", "sham"] } }, ["task"]) } }, ["tasks"]));
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. worker has your full tools and your permission settings (every delete / merge / main-branch write is asked of the user) and may start 2 read-only helpers of its own; use it for jobs that CHANGE things. reader (default) only reads files, searches code and the web; tester (max one) runs the project's tests in its own VM; sham (owner only) puts the task, as a plain question, to Sham, the owner's own model, and returns its raw answer for you to judge. Each task must be a complete standalone instruction.",
+  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester", "sham"] } }, ["task"]) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
   const all = [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS, ...(role === "tester" ? SANDBOX_TOOL_DEFS : [])];
@@ -167,11 +167,11 @@ export type Accuracy = "fast" | "balanced" | "precise";
 export const ACCURACY_TEMPERATURE: Record<Accuracy, number> = { fast: 0.7, balanced: 0.6, precise: 0.2 };
 export const isAccuracy = (x: unknown): x is Accuracy => x === "fast" || x === "balanced" || x === "precise";
 
-export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: Date; owner?: boolean; accuracy?: Accuracy; connectors?: string[]; agent?: "ar" | "en"; agentRole?: AgentRole }): string {
+export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: Date; owner?: boolean; accuracy?: Accuracy; connectors?: string[]; agent?: "ar" | "en"; agentRole?: AgentRole; agentDepth?: number }): string {
   // date only: a time that moves every minute would change the very start of the prompt on every step, and the model server would
   // re-read the whole conversation each time (minutes per step on a CPU) instead of reusing its prompt cache
   const now = (opts.now || new Date()).toISOString().slice(0, 10);
-  if (opts.agent) return AGENT_SYSTEM(now, opts.agent, opts.agentRole) + (opts.github ? "" : "\nGitHub tools are not connected.") + (opts.notes ? `\n${opts.notes}` : "");
+  if (opts.agent) return AGENT_SYSTEM(now, opts.agent, opts.agentRole, opts.agentDepth) + (opts.github ? "" : "\nGitHub tools are not connected.") + (opts.notes ? `\n${opts.notes}` : "");
   return [
     "You are Nova AI, the coding assistant by the Sham team: an expert software engineer and agent. Reply in the user's language (Arabic or English); code and identifiers stay in English.",
     "Work like a senior engineer on a real project, in a loop:",
@@ -182,7 +182,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
-    ...(agentsEnabled() ? ["DELEGATE: when a task splits into 2-3 independent things to look into (parts of a repo, several sources, a comparison), call delegate once with those tasks; read-only sub-agents investigate in parallel and you get their reports, then you decide and act. Do not delegate small things or anything that writes."] : []),
+    ...(agentsEnabled() ? ["DELEGATE: when a task splits into independent parts (up to 5: parts of a repo, several sources, a comparison, separate changes), call delegate once with those tasks. Role reader = read-only investigation; role worker = full tools and the user's permission settings, for parts that CHANGE things (each delete / merge / main-branch write is asked of the user, so keep such parts few and say clearly what each one may touch). The model server runs two things at a time, so more than 3 agents mostly queue: do not delegate small things."] : []),
     "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs (give the time in their own timezone exactly as the tool returns it); never just promise. If what to do or what to cover is unclear ('write me a short summary' of what?), ask ONE question with ask_user BEFORE creating the schedule. The scheduled run starts by itself and reports in this chat.",
     "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
@@ -281,7 +281,8 @@ const MAIN_NAMES = new Set(["main", "master", "trunk", "production", "prod"]);
 export type Risk =
   | "delete" | "push_default" | "merge_default" | "push_protected" | "merge_protected" | "force_push"
   | "workflow_deploy" | "workflow_writes_default" | "settings" | "secrets" | "collaborators" | "release_publish"
-  | "external_write";                                                   // writes into a connected service or an MCP tool call
+  | "external_write"                                                    // writes into a connected service or an MCP tool call
+  | "edit" | "merge";                                                   // opt-in: file writes / branches / PRs / comments, and merging ANY pull request (asked only when the user's rule says "ask")
 export const OWNER_CONFIRMS: ReadonlySet<Risk> = new Set<Risk>(["delete", "push_default", "merge_default", "workflow_writes_default", "external_write"]);
 export const RISK_LABEL: Record<Risk, string> = {
   delete: "حذف",
@@ -297,10 +298,14 @@ export const RISK_LABEL: Record<Risk, string> = {
   collaborators: "تغيير المتعاونين والصلاحيات",
   release_publish: "نشر إصدار",
   external_write: "تعديل في خدمة مربوطة",
+  edit: "تعديل (ملفات / فروع / طلبات دمج / تعليقات)",
+  merge: "دمج طلب دمج",
 };
+export const OPT_IN_RISKS: ReadonlySet<Risk> = new Set<Risk>(["edit", "merge"]);
 
 export function confirmRisks(tier: "owner" | "user", risks: Risk[]): Risk[] {
-  return tier === "owner" ? risks.filter((r) => OWNER_CONFIRMS.has(r)) : risks;
+  const base = risks.filter((r) => !OPT_IN_RISKS.has(r));
+  return tier === "owner" ? base.filter((r) => OWNER_CONFIRMS.has(r)) : base;
 }
 
 type BranchFacts = { main: boolean; protected: boolean };
@@ -362,13 +367,14 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
     case "github_delete_repo": return { risks: ["delete"], summary: String(a.repo) };
     case "github_delete_release": return { risks: ["delete"], summary: `${a.repo} release ${a.id}` };
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
-    case "github_write_files": return { risks: await pushRisks(gh, a.repo, String(a.branch || "")), summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
+    case "github_write_files": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
     case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
     case "github_merge_pr": {
       let base = "";
       if (gh && repoOk(a.repo)) base = String((await gh("GET", `/repos/${a.repo}/pulls/${Number(a.number)}`).catch(() => null))?.data?.base?.ref || "");
-      return { risks: await mergeRisks(gh, a.repo, base), summary: `${a.repo} PR #${a.number}${base ? ` → ${base}` : ""}` };
+      return { risks: [...(await mergeRisks(gh, a.repo, base)), "merge"], summary: `${a.repo} PR #${a.number}${base ? ` → ${base}` : ""}` };
     }
+    case "github_create_branch": case "github_create_pr": case "github_create_issue": case "github_comment": return { risks: ["edit"], summary: `${where}${a.title ? `\n${String(a.title).slice(0, 160)}` : ""}` };
     case "github_run_workflow": return { risks: await workflowRisks(gh, a.repo, String(a.workflow || ""), String(a.ref || "")), summary: `${a.repo} ${a.workflow} @ ${a.ref}` };
     case "github_update_repo": return { risks: ["settings"], summary: `${a.repo}\n${JSON.stringify(a.settings || {}).slice(0, 500)}` };
     case "github_add_collaborator": return { risks: ["collaborators"], summary: `${a.repo} + ${a.user} (${a.permission || "push"})` };
@@ -411,6 +417,8 @@ async function classifyApi(method: string, path: string, body: any, gh: Gh | nul
   const wf = rest.match(/^\/actions\/workflows\/([^/]+)\/dispatches$/);
   if (wf) (await workflowRisks(gh, repo, decodeURIComponent(wf[1]), String(body?.ref || ""))).forEach((r) => risks.add(r));
   if (rest === "/dispatches") risks.add("workflow_deploy");
+  if (/^\/pulls\/\d+\/merge$/.test(rest) || rest === "/merges") risks.add("merge");
+  else if (repo && (method === "POST" || method === "PUT" || method === "PATCH")) risks.add("edit");
   return { risks: [...risks], summary };
 }
 
@@ -771,3 +779,13 @@ export const queryDraftPrompt = (request: string): CoderMessage[] => [{
   role: "user",
   content: `Turn this request into 4 short web-search queries (3 to 7 words each, keywords only, no commands or questions; mix English technical terms with the request's own terms; aim at GitHub projects, documentation and technical articles). Names of bots, products or people in the request are NOT search topics to translate or guess: never turn them into a different English word, and leave them out of the queries unless the request is about them. Output the queries only, one per line.\n\nRequest: ${request.slice(0, 500)}`,
 }];
+
+
+/** A GitHub repository-search query from a drafted web query: the word "GitHub" and generic filler match thousands of unrelated repos (seen: a search for Telegram AI bots returned politics repos), so keep the topic words, search names and descriptions only, and ask for a few stars. */
+const GH_FILLER = new Set(["github", "git", "project", "projects", "solution", "solutions", "issue", "issues", "problem", "problems", "optimization", "optimisation", "techniques", "handling", "stability", "delay", "size", "performance", "best", "practices", "how", "to", "for", "with", "using", "in", "of", "the", "a", "and", "on"]);
+export function githubQuery(q: string): string {
+  if (/[a-z]+:\S/i.test(q)) return q;              // the model already used GitHub qualifiers
+  const words = q.toLowerCase().replace(/[^\p{L}\p{N}\s+#.-]/gu, " ").split(/\s+/).filter((w) => w.length > 1 && !GH_FILLER.has(w));
+  const topic = [...new Set(words)].slice(0, 4).join(" ");
+  return topic ? `${topic} in:name,description stars:>20` : q;
+}

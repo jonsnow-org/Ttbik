@@ -10,6 +10,7 @@ import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { isAccuracy } from "@/lib/coderAgent";
+import { AGENT_MAX, AGENT_MAX_DEPTH, SUB_AGENT_MAX, agentsEnabled } from "@/lib/coderAgents";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -104,6 +105,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         features: { sham: owner, ownerTools: owner },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
+        agents: { enabled: agentsEnabled(), max: AGENT_MAX, sub: SUB_AGENT_MAX, depth: AGENT_MAX_DEPTH },
         events: EVENT_TYPES,
       };
     }
@@ -126,7 +128,15 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // one tap for the whole confirmation policy: "careful" asks for every category, "default" goes back to the tier defaults,
       // "auto" lets routine categories run but keeps asking for deletes, force-pushes and writes to connected services
       const preset = String(body.preset || "");
-      if (!["careful", "default", "auto"].includes(preset)) throw new AppError(400, "bad preset");
+      if (!["careful", "default", "auto", "agents_ask", "agents_default"].includes(preset)) throw new AppError(400, "bad preset");
+      if (preset === "agents_ask" || preset === "agents_default") {
+        // only for agents: "ask about everything" is a rule per category in the "agent" context (the user's other rules still apply to agents through their parent)
+        for (const c of CATEGORIES) {
+          if (preset === "agents_default") await removePref(chatId, c, "*", "agent", db);
+          else await setPref(chatId, { category: c, repo: "*", context: "agent", policy: "ask" }, db);
+        }
+        return { ok: true, rules: (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r) };
+      }
       for (const c of CATEGORIES) {
         if (preset === "default") await removePref(chatId, c, "*", "*", db);
         else await setPref(chatId, { category: c, repo: "*", context: "*", policy: preset === "careful" || ["delete", "force", "external"].includes(c) ? "ask" : "allow" }, db);

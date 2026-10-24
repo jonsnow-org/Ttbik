@@ -30,7 +30,7 @@ describe("mini app api", () => {
     expect(me.prefs.categories.find((c: any) => c.id === "settings").tierDefault).toBe("run");
     const u = await appOp({ chatId: USER, tier: "user" }, "me", {}, { db, bot, botRow });
     expect(u.connections.github.linked).toBe(false);
-    expect(u.prefs.categories.every((c: any) => c.tierDefault === "ask")).toBe(true);
+    expect(u.prefs.categories.filter((c: any) => c.id !== "edit" && c.id !== "merge").every((c: any) => c.tierDefault === "ask")).toBe(true);   // edit and merge are opt-in: they ask only when the user says so
   });
 
   it("settings are validated and saved", async () => {

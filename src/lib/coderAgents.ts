@@ -5,11 +5,14 @@
 // state row (`agentResult`). The parent only polls those rows, so there is no shared write and no race between finishing children.
 // CODER_AGENTS=off removes the tool.
 
-export const AGENT_MAX = 3;
+export const AGENT_MAX = 5;          // agents one run can start at once
+export const SUB_AGENT_MAX = 2;      // sub-agents ONE "worker" agent can start (read-only helpers, one level only)
+export const AGENT_MAX_DEPTH = 2;    // run (0) → agents (1) → sub-agents (2); sub-agents cannot start anything
 export const AGENT_MAX_STEPS = 6;
 export const TESTER_MAX_STEPS = 10;
-export type AgentRole = "reader" | "tester" | "sham";   // sham = put the task to Sham (the owner's own model) and bring back its raw answer; owner only
-export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
+export const WORKER_MAX_STEPS = 12;
+export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does; sham = the owner's own model, raw answer, owner only
+export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 export const AGENT_REPORT_MAX = 4000;
 
@@ -23,14 +26,20 @@ export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 /** What the "tester" role adds: run the project's own tests in its own disposable VM. Never write files into the repo, never push. */
 export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file"]);
-export const agentToolAllowed = (name: string, role?: AgentRole): boolean => role !== "sham" && (AGENT_TOOL_NAMES.has(name) || (role === "tester" && TESTER_TOOL_NAMES.has(name)));
+/** A worker may use every tool the parent has (each consequential call still goes through the user's permission settings and asks), except asking the user a free question, and starting agents at the deepest level. */
+export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1): boolean => {
+  if (role === "sham") return false;
+  if (role === "worker") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);
+  return AGENT_TOOL_NAMES.has(name) || (role === "tester" && TESTER_TOOL_NAMES.has(name));
+};
 export const agentSlot = (runId: string, i: number): string => `a:${runId}:${i}`;
 export const isAgentSlot = (slot: string): boolean => slot.startsWith("a:");
 
 export type AgentTask = { title: string; task: string; role: AgentRole };
 
 /** Accepts {tasks:[{title,task}|string]} or a single {task}. At most AGENT_MAX, empty ones dropped. */
-export function normalizeTasks(a: Record<string, unknown>, owner = false): AgentTask[] {
+export function normalizeTasks(a: Record<string, unknown>, owner = false, depth = 0): AgentTask[] {
+  const sub = depth >= 1;          // started by an agent: read-only helpers only, fewer of them
   const raw: unknown[] = Array.isArray(a.tasks) ? a.tasks : a.task ? [a] : [];
   const out: AgentTask[] = [];
   let testers = 0;
@@ -39,16 +48,24 @@ export function normalizeTasks(a: Record<string, unknown>, owner = false): Agent
     const task = String(o?.task ?? o?.prompt ?? o?.instruction ?? "").trim().slice(0, 2000);
     if (!task) continue;
     const want = String(o?.role || "").toLowerCase();
-    const role: AgentRole = want === "tester" && testers < 1 ? "tester" : want === "sham" && owner ? "sham" : "reader";   // one tester per call (its VM is the costly part); Sham is the owner's only
+    const role: AgentRole = sub ? "reader" : want === "worker" ? "worker" : want === "tester" && testers < 1 ? "tester" : want === "sham" && owner ? "sham" : "reader";   // one tester per call (its VM is the costly part); Sham is the owner's only; helpers of an agent only read
     if (role === "tester") testers++;
     const title = String(o?.title || task).trim().replace(/\s+/g, " ").slice(0, 80);
     out.push({ title: role === "sham" ? `Sham: ${title}`.slice(0, 80) : title, task, role });
-    if (out.length >= AGENT_MAX) break;
+    if (out.length >= (sub ? SUB_AGENT_MAX : AGENT_MAX)) break;
   }
   return out;
 }
 
-export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "reader") => role === "tester" ? [
+export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "reader", depth = 1) => role === "worker" ? [
+  "You are a worker agent of Nova AI. A parent agent gave you ONE job; do it completely with your tools (read, search, edit files, branches, pull requests, tests in your VM, connected services).",
+  "You have the SAME permissions and the SAME settings as the user's main assistant: anything consequential (delete, merge, push to the main branch, settings, releases, connected-service writes) is asked of the USER on their phone, who answers ✅ or ❌. If a step is declined or denied, do not retry it: continue without it and say so in your report.",
+  `You may start at most ${SUB_AGENT_MAX} read-only helper agents with the delegate tool for parts of your job${depth >= AGENT_MAX_DEPTH ? " (not available to you: you are already a helper level)" : ""}. You cannot ask the user free questions.`,
+  "Tools come in groups: call load_tools with the group you need (github, computer, web, memory, schedule, connectors); its tools are there from the next step.",
+  `You have at most ${WORKER_MAX_STEPS} steps; on your last step stop calling tools and write the report.`,
+  "REPORT: plain text, at most 350 words: what you did (exact repo / branch / PR / file names), what the user approved or declined, what remains. Never claim something you did not see succeed.",
+  `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; code, paths and identifiers stay in English." : "Write the report in English."}`,
+].join("\n") : role === "tester" ? [
   "You are a test-runner sub-agent of Nova AI. A parent agent gave you ONE job: run the project's own checks in YOUR private, disposable Linux VM and report what happened.",
   "Typical steps: sandbox_clone the repository, install dependencies (npm ci / pip install -r …), run the test / lint / build command the task names (or the project's own: look at package.json scripts, Makefile, CI workflow files), read the output.",
   "You cannot change the user's repository: no pushing, no pull requests, no GitHub writes (the VM is thrown away when you finish). You cannot ask the user or start other agents; commands that need a confirmation are refused.",

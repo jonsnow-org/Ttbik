@@ -370,7 +370,7 @@ describe("delegate: the tester sub-agent", () => {
     await new Promise((r) => setTimeout(r, 3000));
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
     expect(chat).toHaveLength(4);
-    expect(JSON.stringify(chat[2].body)).toMatch(/DENIED: sub-agents are read-only/);          // the tester's next step shows both refusals
+    expect(JSON.stringify(chat[2].body)).toMatch(/DENIED: your role has no such tool/);          // the tester's next step shows both refusals
     expect(calls.some((c) => c.url.includes("api.github.com") && /git\/(blobs|commits|refs)/.test(c.url))).toBe(false);
     const st = await loadState(CHAT, db);
     expect(st.run).toBeNull();
@@ -552,5 +552,68 @@ describe("stop notice placement", () => {
     expect(api.deleteMessage).toHaveBeenCalledWith(CHAT, 55);
     expect(sent[sent.length - 1].text).toMatch(/أُوقفت المهمة/);
     expect(api.editMessageText).not.toHaveBeenCalledWith(CHAT, 55, expect.stringMatching(/أُوقفت/));
+  });
+});
+
+describe("worker agents: full tools, the user's own permission settings, and the user is asked", () => {
+  const { normalizeTasks, agentToolAllowed, AGENT_MAX, SUB_AGENT_MAX } = require("@/lib/coderAgents");
+  it("limits: 5 agents at once; an agent's own helpers are 2 and read-only; helpers cannot start anything", () => {
+    const many = { tasks: Array.from({ length: 9 }, (_, i) => ({ title: `t${i}`, task: `job ${i}`, role: "worker" })) };
+    const top = normalizeTasks(many, false, 0);
+    expect(top).toHaveLength(AGENT_MAX);
+    expect(top.every((t: any) => t.role === "worker")).toBe(true);
+    const sub = normalizeTasks(many, true, 1);
+    expect(sub).toHaveLength(SUB_AGENT_MAX);
+    expect(sub.every((t: any) => t.role === "reader")).toBe(true);        // whatever role was asked
+    expect(agentToolAllowed("delegate", "worker", 1)).toBe(true);
+    expect(agentToolAllowed("delegate", "worker", 2)).toBe(false);
+    expect(agentToolAllowed("delegate", "reader", 2)).toBe(false);
+    expect(agentToolAllowed("github_merge_pr", "worker", 1)).toBe(true);
+    expect(agentToolAllowed("github_merge_pr", "reader", 1)).toBe(false);
+    expect(agentToolAllowed("ask_user", "worker", 1)).toBe(false);
+  });
+
+  it("a worker that tries to merge asks the USER (a real chat message with buttons, from the agent), and goes on after the tap", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "دمج", task: "ادمج PR رقم 5 في a/b", role: "worker" }] })] },
+      { type: "done", job: "j2", text: "", tool_calls: [call("m1", "github_merge_pr", { repo: "a/b", number: 5 })] },
+      { type: "done", job: "j3", text: "تقرير: تم الدمج بموافقتك.", tool_calls: [] },
+      { type: "done", job: "j4", text: "اكتمل.", tool_calls: [] },
+    ], {
+      "GET /repos/a/b/pulls/5": () => [200, { base: { ref: "feature" } }],
+      "PUT /repos/a/b/pulls/5/merge": () => [200, { merged: true }],
+    });
+    const db = fakeDb();
+    await setPref(CHAT, { category: "merge", repo: "*", context: "*", policy: "ask" }, db);
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "ادمج طلب الدمج 5 في a/b" } }, db);
+    await new Promise((r) => setTimeout(r, 2500));
+    const parent = await loadState(CHAT, db);
+    const slot = (parent.run as any)?.delegating?.slots?.[0];
+    expect(slot).toMatch(/^a:/);
+    const child = await loadState(CHAT, db, slot);
+    expect(child.run?.pending?.nonce).toBeTruthy();                        // waiting for the user
+    expect(calls.some((c) => c.url.includes("/pulls/5/merge"))).toBe(false);   // nothing merged yet
+    const ask = sent.find((s) => /وكيل «دمج» يطلب إذنك/.test(s.text));
+    expect(ask).toBeTruthy();
+    expect(JSON.stringify(ask!.extra)).toMatch(/ccf\|/);
+    await resolvePending(bot, botRow, CHAT, child.run!.id, child.run!.pending!.nonce, "yes", db);
+    await new Promise((r) => setTimeout(r, 3500));
+    expect(calls.some((c) => c.url.includes("/pulls/5/merge"))).toBe(true);
+  }, 20000);
+
+  it("a worker that is DENIED by the user's standing rule does not merge", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "دمج", task: "ادمج PR 5", role: "worker" }] })] },
+      { type: "done", job: "j2", text: "", tool_calls: [call("m1", "github_merge_pr", { repo: "a/b", number: 5 })] },
+      { type: "done", job: "j3", text: "تقرير: رُفض الدمج حسب الإعدادات.", tool_calls: [] },
+      { type: "done", job: "j4", text: "تم.", tool_calls: [] },
+    ], { "GET /repos/a/b/pulls/5": () => [200, { base: { ref: "feature" } }], "PUT /repos/a/b/pulls/5/merge": () => [200, { merged: true }] });
+    const db = fakeDb();
+    await setPref(CHAT, { category: "merge", repo: "*", context: "agent", policy: "deny" }, db);
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "ادمج 5" } }, db);
+    await new Promise((r) => setTimeout(r, 3500));
+    expect(calls.some((c) => c.url.includes("/pulls/5/merge"))).toBe(false);
   });
 });

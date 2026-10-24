@@ -18,7 +18,7 @@ export type Pending = { runId: string; nonce: string; reason: string; summary: s
 export type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 export type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 export type Accuracy = "fast" | "balanced" | "precise";
-export type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean }; settings: { model: string; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
+export type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean }; settings: { model: string; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; agents?: { enabled: boolean; max: number; sub: number; depth: number }; events: string[] };
 export type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 export type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 export type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "setup"; oauth: boolean; token?: { create: string; help: { ar: string; en: string }; placeholder: string }; setup?: { create: string; callback: string; env: string[]; scope: string }; label?: string; source?: "owner-env" | "user-link" };
@@ -454,7 +454,7 @@ export function PolicySection({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
   const [rules, setRules] = useState<Rule[]>(me.prefs.rules);
   const [scoped, setScoped] = useState({ category: me.prefs.categories[0]?.id || "delete", repo: "", context: "*", policy: "allow" as Rule["policy"] });
   const pref = async (category: string, policy: string, repo = "*", context = "*") => { setRules((await api<{ rules: Rule[] }>("pref", { category, policy, repo, context })).rules); haptic("success"); };
-  const preset = async (p: "careful" | "default" | "auto") => { setRules((await api<{ rules: Rule[] }>("pref_preset", { preset: p })).rules); haptic("success"); };
+  const preset = async (p: "careful" | "default" | "auto" | "agents_ask" | "agents_default") => { setRules((await api<{ rules: Rule[] }>("pref_preset", { preset: p })).rules); haptic("success"); };
   const g = (c: string) => rules.find((r) => r.category === c && r.repo === "*" && r.context === "*")?.policy || "default";
   return (
     <>
@@ -470,6 +470,15 @@ export function PolicySection({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
           </Select>
         ))}
       </Section>
+      {me.agents?.enabled && (
+        <Section header={`🤖 ${t.ag_title}`} footer={t.ag_hint}>
+          <Cell subtitle={t.ag_roles}>{`${t.ag_limits}: ${me.agents.max} ${t.ag_max} · ${me.agents.sub} ${t.ag_sub}`}</Cell>
+          <div style={{ display: "flex", gap: 8, padding: "10px 16px", flexWrap: "wrap" }}>
+            <Button size="s" mode="bezeled" onClick={() => preset("agents_ask")}>{t.ag_ask}</Button>
+            <Button size="s" mode="gray" onClick={() => preset("agents_default")}>{t.ag_same}</Button>
+          </div>
+        </Section>
+      )}
       <Section header={t.rules}>
         {rules.filter((r) => r.repo !== "*" || r.context !== "*").map((r) => (
           <Cell key={`${r.category}|${r.repo}|${r.context}`} subtitle={<span dir="ltr">{r.repo === "*" ? t.anyRepo : r.repo} · {r.context === "*" ? t.anyContext : tx(t, r.context)}</span>}
@@ -480,7 +489,7 @@ export function PolicySection({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
         <Select header={t.perms} value={scoped.category} onChange={(e) => setScoped({ ...scoped, category: e.target.value })}>{me.prefs.categories.map((c) => <option key={c.id} value={c.id}>{c.label[lang]}</option>)}</Select>
         <Select header="⚖️" value={scoped.policy} onChange={(e) => setScoped({ ...scoped, policy: e.target.value as Rule["policy"] })}><option value="ask">{t.p_ask}</option><option value="allow">{t.p_allow}</option><option value="deny">{t.p_deny}</option></Select>
         <Input header={t.repo} dir="ltr" placeholder="owner/repo" value={scoped.repo} onChange={(e) => setScoped({ ...scoped, repo: e.target.value })} />
-        <Select header="📍" value={scoped.context} onChange={(e) => setScoped({ ...scoped, context: e.target.value })}><option value="*">{t.anyContext}</option><option value="interactive">{t.interactive}</option><option value="scheduled">{t.scheduled}</option></Select>
+        <Select header="📍" value={scoped.context} onChange={(e) => setScoped({ ...scoped, context: e.target.value })}><option value="*">{t.anyContext}</option><option value="interactive">{t.interactive}</option><option value="scheduled">{t.scheduled}</option><option value="agent">{t.agent}</option></Select>
         <ButtonCell onClick={() => pref(scoped.category, scoped.policy, scoped.repo || "*", scoped.context)}>＋ {t.add}</ButtonCell>
       </Section>
     </>

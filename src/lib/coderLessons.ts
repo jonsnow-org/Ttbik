@@ -9,6 +9,9 @@ import type { CoderMessage } from "@/lib/openCoderStudio";
 
 const SECRET_RX = /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.|(?:token|secret|password|passwd|api[_-]?key|مفتاح|كلمة السر)\s*[:=]\s*\S{8,}|\b[A-Fa-f0-9]{40,}\b|[A-Za-z0-9+/]{60,}={0,2}|\b\d{8,10}:[A-Za-z0-9_-]{30,}\b)/i;
 
+// Tool results are public web pages / repository text: commit hashes, long URLs and base64-looking blobs are normal there, so only the high-confidence token shapes count for them.
+const HIGH_RX = /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.|\b\d{8,10}:[A-Za-z0-9_-]{30,}\b)/;
+
 export type Lesson = { kind: "research" | "tools" | "chat"; run: string; steps: number; messages: CoderMessage[] };
 
 /** The lesson of a finished run, or null when it should not be kept. Pure: the caller decides who and when. */
@@ -22,7 +25,7 @@ export function buildLesson(runId: string, steps: number, msgs: CoderMessage[]):
     if (content.startsWith("[harness]") && m.role === "user") continue;                     // the engine's own nudges are not part of the lesson
     const calls = (m as { tool_calls?: { function?: { name?: string; arguments?: string } }[] }).tool_calls;
     const blob = content + JSON.stringify(calls || []);
-    if (SECRET_RX.test(blob)) return null;
+    if ((m.role === "tool" ? HIGH_RX : SECRET_RX).test(blob)) return null;
     if (calls?.length) {
       usedTools = true;
       if (calls.some((c) => /^(deep_research|web_search|fetch_page|web_fetch)$/.test(c.function?.name || ""))) research = true;
@@ -47,17 +50,21 @@ function ensureTable(db: Db): Promise<void> {
   return ready;
 }
 
-export async function recordLesson(runId: string, steps: number, msgs: CoderMessage[], db: Db = prismaDb): Promise<boolean> {
-  if ((process.env.CODER_LESSONS || "").toLowerCase() === "off") return false;
+/** "saved", or why not: "off" | "not kept (secret-looking text, no final answer or no request)" | "database: …". Shown to the owner in the task log. */
+export async function recordLessonStatus(runId: string, steps: number, msgs: CoderMessage[], db: Db = prismaDb): Promise<string> {
+  if ((process.env.CODER_LESSONS || "").toLowerCase() === "off") return "off";
   const l = buildLesson(runId, steps, msgs);
-  if (!l) return false;
+  if (!l) return "not kept (secret-looking text, no final answer or no request)";
   try {
     await ensureTable(db);
     await db.exec(`INSERT INTO coder_lessons (run_id, kind, steps, messages) VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (run_id) DO NOTHING`, l.run, l.kind, l.steps, JSON.stringify(l.messages));
-    return true;
-  } catch {
-    return false;
+    return "saved";
+  } catch (e) {
+    return `database: ${String((e as Error)?.message || e).slice(0, 120)}`;
   }
+}
+export async function recordLesson(runId: string, steps: number, msgs: CoderMessage[], db: Db = prismaDb): Promise<boolean> {
+  return (await recordLessonStatus(runId, steps, msgs, db)) === "saved";
 }
 
 export async function lessonStats(db: Db = prismaDb): Promise<{ total: number; byKind: Record<string, number> }> {

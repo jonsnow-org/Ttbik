@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -30,7 +30,7 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
-  agent?: boolean; agentRole?: AgentRole; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -105,9 +105,12 @@ export function defaultMode(): Mode {
 
 /** A sub-agent run never writes to the chat: every Telegram call is swallowed (its work is visible in the task events). */
 function silentBot(bot: TelegramBot): TelegramBot {
+  const real = (bot as any).__real || bot;
   const api = new Proxy(bot.api as any, { get: (target, prop) => (typeof Reflect.get(target, prop, target) === "function" ? async () => null : Reflect.get(target, prop, target)) });
-  return new Proxy(bot as any, { get(target, prop, receiver) { return prop === "api" ? api : Reflect.get(target, prop, receiver); } }) as TelegramBot;
+  return new Proxy(bot as any, { get(target, prop, receiver) { return prop === "api" ? api : prop === "__real" ? real : Reflect.get(target, prop, receiver); } }) as TelegramBot;
 }
+/** The real chat bot behind a silenced agent bot: an agent never chats, but its ✅/❌ permission questions must reach the user. */
+const realBot = (bot: TelegramBot): TelegramBot => (bot as any).__real || bot;
 
 const emptyState = (): ChatState => ({ mode: defaultMode(), think: false, messages: [], notes: "", inbox: [], run: null });
 
@@ -677,7 +680,7 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
   }
 }
 
-const contextOf = (run: Run): Context => (run.source && run.source !== "interactive" ? "scheduled" : "interactive");
+const contextOf = (run: Run): Context => (run.agent ? run.parentCtx || "interactive" : run.source && run.source !== "interactive" ? "scheduled" : "interactive");
 const toolCallKey = (call: CoderToolCall): string => call.id || `${call.function.name}:${call.function.arguments}`;
 
 async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: string; file_name?: string; file_size?: number }): Promise<string> {
@@ -957,15 +960,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
-      if (run.agent && !agentToolAllowed(call.function.name, run.agentRole)) {
-        // a sub-agent is read-only: enforced here, whatever the model asks for
-        st.messages.push({ role: "tool", content: "DENIED: sub-agents are read-only and have no such tool. Use only the tools you were given, or write your report now.", tool_call_id: call.id, name: call.function.name });
+      if (run.agent && !agentToolAllowed(call.function.name, run.agentRole, run.agentDepth || 1)) {
+        // an agent only uses its role's tools: enforced here, whatever the model asks for
+        st.messages.push({ role: "tool", content: "DENIED: your role has no such tool. Use only the tools you were given, or write your report now.", tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
         await saveState(chatId, st, db, slot);
         continue;
       }
       if (call.function.name === "delegate") {
-        const tasks = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner");
+        const tasks = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner", run.agent ? run.agentDepth || 1 : 0);
         run.queued = rest;
         if (!agentsEnabled() || !tasks.length) {
           st.messages.push({ role: "tool", content: tasks.length ? "error: sub-agents are switched off" : "error: delegate needs tasks:[{title, task}] (1 to 3)", tool_call_id: call.id, name: "delegate" });
@@ -974,8 +977,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         const slots = await startAgents(bot, botRow, chatId, st, run, tasks, db);
         run.delegating = { id: call.id || "delegate", slots, titles: tasks.map((t) => t.title), at: Date.now() };
-        await progressLine(ioBot, chatId, run, `🧩 وكلاء فرعيون للقراءة (${tasks.length}): ${tasks.map((t) => t.title).join(" · ").slice(0, 120)}`);
-        await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل فرعي (قراءة فقط): ${tasks.map((t) => t.title).join(" | ")}`, db);
+        await progressLine(ioBot, chatId, run, `🧩 وكلاء (${tasks.length}): ${tasks.map((t) => t.title).join(" · ").slice(0, 120)}`);
+        await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل: ${tasks.map((t) => `${t.title} [${t.role}]`).join(" | ")}`, db);
         await saveState(chatId, st, db, slot);
         continue;
       }
@@ -1021,7 +1024,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       // permissions: tier defaults + the user's own policy (coder_permission_prefs) + "allow for the rest of this task"
-      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), run.allowCats || []);
+      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), run.allowCats || [], Boolean(run.agent));
       if (g.action === "deny") {
         await taskEvent(run.id, "auto_denied", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
         await send(ioBot, chatId, `⛔ رُفض تلقائياً حسب إعداداتك: ${g.reason}\n${call.function.name}`);
@@ -1031,8 +1034,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
-      if (g.action === "ask" && run.agent) {
-        // a sub-agent cannot ask the user (it is silent): what needs a confirmation is simply not allowed for it
+      if (g.action === "ask" && run.agent && run.agentRole !== "worker") {
+        // a reader / tester has no way to ask the user: what needs a confirmation is simply not allowed for it (a worker asks, below)
         st.messages.push({ role: "tool", content: `NOT PERMITTED: ${call.function.name} needs the user's confirmation, which a sub-agent cannot request. Skip it and report what you could not do.`, tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
         await taskEvent(run.id, "auto_denied", `sub-agent: ${call.function.name} needs confirmation — refused`, db);
@@ -1047,8 +1050,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await taskEvent(run.id, "confirm", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
         await taskStatus(run.id, "waiting", run.step, db);
         const kb = new InlineKeyboard().text("✅ نفّذ", `ccf|${run.id}|${nonce}|yes`).text("❌ ألغِ", `ccf|${run.id}|${nonce}|no`).row().text("✅ اسمح لبقية المهمة", `ccf|${run.id}|${nonce}|all`);
-        const head = run.title && run.source !== "interactive" ? `⏰ ${run.title.slice(0, 80)}\n` : "";
-        const m = await ioBot.api.sendMessage(chatId, `${head}⚠️ يحتاج تأكيدك: ${g.reason}\n${call.function.name}\n${g.summary}`.slice(0, 3500), { reply_markup: kb } as never).catch(() => null);
+        const head = run.agent ? `🤖 وكيل «${(run.title || "").slice(0, 70)}» يطلب إذنك\n` : run.title && run.source !== "interactive" ? `⏰ ${run.title.slice(0, 80)}\n` : "";
+        const m = await (run.agent ? realBot(bot) : ioBot).api.sendMessage(chatId, `${head}⚠️ يحتاج تأكيدك: ${g.reason}\n${call.function.name}\n${g.summary}`.slice(0, 3500), { reply_markup: kb } as never).catch(() => null);
         if (m && (m as any).message_id) {
           const again = await loadState(chatId, db, slot);
           if (again.run?.pending?.nonce === nonce) {
@@ -1274,7 +1277,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
         const snap = [...st.messages], id = run.id, steps = run.step;
-        later(() => import("@/lib/coderLessons").then((m) => m.recordLesson(id, steps, snap, db)).then(() => undefined).catch(() => undefined));
+        later(() => import("@/lib/coderLessons").then((m) => m.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
       }
       await endRun(st, "done", db, "✓", coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
@@ -1328,7 +1331,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (/github|جيتهوب|جيت هاب|git hub/i.test(q)) {
           const pub: ToolCtx = ctx.gh ? ctx : { ...ctx, gh: githubClient("") };      // public repositories need no token (read only)
           const lists: string[] = [];
-          for (const qq of queries.slice(0, 2)) lists.push(await runTool({ id: "pre_gh", type: "function", function: { name: "github_search_repos", arguments: JSON.stringify({ query: qq, sort: "stars" }) } }, pub));
+          for (const qq of queries.slice(0, 3)) lists.push(await runTool({ id: "pre_gh", type: "function", function: { name: "github_search_repos", arguments: JSON.stringify({ query: githubQuery(qq), sort: "stars" }) } }, pub));
           const repos = [...new Set(lists.join("\n").split("\n").map((l) => /^([\w.-]+\/[\w.-]+) ★/.exec(l)?.[1] || "").filter(Boolean))].slice(0, 3);
           const readmes: string[] = [];
           for (const r of repos) {
@@ -1378,7 +1381,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
     const agentLast = Boolean(run.agent && run.step >= agentMaxSteps(run.agentRole) - 1);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
@@ -1386,7 +1389,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, run.keepGroups).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -1554,8 +1557,9 @@ async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, par
   const slots: string[] = [];
   for (let i = 0; i < tasks.length; i++) {
     const slot = agentSlot(run.id, i);
-    const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
-    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, title: tasks[i].title, goal: tasks[i].task }, db);
+    const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
+    // an agent inherits the parent's settings: the same permission rules (through the parent's context) and what the user already allowed for this task
+    await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, agentDepth: (run.agent ? run.agentDepth || 1 : 0) + 1, parentCtx: contextOf(run), allowCats: run.allowCats, title: tasks[i].title, goal: tasks[i].task }, db);
     await saveState(chatId, st, db, slot);
     later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS, slot));
     slots.push(slot);

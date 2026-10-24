@@ -81,3 +81,14 @@ describe("researchQuestion: when a message is a plain research request", () => {
     expect(researchQuestion("x".repeat(2000))).toBe("");
   });
 });
+
+describe("githubQuery", () => {
+  const { githubQuery } = require("@/lib/coderAgent");
+  it("drops 'GitHub' and filler, searches names and descriptions, asks for stars", () => {
+    expect(githubQuery("GitHub AI Telegram bot projects")).toBe("ai telegram bot in:name,description stars:>20");
+    expect(githubQuery("Telegram bot message size optimization")).toBe("telegram bot message in:name,description stars:>20");
+  });
+  it("leaves a query that already has qualifiers alone", () => {
+    expect(githubQuery("telegram bot language:python stars:>500")).toBe("telegram bot language:python stars:>500");
+  });
+});
