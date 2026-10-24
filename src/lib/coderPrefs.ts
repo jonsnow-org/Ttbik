@@ -11,7 +11,7 @@ import type { CoderToolCall } from "@/lib/openCoderStudio";
 
 export type Category = "delete" | "main" | "force" | "deploy" | "settings" | "release" | "external" | "edit" | "merge";
 export type Policy = "ask" | "allow" | "deny";
-export type Context = "interactive" | "scheduled" | "agent";       // "agent" = a rule only for sub-agents (the others apply to them too, through their parent)
+export type Context = "interactive" | "scheduled";
 export type PrefRule = { category: Category; repo: string; context: Context | "*"; policy: Policy };
 
 export const CATEGORIES: Category[] = ["delete", "main", "force", "deploy", "settings", "release", "external", "edit", "merge"];
@@ -52,14 +52,14 @@ export function normRepo(repo: unknown): string {
 }
 
 /** The most specific rule for this category / repo / context, or null (= tier default). */
-export function pickRule(rules: PrefRule[], category: Category, repo: string, context: Context, agent = false): PrefRule | null {
+export function pickRule(rules: PrefRule[], category: Category, repo: string, context: Context): PrefRule | null {
   const r = normRepo(repo);
   let best: PrefRule | null = null;
   let score = -1;
   for (const x of rules) {
     if (x.category !== category) continue;
     const repoHit = x.repo === "*" ? 0 : x.repo === r ? 2 : -1;
-    const ctxHit = x.context === "*" ? 0 : x.context === context ? 1 : x.context === "agent" && agent ? 2 : -1;
+    const ctxHit = x.context === "*" ? 0 : x.context === context ? 1 : -1;
     if (repoHit < 0 || ctxHit < 0) continue;
     if (repoHit + ctxHit > score) {
       score = repoHit + ctxHit;
@@ -78,14 +78,14 @@ export type Decision = {
 };
 
 /** Applies tier defaults, then the user's rules, then the per-task allowances (categories allowed with "allow for the rest of this task"). */
-export function decide(risks: Risk[], tier: Tier, repo: string, context: Context, rules: PrefRule[], taskAllow: Category[] = [], agent = false): Decision {
+export function decide(risks: Risk[], tier: Tier, repo: string, context: Context, rules: PrefRule[], taskAllow: Category[] = []): Decision {
   const tierAsks = new Set(confirmRisks(tier, risks));
   const ask: Risk[] = [];
   const autoAllowed: Risk[] = [];
   const denied: Risk[] = [];
   for (const risk of risks) {
     const cat = CATEGORY_OF[risk];
-    const rule = pickRule(rules, cat, repo, context, agent);
+    const rule = pickRule(rules, cat, repo, context);
     if (rule?.policy === "deny") denied.push(risk);
     else if (rule?.policy === "allow") autoAllowed.push(risk);
     else if (rule?.policy === "ask" || tierAsks.has(risk)) {
@@ -112,10 +112,10 @@ export function callRepo(call: CoderToolCall): string {
 }
 
 export async function evaluateCall(
-  call: CoderToolCall, gh: Parameters<typeof classifyCall>[1], tier: Tier, context: Context, rules: PrefRule[], taskAllow: Category[] = [], agent = false,
+  call: CoderToolCall, gh: Parameters<typeof classifyCall>[1], tier: Tier, context: Context, rules: PrefRule[], taskAllow: Category[] = [],
 ): Promise<Decision & { summary: string; risks: Risk[] }> {
   const c = await classifyCall(call, gh);
-  return { ...decide(c.risks, tier, callRepo(call), context, rules, taskAllow, agent), summary: c.summary, risks: c.risks };
+  return { ...decide(c.risks, tier, callRepo(call), context, rules, taskAllow), summary: c.summary, risks: c.risks };
 }
 
 export const categoriesOf = (risks: Risk[]): Category[] => [...new Set(risks.map((r) => CATEGORY_OF[r]))];
@@ -150,7 +150,7 @@ export async function loadPrefs(chatId: number | string, db: Db = prismaDb): Pro
 export async function setPref(chatId: number | string, rule: PrefRule, db: Db = prismaDb): Promise<void> {
   if (!isCategory(rule.category) || !isPolicy(rule.policy)) throw new Error("bad rule");
   const repo = normRepo(rule.repo);
-  const context = rule.context === "interactive" || rule.context === "scheduled" || rule.context === "agent" ? rule.context : "*";
+  const context = rule.context === "interactive" || rule.context === "scheduled" ? rule.context : "*";
   await ensureTable(db);
   await db.exec(
     `INSERT INTO coder_permission_prefs (chat_key, category, repo, context, policy, updated_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (chat_key, category, repo, context) DO UPDATE SET policy = EXCLUDED.policy, updated_at = now()`,
@@ -160,7 +160,7 @@ export async function setPref(chatId: number | string, rule: PrefRule, db: Db = 
 
 export async function removePref(chatId: number | string, category: Category, repo: string, context: string, db: Db = prismaDb): Promise<void> {
   await ensureTable(db);
-  await db.exec(`DELETE FROM coder_permission_prefs WHERE chat_key = $1 AND category = $2 AND repo = $3 AND context = $4`, coderChatKey(chatId), category, normRepo(repo), context === "interactive" || context === "scheduled" || context === "agent" ? context : "*");
+  await db.exec(`DELETE FROM coder_permission_prefs WHERE chat_key = $1 AND category = $2 AND repo = $3 AND context = $4`, coderChatKey(chatId), category, normRepo(repo), context === "interactive" || context === "scheduled" ? context : "*");
 }
 
 export const nextPolicy = (p: Policy | "default"): Policy | "default" => (p === "default" ? "ask" : p === "ask" ? "allow" : p === "allow" ? "deny" : "default");

@@ -3,7 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
-import { AGENT_SYSTEM, AGENT_TOOL_NAMES, TESTER_TOOL_NAMES, agentsEnabled, type AgentRole } from "@/lib/coderAgents";
+import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, type AgentRole } from "@/lib/coderAgents";
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
@@ -91,8 +91,8 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. worker has your full tools and your permission settings (every delete / merge / main-branch write is asked of the user) and may start 2 read-only helpers of its own; use it for jobs that CHANGE things. reader (default) only reads files, searches code and the web; tester (max one) runs the project's tests in its own VM; sham (owner only) puts the task, as a plain question, to Sham, the owner's own model, and returns its raw answer for you to judge. Each task must be a complete standalone instruction.",
-  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester", "sham"] } }, ["task"]) } }, ["tasks"]));
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. role worker = your full tools and permission settings (deletes / merges / main-branch writes are asked of the user), may start 2 read-only helpers; reader = read-only (default); tester (max 1) = runs tests in its own VM; sham (owner) = asks Sham. Each task must be a complete standalone instruction. An agent starting its own helpers gives helper + arg instead of free text.",
+  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester", "sham"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
   const all = [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS, ...(role === "tester" ? SANDBOX_TOOL_DEFS : [])];
