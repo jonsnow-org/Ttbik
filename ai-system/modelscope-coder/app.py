@@ -161,7 +161,7 @@ def _wait_health(timeout: float = 900) -> bool:
 def _start_server(model: Path, bindir: Path) -> None:
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
-           "--jinja", "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+           "--jinja", "--alias", "nova-ai", "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 

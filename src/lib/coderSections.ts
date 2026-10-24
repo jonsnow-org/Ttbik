@@ -1286,7 +1286,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (!text.trim()) await send(ioBot, chatId, "⚠️ انتهى الرد بلا نص. قد يكون خادم البرمجة مشغولاً أو يعيد نتيجة فارغة. جرّب مرة أخرى بعد دقيقة، أو افتح التطبيق لرؤية السجلات.");
       if (st.inbox.length) {
-        for (const m of st.inbox) st.messages.push({ role: "user", content: m });
+        for (const m of st.inbox) st.messages.push({ role: "user", content: `[new message from the user while you were working]\n${m}` });
         st.inbox = [];
         await saveState(chatId, st, db, slot);
         continue;
@@ -1324,7 +1324,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     // ask the model for the next step (messages that came in meanwhile join the conversation now)
     if (st.inbox.length) {
-      for (const m of st.inbox) st.messages.push({ role: "user", content: m });
+      for (const m of st.inbox) st.messages.push({ role: "user", content: `[new message from the user while you were working]\n${m}` });
       st.inbox = [];
     }
     if (run.recovery) {
