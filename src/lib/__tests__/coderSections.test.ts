@@ -348,6 +348,18 @@ describe("no pause: loops are detected, logged and recovered", () => {
     expect(sent[sent.length - 1].text).toMatch(/مشغولة|تعذّر|الخدمة/);
   });
 
+  it("a refused token (401) is not waited out: the run ends at once and the owner is told why", async () => {
+    (global as any).fetch = jest.fn(async (url: string) => (url.includes("/call/v2/chat") ? new Response('{"error":"Authentication failed"}', { status: 401 }) : new Response("{}", { status: 200 })));
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "a1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    const t0 = Date.now();
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect((await loadState(CHAT, db)).run).toBeNull();
+    expect(sent[sent.length - 1].text).toMatch(/رفض رمز الوصول \(HTTP 401\)/);
+  });
+
   it("a job the restarted Studio no longer knows is asked again, not failed", async () => {
     let polls = 0;
     (global as any).fetch = jest.fn(async (url: string) => {

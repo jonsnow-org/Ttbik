@@ -213,7 +213,7 @@ export const modeKeyboard = (mode: Mode) =>
 export function userFailureText(o: Parameters<typeof coderFailureText>[0], chatId: number | string): string {
   if (tierFor(chatId) === "owner") return coderFailureText(o);
   if (o.failure === "off") return "🛠️ Nova AI غير متاح الآن. جرّب بعد قليل.";
-  if (o.failure === "timeout" || o.failure === "http" || o.failure === "network") return "⌛ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
+  if (o.failure === "timeout" || o.failure === "http" || o.failure === "network" || o.failure === "auth") return "⌛ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
   if (o.reply?.type === "gone") return "انتهت صلاحية هذا الطلب. أعد إرسال رسالتك.";
   return "⚠️ تعذّر إكمال الرد هذه المرة. أعد المحاولة بعد قليل.";
 }
@@ -1311,15 +1311,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const modelStartedAt = Date.now();
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
-    await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
-    if ((!r || !r.job) && o.failure && o.failure !== "off") {
+    await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") : "") + ".", db);
+    if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
       // the model server is away (restart, wake-up, a deploy): wait for it, minutes if need be, instead of failing a long task
       run.outageSince = run.outageSince || Date.now();
       if (Date.now() - run.outageSince < outageMs()) {
         run.retries = (run.retries || 0) + 1;
         if (!run.outageNoted) {
           run.outageNoted = true;
-          await taskEvent(run.id, "info", `⏳ خادم النموذج غير متاح الآن (${o.failure})؛ أعاود تلقائياً لمدة تصل إلى ${Math.round(outageMs() / 60000)} دقيقة.`, db);
+          await taskEvent(run.id, "info", `⏳ خادم النموذج غير متاح الآن (${o.failure}${o.status ? ` HTTP ${o.status}` : ""})؛ أعاود تلقائياً لمدة تصل إلى ${Math.round(outageMs() / 60000)} دقيقة.`, db);
           await send(ioBot, chatId, "⏳ خادم النموذج غير متاح لحظياً؛ أعاود تلقائياً وسأكمل المهمة حين يعود.");
         }
         await saveState(chatId, st, db, slot);

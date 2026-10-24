@@ -27,7 +27,7 @@ export type CoderReply = {
   error?: string;
   timings?: { prompt_n?: number; predicted_n?: number; predicted_per_second?: number };   // llama.cpp's own token counts (done jobs)
 };
-export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
+export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" | "auth"; status?: number };   // auth = the server refused our token (401/403): waiting does not fix it
 
 export function coderStudioUrl(): string {
   return (process.env.OPEN_CODER_STUDIO_URL || "").trim().replace(/\/+$/, "");
@@ -146,11 +146,11 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
   const deadline = Date.now() + timeoutMs;
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/${name}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
-    if (!sub.ok) return { reply: null, failure: "http" };
+    if (!sub.ok) return { reply: null, failure: sub.status === 401 || sub.status === 403 ? "auth" : "http", status: sub.status };
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return { reply: null, failure: "http" };
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
-    if (!res.ok) return { reply: null, failure: "http" };
+    if (!res.ok) return { reply: null, failure: res.status === 401 || res.status === 403 ? "auth" : "http", status: res.status };
     const reply = parseCoderSse(await res.text());
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
@@ -234,6 +234,7 @@ async function studioStatus(base: string, timeoutMs: number): Promise<Record<str
 export function coderFailureText(o: CoderOutcome): string {
   if (o.failure === "off") return "قسم المبرمج غير مفعّل بعد (لم يُضبط عنوان الخادم).";
   if (o.failure === "timeout") return "⌛ خادم المبرمج لم يرد في الوقت المتاح. أعد المحاولة بعد قليل.";
+  if (o.failure === "auth") return `⛔ خادم المبرمج رفض رمز الوصول (HTTP ${o.status || 401}). تحقق من MODELSCOPE_API_TOKEN على الخادم الذي يشغّل البوت.`;
   if (o.failure === "http" || o.failure === "network") return "تعذّر الاتصال بخادم المبرمج الآن (قد يكون قيد التشغيل). أعد المحاولة بعد دقيقة.";
   if (o.failure === "unreadable") return "خادم المبرمج ردّ بصيغة غير متوقعة.";
   if (o.reply?.type === "error") return `خطأ من خادم المبرمج: ${(o.reply.error || "").slice(0, 300)}`;
