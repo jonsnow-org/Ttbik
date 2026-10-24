@@ -1,0 +1,15 @@
+{
+  "id": "jonsnowjonsnow/nova1-coder",
+  "title": "nova1-coder",
+  "code_file": "nova1_kaggle.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

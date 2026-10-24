@@ -1,0 +1,172 @@
+{
+ "date": "2026-10-21 (TRT)",
+ "model": "unsloth Qwen3.5-4B-Q4_K_M.gguf (the GGUF the coder Studio serves), llama.cpp b11757 CPU",
+ "problems": "LiveCodeBench release_v6 AtCoder (Jan-Apr 2025), public + up to 12 private tests, stdin/stdout",
+ "thinking_off": {
+  "max_tokens": 2048,
+  "rows": [
+   {
+    "id": "abc391_b",
+    "diff": "easy",
+    "res": "no_code",
+    "comp_tokens": 1007,
+    "reason_chars": 0,
+    "sec": 378
+   },
+   {
+    "id": "abc389_a",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 64,
+    "reason_chars": 0,
+    "sec": 46
+   },
+   {
+    "id": "abc399_a",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1178
+   },
+   {
+    "id": "abc391_a",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1178
+   },
+   {
+    "id": "abc390_b",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 450,
+    "reason_chars": 0,
+    "sec": 149
+   },
+   {
+    "id": "abc400_a",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 104,
+    "reason_chars": 0,
+    "sec": 52
+   },
+   {
+    "id": "abc394_b",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 174,
+    "reason_chars": 0,
+    "sec": 59
+   },
+   {
+    "id": "abc396_a",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 183,
+    "reason_chars": 0,
+    "sec": 61
+   },
+   {
+    "id": "abc400_b",
+    "diff": "easy",
+    "res": "pass",
+    "comp_tokens": 327,
+    "reason_chars": 0,
+    "sec": 116
+   },
+   {
+    "id": "abc396_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1046
+   },
+   {
+    "id": "abc393_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1386
+   },
+   {
+    "id": "abc399_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1071
+   },
+   {
+    "id": "abc394_d",
+    "diff": "medium",
+    "res": "budget_exhausted",
+    "comp_tokens": 2048,
+    "reason_chars": 0,
+    "sec": 1426
+   }
+  ],
+  "pass": 6,
+  "n": 13
+ },
+ "thinking_on": {
+  "max_tokens": 4300,
+  "note": "run only on the 6 problems thinking-off failed; slot context 4608",
+  "rows": [
+   {
+    "id": "abc391_a",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 4300,
+    "reason_chars": 507,
+    "sec": 1293
+   },
+   {
+    "id": "abc391_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 4043,
+    "reason_chars": 12129,
+    "sec": 1228
+   },
+   {
+    "id": "abc393_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 4300,
+    "reason_chars": 4366,
+    "sec": 1293
+   },
+   {
+    "id": "abc396_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 3965,
+    "reason_chars": 13796,
+    "sec": 1200
+   },
+   {
+    "id": "abc399_a",
+    "diff": "easy",
+    "res": "no_code",
+    "comp_tokens": 4106,
+    "reason_chars": 4188,
+    "sec": 1245
+   },
+   {
+    "id": "abc399_b",
+    "diff": "easy",
+    "res": "budget_exhausted",
+    "comp_tokens": 3921,
+    "reason_chars": 19605,
+    "sec": 1182
+   }
+  ],
+  "pass": 0,
+  "n": 6
+ }
+}

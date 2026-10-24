@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "not_before": "2026-10-24T00:15:00Z",
+  "nova_gpu_hours_per_week": 15,
+  "sham_gpu_hours_per_week": 15,
+  "hold_track": "chat_image_in_one",
+  "session_cap_minutes": 660,
+  "min_session_minutes": 60,
+  "max_quick_fails": 2,
+  "done": false
+}
