@@ -91,8 +91,8 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 3 independent investigations to sub-agents that work in parallel; each returns a short report. reader (default) reads files, searches code and the web; tester (max one) runs the project's tests in its own VM. Each task must be a complete standalone instruction.",
-  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "tester"] } }, ["task"]) } }, ["tasks"]));
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 3 independent investigations to sub-agents that work in parallel; each returns a short report. reader (default) reads files, searches code and the web; tester (max one) runs the project's tests in its own VM; sham (owner only) puts the task, as a plain question, to Sham, the owner's own model, and returns its raw answer for you to judge. Each task must be a complete standalone instruction.",
+  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "tester", "sham"] } }, ["task"]) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
   const all = [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS, ...(role === "tester" ? SANDBOX_TOOL_DEFS : [])];

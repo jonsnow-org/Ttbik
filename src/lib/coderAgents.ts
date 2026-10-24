@@ -8,8 +8,8 @@
 export const AGENT_MAX = 3;
 export const AGENT_MAX_STEPS = 6;
 export const TESTER_MAX_STEPS = 10;
-export type AgentRole = "reader" | "tester";
-export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : AGENT_MAX_STEPS);
+export type AgentRole = "reader" | "tester" | "sham";   // sham = put the task to Sham (the owner's own model) and bring back its raw answer; owner only
+export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 export const AGENT_REPORT_MAX = 4000;
 
@@ -23,14 +23,14 @@ export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 /** What the "tester" role adds: run the project's own tests in its own disposable VM. Never write files into the repo, never push. */
 export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file"]);
-export const agentToolAllowed = (name: string, role?: AgentRole): boolean => AGENT_TOOL_NAMES.has(name) || (role === "tester" && TESTER_TOOL_NAMES.has(name));
+export const agentToolAllowed = (name: string, role?: AgentRole): boolean => role !== "sham" && (AGENT_TOOL_NAMES.has(name) || (role === "tester" && TESTER_TOOL_NAMES.has(name)));
 export const agentSlot = (runId: string, i: number): string => `a:${runId}:${i}`;
 export const isAgentSlot = (slot: string): boolean => slot.startsWith("a:");
 
 export type AgentTask = { title: string; task: string; role: AgentRole };
 
 /** Accepts {tasks:[{title,task}|string]} or a single {task}. At most AGENT_MAX, empty ones dropped. */
-export function normalizeTasks(a: Record<string, unknown>): AgentTask[] {
+export function normalizeTasks(a: Record<string, unknown>, owner = false): AgentTask[] {
   const raw: unknown[] = Array.isArray(a.tasks) ? a.tasks : a.task ? [a] : [];
   const out: AgentTask[] = [];
   let testers = 0;
@@ -38,9 +38,11 @@ export function normalizeTasks(a: Record<string, unknown>): AgentTask[] {
     const o = (typeof x === "string" ? { task: x } : x) as Record<string, unknown> | null;
     const task = String(o?.task ?? o?.prompt ?? o?.instruction ?? "").trim().slice(0, 2000);
     if (!task) continue;
-    const role: AgentRole = String(o?.role || "").toLowerCase() === "tester" && testers < 1 ? "tester" : "reader";   // one tester per call: its VM is the costly part
+    const want = String(o?.role || "").toLowerCase();
+    const role: AgentRole = want === "tester" && testers < 1 ? "tester" : want === "sham" && owner ? "sham" : "reader";   // one tester per call (its VM is the costly part); Sham is the owner's only
     if (role === "tester") testers++;
-    out.push({ title: String(o?.title || task).trim().replace(/\s+/g, " ").slice(0, 80), task, role });
+    const title = String(o?.title || task).trim().replace(/\s+/g, " ").slice(0, 80);
+    out.push({ title: role === "sham" ? `Sham: ${title}`.slice(0, 80) : title, task, role });
     if (out.length >= AGENT_MAX) break;
   }
   return out;

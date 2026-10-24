@@ -401,3 +401,41 @@ describe("delegate inside a scheduled task", () => {
     expect(calls.filter((c) => c.url.includes("/call/v2/chat")).length).toBeGreaterThanOrEqual(4);   // (a scheduled run also learns memories afterwards)
   });
 });
+
+describe("delegate: the sham role (owner only) puts a question to Sham and brings back its raw answer", () => {
+  it("the owner's sub-agent asks Sham (no tools, no system prompt, one step); the parent receives the raw answer to judge", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "اختبار شام", task: "ما عاصمة سوريا؟", role: "sham" }] })] },
+      { type: "text", text: "دمشق هي عاصمة سوريا." },                                         // Sham's own reply (generate_any)
+      { type: "done", job: "j3", text: "حكمي: إجابة شام صحيحة وقصيرة.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اسأل شام عن عاصمة سوريا وقيّم جوابه" } }, db);
+    await new Promise((r) => setTimeout(r, 2500));
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    const tool = (st.messages.find((m: any) => m.name === "delegate") as any).content;
+    expect(tool).toMatch(/## Agent 1: Sham: اختبار شام/);
+    expect(tool).toMatch(/دمشق هي عاصمة سوريا/);
+    expect(sent.some((s) => /حكمي: إجابة شام صحيحة/.test(s.text))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/gradio_api/call/v2/generate_any"))).toBe(true);
+    expect(calls.filter((c) => c.url.includes("/call/v2/chat"))).toHaveLength(2);                // the parent's two steps only: Sham's call is not a coder-Studio chat
+    const sham = calls.find((c) => c.url.includes("/call/v2/generate_any"))!;
+    expect(sham.body).toMatchObject({ prompt: "ما عاصمة سوريا؟" });                                // only the task text goes to Sham
+  });
+
+  it("a regular user cannot reach Sham through delegate: the role becomes a normal read-only reader", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "x", task: "ما عاصمة سوريا؟", role: "sham" }] })] },
+      { type: "done", job: "j2", text: "تقرير القارئ.", tool_calls: [] },
+      { type: "done", job: "j3", text: "تم.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: USER }, text: "اسأل شام" } }, db);
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(calls.some((c) => c.url.includes("generate_any"))).toBe(false);
+    expect(calls.filter((c) => c.url.includes("/call/v2/chat")).some((c) => /read-only research sub-agent/.test(JSON.stringify(c.body)))).toBe(true);
+  });
+});

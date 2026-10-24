@@ -948,7 +948,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       if (call.function.name === "delegate") {
-        const tasks = normalizeTasks(parseArgs(call));
+        const tasks = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner");
         run.queued = rest;
         if (!agentsEnabled() || !tasks.length) {
           st.messages.push({ role: "tool", content: tasks.length ? "error: sub-agents are switched off" : "error: delegate needs tasks:[{title, task}] (1 to 3)", tool_call_id: call.id, name: "delegate" });
@@ -1296,7 +1296,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
+    if (run.agent && run.agentRole !== "sham" && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
@@ -1309,7 +1309,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? "coder" : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : agentToolDefs(github, run.agentRole)) : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off") {

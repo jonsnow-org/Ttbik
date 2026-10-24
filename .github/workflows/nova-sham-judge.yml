@@ -1,0 +1,50 @@
+name: Nova judges Sham (free)
+# Sham answers 24 fixed Arabic prompts through its own Studio (read-only: it only asks questions); Nova (Qwen3.5-4B on llama.cpp, the same
+# model our bot runs) grades each answer on fluency / relevance / correctness. The table is a readable score of Sham's chat skill that can be
+# compared run to run on the SAME prompts, next to the loss numbers of the merge gate. Manual only; uses the existing MODELSCOPE_TOKEN secret
+# (never printed). Nothing is changed on Sham's side.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "ask only the first N prompts (0 = all 24)"
+        required: false
+        default: "0"
+permissions:
+  contents: read
+concurrency:
+  group: nova-sham-judge
+  cancel-in-progress: false
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  judge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: selftest
+        run: python3 scripts/nova-eval/sham_judge.py --selftest
+      - name: the judge model (Nova's own, on llama.cpp)
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o judge.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          nohup "$BIN/llama-server" -m judge.gguf -c 4096 -t 4 -np 1 --jinja --host 127.0.0.1 --port 8080 > judge.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; sleep 5; done
+          curl -sf http://127.0.0.1:8080/health >/dev/null || { tail -20 judge.log; exit 1; }
+      - name: Sham answers, Nova grades
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          set -o pipefail
+          python3 scripts/nova-eval/sham_judge.py --limit "${LIMIT:-0}" | tee judge.txt
+          { echo '## Nova judges Sham'; sed -n '/^| skill/,$p' judge.txt; } >> "$GITHUB_STEP_SUMMARY"

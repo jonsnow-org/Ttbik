@@ -4,6 +4,7 @@
 //   NOVA_PRO_MODEL (required, e.g. "Qwen/Qwen3.5-397B-A17B"), NOVA_PRO_API_KEY (falls back to MODELSCOPE_API_TOKEN),
 //   NOVA_PRO_API_URL (default https://api-inference.modelscope.cn/v1).
 import type { CoderMessage, CoderOutcome, CoderReply, CoderTool } from "@/lib/openCoderStudio";
+import { shamGenerateAny, shamStudioEnabled } from "@/lib/shamStudio";
 
 export const PROVIDER_JOB_PREFIX = "p~";
 
@@ -51,4 +52,21 @@ export async function providerChat(
     const n = (e as { name?: string })?.name || "";
     return { reply: null, failure: n === "TimeoutError" || n === "AbortError" ? "timeout" : "network" };
   }
+}
+
+/**
+ * Sham, the owner's own model, as a one-shot "worker" for a sub-agent (role "sham", owner only): the task goes to Sham as a plain question and
+ * its raw answer comes back for the parent to judge. Sham has no tool calling and no system prompt here: only the task text is sent.
+ * An unreachable / loading Studio is reported as a failure, so the run's patience loop waits for it like for any model server.
+ */
+export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number } = {}): Promise<CoderOutcome> {
+  if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  const prompt = String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
+  if (!prompt) return { reply: null, failure: "unreadable" };
+  const r = await shamGenerateAny(prompt, Math.min(200, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
+  if (!r) return { reply: null, failure: "network" };
+  const job = `${PROVIDER_JOB_PREFIX}sham${Date.now().toString(36)}`;
+  if (r.type === "text" && (r.text || "").trim()) return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
+  if (r.type === "image" || r.type === "audio" || r.type === "video") return { reply: { type: "done", job, text: `[Sham answered with ${r.type}, not shown here]${r.text ? ` ${String(r.text).slice(0, 300)}` : ""}`, tool_calls: [] } };
+  return { reply: null, failure: r.type === "pending" ? "timeout" : "http" };     // loading / busy / gone / notice: not an answer
 }

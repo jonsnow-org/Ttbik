@@ -6,7 +6,7 @@
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
-import { providerConfig, providerChat, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
+import { providerConfig, providerChat, shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
   | { role: "system" | "user"; content: string }
@@ -165,6 +165,7 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
+  if (opts.model === "sham") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0) });   // a sub-agent probing Sham (owner only, set by the runner)
   const prov = providerConfig(opts.model);                       // a hand-picked API model (Nova Pro); everything else is our Studio
   if (opts.model === "nova_pro" && !prov) return Promise.resolve({ reply: null, failure: "off" });   // chosen by hand but not set up: say so, never answer from another model
   if (prov) return providerChat(prov, messages, { tools: opts.tools, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0, 240000) });
