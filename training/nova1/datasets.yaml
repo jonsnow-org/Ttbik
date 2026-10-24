@@ -18,7 +18,7 @@ known_filter:
   threshold: 0.30          # nats/token; higher skips more
   max_minutes: 45          # scoring stops here; rows not reached are kept
   max_skip_share: 0.85     # per source: never skip more than this share of its rows (the lowest-loss ones go first)
-  exempt: [identity]       # never filtered (the base model does not know this content; it is small)
+  exempt: [identity, nova_agent, nova_lessons]       # never filtered (the base model does not know this content; it is small)
   score_tokens: 2048       # rows are scored on at most this many tokens (the prompt is cut from the left; the answer is kept whole when it fits)
   batch_tokens: 12288      # tokens per forward pass on one T4 (fp16)
   target_tokens: 20000000  # after filtering, the mix is cut down to this (lowest-loss scored rows first) if still above it
@@ -37,7 +37,7 @@ sources:
     generator: "synthetic (NVIDIA; responses from Qwen2.5-Coder-32B-Instruct per the paper, arXiv 2504.04030), with unit tests and pass rates"
     status: use-subset
     filter: "average_test_score >= 0.8; sample 150k of ~5M (fields checked live: input, output, unit_tests, average_test_score)"
-    weight: 0.22
+    weight: 0.15            # was 0.22: 0.07 of the mix now goes to nova_agent (Nova's own work), taken from the largest generic code source
   - key: opc_stage2
     hf: OpenCoder-LLM/opc-sft-stage2
     license: mit
@@ -98,6 +98,20 @@ sources:
     license: our own outputs of an Apache-2.0 model
     status: use
     weight: 0.06
+
+  # ---- Nova's own work: research from sources, agents, tool groups (generated and checked here; see scripts/make_agent_rows.py)
+  - key: nova_agent
+    source: "generated here (scripts/make_agent_rows.py), no model and no outside text: the bot's REAL system prompt, tool schemas, harness messages and deep_research / agent-report formats (tools/runtime_*)"
+    license: our own text
+    note: "teaches what the owner's tests showed Nova gets wrong: short precise queries, answering ONLY from the sources read (every project named is in the sources), saying plainly what the sources do not cover, acting (one precise search) instead of announcing, loading the right tool group on the first step, four-line agent reports (JOB / DONE / NOT DONE / OUTPUT) that never hide a declined step, and a parent that merges reports honestly. ~1,800 rows, all under 2,048 tokens; exempt from the near-duplicate filter and the known-row filter (templated on purpose)"
+    status: use
+    weight: 0.07
+  - key: nova_lessons
+    source: "the owner's own successful Nova runs (coder_lessons, published to a PRIVATE Hugging Face dataset by .github/workflows/nova-publish-lessons.yml; scripts/lessons_to_rows.py)"
+    license: our own outputs
+    note: "real research / tool-use runs with real sources. Empty until the first lessons exist; the notebook uses it only when NOVA_LESSONS_REPO (+ an HF token) is set. Weight 0 = off."
+    status: use
+    weight: 0.0
 
   # ---- Arabic for code (instructions and explanations only)
   - key: ar_code

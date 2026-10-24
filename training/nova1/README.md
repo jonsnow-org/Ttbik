@@ -167,3 +167,30 @@ what it does not know yet. Settings are `known_filter` in `datasets.yaml` (on by
   template (`export/sham_identity.py`). The Qwen3.5 template has none, so it stays as it is and nothing is added to it.
 - `export/rebrand_gguf.py` does the same for the GGUF the coder Studio serves today. That changes the file's metadata only: the
   weights still answer as the base model until Nova 1 is trained, so it is not uploaded.
+
+## Review of 2026-10-24 (by the main Claude session, at the owner's request) — what was checked, changed and why
+Checked with the real Qwen3.5 tokenizer and TRL on CPU (nothing here needs a GPU), not assumed:
+- **Loss on assistant turns only works, but depends on the TRL version.** Qwen3.5's chat template has no `{% generation %}` marker, so
+  `assistant_only_loss=True` needs TRL's own training template (verified with TRL 1.16: the mask covers assistant text and tool calls, not tool
+  results). An older TRL (Unsloth can pin one) would give an all-zero mask. `train/train.py` now tests the mask on real rows before training and
+  falls back to Unsloth's `train_on_responses_only` (it stops with a clear message if neither works).
+- **`build_mix --max-len 2048` counted 4 characters per token**; measured: Python 3.3, Arabic 3.6-3.9, so rows of 2,048-2,500 real tokens passed and the
+  trainer cut their END (the answer and its end token). `build_mix.py` now counts with the real tokenizer (3.3 chars/token if it is not available).
+  `train.py` prints a warning when sampled rows exceed the training length.
+- **`thinking_share_min: 0.75` was never read by any script** (dead setting). The real share of reasoning rows is about 22% (ocr_reasoning + the
+  R1 rows of nemotron_code). The bot serves with thinking OFF by default (`enable_thinking=false` in the Studio), which the non-reasoning rows match.
+  The key is left in the configs but it does nothing; do not rely on it.
+- **The mix had nothing for what Nova actually does** (research with sources, GitHub projects, agents, tool groups, honest "not found"); its tool
+  rows used 43 old schemas and a short invented system prompt, while the bot sends a 859-token system prompt and 3 first-step tools (827 tokens) and loads
+  groups on demand (the github group alone is 3,285 tokens, so it never fits a 2,048 row). Runtime schemas and prompts are now in `tools/runtime_*`.
+- New source **`nova_agent`** (weight 0.07, taken from `opencodeinstruct`): `scripts/make_agent_rows.py` writes ~1,800 synthetic, checked rows in the bot's real
+  conversation shape: route (first step: load the right group / delegate / ask / answer), grounded (report only from the sources read, every project named is in
+  them, what is not covered is said), thin (nothing found: ONE precise search at once, then an honest "not found" that refuses to invent), report
+  (the four-line agent report JOB / DONE / NOT DONE / OUTPUT that never hides a declined or denied step), combine (the parent merges reports honestly).
+  All rows are under 2,048 real tokens, the loss mask covers only assistant text and tool calls (checked), and the source is exempt from the near-duplicate
+  and known-row filters because it is templated on purpose.
+- New source **`nova_lessons`** (weight 0, off): `scripts/lessons_to_rows.py` turns the owner's real successful runs (published privately to Hugging Face
+  by the lessons workflow) into rows; the notebook uses it when the Kaggle secrets `NOVA_LESSONS_REPO` and `HF_TOKEN` exist. Set its weight (e.g. 0.05) once lessons exist.
+- New eval line **`agent_behaviour`** (`eval/agent_eval.py`, 40 held-out cases: other topics, other wording, no request shared with training): "ship only if no line is worse".
+  `python eval/agent_eval.py --selfcheck` proves the gold answers pass and wrong ones fail.
+- Not changed: LoRA settings, learning rate, epochs, the 2,048 length (a longer one was not tested on a T4), the licences, the identity rows.

@@ -5,7 +5,7 @@
 3. decon: drop a row if it shares any 13-gram (word) with a prompt or canonical solution of HumanEval+, MBPP+, BigCodeBench,
           LiveCodeBench, or our own eval files (eval/*.jsonl). 13-gram overlap is the rule used for the GPT-3 / StarCoder reports.
 Rows with source "identity" (identity/identity_sft.jsonl, already deduplicated where it is written, and present on purpose in three
-renderings that differ only in the system message / tools) go through step 3 only.
+renderings that differ only in the system message / tools), "nova_agent" and "nova_lessons" go through step 3 only.
 
     python scripts/dedup_decontam.py data/mix.raw.jsonl data/mix.jsonl
 """
@@ -21,6 +21,7 @@ from datasketch import MinHash, MinHashLSH
 HERE = Path(__file__).resolve().parent.parent
 WORD = re.compile(r"\w+", re.U)
 N = 13
+EXEMPT = {"identity", "nova_agent", "nova_lessons"}      # written here, templated on purpose / deduplicated where they are made: step 3 (decontamination) only
 
 
 def words(t: str) -> list:
@@ -84,7 +85,7 @@ def main(src: str, dst: str) -> None:
             row = json.loads(line)
             t = text_of(row)
             ws = words(t)
-            if row.get("source") == "identity":
+            if row.get("source") in EXEMPT:
                 if grams(ws, N) & bench:
                     decon += 1
                     continue

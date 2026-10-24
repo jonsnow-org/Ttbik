@@ -102,6 +102,36 @@ _bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()   # T4/P100
 ds = load_dataset("json", data_files=C["data"]["train"], split="train").map(render)
 split = ds.train_test_split(test_size=C["data"]["holdout_share"], seed=C["train"]["seed"])
 T = C["train"]
+
+
+def assistant_mask_mode(sample) -> str:
+    """How the loss is limited to the assistant's turns (tool calls included, tool results and prompts never).
+    Qwen3.5's chat template has no {% generation %} marker (checked 2026-10-24), so TRL must swap in its own training template; that exists only in
+    recent TRL (verified with TRL 1.16: mask covers the assistant turns, not tool results). Unsloth can pin an older TRL, whose mask would be ALL ZERO
+    (no loss at all) or the run would stop; so the mask is tested on real rows BEFORE training, and Unsloth's train_on_responses_only is the fallback."""
+    try:
+        from trl.chat_template_utils import get_training_chat_template, has_generation_markers
+        tpl = tok.chat_template if has_generation_markers(tok.chat_template) else get_training_chat_template(tok)
+        tpl = tpl or tok.chat_template
+        for row in sample:
+            out = tok.apply_chat_template(row["messages"], tools=row.get("tools"), chat_template=tpl, tokenize=True, return_dict=True, return_assistant_tokens_mask=True)
+            m = out["assistant_masks"]
+            if not any(m):
+                return "unsloth"
+            if "<tool_response>" in tok.decode([i for i, k in zip(out["input_ids"], m) if k]):
+                return "unsloth"          # a tool result inside the loss is not acceptable
+        return "trl"
+    except Exception as e:
+        print("TRL assistant-only mask not usable:", type(e).__name__, str(e)[:160])
+        return "unsloth"
+
+
+_n = min(len(split["train"]), 24)
+MASK = assistant_mask_mode([split["train"][i] for i in range(_n)]) if T["assistant_only_loss"] else "none"
+print("loss on assistant turns only, via:", MASK)
+_long = sum(1 for i in range(min(len(split["train"]), 400)) if len(tok.apply_chat_template(split["train"][i]["messages"], tools=split["train"][i].get("tools"), tokenize=True, return_dict=True)["input_ids"]) > C["max_seq_length"])
+if _long:
+    print(f"WARNING: {_long} of the first {min(len(split['train']), 400)} rows are longer than {C['max_seq_length']} tokens: the trainer cuts their END (answer and end token). Rebuild with a smaller --max-len.")
 trainer = SFTTrainer(
     model=model,
     processing_class=tok,
@@ -111,12 +141,16 @@ trainer = SFTTrainer(
         output_dir=a.out, max_length=C["max_seq_length"], num_train_epochs=T["epochs"], max_steps=a.max_steps,
         learning_rate=T["lr"], lr_scheduler_type=T["scheduler"], warmup_ratio=T["warmup_ratio"], weight_decay=T["weight_decay"],
         per_device_train_batch_size=T["per_device_batch"], gradient_accumulation_steps=T["grad_accum"], optim=T["optim"],
-        packing=T["packing"], assistant_only_loss=T["assistant_only_loss"], seed=T["seed"], logging_steps=10,
+        packing=T["packing"], assistant_only_loss=(MASK == "trl"), seed=T["seed"], logging_steps=10,
         save_steps=T["save_steps"], eval_strategy="steps", eval_steps=T["eval_steps"], save_total_limit=3, report_to="none",
         bf16=_bf16, fp16=not _bf16, dataset_num_proc=2,
         push_to_hub=bool(a.hub_repo), hub_model_id=a.hub_repo or None, hub_strategy="checkpoint", hub_private_repo=True),
     callbacks=[StopBeforeLimit()],
 )
+if MASK == "unsloth":
+    # tool turns arrive as "user" messages (<tool_response>), so they are masked like prompts; assistant turns (text and tool calls) are trained
+    from unsloth.chat_templates import train_on_responses_only
+    trainer = train_on_responses_only(trainer, instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")
 start = hub_resume() if a.resume else None
 print("resuming from", start) if start else print("starting fresh")
 trainer.train(resume_from_checkpoint=start)

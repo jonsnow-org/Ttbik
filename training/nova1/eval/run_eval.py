@@ -2,6 +2,8 @@
   1. HumanEval+ and MBPP+ (EvalPlus, base + plus tests, pass@1 greedy)
   2. our Arabic-instruction coding tasks (eval/arabic_code_tasks.jsonl, pass@1)
   3. tool-call accuracy in our tool format (eval/tool_calls.jsonl): right tool, required arguments, and no tool when none is needed
+  4. Nova's own work (eval/agent_eval.py, 40 held-out cases): first-step routing with the bot's real tools, answers only from sources, honesty
+     when nothing is found, one precise search instead of announcing, four-line agent reports, merging reports without hiding what was not done
 and writes one JSON report. Run it on the base model first, then on Nova 1; ship only if Nova 1 is not worse on any line.
 
     LLM_BASE_URL=http://127.0.0.1:8080/v1 LLM_MODEL=nova1 python eval/run_eval.py --out reports/nova1.json
@@ -95,7 +97,7 @@ def tool_calls() -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="reports/eval.json")
-    ap.add_argument("--skip", nargs="*", default=[], choices=["humaneval", "mbpp", "arabic", "tools"])
+    ap.add_argument("--skip", nargs="*", default=[], choices=["humaneval", "mbpp", "arabic", "tools", "agent"])
     a = ap.parse_args()
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +110,10 @@ def main() -> None:
         rep["arabic_code"] = arabic()
     if "tools" not in a.skip:
         rep["tool_calls"] = tool_calls()
+    if "agent" not in a.skip:
+        sys.path.insert(0, str(HERE))
+        import agent_eval
+        rep["agent_behaviour"] = agent_eval.run(chat)
     out.write_text(json.dumps(rep, indent=2))
     print(json.dumps(rep, indent=2))
 

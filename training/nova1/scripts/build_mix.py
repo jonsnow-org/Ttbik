@@ -228,6 +228,39 @@ def rows(key: str):
                         continue
 
 
+# Token count of a row. The old estimate (4 characters per token) is 20-25% low for code and tool calls (measured with the Qwen3.5 tokenizer:
+# Python 3.3 chars/token, Arabic 3.6-3.9), so rows of 2,048-2,500 real tokens passed --max-len 2048 and the trainer then cut their END (the answer and its
+# end token). The real tokenizer is used when `transformers` and the model's tokenizer are available (Kaggle: yes); otherwise a conservative 3.3 chars/token.
+_TOK = None
+
+
+def _tokenizer():
+    global _TOK
+    if _TOK is None:
+        _TOK = False
+        try:
+            import os
+            from transformers import AutoTokenizer
+            if os.environ.get("BUILD_MIX_TOKENIZER", "1") != "0":
+                _TOK = AutoTokenizer.from_pretrained(yaml.safe_load((HERE / "datasets.yaml").read_text())["base_model"]["id"])
+        except Exception as e:
+            print("build_mix: no tokenizer, counting 3.3 characters per token:", type(e).__name__)
+    return _TOK
+
+
+def row_tokens(row: dict) -> int:
+    parts = []
+    for m in row["messages"]:
+        parts.append(m.get("content") or "")
+        if m.get("tool_calls"):
+            parts.append(json.dumps(m["tool_calls"], ensure_ascii=False))
+    text = "\n".join(parts)
+    if row.get("tools"):
+        text += json.dumps(row["tools"], ensure_ascii=False)
+    tok = _tokenizer()
+    return len(tok(text)["input_ids"]) if tok else int(len(text) / 3.3)
+
+
 def ok(row: dict) -> bool:
     last = row["messages"][-1]
     text = last.get("content") or ""
@@ -265,7 +298,7 @@ def main() -> None:
                     if s["key"] != "identity" and (empty_prompt(r) or not scrub_identity(r)):
                         continue
                     r["source"] = s["key"]
-                    n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
+                    n = row_tokens(r)
                     if a.max_len and n > a.max_len:
                         continue
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
