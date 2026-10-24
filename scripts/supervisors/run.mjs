@@ -41,8 +41,36 @@ export const SECTIONS = {
     errorWords: /athar/i,
   },
 };
-export const RERUN_OK = new Set(["znbt-index.yml", "error-triage.yml"]);   // idempotent; never anything that mints, pays or posts
+// Tier-1 repair: the ONLY thing a bot may do on its own is rerun the failed jobs of these idempotent workflows (read-only checks / index rebuilds).
+// Never anything that mints, pays, posts or edits code. Rules that keep the bots out of our way are in decideRerun().
+export const RERUN_OK = new Set(["znbt-index.yml", "error-triage.yml", "znbt-guard.yml", "zenobia-watch.yml", "promo-projects.yml"]);
+export const GRACE_MIN = 15;   // a failure must be at least this old, and nobody may have pushed in this long, before a bot touches it
+export const PAUSE_LABEL = "bots-pause";   // any OPEN issue with this label pauses every automatic action (we are mid-change)
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
+
+/**
+ * Pure: should a bot rerun this workflow's latest failure now? Returns { ok, why }.
+ * Conflict rules (so bots never collide with people or other sessions):
+ *  - paused: an open issue labelled `bots-pause` exists  -> do nothing
+ *  - the failure is the latest completed run and nobody fixed it (no newer success)
+ *  - it is at least GRACE_MIN minutes old                 -> someone may be fixing it right now
+ *  - no commit landed on main / production in the last GRACE_MIN minutes (a push usually re-triggers or repairs it)
+ *  - no run of that workflow is queued or in progress     (someone already re-dispatched it)
+ *  - only the first attempt is retried, once              (run_attempt === 1)
+ */
+export function decideRerun({ file, runs, active = [], lastPushAt, paused = false }, now = Date.now()) {
+  if (!RERUN_OK.has(file)) return { ok: false, why: "not on the idempotent list" };
+  if (paused) return { ok: false, why: `paused (open issue labelled ${PAUSE_LABEL})` };
+  const last = runs[0];
+  if (!last || last.conclusion !== "failure") return { ok: false, why: "latest run did not fail" };
+  if (runs.some((r) => r.conclusion === "success" && Date.parse(r.updated_at) > Date.parse(last.updated_at))) return { ok: false, why: "already fixed by a newer success" };
+  if (active.length) return { ok: false, why: "a newer run is queued or in progress" };
+  if (last.run_attempt !== 1) return { ok: false, why: "already retried once" };
+  const ageMin = (now - Date.parse(last.updated_at)) / 60000;
+  if (ageMin < GRACE_MIN) return { ok: false, why: `failure is only ${Math.round(ageMin)} min old (grace ${GRACE_MIN})` };
+  if (lastPushAt && (now - Date.parse(lastPushAt)) / 60000 < GRACE_MIN) return { ok: false, why: `a push landed ${Math.round((now - Date.parse(lastPushAt)) / 60000)} min ago` };
+  return { ok: true, why: `failed ${Math.round(ageMin)} min ago, nobody fixed it` };
+}
 
 /** Pure: facts -> checks. level: ok | warn | fail | info */
 export function evaluate(d, now = Date.now()) {
@@ -89,11 +117,28 @@ async function main() {
   for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, error: `HTTP ${r.status}` }); }
   const er = await gh(`/repos/${repo}/issues?state=open&labels=auto-error&per_page=50`);
   if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
-  const acted = [];
-  for (const w of data.workflows) { const last = w.runs?.[0]; if (last && last.conclusion === "failure" && last.run_attempt === 1 && RERUN_OK.has(w.def[0])) acted.push(`reran failed jobs of ${w.def[1]} (HTTP ${(await gh(`/repos/${repo}/actions/runs/${last.id}/rerun-failed-jobs`, { method: "POST" })).status})`); }
+  const acted = [], skipped = [];
+  const pausedRes = await gh(`/repos/${repo}/issues?state=open&labels=${PAUSE_LABEL}&per_page=1`);
+  const paused = pausedRes.status === 200 && pausedRes.body.some((i) => !i.pull_request);
+  let lastPushAt = "";
+  for (const br of ["main", site.productionBranch || "claude/free-services-marketplace-h6rwk2"]) {
+    const c = await gh(`/repos/${repo}/commits?sha=${encodeURIComponent(br)}&per_page=1`);
+    const t = c.status === 200 && c.body?.[0]?.commit?.committer?.date;
+    if (t && (!lastPushAt || Date.parse(t) > Date.parse(lastPushAt))) lastPushAt = t;
+  }
+  for (const w of data.workflows) {
+    if (!w.runs?.length || !RERUN_OK.has(w.def[0])) continue;
+    const act = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=in_progress`);
+    const que = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=queued`);
+    const active = [...(act.body?.workflow_runs || []), ...(que.body?.workflow_runs || [])];
+    const d = decideRerun({ file: w.def[0], runs: w.runs, active, lastPushAt, paused });
+    if (d.ok) acted.push(`reran failed jobs of ${w.def[1]} (${d.why}; HTTP ${(await gh(`/repos/${repo}/actions/runs/${w.runs[0].id}/rerun-failed-jobs`, { method: "POST" })).status})`);
+    else if (w.runs[0].conclusion === "failure") skipped.push(`${w.def[1]}: ${d.why}`);
+  }
   const checks = evaluate(data), status = overall(checks);
   let body = render(section, checks, new Date().toISOString().slice(0, 10));
   if (acted.length) body += `\nAutomatic actions: ${acted.join("; ")}\n`;
+  if (skipped.length) body += `\nNot touched (conflict rules): ${skipped.join("; ")}\n`;
   console.log(body);
   if (!token) return;
   const label = `supervisor-${section}`;
