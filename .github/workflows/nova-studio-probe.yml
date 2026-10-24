@@ -1,0 +1,33 @@
+name: Nova Studio probe (read-only)
+# Asks each coder Studio for its status with the account token the CI holds, and prints ONLY http codes and the model phase (never the token).
+# Tells apart "the Studio is down" from "the token the bot server sends is refused (401/403)". Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: status of every coder Studio (with the CI's token, and without any token)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          for n in coder-inference-server coder-inference-server-2; do
+            B="https://studio-novaai2026-$n.api-inference.modelscope.net"
+            echo "== $n"
+            echo "no token  : $(curl -sS -m 25 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$B/gradio_api/call/v2/status")"
+            code=$(curl -sS -m 25 -o r.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H 'content-type: application/json' -d '{}' "$B/gradio_api/call/v2/status")
+            echo "CI token  : $code"
+            if [ "$code" = "200" ]; then
+              ev=$(python3 -c "import json;print(json.load(open('r.json')).get('event_id',''))")
+              sleep 2
+              out=$(curl -sS -m 25 -H "Authorization: Bearer $T" "$B/gradio_api/call/status/$ev" | head -c 600)
+              echo "status    : $out"
+            else
+              head -c 200 r.json; echo
+            fi
+            api=$(curl -sS -m 25 -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$n" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'), '| visibility', d.get('visibility'))" 2>&1 | head -c 200)
+            echo "ModelScope: $api"
+          done
