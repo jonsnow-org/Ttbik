@@ -7,6 +7,11 @@ name: Nova CPU tuning (free)
 # Manual only; nothing secret.
 on:
   workflow_dispatch:
+    inputs:
+      job:
+        description: "which job: all | flags | quants | spec"
+        required: false
+        default: "all"
 permissions:
   contents: read
 env:
@@ -14,6 +19,7 @@ env:
   LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
 jobs:
   flags:
+    if: inputs.job == 'all' || inputs.job == 'flags' || inputs.job == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -36,6 +42,7 @@ jobs:
           run "micro-batch 1024" -fa 0 -ub 1024
           run "no mmap" -fa 0 -mmp 0
   quants:
+    if: inputs.job == 'all' || inputs.job == 'quants' || inputs.job == ''
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -74,6 +81,7 @@ jobs:
           echo "peak memory: ${RSS} GB"
           kill $PID
   spec:
+    if: inputs.job == 'all' || inputs.job == 'spec' || inputs.job == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     continue-on-error: true
@@ -89,21 +97,34 @@ jobs:
           mkdir llama && tar -xzf llama.tgz -C llama
           curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
           curl -sSL --fail -o d.gguf "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
-      - name: with and without the 0.8B draft model (2 cores)
+      - name: "speculative decoding variants (2 cores) - none, n-gram (no extra model), 0.8B draft model"
         run: |
           BIN=$(dirname "$(find llama -name llama-server | head -1)")
           export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          CODE='Write a Python class LRUCache with get and put, then a second function that uses it to memoise fibonacci, with docstrings and a short usage example.'
+          PROSE='Explain in simple words why the sky is blue and why sunsets are red, in about two hundred words.'
           go() { # name, extra server flags
             echo "### $1"; shift
             taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 8192 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8081 "$@" > srv.log 2>&1 &
             PID=$!
             for i in $(seq 1 60); do curl -sf http://127.0.0.1:8081/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "server exited:"; tail -8 srv.log; return 0; }; sleep 5; done
             curl -sf http://127.0.0.1:8081/health >/dev/null || { echo "not healthy"; tail -8 srv.log; kill $PID 2>/dev/null; return 0; }
-            for k in 1 2; do
-              curl -s -m 600 http://127.0.0.1:8081/v1/chat/completions -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"Write a Python function that parses a CSV line with quoted fields and explain it step by step."}],"max_tokens":300,"temperature":0.2,"chat_template_kwargs":{"enable_thinking":false}}' | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('timings',{}); print('run $k: gen %.1f tok/s, prompt %.1f tok/s, n=%s'%(t.get('predicted_per_second',0),t.get('prompt_per_second',0),t.get('predicted_n')), 'draft_n=%s accepted=%s'%(t.get('draft_n'),t.get('draft_n_accepted')))"
+            for kind in code prose; do
+              if [ $kind = code ]; then Q="$CODE"; else Q="$PROSE"; fi
+              for k in 1 2; do
+                python3 - "$Q" "$kind" "$k" <<'PY'
+          import sys, json, urllib.request
+          q, kind, k = sys.argv[1:4]
+          req = urllib.request.Request("http://127.0.0.1:8081/v1/chat/completions", data=json.dumps({"messages": [{"role": "user", "content": q}], "max_tokens": 280, "temperature": 0.2, "chat_template_kwargs": {"enable_thinking": False}}).encode(), headers={"content-type": "application/json"})
+          d = json.load(urllib.request.urlopen(req, timeout=900))
+          t = d.get("timings", {})
+          print("%s run %s: gen %.1f tok/s, n=%s, draft_n=%s accepted=%s" % (kind, k, t.get("predicted_per_second", 0), t.get("predicted_n"), t.get("draft_n"), t.get("draft_n_accepted")))
+          PY
+              done
             done
             kill $PID 2>/dev/null; wait $PID 2>/dev/null
           }
-          go "no draft"
-          go "draft 0.8B, up to 8 tokens" -md d.gguf --draft-max 8 --draft-min 1
-          go "draft 0.8B, up to 4 tokens" -md d.gguf --draft-max 4 --draft-min 1
+          go "no speculation"
+          go "n-gram (ngram-mod), up to 8" --spec-type ngram-mod --spec-draft-n-max 8
+          go "0.8B draft model, up to 4" --spec-type draft-simple -md d.gguf --spec-draft-n-max 4
+          go "0.8B draft model, up to 8" --spec-type draft-simple -md d.gguf --spec-draft-n-max 8
