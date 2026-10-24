@@ -338,6 +338,19 @@ export async function connectorApi(chatId: number | string, a: { service?: strin
 }
 
 // ---------------------------------------------------------------- MCP servers by URL (advanced)
+/** Ready-made MCP servers (remote, Streamable HTTP). Every URL below answered a live `initialize` on 2026-10-24; GitHub's answered 401 without a token, as it should. */
+export type McpPreset = { id: string; name: string; desc: { ar: string; en: string }; url: string; token: "none" | "optional" | "required"; tokenHelp?: { ar: string; en: string } };
+export const MCP_PRESETS: McpPreset[] = [
+  { id: "deepwiki", name: "DeepWiki", url: "https://mcp.deepwiki.com/mcp", token: "none", desc: { ar: "اسأل عن أي مستودع على GitHub: بنيته وشرح كوده", en: "Ask about any GitHub repository: its structure and code" } },
+  { id: "context7", name: "Context7", url: "https://mcp.context7.com/mcp", token: "optional", desc: { ar: "وثائق المكتبات الحديثة وأمثلتها بنسخها الأخيرة", en: "Up-to-date library docs and examples" }, tokenHelp: { ar: "مفتاح مجاني من context7.com يرفع حدّ الاستخدام", en: "A free key from context7.com raises the limit" } },
+  { id: "mslearn", name: "Microsoft Learn", url: "https://learn.microsoft.com/api/mcp", token: "none", desc: { ar: "وثائق مايكروسوفت الرسمية (Azure و.NET وغيرها)", en: "Official Microsoft docs (Azure, .NET and more)" } },
+  { id: "cloudflare-docs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", token: "none", desc: { ar: "وثائق Cloudflare (Workers وR2 وغيرها)", en: "Cloudflare docs (Workers, R2 and more)" } },
+  { id: "huggingface", name: "Hugging Face", url: "https://huggingface.co/mcp", token: "optional", desc: { ar: "البحث في النماذج والمجموعات والأوراق", en: "Search models, datasets and papers" }, tokenHelp: { ar: "توكن Hugging Face (للمحتوى الخاص بك)", en: "Your Hugging Face token (for your private content)" } },
+  { id: "exa", name: "Exa", url: "https://mcp.exa.ai/mcp", token: "none", desc: { ar: "بحث ويب دلالي وقراءة الصفحات", en: "Semantic web search and page reading" } },
+  { id: "github-mcp", name: "GitHub MCP", url: "https://api.githubcopilot.com/mcp/", token: "required", desc: { ar: "أدوات GitHub الرسمية عبر MCP", en: "GitHub's official tools over MCP" }, tokenHelp: { ar: "توكن GitHub شخصي (PAT)", en: "A GitHub personal access token (PAT)" } },
+];
+export const mcpPresetById = (id: string) => MCP_PRESETS.find((p) => p.id === id) || null;
+
 export type McpServer = { id: string; url: string; label: string };
 export async function addMcpServer(chatId: number | string, url: string, token: string, label: string, db: Db = prismaDb, check?: (u: string) => Promise<{ ok: boolean; why?: string }>): Promise<McpServer> {
   let u: URL;

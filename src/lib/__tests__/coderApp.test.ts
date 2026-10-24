@@ -132,3 +132,25 @@ describe("mini app api", () => {
     void drive; void saveState;
   });
 });
+
+describe("ready-made MCP servers", () => {
+  it("lists the catalog, adds one in a tap, needs a token only where the server does, and shows what is added", async () => {
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    const ctx = { db, bot, botRow, fetchImpl: (async () => new Response("{}")) as any };
+    const u = { chatId: USER, tier: "user" as const };
+    const first = await appOp(u, "connectors", {}, ctx);
+    expect(first.presets.map((p: any) => p.id)).toEqual(expect.arrayContaining(["deepwiki", "context7", "mslearn", "github-mcp"]));
+    expect(first.presets.every((p: any) => p.added === false)).toBe(true);
+    expect(JSON.stringify(first.presets)).not.toMatch(/https:\/\//);                       // the catalog view carries no address or secret
+    await expect(appOp(u, "mcp_add", { preset: "nope" }, ctx)).rejects.toBeInstanceOf(AppError);
+    await expect(appOp(u, "mcp_add", { preset: "github-mcp" }, ctx)).rejects.toMatchObject({ status: 400 });   // token required
+    await appOp(u, "mcp_add", { preset: "deepwiki", url: "https://evil.example/mcp" }, ctx);                    // the preset's own address wins
+    await appOp(u, "mcp_add", { preset: "github-mcp", token: "ghp_x" }, ctx);
+    const after = await appOp(u, "connectors", {}, ctx);
+    expect(after.presets.find((p: any) => p.id === "deepwiki").added).toBe(true);
+    expect(after.presets.find((p: any) => p.id === "github-mcp").added).toBe(true);
+    expect(after.mcp.map((m: any) => m.url)).toEqual(expect.arrayContaining(["https://mcp.deepwiki.com", "https://api.githubcopilot.com"]));
+    expect(JSON.stringify(after)).not.toContain("ghp_x");
+  });
+});

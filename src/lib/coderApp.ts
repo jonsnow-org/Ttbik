@@ -393,7 +393,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "connectors": {
       const c = await import("@/lib/coderConnectors");
       const ownerEnv = user.tier === "owner" && Boolean((process.env.CODER_GITHUB_TOKEN || "").trim());
-      return { connectors: await c.listConnectors(chatId, { githubOwnerEnv: ownerEnv }, db), mcp: await c.listMcpServers(chatId, db) };
+      const mcp = await c.listMcpServers(chatId, db);
+      const have = new Set(mcp.map((m) => m.url));
+      const presets = c.MCP_PRESETS.map((p) => ({ id: p.id, name: p.name, desc: p.desc, token: p.token, tokenHelp: p.tokenHelp || null, added: have.has(new URL(p.url).origin) }));
+      return { connectors: await c.listConnectors(chatId, { githubOwnerEnv: ownerEnv }, db), mcp, presets };
     }
     case "connector_start": {
       const c = await import("@/lib/coderConnectors");
@@ -411,8 +414,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "mcp_add": {
       const c = await import("@/lib/coderConnectors");
       const { checkUrl } = await import("@/lib/coderWeb");
+      const preset = body.preset ? c.mcpPresetById(String(body.preset)) : null;
+      if (body.preset && !preset) throw new AppError(400, "unknown preset");
+      if (preset?.token === "required" && !String(body.token || "").trim()) throw new AppError(400, "token required");
       try {
-        return { server: await c.addMcpServer(chatId, String(body.url || ""), String(body.token || ""), String(body.label || ""), db, deps.fetchImpl ? undefined : async (u) => { const r = await checkUrl(u); return r.ok ? { ok: true } : { ok: false, why: r.why }; }) };
+        return { server: await c.addMcpServer(chatId, preset ? preset.url : String(body.url || ""), String(body.token || ""), preset ? preset.name : String(body.label || ""), db, deps.fetchImpl ? undefined : async (u) => { const r = await checkUrl(u); return r.ok ? { ok: true } : { ok: false, why: r.why }; }) };
       } catch (e) {
         throw new AppError(400, String((e as Error).message));
       }

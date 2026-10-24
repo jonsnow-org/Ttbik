@@ -23,6 +23,7 @@ export type Sched = { id: string; title: string; prompt: string; kind: "cron" | 
 export type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 export type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link" };
 export type McpView = { id: string; url: string; label: string };
+export type McpPresetView = { id: string; name: string; desc: { ar: string; en: string }; token: "none" | "optional" | "required"; tokenHelp: { ar: string; en: string } | null; added: boolean };
 export type PubModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
 export type PubPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars: number | null; days: number; current: boolean; tier: number };
 export type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
@@ -313,13 +314,15 @@ export function BrandIcon({ c }: { c: ConnView }) {
   );
 }
 export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: Lang; reload: () => void }) {
-  const [list, setList] = useState<{ connectors: ConnView[]; mcp: McpView[] } | null>(null);
+  const [list, setList] = useState<{ connectors: ConnView[]; mcp: McpView[]; presets?: McpPresetView[] } | null>(null);
   const [waiting, setWaiting] = useState("");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [adv, setAdv] = useState(false);
   const [mcp, setMcp] = useState({ url: "", token: "", label: "" });
   const [pat, setPat] = useState("");
+  const [tokFor, setTokFor] = useState("");                 // the ready-made MCP server whose token box is open
+  const [tokVal, setTokVal] = useState("");
   const load = useCallback(async () => { try { setList(await api("connectors")); } catch (e: any) { setMsg(e.message); } }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -369,6 +372,30 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
         ))}
       </Section>
       {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
+      {!!list.presets?.length && (
+        <Section header={t.mcpReady} footer={t.mcpReadyHint}>
+          {list.presets.map((p) => {
+            const have = list.mcp.find((m) => m.label === p.name);
+            const addIt = async (token = "") => { setBusy(p.id); setMsg(""); try { await api("mcp_add", { preset: p.id, token }); haptic("success"); setTokFor(""); setTokVal(""); await load(); } catch (e: any) { haptic("error"); setMsg(e.message === "token required" ? t.mcpNeedToken : e.message); } finally { setBusy(""); } };
+            return (
+              <div key={p.id}>
+                <Cell multiline subtitle={<span dir="auto">{p.desc[lang]}</span>}
+                  after={p.added || have ? <Button size="s" mode="gray" loading={busy === p.id} onClick={async () => { if (!have || !(await guard(`${t.delete} ${p.name}`))) return; setBusy(p.id); try { await api("mcp_remove", { id: have.id }); haptic("success"); await load(); } finally { setBusy(""); } }}>✓ {t.mcpAdded}</Button>
+                    : p.token === "required" ? <Button size="s" onClick={() => { haptic("select"); setTokFor(tokFor === p.id ? "" : p.id); setTokVal(""); }}>{t.add2}</Button>
+                    : <Button size="s" loading={busy === p.id} onClick={() => addIt()}>{t.add2}</Button>}>
+                  {p.name}
+                </Cell>
+                {tokFor === p.id && (
+                  <>
+                    <Input header={p.tokenHelp?.[lang] || t.mcpToken} dir="ltr" type="password" autoComplete="off" value={tokVal} onChange={(e) => setTokVal(e.target.value)} />
+                    <ButtonCell disabled={!tokVal.trim()} onClick={() => addIt(tokVal.trim())}>＋ {t.add2}</ButtonCell>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </Section>
+      )}
       {gh?.status === "connected" && (
         <Section header={t.pickRepo}><RepoSelect t={t} value={me.settings.repo} onChange={async (v) => { await api("settings", { repo: v }); haptic("success"); reload(); }} /></Section>
       )}

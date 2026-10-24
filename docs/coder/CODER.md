@@ -27,3 +27,9 @@ The Mini App's Settings → "Coder server → Check" shows the live state of all
 - Daytona: free compute credit on sign-up, no card; per-second billing against the credit; refuses new sandboxes when it is used up.
 - E2B Hobby: $0 plan with a one-time credit, no card; 1 h sessions, 20 concurrent.
 - The scheduled-task dispatcher (`.github/workflows/coder-schedules.yml`) is a 5-minute curl on this public repository (public repos have no Actions minute quota); it does nothing until `CRON_SECRET` is set.
+
+## Ready-made MCP servers (2026-10-24)
+Connectors tab → "خوادم MCP جاهزة": one tap adds a remote Streamable-HTTP MCP server (catalog `MCP_PRESETS` in `src/lib/coderConnectors.ts`; the app sends only the preset id, the address comes from the catalog). Verified live on 2026-10-24 through our own client (`tools/list`): DeepWiki, Context7, Microsoft Learn, Cloudflare Docs, Hugging Face, Exa; GitHub MCP answers 401 without a token (token required). A custom server by URL stays under "Advanced". The agent calls them with `mcp_call` after the usual confirmation.
+
+## ask_user
+The agent can ask the user one question (`ask_user`); the task waits without a time limit and the next chat message (or terminal command) is the answer. `/stop` ends it like any task.
