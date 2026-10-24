@@ -81,6 +81,14 @@ def _llama_dir() -> Path:
     if exe:
         return exe.parent
     tgz = HERE / LLAMA_TGZ
+    parts = sorted(HERE.glob(f"llama-{LLAMA_BUILD}.part*"))
+    if parts:
+        # the release travels as plain 4 MiB parts: ModelScope turns a big *.gz into a Git LFS pointer that a fresh instance cannot resolve
+        data = b"".join(p.read_bytes() for p in parts)
+        if hashlib.sha256(data).hexdigest() == LLAMA_SHA256:
+            tgz.write_bytes(data)
+    if tgz.exists() and tgz.stat().st_size < 4096 and b"git-lfs" in tgz.read_bytes()[:200]:
+        tgz.unlink()                                                   # an LFS pointer, not the release
     if not tgz.exists():
         STATE.update(detail="downloading llama.cpp release")
         tmp = tgz.with_suffix(".part")

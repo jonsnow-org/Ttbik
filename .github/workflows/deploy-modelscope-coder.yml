@@ -124,9 +124,16 @@ jobs:
           git config --global user.email "ci@coder.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
-          cp "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz" ms-studio/
+          # ModelScope keeps big files (*.gz) in Git LFS; a fresh Studio instance then holds only the 130-byte LFS pointer (proven 2026-10-24:
+          # its sha256 was exactly the pointer's) and llama.cpp cannot start. So the release goes in as 4 MiB plain parts (no LFS pattern
+          # matches .partNNN), and app.py joins them and checks the pinned sha256.
+          split -b 4M -d -a 3 "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz" "llama-${LLAMA_BUILD}.part"
           cd ms-studio
-          git add app.py requirements.txt "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          git rm -q --cached --ignore-unmatch "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"; rm -f "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          rm -f llama-${LLAMA_BUILD}.part*
+          cp ../llama-${LLAMA_BUILD}.part* .
+          grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
+          git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
@@ -151,11 +158,17 @@ jobs:
                   ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
                   [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
                   echo "$out" | grep -q 'phase[^,]*ready' && exit 0
-                  echo "$out" | grep -q 'phase[^,]*error' && break
+                  if echo "$out" | grep -q 'phase[^,]*error'; then
+                    echo "::error::the Studio is running but the model server is in the error phase"
+                    curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                    exit 1
+                  fi
                   sleep 30
                 done
                 curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
-                exit 0;;
+                echo "::error::the model server was not ready in time"
+                exit 1;;
             esac
           done
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+          exit 1
