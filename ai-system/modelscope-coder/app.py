@@ -208,9 +208,10 @@ def _download_mmproj() -> str:
 
 
 def _start_server(model: Path, bindir: Path) -> None:
+    SLOT_DIR.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
-           "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+           "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
     if os.environ.get("CODER_SPEC", "").strip() and not _SPEC["bad"]:
@@ -270,6 +271,76 @@ def _supervisor() -> None:
             time.sleep(5 if _SPEC["bad"] and _SPEC["on"] else 60)
             continue
         time.sleep(10)
+
+
+# ---------------------------------------------------------------- conversation state on disk (SessionKV of Sham's memory plan, for llama.cpp's slot save / restore)
+# Measured 2026-10-25 (nova-slot-probe.yml, this model, 2 cores): a 1.7k-token conversation = a 267 MB state file; saving 0.09 s, restoring 0.08 s, and a NEW server process that restored it
+# read only the 21 new tokens of the follow-up (2.4 s) instead of 84 s from zero. So after every job the conversation's state is saved, and when another conversation (or a restart) has taken the slot,
+# the next job of this conversation gets its state back first. The key is the conversation's own start (system + first user message), so the bot needs no change.
+# Per Studio only (the file lives on this Studio's disk): it fixes restarts and "another conversation took the slot", not a move to a different Studio.
+SLOT_DIR = HERE / "_slots"
+SLOTS_ON = os.environ.get("CODER_SLOTS", "on").strip().lower() not in ("0", "off", "false", "no")
+SLOT_KEEP = max(1, int(os.environ.get("CODER_SLOT_KEEP", "3") or 3))                 # conversations kept on disk
+SLOT_MIN_TOKENS = max(200, int(os.environ.get("CODER_SLOT_MIN_TOKENS", "1500") or 1500))     # shorter ones are cheap to read again
+SLOT_MAX_MB = max(100, int(os.environ.get("CODER_SLOT_MAX_MB", "1500") or 1500))     # a state bigger than this is not kept (disk)
+_LAST = {"conv": ""}                                                                 # whose state is in the slot now
+
+
+def _conv_key(msgs) -> str:
+    def text(m) -> str:
+        c = m.get("content", "") if isinstance(m, dict) else ""
+        return c if isinstance(c, str) else " ".join(str(x.get("text", "")) for x in c if isinstance(x, dict))
+    sysm = next((text(m) for m in msgs if isinstance(m, dict) and m.get("role") == "system"), "")
+    usr = next((text(m) for m in msgs if isinstance(m, dict) and m.get("role") == "user"), "")
+    import hashlib
+    return hashlib.sha1((sysm[:3000] + "\n" + usr[:3000]).encode("utf-8", "ignore")).hexdigest()[:20]
+
+
+def _slot_call(action: str, filename: str) -> bool:
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{LLAMA_PORT}/slots/0?action={action}", data=json.dumps({"filename": filename}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status == 200
+    except Exception as exc:
+        _log("slot", action, "failed:", type(exc).__name__, str(exc)[:100])
+        return False
+
+
+def _slot_prune() -> None:
+    try:
+        files = sorted(SLOT_DIR.glob("*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in files[SLOT_KEEP:]:
+            f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _slot_before(job: dict) -> None:
+    conv = job.get("conv") or ""
+    if not (SLOTS_ON and conv) or _LAST["conv"] == conv:
+        return
+    f = SLOT_DIR / f"{conv}.bin"
+    if f.is_file() and _slot_call("restore", f.name):
+        job["slot_restored"] = True
+        _log("slot restored", conv)
+
+
+def _slot_after(job: dict) -> None:
+    conv = job.get("conv") or ""
+    if not (SLOTS_ON and conv):
+        return
+    _LAST["conv"] = conv
+    total = int((job.get("prefill") or {}).get("total") or 0)
+    if job.get("cancel") or job.get("status") == "error" or total < SLOT_MIN_TOKENS:
+        return
+    SLOT_DIR.mkdir(parents=True, exist_ok=True)
+    f = SLOT_DIR / f"{conv}.bin"
+    if _slot_call("save", f.name):
+        if f.is_file() and f.stat().st_size > SLOT_MAX_MB * 1048576:
+            f.unlink(missing_ok=True)                     # too big for this disk: not kept
+        else:
+            _slot_prune()
 
 
 # ---------------------------------------------------------------- jobs (shared FIFO queue, one generation at a time)
@@ -423,9 +494,11 @@ def _runner() -> None:
             _log("skipped abandoned job", jid)
             continue
         job.update(status="running", started=time.time())
+        _slot_before(job)
         try:
             _stream(job)
             job.update(status="cancelled" if job.get("cancel") else "done", finished=time.time())
+            _slot_after(job)
         except Exception as exc:
             if job.get("cancel"):
                 job.update(status="cancelled", finished=time.time())
@@ -485,7 +558,7 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     except Exception as exc:
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
     jid = uuid.uuid4().hex
-    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1],
+    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs),
            "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time()}
     with JOBS_LOCK:
         JOBS[jid] = job

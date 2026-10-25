@@ -179,3 +179,10 @@ Sham's memory plan (SessionKV on disk, EpisodicBank, FactKNN, text memory) was w
 `coder_task_bank` (`coderBank.ts`): every read result (files, scans, CI logs, pages, search results) is kept in full, per task, outside the conversation (newest 60, 16k chars each). The model gets pieces back with the
 `recall(query)` tool (memory group) instead of reading the same file again; segment messages remind it. Plain lexical ranking over ~1000-char pieces. Not carried over: FactKNN (needs logits, which llama-server does not expose),
 the user text memory (Nova already has `coder_memories`, thread and segment summaries).
+
+## Conversation state on disk (SessionKV of Sham's memory plan, for llama.cpp) — measured, then built (2026-10-25)
+`nova-slot-probe.yml` (this model, 2 cores): a 1.7k-token conversation = a 267 MB state file; save 0.09 s, restore 0.08 s; a NEW server process that restored it read only the 21 new tokens of the follow-up (2.4 s) instead of 84 s from zero.
+Built in `app.py` (`CODER_SLOTS=off` removes it): after a job with >= 1500 prompt tokens the conversation's state is saved (`--slot-save-path _slots`; key = hash of the conversation's start: system + first user message, so the bot needs no change);
+when another conversation or a restart has taken the slot, the next job of that conversation restores its file first. Newest 3 kept (`CODER_SLOT_KEEP`), a state over 1500 MB is dropped (`CODER_SLOT_MAX_MB`). Limits, honestly: per Studio (the file is on that Studio's disk), so it fixes
+restarts and "another conversation took the slot", not a move to a different Studio; the size for a 10k-token context was not measured (267 MB at 1.7k may be mostly a fixed part of this hybrid model, or it may grow).
+Studio 5 reads pictures since the last deploy (status: `vision: true`, 1.96 GB memory free vs 2.6 GB on the others).
