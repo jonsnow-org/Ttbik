@@ -38,7 +38,7 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
-  progress?: { msgId?: number; lines: string[] }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
+  progress?: { msgId?: number; lines: string[]; phase?: string }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
@@ -831,6 +831,27 @@ async function handOff(botRow: BotRow, chatId: number, chain: string, slot = "")
  * the first tool sends a message, the next ones edit it, so the chat is not flooded with one line per step. A text reply from the
  * model closes the card; the next tools open a new one. CODER_PROGRESS_CARD=off restores one message per tool.
  */
+/** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
+function cardText(run: Run): string {
+  const p = run.progress || { lines: [] as string[] };
+  const shown = p.lines.slice(-12);
+  const clock = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return `📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
+}
+/** Live refresh of the same card message while the model works (every few seconds): the chat shows each phase from start to end, like the app's log. Never sends a second card when an edit fails. */
+async function refreshCard(bot: TelegramBot, chatId: number, run: Run, phase: string): Promise<void> {
+  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
+  const p = (run.progress ||= { lines: [] });
+  p.phase = phase;
+  if (!p.msgId) {
+    if (!p.lines.length) p.lines.push("بدأت المهمة");
+    const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
+    p.msgId = (m as any)?.message_id || undefined;
+    return;
+  }
+  await (bot.api as any).editMessageText(chatId, p.msgId, cardText(run)).catch(() => null);
+}
+
 async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: string): Promise<void> {
   if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") {
     await send(bot, chatId, line);
@@ -839,7 +860,7 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   const p = (run.progress ||= { lines: [] });
   p.lines.push(line.slice(0, 300));
   const shown = p.lines.slice(-12);
-  const text = `📋 التقدم\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n🔄 جارٍ...`.slice(0, 4000);
+  const text = cardText(run);
   if (p.msgId) {
     const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
     if (ok) return;
@@ -1263,13 +1284,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const text = stripForeignScript(r.text || "", String([...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || ""));
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
-        if (Date.now() - (run.progressAt || 0) >= 12000) {
+        if (Date.now() - (run.progressAt || 0) >= (Number(process.env.CODER_CARD_REFRESH_MS) || 5000)) {
           run.progressAt = Date.now();
           const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
           const readDone = Boolean(r.prefill && Number(r.prefill.total) > 0 && Number(r.prefill.processed) >= Number(r.prefill.total));
           const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "النموذج يفكّر قبل أن يكتب…" : readDone ? "النموذج يكتب الردّ…" : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
-          else if (run.progress?.msgId) void (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`).catch(() => null);
+          await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, phase);
         }
         // a Studio whose model server is in ERROR (not just loading) will not answer this job: with other Studios available the step goes to another one at once
         if (r.phase === "error" && coderStudioUrls().length > 1 && (run.stallRetries || 0) < 2) {
@@ -1450,6 +1471,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // (no tools), it is kept as task memory and becomes the whole context of the next segment (coderSegments.ts).
     if (run.compacting || needsSegment(st.messages, run)) {
       run.compacting = true;
+      // The summary the harness writes from what the tools returned (coderSegments.fallbackSummary) costs no model call; the model's own summary cost 4 minutes of CPU on a live task
+      // (2026-10-25: 6:53 -> 6:57 writing it). The model's version stays available with CODER_SEGMENT_MODEL_SUMMARY=on.
+      if ((process.env.CODER_SEGMENT_MODEL_SUMMARY || "").toLowerCase() !== "on") {
+        await startSegment(ioBot, chatId, st, run, "", db);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       const sumMsgs: CoderMessage[] = [{ role: "system", content: "You are the coding agent pausing at a context checkpoint. Write the progress summary you are asked for, nothing else." }, ...trimMessages(st.messages, run.histChars), summaryRequest(run.goal || "", run.segment || 1)];
       const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
       const o = await coderChat(sumMsgs, { tag: "summary", think: false, temperature: 0.3, waitS, timeoutMs: waitS * 1000 + 9000 });
@@ -1616,7 +1644,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await send(ioBot, chatId, "⏳ خادم النموذج غير متاح لحظياً؛ أعاود تلقائياً وسأكمل المهمة حين يعود.");
         }
         await saveState(chatId, st, db, slot);
-        const wait = Math.min(60000, Number(process.env.CODER_OUTAGE_STEP_MS ?? 5000) * run.retries!);          // 5 s, 10 s … at most a minute
+        const wait = Math.min(60000, Math.max(o.status === 429 ? 10000 : 0, Number(process.env.CODER_OUTAGE_STEP_MS ?? 5000) * run.retries!));      // a 429 (the hub's request limit) is not hammered: at least 10 s          // 5 s, 10 s … at most a minute
         await new Promise((res) => setTimeout(res, Math.max(200, Math.min(wait, left() - 7000))));
         continue;
       }

@@ -84,6 +84,8 @@ describe("hard ceiling counts steps since real progress", () => {
 });
 
 describe("segments in the agent loop", () => {
+  beforeAll(() => { process.env.CODER_SEGMENT_MODEL_SUMMARY = "on"; });                 // these tests are about the model-written summary; the harness summary is the default
+  afterAll(() => { delete process.env.CODER_SEGMENT_MODEL_SUMMARY; });
   function studio(n: number, opts: { summary?: string; summaryFails?: boolean } = {}) {
     const asked: any[] = [];
     let step = 0;

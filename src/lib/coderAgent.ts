@@ -628,7 +628,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         const paths = (Array.isArray(a.paths) ? a.paths : []).map(String).filter(Boolean).slice(0, 4);
         if (!paths.length) return "error: paths is required (1 to 4 files)";
         const outs = await Promise.all(paths.map((path) => sub("github_read_file", { repo: a.repo, path, ...(a.ref ? { ref: a.ref } : {}), end_line: 400 })));
-        return clip(outs.map((o, i) => `=== ${paths[i]} ===\n${o.slice(0, 7000)}`).join("\n\n"));
+        return clip(outs.map((o, i) => `=== ${paths[i]} ===\n${o.slice(0, Number(process.env.CODER_READ_FILES_CHARS) || 3000)}`).join("\n\n"));
       }
       const [info, top] = await Promise.all([sub("github_repo_info", { repo: a.repo }), sub("github_list_files", { repo: a.repo, path: "" })]);
       const files = top.split("\n").slice(1);
@@ -637,7 +637,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const roots = [...new Set(files.filter((f) => !f.includes("/")))].slice(0, 40), dirs = [...new Set(files.filter((f) => f.includes("/")).map((f) => f.split("/")[0]))].slice(0, 40);
       const picks = [readme, ...manifests.slice(0, 2)].filter(Boolean) as string[];
       const got = await Promise.all(picks.map((path) => sub("github_read_file", { repo: a.repo, path, end_line: path.startsWith("README") ? 60 : 50 })));
-      return clip(`${info}\n\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, 3500)}`).join("\n\n")}`);
+      return clip(`${info}\n\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, picks[i].startsWith("README") ? 2000 : 1200)}`).join("\n\n")}`);
     }
     switch (name) {
       case "github_whoami": {

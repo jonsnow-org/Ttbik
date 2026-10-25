@@ -127,3 +127,12 @@ Sampling temperature and the accuracy prompt line were already per mode. Measure
 `isSimpleRequest` (`coderAgent.ts`): a one-line chat / question (<= 90 chars, <= 16 words, no file / repository / code / action / link words, not in the middle of a task) is answered in the FAST mode by itself
 (short thought, quick tone, temperature .7), once per request, only when the user's mode is the default (balanced); a user who chose precise keeps it. It reads the words only: no model call, no extra step,
 nothing changes at the start of the prompt (the accuracy line rides on the request message). The task log says "⚡ طلب بسيط". Off with `CODER_AUTO_FAST=off`. The word list (`TASKISH`) is the thing to tune from real messages.
+
+## Where 13 minutes went on a live task (2026-10-25, "analyse the Nova project"), and what changed
+Measured from the task log: step 1 ~1 min (thinking), step 2 ~1.5 min, a file read grew the context, the Studio then had to read ~7.7k real tokens from zero (3 min), then ~4 min WRITING A SUMMARY for the next segment
+(a model call whose only output was a summary), plus 429 "Request limit exceeded" bursts from the hub and two worker cut-offs caused by our own pushes (Oracle swaps the containers).
+- The segment summary is now written by the harness (`fallbackSummary`, no model call); the model's own: `CODER_SEGMENT_MODEL_SUMMARY=on`.
+- `github_repo_scan` / `github_read_files` return less per call (files 3000 chars, README 2000, manifests 1200; `CODER_READ_FILES_CHARS`): one big read costs minutes of prefill on CPU, and Arabic is ~2.4x more tokens than the char estimate.
+- A 429 is retried after at least 10 s (it used to be hit again within 1-2 s).
+- The Telegram progress card is live (`refreshCard`): tool steps plus the model's state (reading %, thinking, writing, queue) and the time of the last update, edited in place every ~5 s (`CODER_CARD_REFRESH_MS`).
+Still true: a ~10k-token context read from zero is ~4-5 min on these 2 vCPU Studios; the only real fix is to keep the prefix stable on the same Studio (done) and the context small.
