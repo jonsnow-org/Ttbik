@@ -1,0 +1,53 @@
+name: Nova prefill speed probe (free, read-only)
+# Same llama.cpp build and model as the coder Studio, pinned to 2 cores like the Studio. Reads the SAME ~3.4k-token prompt under different llama-server batch /
+# thread / memory settings and prints the prompt-reading speed of each (tokens per second): which setting reads a prompt faster. Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee cpu.txt
+      - name: read the same prompt under each setting
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          python3 - <<'PY' > prompt.json
+          import json
+          words = ("The deployment pipeline builds the image, runs the tests, pushes the artifact and restarts the service while the monitor watches latency and error rates. " * 100)
+          print(json.dumps({"messages": [{"role": "system", "content": "You are a coding assistant."}, {"role": "user", "content": words + "\n\nSay OK."}], "max_tokens": 4, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": False}))
+          PY
+          run_one() {   # name, extra args
+            name="$1"; shift
+            taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c 65536 -t 2 -np 1 -n -1 --jinja "$@" --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "$name: server exited"; tail -3 server.log; return; }; sleep 3; done
+            curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > resp.json
+            python3 - "$name" <<'PY'
+          import json, sys
+          r = json.load(open("resp.json")); t = r.get("timings", {})
+          print(f"{sys.argv[1]:34s} prompt {t.get('prompt_n')} tokens | prefill {t.get('prompt_per_second', 0):5.1f} tok/s | {t.get('prompt_ms', 0)/1000:5.1f} s")
+          PY
+            kill $PID; wait $PID 2>/dev/null; sleep 2
+          }
+          { run_one "default (as the Studio)"
+            run_one "ubatch 1024, batch 2048" -ub 1024 -b 2048
+            run_one "ubatch 256" -ub 256
+            run_one "ubatch 2048, batch 2048" -ub 2048 -b 2048
+            run_one "no-mmap" --no-mmap
+            run_one "threads-batch 2 explicit" -tb 2
+            run_one "default again (noise check)"
+          } | tee result.txt
+          { echo "### Prefill speed, 2 cores ($(grep 'Model name' cpu.txt | sed 's/.*: *//'))"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
