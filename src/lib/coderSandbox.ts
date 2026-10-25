@@ -33,7 +33,7 @@ export interface SbxDriver {
   create(name: string, o: { timeoutMs: number; vcpus: number; tags: Record<string, string> }): Promise<SbxHandle>;
 }
 
-export const SANDBOX_TOOLS = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_read_file"]);
+export const SANDBOX_TOOLS = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"]);
 export const sandboxEnabled = () => (process.env.CODER_SANDBOX || "on").trim().toLowerCase() !== "off";
 const timeoutMin = () => Math.max(5, Math.min(45, Number(process.env.CODER_SANDBOX_TIMEOUT_MIN || 30)));   // Hobby: 45 min per session
 const vcpus = () => Math.max(1, Math.min(4, Number(process.env.CODER_SANDBOX_VCPUS || 2)));             // Hobby: up to 4
@@ -310,6 +310,31 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
         await sb.exec("mkdir", ["-p", dir], { timeoutMs: 10000 });
         await sb.write([{ path, content: Buffer.from(content, "utf8") }]);
         return `${note}wrote ${path} (${Buffer.byteLength(content)} bytes)`;
+      }
+      case "sandbox_edit_file": {
+        const path = resolvePath(String(a.path || ""), resolvePath(String(a.cwd || home), home));
+        const oldT = String(a.old ?? ""), newT = String(a.new ?? "");
+        if (!oldT) return `${note}error: old (the exact text to replace) is required`;
+        const buf = await sb.read(path);
+        if (!buf) return `${note}error: ${path} not found`;
+        const text = buf.toString("utf8");
+        const count = text.split(oldT).length - 1;
+        if (count === 0) return `${note}error: the text to replace was not found in ${path} (copy it exactly, including spaces and line breaks)`;
+        if (count > 1 && a.replace_all !== true) return `${note}error: the text occurs ${count} times in ${path}: make it longer so it is unique, or set replace_all`;
+        const out = a.replace_all === true ? text.split(oldT).join(newT) : text.replace(oldT, () => newT);
+        await sb.write([{ path, content: Buffer.from(out, "utf8") }]);
+        return `${note}edited ${path} (${a.replace_all === true ? count : 1} replacement${count > 1 && a.replace_all === true ? "s" : ""})`;
+      }
+      case "sandbox_search": {
+        const pattern = String(a.pattern || "").trim(), glob = String(a.glob || "").trim();
+        if (!pattern && !glob) return `${note}error: give a pattern (text inside files) or a glob (file names)`;
+        const where = sh(String(a.path || "."));
+        const max = Math.max(1, Math.min(300, Number(a.max) || 60));
+        const skip = "--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.next --exclude-dir=dist";
+        const cmd = pattern
+          ? `grep -rnIE ${skip} ${glob ? `--include=${sh(glob)} ` : ""}-e ${sh(pattern)} ${where} 2>/dev/null | head -n ${max}`
+          : `find ${where} \\( -name node_modules -o -name .git -o -name .next -o -name dist \\) -prune -o -name ${sh(glob)} -print 2>/dev/null | head -n ${max}`;
+        return note + ((await startAndWait(sb, cmd, resolvePath(String(a.cwd || home), home), secrets)) || "(no matches)");
       }
       case "sandbox_read_file": {
         const path = resolvePath(String(a.path || ""), resolvePath(String(a.cwd || home), home));

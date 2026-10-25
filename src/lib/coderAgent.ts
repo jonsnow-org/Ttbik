@@ -48,6 +48,11 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_update_repo", "Change repository settings (description, visibility, default_branch, features…).", obj({ repo: REPO, settings: { type: "object" } }, ["repo", "settings"])),
   tool("github_add_collaborator", "Invite a collaborator.", obj({ repo: REPO, user: s("GitHub login"), permission: s("pull | triage | push | maintain | admin") }, ["repo", "user"])),
   tool("github_remove_collaborator", "Remove a collaborator.", obj({ repo: REPO, user: s("GitHub login") }, ["repo", "user"])),
+  tool("github_ci_logs", "Why did CI fail? The tail of the log of each FAILED job of a workflow run. Give a run id, or a branch / sha (the latest failed run of it is used).", obj({ repo: REPO, run_id: n("workflow run id (optional)"), ref: s("branch or sha when no run id") }, ["repo"])),
+  tool("github_pr_info", "A pull request in one call: state, branches, whether it merges, the changed files (+/-) and the conversation (review and discussion comments).", obj({ repo: REPO, number: n("PR number") }, ["repo", "number"])),
+  tool("github_commits", "Recent commits of a branch (optionally only those touching one path): sha, first line, author, date.", obj({ repo: REPO, ref: s("branch / sha, empty = default"), path: s("only commits touching this path"), count: n("default 15, max 50") }, ["repo"])),
+  tool("github_compare", "What changed between two refs: files (+/-) and commit list.", obj({ repo: REPO, base: s("base branch / sha"), head: s("head branch / sha") }, ["repo", "base", "head"])),
+  tool("github_edit_file", "Change a file in the repository by replacing an exact piece of text (it must occur exactly once) and commit it to a branch. Use this instead of rewriting the whole file with github_write_files.", obj({ repo: REPO, branch: s("existing branch"), path: s("file path"), old: s("exact text to replace (must be unique in the file)"), new: s("replacement text"), message: s("commit message") }, ["repo", "branch", "path", "old", "new"])),
   tool("github_api", "Any other GitHub REST call (path like /repos/o/r/...). Use the specific tools when one exists.", obj({ method: s("GET | POST | PATCH | PUT | DELETE"), path: s("REST path starting with /"), body: { type: "object" } }, ["method", "path"])),
   tool("github_run_workflow", "Start a workflow_dispatch workflow (e.g. tests).", obj({ repo: REPO, workflow: s("file name, e.g. ci.yml"), ref: s("branch"), inputs: { type: "object" } }, ["repo", "workflow", "ref"])),
 ];
@@ -62,6 +67,8 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_exec", "Run a shell command in this task's VM (bash; node24, npm, python3, pip, git; sudo dnf for system packages). Long commands return 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command, e.g. cd repo && npm ci && npm test"), cwd: s("working dir, default the VM home (shown when the VM starts)") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
   tool("sandbox_write_file", "Write a file in the VM (creates folders).", obj({ path: s("path, relative to cwd or absolute"), content: s("full file content"), cwd: s("base dir") }, ["path", "content"])),
+  tool("sandbox_edit_file", "Edit a file in the VM by replacing an exact piece of text (must occur exactly once unless replace_all). Prefer it to rewriting the whole file with sandbox_write_file.", obj({ path: s("file path"), old: s("exact text to replace"), new: s("replacement text"), replace_all: { type: "boolean" }, cwd: s("base dir") }, ["path", "old", "new"])),
+  tool("sandbox_search", "Search the VM's files: `pattern` = a regex searched inside files (grep, with line numbers); `glob` = list files by name (e.g. *.ts). Skips node_modules and .git.", obj({ pattern: s("regex to find inside files (optional)"), glob: s("file name pattern, e.g. *.ts (optional)"), path: s("folder to search, default ."), max: n("max results, default 60"), cwd: s("base dir") })),
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
 
@@ -410,6 +417,7 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
     case "github_delete_release": return { risks: ["delete"], summary: `${a.repo} release ${a.id}` };
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
     case "github_write_files": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
+    case "github_edit_file": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${a.path}` };
     case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
     case "github_merge_pr": {
       let base = "";
@@ -675,6 +683,61 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         const items: any[] = r.data?.items || [];
         return clip(items.map((x) => `${x.full_name} ★${x.stargazers_count} ${x.language || "-"} (updated ${String(x.pushed_at || "").slice(0, 10)}) ${String(x.description || "").slice(0, 140)}`).join("\n") || `no results (${r.status})`);
       }
+      case "github_ci_logs": {
+        let runId = Number(a.run_id) || 0;
+        if (!runId) {
+          const ref = String(a.ref || (await defaultBranch(gh, a.repo)));
+          const q = /^[0-9a-f]{40}$/i.test(ref) ? `head_sha=${ref}` : `branch=${encodeURIComponent(ref)}`;
+          const rr = await gh("GET", `${R}/actions/runs?${q}&per_page=10`);
+          const runs: any[] = rr.data?.workflow_runs || [];
+          const bad = runs.find((x) => x.conclusion === "failure") || runs.find((x) => x.conclusion && x.conclusion !== "success") || runs[0];
+          if (!bad) return `no workflow runs found for ${ref} (${rr.status})`;
+          runId = bad.id;
+        }
+        const jr = await gh("GET", `${R}/actions/runs/${runId}/jobs?per_page=50`);
+        const jobs: any[] = jr.data?.jobs || [];
+        const failed = jobs.filter((j) => j.conclusion === "failure" || j.conclusion === "timed_out").slice(0, 3);
+        if (!failed.length) return clip(`run ${runId}: no failed job (${jobs.map((j) => `${j.name}: ${j.conclusion || j.status}`).join(", ") || "no jobs"})`);
+        const parts: string[] = [];
+        for (const j of failed) {
+          const lg = await gh("GET", `${R}/actions/jobs/${j.id}/logs`);
+          const lines = (typeof lg.data === "string" ? lg.data : "").replace(/\u001b\[[0-9;]*m/g, "").split("\n").map((l) => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, ""));
+          const failStep = (j.steps || []).find((st: any) => st.conclusion === "failure")?.name;
+          parts.push(`## job "${j.name}"${failStep ? ` — failed step: ${failStep}` : ""}\n${lines.slice(-70).join("\n") || `(no log: HTTP ${lg.status})`}`);
+        }
+        return clip(`run ${runId}\n${parts.join("\n\n")}`, 9000);
+      }
+      case "github_pr_info": {
+        const n = Number(a.number);
+        const [pr, files, rev, cm] = await Promise.all([gh("GET", `${R}/pulls/${n}`), gh("GET", `${R}/pulls/${n}/files?per_page=60`), gh("GET", `${R}/pulls/${n}/comments?per_page=20`), gh("GET", `${R}/issues/${n}/comments?per_page=20`)]);
+        if (pr.status >= 300) return clip(`error ${pr.status}: ${pr.data?.message}`);
+        const d = pr.data;
+        const fl = (Array.isArray(files.data) ? files.data : []).map((f: any) => `${f.status[0].toUpperCase()} ${f.filename} (+${f.additions}/-${f.deletions})`);
+        const talk = [...(Array.isArray(rev.data) ? rev.data : []).map((c: any) => `[review ${c.user?.login} on ${c.path}:${c.line || c.original_line || "?"}] ${String(c.body).slice(0, 300)}`), ...(Array.isArray(cm.data) ? cm.data : []).map((c: any) => `[${c.user?.login}] ${String(c.body).slice(0, 300)}`)];
+        return clip(`#${n} ${d.title} — ${d.state}${d.merged ? " (merged)" : ""}, ${d.head?.ref} → ${d.base?.ref}, mergeable: ${d.mergeable ?? "unknown"} (${d.mergeable_state || "?"}), +${d.additions}/-${d.deletions} in ${d.changed_files} files\n${String(d.body || "").slice(0, 600)}\n\nFILES\n${fl.join("\n") || "-"}\n\nCONVERSATION\n${talk.join("\n") || "none"}`, 9000);
+      }
+      case "github_commits": {
+        const cnt = Math.max(1, Math.min(50, Number(a.count) || 15));
+        const r = await gh("GET", `${R}/commits?per_page=${cnt}${a.ref ? `&sha=${encodeURIComponent(String(a.ref))}` : ""}${a.path ? `&path=${encodeURIComponent(String(a.path))}` : ""}`);
+        return clip(Array.isArray(r.data) ? r.data.map((c: any) => `${String(c.sha).slice(0, 7)} ${String(c.commit?.message || "").split("\n")[0].slice(0, 100)} — ${c.commit?.author?.name || c.author?.login || "?"} ${String(c.commit?.author?.date || "").slice(0, 10)}`).join("\n") || "no commits" : `error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_compare": {
+        const r = await gh("GET", `${R}/compare/${encodeURIComponent(String(a.base))}...${encodeURIComponent(String(a.head))}`);
+        if (r.status >= 300) return clip(`error ${r.status}: ${r.data?.message}`);
+        const d = r.data;
+        return clip(`${d.status}: ${d.ahead_by} ahead, ${d.behind_by} behind, ${d.total_commits} commits, ${(d.files || []).length} files\n${(d.commits || []).slice(-20).map((c: any) => `${String(c.sha).slice(0, 7)} ${String(c.commit?.message || "").split("\n")[0].slice(0, 90)}`).join("\n")}\n\nFILES\n${(d.files || []).slice(0, 60).map((f: any) => `${f.status[0].toUpperCase()} ${f.filename} (+${f.additions}/-${f.deletions})`).join("\n")}`, 9000);
+      }
+      case "github_edit_file": {
+        const path = String(a.path || ""), branch = String(a.branch || "");
+        if (!path || !branch || typeof a.old !== "string" || !a.old || typeof a.new !== "string") return "error: repo, branch, path, old and new are required";
+        const cur = await gh("GET", `${R}/contents/${enc(path)}?ref=${encodeURIComponent(branch)}`);
+        if (cur.status >= 300 || !cur.data?.content) return clip(`error ${cur.status}: ${cur.data?.message || "file not found on that branch (the branch must exist)"}`);
+        const text = Buffer.from(cur.data.content, "base64").toString("utf-8");
+        const count = text.split(a.old).length - 1;
+        if (count !== 1) return `error: the text to replace occurs ${count} times in ${path} (it must occur exactly once): make \`old\` longer so it is unique`;
+        const put = await gh("PUT", `${R}/contents/${enc(path)}`, { message: String(a.message || `edit ${path}`), content: Buffer.from(text.replace(a.old, () => a.new), "utf-8").toString("base64"), sha: cur.data.sha, branch });
+        return put.status < 300 ? `edited ${path} on ${branch}: ${String(put.data?.commit?.sha || "").slice(0, 7)}` : clip(`error ${put.status}: ${put.data?.message}`);
+      }
       case "github_list_branches": {
         const r = await gh("GET", `${R}/branches?per_page=100`);
         return clip(Array.isArray(r.data) ? r.data.map((x: any) => x.name).join("\n") : r.data);
@@ -792,7 +855,7 @@ export function toolLabel(call: CoderToolCall): string {
 // Plain-Arabic step names for the chat's progress card (the task history keeps the same text).
 const FRIENDLY: Record<string, [string, string]> = {
   github_whoami: ["👤", "التعرّف على الحساب"], github_list_repos: ["📚", "عرض المستودعات"], github_repo_info: ["📦", "معلومات المستودع"],
-  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
+  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_ci_logs: ["🧪", "سجل فشل CI"], github_pr_info: ["🔀", "تفاصيل طلب دمج"], github_commits: ["🕘", "آخر الإيداعات"], github_compare: ["↔️", "مقارنة نسختين"], github_edit_file: ["✏️", "تعديل ملف"], sandbox_edit_file: ["✏️", "تعديل ملف في الجهاز"], sandbox_search: ["🔎", "بحث في ملفات الجهاز"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
   github_list_branches: ["🌿", "عرض الفروع"], github_create_branch: ["🌱", "إنشاء فرع"], github_write_files: ["✍️", "كتابة تعديلات"],
   github_delete_files: ["🗑️", "حذف ملفات"], github_delete_branch: ["🗑️", "حذف فرع"], github_create_pr: ["🔀", "فتح طلب دمج"],
   github_merge_pr: ["✅", "دمج طلب"], github_list_prs: ["🔀", "عرض طلبات الدمج"], github_list_issues: ["📝", "عرض المشكلات"],

@@ -91,7 +91,7 @@ export function smallTalkReply(text: string, name = ""): string {
 export const thinkCapFor = (a?: string): number => Number(process.env[`CODER_THINK_CAP_${String(isAccuracy(a) ? a : "balanced").toUpperCase()}`]) || (a === "fast" ? 500 : a === "precise" ? 3000 : 1200);
 
 // reads that do not depend on each other and change nothing
-const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
+const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
 
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);

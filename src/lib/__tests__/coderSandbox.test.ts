@@ -120,6 +120,17 @@ describe("sandbox", () => {
     expect(await runSandboxTool("sandbox_read_file", { path: "nope.txt" }, ctx)).toMatch(/not found/);
     expect(resolvePath("../../etc/passwd", "/vercel/sandbox/app")).toBe("/vercel/etc/passwd");   // inside the user's own VM: allowed, still normalised
   });
+  it("edits a file by replacing one exact piece of text; refuses zero or several matches", async () => {
+    const f = fakeDriver();
+    setSandboxDriver(f.d);
+    await runSandboxTool("sandbox_write_file", { path: "e.ts", content: "a = 1\nb = 2\nb = 2\n" }, ctx);
+    expect(await runSandboxTool("sandbox_edit_file", { path: "e.ts", old: "a = 1", new: "a = 9" }, ctx)).toMatch(/edited .*e\.ts \(1 replacement\)/);
+    expect(await runSandboxTool("sandbox_edit_file", { path: "e.ts", old: "b = 2", new: "b = 3" }, ctx)).toMatch(/occurs 2 times/);
+    expect(await runSandboxTool("sandbox_edit_file", { path: "e.ts", old: "zzz", new: "y" }, ctx)).toMatch(/not found/);
+    expect(await runSandboxTool("sandbox_edit_file", { path: "e.ts", old: "b = 2", new: "b = 3", replace_all: true }, ctx)).toMatch(/2 replacements/);
+    expect(await runSandboxTool("sandbox_read_file", { path: "e.ts" }, ctx)).toMatch(/a = 9\nb = 3\nb = 3/);
+    expect(await runSandboxTool("sandbox_search", {}, ctx)).toMatch(/give a pattern/);
+  });
   it("refuses dark-web tooling", async () => {
     setSandboxDriver(fakeDriver().d);
     for (const c of ["sudo dnf install tor", "torsocks curl http://x.onion", "curl http://abc.onion/", "i2pd --daemon"]) expect(await runSandboxTool("sandbox_exec", { command: c }, ctx)).toMatch(/not allowed/);

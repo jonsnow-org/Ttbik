@@ -134,3 +134,11 @@ Measured from the task log: step 1 ~1 min (thinking), step 2 ~1.5 min, a file re
 - A 429 is retried after at least 10 s (it used to be hit again within 1-2 s).
 - The Telegram progress card is live (`refreshCard`): tool steps plus the model's state (reading %, thinking, writing, queue) and the time of the last update, edited in place every ~5 s (`CODER_CARD_REFRESH_MS`).
 Still true: a ~10k-token context read from zero is ~4-5 min on these 2 vCPU Studios; the only real fix is to keep the prefix stable on the same Studio (done) and the context small.
+
+## Tool audit and additions (2026-10-25)
+Compared with the tools the building session itself uses (shell, read / write / exact-replace edit, grep / glob, web, sub-agents, GitHub incl. CI logs / PR conversation / commits, MCP services), Nova lacked: an exact-replace edit
+(it rewrote whole files), file search in the VM, CI failure logs, a PR's conversation, commit history, and compare. Added: `sandbox_edit_file`, `sandbox_search` (VM; group `computer`), `github_ci_logs`, `github_pr_info`, `github_commits`,
+`github_compare` (read-only: also allowed for sub-agents and in the parallel-read batch), `github_edit_file` (a commit; same permission policy as `github_write_files`). Still not there, on purpose or for later: a generic HTTP request tool
+(needs an SSRF-safe design; `connector_api` / `mcp_call` cover linked services), image viewing, a notebook tool. The tool list changed, so each Studio reads the first prompt once from zero after this ships.
+How the model decides how long to think (checked in code and training): today Nova is the base Qwen3.5-4B (Nova 1 has not trained yet); the thought length is the base model's own, the harness only caps it per mode (500 / 1200 / 3000 chars)
+and the Studio re-asks without thinking if a thought ends empty. Nova 1's data has 12% reasoning traces (OpenCodeReasoning) but no examples that teach "short question -> answer without a long thought"; adding such examples to the training mix is the way to make the MODEL decide it.

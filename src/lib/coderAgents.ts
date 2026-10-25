@@ -23,12 +23,12 @@ export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toL
 
 /** The only tools a sub-agent may call. Anything else is refused by the runner. */
 export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "github_repo_info", "github_repo_scan", "github_read_files", "github_list_files", "github_read_file", "github_search_code", "github_search_repos", "github_list_branches", "github_list_prs", "github_list_issues",
+  "github_repo_info", "github_repo_scan", "github_read_files", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_read_file", "github_search_code", "github_search_repos", "github_list_branches", "github_list_prs", "github_list_issues",
   "web_search", "fetch_page", "memory_search",
 ]);
 
 /** What the "tester" role adds: run the project's own tests in its own disposable VM. Never write files into the repo, never push. */
-export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file"]);
+export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file", "sandbox_search"]);
 /** A worker may use every tool the parent has (each consequential call still goes through the user's permission settings and asks), except asking the user a free question, and starting agents at the deepest level. */
 export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1): boolean => {
   if (role === "sham") return false;

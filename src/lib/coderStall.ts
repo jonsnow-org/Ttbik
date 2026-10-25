@@ -52,7 +52,7 @@ const isError = (out: string) => /^(error|HTTP [45]\d\d)/i.test((out || "").trim
 // Running the same command/test again after changing files is progress, not a loop: these calls are told apart by the number of
 // file writes made so far in the task.
 export const RERUNNABLE = new Set(["sandbox_exec", "sandbox_read_file", "github_read_file"]);
-const WRITES = new Set(["sandbox_write_file", "github_write_files", "github_delete_files", "sandbox_clone"]);
+const WRITES = new Set(["sandbox_write_file", "sandbox_edit_file", "github_edit_file", "github_write_files", "github_delete_files", "sandbox_clone"]);
 function sigOf(ss: StallState, call: CoderToolCall): string {
   const base = callSig(call);
   return RERUNNABLE.has(call.function.name) ? `${base}@${ss.gen || 0}` : base;
