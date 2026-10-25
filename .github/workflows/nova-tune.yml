@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec | mtp | models"
+        description: "which job: all | flags | quants | spec | mtp | models | fit"
         required: false
         default: "all"
 permissions:
@@ -216,4 +216,56 @@ jobs:
           EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "${{ matrix.id }}"
           RSS=$(awk '/VmHWM/ {printf "%.1f", $2/1048576}' /proc/$PID/status)
           echo "peak memory: ${RSS} GB"
+          kill $PID
+  fit:
+    if: inputs.job == 'fit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: granite-4.0-h-tiny, url: "https://huggingface.co/unsloth/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf" }
+          - { id: qwen3.5-4b-current, url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "${{ matrix.url }}"
+          ls -l m.gguf
+      - name: "the Studio's own flags: memory at 64k, long-prompt reading, cache reuse, Arabic token cost, quality"
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          echo "### ${{ matrix.id }}"
+          taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 65536 -t 2 -np 1 -n -1 --jinja --cache-ram 1024 --ctx-checkpoints 8 --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 3; done
+          python3 - <<'PY'
+          import json, urllib.request, time
+          def post(path, body, t=1800):
+              r = urllib.request.Request("http://127.0.0.1:8080" + path, data=json.dumps(body).encode(), headers={"content-type": "application/json"})
+              return json.load(urllib.request.urlopen(r, timeout=t))
+          ar = "الحوسبة السحابية هي تقديم خدمات الحوسبة عبر الإنترنت، مثل الخوادم والتخزين وقواعد البيانات والشبكات والبرمجيات، بحيث تدفع الشركة مقابل ما تستخدمه فقط بدل شراء أجهزة باهظة وصيانتها بنفسها."
+          en = "Cloud computing is the delivery of computing services over the internet, such as servers, storage, databases, networking and software, so a company pays only for what it uses instead of buying and maintaining expensive hardware itself."
+          na = len(post("/tokenize", {"content": ar})["tokens"]); ne = len(post("/tokenize", {"content": en})["tokens"])
+          print("Arabic tokens: %d for %d chars (%.2f chars/token) | English tokens: %d for %d chars (%.2f chars/token)" % (na, len(ar), len(ar)/na, ne, len(en), len(en)/ne))
+          filler = " ".join("Step %d: the service reads the request, validates the token, queries the database, formats the answer and writes an audit line to the log." % i for i in range(1, 330))
+          def chat(q, mt=60):
+              t0 = time.time()
+              d = post("/v1/chat/completions", {"messages": [{"role": "system", "content": "You are a coding assistant."}, {"role": "user", "content": filler + "\n\n" + q}], "max_tokens": mt, "temperature": 0.2, "chat_template_kwargs": {"enable_thinking": False}})
+              t = d.get("timings", {})
+              print("  prompt_n(read now)=%s cache_n=%s | read %.1f tok/s | write %.1f tok/s | wall %.0fs" % (t.get("prompt_n"), t.get("cache_n"), t.get("prompt_per_second", 0), t.get("predicted_per_second", 0), time.time() - t0))
+          print("long prompt, first time:"); chat("Name the first step in one sentence.")
+          print("same long prefix, other question (cache reuse):"); chat("Name the last step in one sentence.")
+          PY
+          echo "peak memory: $(awk '/VmHWM/ {printf "%.1f", $2/1048576}' /proc/$PID/status) GB"
+          echo "### ${{ matrix.id }}: quality"
+          EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "${{ matrix.id }}"
           kill $PID
