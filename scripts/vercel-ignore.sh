@@ -6,7 +6,16 @@
 # plan's 100 deployments per day; vercel.json (git.deploymentEnabled) switches whole branches off so they are never created at all.
 [ "${VERCEL_ENV:-}" = "preview" ] && exit 0
 
-changed_files="$(git diff --name-only HEAD^ HEAD 2>/dev/null)" || exit 1
+# A merge commit's diff against its first parent shows only what the OTHER side brought: a merge that carries site changes could be skipped and production left stale
+# (seen 2026-10-25: a merge that added one workflow file skipped a batch of src changes). A merge always builds.
+[ "$(git rev-list --parents -n 1 HEAD 2>/dev/null | wc -w)" -gt 2 ] && exit 1
+# Several commits pushed at once: compare with the last commit that was deployed, when Vercel tells us which one it was and we have it.
+base="${VERCEL_GIT_PREVIOUS_SHA:-}"
+if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+  changed_files="$(git diff --name-only "$base" HEAD 2>/dev/null)" || exit 1
+else
+  changed_files="$(git diff --name-only HEAD^ HEAD 2>/dev/null)" || exit 1
+fi
 [ -n "$changed_files" ] || exit 1
 
 # Skip only when every changed file is in a deliberately excluded area.
