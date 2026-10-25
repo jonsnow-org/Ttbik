@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25 04:54 UTC",
+  "generated_at": "2026-10-25 11:43 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -97,7 +97,7 @@
       "track": "chat_image_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-24",
+      "last_run": "2026-10-25",
       "gpu": false,
       "failure": ""
     },
@@ -233,23 +233,23 @@
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-24",
+      "last_updated": "2026-10-25",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
-      "size_mb": 35.5,
-      "last_updated": "2026-10-24",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-25",
       "progress": {
-        "samples_consumed": 121416,
-        "step": 33135,
+        "samples_consumed": 134928,
+        "step": 34824,
         "last_run_sources": {
           "cv17-ar": 1000
         },
-        "codebook_usage": 2002,
-        "recon": 0.012469200624359978
+        "codebook_usage": 2012,
+        "recon": 0.01253075916797687
       },
       "has_key_files": true
     },
@@ -257,23 +257,23 @@
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
       "size_mb": 0.0,
-      "last_updated": "2026-10-24",
+      "last_updated": "2026-10-25",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 144.6,
-      "last_updated": "2026-10-24",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-25",
       "progress": {
-        "samples_consumed": 101032,
-        "step": 9518,
+        "samples_consumed": 101376,
+        "step": 9604,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 2968,
-        "recon": 0.0631565449681754
+        "codebook_usage": 2487,
+        "recon": 0.07214060885941281
       },
       "has_key_files": true
     },
@@ -329,9 +329,9 @@
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
       "size_mb": 0.0,
-      "last_updated": "2026-10-24",
+      "last_updated": "2026-10-25",
       "progress": {
-        "videos_consumed": 2867
+        "videos_consumed": 2967
       },
       "has_key_files": true
     },
@@ -398,13 +398,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 121416,
-          "step": 33135,
+          "samples_consumed": 134928,
+          "step": 34824,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 2002,
-          "recon": 0.012469200624359978
+          "codebook_usage": 2012,
+          "recon": 0.01253075916797687
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -413,7 +413,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 2867
+          "videos_consumed": 2967
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
