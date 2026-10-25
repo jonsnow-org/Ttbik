@@ -1,0 +1,61 @@
+name: Nova vision probe (free, read-only)
+# Can the coder Studio's model SEE pictures? Same llama.cpp build and model as the Studio, plus the model's vision file (mmproj), pinned to 2 cores like the Studio.
+# Sends a small picture (text + a red square) and prints: the answer, the time to read the picture, the generation speed, and the memory the server used (MB). Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: llama.cpp, the model and its vision file
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          curl -sSL --fail -o mmproj.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/mmproj-F16.gguf"
+          ls -l model.gguf mmproj.gguf
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          "$BIN/llama-server" --help 2>&1 | grep -n -E -- '--mmproj|--no-mmproj|image-min-tokens|image-max-tokens' | head -8
+      - name: read a picture on 2 cores
+        run: |
+          pip install -q pillow
+          python3 - <<'PY'
+          import base64, io, json
+          from PIL import Image, ImageDraw, ImageFont
+          im = Image.new("RGB", (448, 448), "white"); d = ImageDraw.Draw(im)
+          try: f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 56)
+          except Exception: f = ImageFont.load_default()
+          d.text((40, 60), "NOVA 2026", fill="black", font=f); d.rectangle((60, 200, 240, 380), fill="red"); d.ellipse((270, 220, 400, 350), fill="blue")
+          b = io.BytesIO(); im.save(b, "PNG"); u = "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
+          json.dump({"messages": [{"role": "user", "content": [{"type": "text", "text": "What text do you see, and what shapes and colours? Answer in one short sentence."}, {"type": "image_url", "image_url": {"url": u}}]}], "max_tokens": 60, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": False}, open("img.json", "w"))
+          PY
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          for run in 1 2; do
+            taskset -c 0,1 "$BIN/llama-server" -m model.gguf --mmproj mmproj.gguf -c 65536 -t 2 -np 1 -n -1 --jinja --cache-ram 1024 --ctx-checkpoints 8 --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "server exited"; tail -15 server.log; exit 0; }; sleep 3; done
+            echo "idle server memory with the vision file: $(( $(ps -o rss= -p $PID) / 1024 )) MB"
+            for rep in 1 2; do
+              t0=$(date +%s.%N)
+              curl -s -m 600 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @img.json > resp.json
+              t1=$(date +%s.%N)
+              python3 - "$t0" "$t1" "$PID" <<'PY'
+          import json, sys, subprocess
+          r = json.load(open("resp.json")); t = r.get("timings", {})
+          rss = int(subprocess.run(["ps", "-o", "rss=", "-p", sys.argv[3]], capture_output=True, text=True).stdout.strip() or 0) // 1024
+          msg = (r.get("choices") or [{}])[0].get("message", {}).get("content", "") if "choices" in r else json.dumps(r)[:300]
+          print(f"total {float(sys.argv[2]) - float(sys.argv[1]):5.1f} s | prompt {t.get('prompt_n')} tok at {t.get('prompt_per_second', 0):.1f} tok/s | write {t.get('predicted_per_second', 0):.2f} tok/s | memory now {rss} MB\nanswer: {msg}")
+          PY
+            done
+            kill $PID; wait $PID 2>/dev/null; break
+          done | tee result.txt
+          { echo "### Vision on 2 cores"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
