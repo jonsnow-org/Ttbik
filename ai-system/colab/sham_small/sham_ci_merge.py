@@ -107,7 +107,7 @@ _FROZEN: dict = {}      # {"text": the exact gate text}: stored in merge_progres
 
 def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: bool = True):
     """Held-out batches per skill (text / chat / media). Never trained on by this job."""
-    from sham_chat import batch_examples, build_chat_example, load_arabic_dialogues, split_holdout
+    from sham_chat import _chat_plan, batch_examples, build_chat_example, load_arabic_dialogues, split_holdout
     import sham_text_mix
 
     gate: dict = {}
@@ -130,7 +130,7 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
     gate["text"] = [torch.tensor(wins[i:i + 4]) for i in range(0, len(wins) - 3, 4)][:10]
     # chat: held-out dialogues
     try:
-        dialogues, _ = load_arabic_dialogues({}, 800)
+        dialogues, _ = load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))     # the four Arabic sets only: the yardstick must not move when training sources are added
         _, hold = split_holdout(dialogues, seed=7)
         ex = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in hold]
         gate["chat"] = batch_examples(ex, 8)[:8]

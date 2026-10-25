@@ -223,7 +223,7 @@ def _conversation_pair(row: dict) -> tuple[str, str]:
     """First user turn and the reply after it, from a ShareGPT-style `conversations` list (from: human/gpt or role/content)."""
     if row.get("user") and row.get("gpt") and isinstance(row["user"], str):        # Arabic-OpenHermes: ready columns
         return row["user"].strip(), str(row["gpt"]).strip()
-    conv = row.get("conversations") or []
+    conv = row.get("conversations") or row.get("messages") or []
     if isinstance(conv, str):                                                      # a JSON string in some sets
         try:
             conv = json.loads(conv)
@@ -243,17 +243,52 @@ def _conversation_pair(row: dict) -> tuple[str, str]:
 # last two were added 2026-10-14 (apache-2.0 on their dataset cards; both are GPT-4-written / translated Arabic conversations):
 #   FreedomIntelligence/alpaca-gpt4-arabic — 49,969 Arabic instruction → answer conversations
 #   2A2I/Arabic-OpenHermes-2.5           — 981,618 Arabic conversations (streamed: never downloaded whole)
-def _chat_plan():
+def _chat_plan(extra: bool = True):
+    """The sources of the chat stage. extra=False is the four Arabic sets ONLY — what the merge gate (sham_ci_merge, sham_repair_remerge) reads as its fixed yardstick: sources added for training must never move it."""
     from datasets import load_dataset
-    return [
+    import os
+    plan = [
         ("cidar", lambda: load_dataset("arbml/CIDAR", split="train"), "instruction", "output", None, False),
         ("aya_ar", lambda: load_dataset("CohereLabs/aya_dataset", split="train"), "inputs", "targets", _is_arabic_row, False),
         ("alpaca_gpt4_ar", lambda: load_dataset("FreedomIntelligence/alpaca-gpt4-arabic", split="train"), None, None, None, False),
         ("openhermes_ar", lambda: load_dataset("2A2I/Arabic-OpenHermes-2.5", split="train", streaming=True), None, None, None, True),
     ]
+    if not extra or os.environ.get("SHAM_CHAT_EXTRA", "1").strip().lower() in ("0", "off", "false", "no"):
+        return plan
+    # 2026-10-26 (owner: diversify the sources, code included, so Sham does not train on the same few sets again and again). Until now the chat stage read ONLY the four
+    # Arabic sets above: CIDAR has 10,000 rows (it came round every few sessions) and no source taught code at all. Added, all open licences on their dataset cards, none gated:
+    #   code        ise-uiuc/Magicoder-OSS-Instruct-75K (MIT; Python, C++, Java, TypeScript, Rust, Swift, PHP, C#, Shell), m-a-p/CodeFeedback-Filtered-Instruction (Apache-2.0),
+    #               bigcode/self-oss-instruct-sc2-exec-filter-50k (ODC-By; answers checked by running them), glaiveai/glaive-code-assistant-v3 (Apache-2.0)
+    #   general     HuggingFaceTB/smoltalk "all" (Apache-2.0; everyday talk, rewriting, summaries, tools, maths, code), HuggingFaceH4/ultrachat_200k (MIT; many-turn talk)
+    #   maths       meta-math/MetaMathQA (MIT)
+    # Large ones are streamed (never downloaded whole). SHAM_CHAT_EXTRA=0 gives the earlier four back.
+    plan += [
+        ("magicoder", lambda: load_dataset("ise-uiuc/Magicoder-OSS-Instruct-75K", split="train"), "problem", "solution", None, False),
+        ("codefeedback", lambda: load_dataset("m-a-p/CodeFeedback-Filtered-Instruction", split="train"), "query", "answer", None, False),
+        ("self_oss_instruct", lambda: load_dataset("bigcode/self-oss-instruct-sc2-exec-filter-50k", split="train"), "instruction", "response", None, False),
+        ("glaive_code", lambda: load_dataset("glaiveai/glaive-code-assistant-v3", split="train", streaming=True), "question", "answer", None, True),
+        ("smoltalk", lambda: load_dataset("HuggingFaceTB/smoltalk", "all", split="train", streaming=True), None, None, None, True),
+        ("ultrachat", lambda: load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft", streaming=True), None, None, None, True),
+        ("metamath", lambda: load_dataset("meta-math/MetaMathQA", split="train", streaming=True), "query", "response", None, True),
+    ]
+    return plan
 
 
-CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618}      # a streamed source has no len(): its wrap-around point
+CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk": 1_000_000, "ultrachat": 207_865, "metamath": 395_000}   # a streamed source has no len(): its wrap-around point
+# Each source's share of a session's examples. Arabic stays the majority (it is the model's language); code is the next biggest share; the rest is general talk and maths.
+# A source missing here counts 1. Arabic 6.0 of 11.75 (51%), code 3.5 (30%), general + maths 2.25 (19%).
+CHAT_SOURCE_WEIGHTS = {"cidar": 1.5, "aya_ar": 1.5, "alpaca_gpt4_ar": 1.5, "openhermes_ar": 1.5,
+                       "magicoder": 1.0, "codefeedback": 1.0, "self_oss_instruct": 0.75, "glaive_code": 0.75,
+                       "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5}
+
+
+def _wants(plan, max_examples: int) -> list[int]:
+    """How many examples each source of `plan` gives in this session, by CHAT_SOURCE_WEIGHTS (at least 1 each); the rounding remainder goes to the last source."""
+    w = [float(CHAT_SOURCE_WEIGHTS.get(p[0], 1.0)) for p in plan]
+    tot = sum(w) or 1.0
+    out = [max(1, int(max_examples * x / tot)) for x in w]
+    out[-1] = max(1, max_examples - sum(out[:-1]))
+    return out
 
 
 def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple[list[tuple[str, str]], dict]:
@@ -271,9 +306,9 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
         plan = [p for p in plan if p[0] in only]
     pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
-    share = max(1, max_examples // max(1, len(plan)))
+    shares = _wants(plan, max_examples) if plan else []
     for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
-        want = min(share if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
+        want = min(shares[n] if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
         if want <= 0:
             break
         try:
@@ -317,7 +352,7 @@ def _conversation_turns(row: dict, max_turns: int = 8) -> list[tuple[str, str]]:
     """EVERY (user, assistant) pair of a ShareGPT-style conversation, in order (the single-turn loader keeps only the first)."""
     if row.get("user") and row.get("gpt") and isinstance(row["user"], str):
         return [(row["user"].strip(), str(row["gpt"]).strip())]
-    conv = row.get("conversations") or []
+    conv = row.get("conversations") or row.get("messages") or []
     if isinstance(conv, str):
         try:
             conv = json.loads(conv)
@@ -371,8 +406,9 @@ def load_arabic_conversations(progress: dict, max_examples: int, plan=None, min_
     only = {k.strip() for k in os.environ.get("SHAM_CHAT_SOURCES", "").split(",") if k.strip()}
     plan = [p for p in plan if p[2] is None and (not only or p[0] in only)]
     convs: list[list[tuple[str, str]]] = []
-    share = max(1, max_examples // max(1, len(plan)))
+    shares = dict(zip([p[0] for p in plan], _wants(plan, max_examples))) if plan else {}
     for key, loader, _q, _a, keep, streaming in plan:
+        share = shares.get(key, 1)
         try:
             ds = loader()
             if keep is not None:
@@ -574,4 +610,20 @@ if __name__ == "__main__":
     _c, _cp = load_arabic_conversations({}, 2, plan=_mplan)
     assert len(_c) == 2 and all(len(x) == 2 for x in _c) and "c_mt" in _cp and "q_mt" not in _cp, (_c, _cp)
     assert len(conversation_examples(_c, fake)) == 2
+    # diversified chat sources (2026-10-26): code + general + maths next to the four Arabic sets, Arabic stays the majority; the gate's plan stays the four Arabic sets
+    import sys as _sys, types as _types
+    _sys.modules.setdefault("datasets", _types.SimpleNamespace(load_dataset=lambda *a, **k: None))
+    _full, _base = _chat_plan(), _chat_plan(extra=False)
+    assert [p[0] for p in _base] == ["cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar"], "the gate's yardstick plan must not change"
+    assert [p[0] for p in _full[:4]] == [p[0] for p in _base] and {"magicoder", "codefeedback", "self_oss_instruct", "glaive_code", "smoltalk", "ultrachat", "metamath"} <= {p[0] for p in _full}
+    assert len({p[0] for p in _full}) == len(_full) and all(p[0] in CHAT_SOURCE_WEIGHTS for p in _full)
+    for _n in (800, 3000, 4000):
+        _w = _wants(_full, _n)
+        assert sum(_w) == _n and min(_w) >= 1, _w
+        assert sum(_w[:4]) >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                      # Arabic >= half, code >= a quarter
+        _b = _wants(_base, _n)
+        assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before
+    assert [p[0] for p in _chat_plan()] == [p[0] for p in _full]
+    _msg = {"messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "اكتب دالة"}, {"role": "assistant", "content": "def f(): pass"}]}
+    assert _conversation_pair(_msg) == ("اكتب دالة", "def f(): pass") and _conversation_turns(_msg) == [("اكتب دالة", "def f(): pass")]
     print("sham_chat self-test OK")

@@ -87,12 +87,12 @@ def discover_sources(fixed=None) -> list:
 def default_repair_data(model, tokenizer, gate_hold_questions: set, n_batches: int, seed: int) -> list:
     """خليط المهارات للإصلاح: محادثة عربية (قسم التدريب فقط من دوال المهندس، والأسئلة المحجوبة في الميزان
     مستبعدة) + نص ويكيبيديا للتذكّر (text_replay_batches)، ممزوجة بـ interleave."""
-    from sham_chat import (batch_examples, build_chat_example, interleave, load_arabic_dialogues,
+    from sham_chat import (_chat_plan, batch_examples, build_chat_example, interleave, load_arabic_dialogues,
                            split_holdout, text_replay_batches)
     max_len = min(1024, model.cfg.max_seq_len)
     groups, weights = [], []
     try:
-        dialogues, _ = load_arabic_dialogues({}, 800)
+        dialogues, _ = load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))      # the gate's own four Arabic sets (its yardstick never moves)
         train_part, _hold = split_holdout(dialogues, seed=7)        # نفس تقسيم الميزان ⇒ لا تسريب
         more, _ = load_arabic_dialogues({"cidar": 5000, "aya_ar": 5000}, 4000)
         pairs = [(q, a) for q, a in train_part + more if " ".join(q.split()) not in gate_hold_questions]
@@ -174,8 +174,8 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
     say("ميزان الأساس: " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
     hold_q = set()
     try:
-        from sham_chat import load_arabic_dialogues, split_holdout
-        _, hold = split_holdout(load_arabic_dialogues({}, 800)[0], seed=7)
+        from sham_chat import _chat_plan, load_arabic_dialogues, split_holdout
+        _, hold = split_holdout(load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))[0], seed=7)
         hold_q = {" ".join(q.split()) for q, _ in hold}
     except Exception:
         pass
