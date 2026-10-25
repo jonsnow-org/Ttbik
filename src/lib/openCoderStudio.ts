@@ -147,6 +147,8 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
       if (api === "chat") { studioLog.push({ t: Date.now(), studio: i + 1, tag: tag || "?" }); if (studioLog.length > 60) studioLog.shift(); }
       return i ? tagJob(last, i) : last;
     }
+    // the hub's rate limit is not a sick Studio: no cooling, no failover (the other Studio holds no cache for this conversation: a cold read of the whole prompt is minutes); the caller waits and asks again, the same Studio first
+    if (last.status === 429) return last;
     studioCooling.set(b, Date.now() + COOL_MS);
   }
   return last;
