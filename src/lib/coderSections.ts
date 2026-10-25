@@ -1227,13 +1227,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;                                   // a slow / flaky poll is not the end of the job
         }
         run.pollFailSince = undefined;
-        if (r?.type === "gone" && (run.goneRetries || 0) < 3) {
+        // "cancelled" while the task is still alive is not the user's stop (a stop ends the task first): the Studio drops a job nobody polled for a while, e.g. while the
+        // worker was replaced mid-step (measured: two server updates in 3 minutes ended a task as "stopped" by itself). The same step goes again, like a lost job.
+        const droppedByStudio = r?.type === "cancelled" && (run.goneRetries || 0) < 3 && (await loadState(chatId, db, slot).catch(() => null))?.run?.id === run.id;
+        if ((r?.type === "gone" || droppedByStudio) && (run.goneRetries || 0) < 3) {
           // the Studio restarted and no longer knows the job: the same step goes again (the history is intact)
           run.goneRetries = (run.goneRetries || 0) + 1;
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
           run.logged = 0;
-          await taskEvent(run.id, "info", `🔁 خادم النموذج أُعيد تشغيله وفقد الطلب؛ أعيد إرسال الخطوة (محاولة ${run.goneRetries}).`, db);
+          await taskEvent(run.id, "info", `🔁 ${droppedByStudio ? "الاستوديو أسقط الطلب بعد انقطاع المتابعة" : "خادم النموذج أُعيد تشغيله وفقد الطلب"}؛ أعيد إرسال الخطوة (محاولة ${run.goneRetries}).`, db);
           await saveState(chatId, st, db, slot);
           continue;
         }

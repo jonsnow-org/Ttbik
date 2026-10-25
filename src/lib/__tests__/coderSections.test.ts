@@ -360,6 +360,21 @@ describe("no pause: loops are detected, logged and recovered", () => {
     expect(sent[sent.length - 1].text).toMatch(/رفض رمز الوصول \(HTTP 401\)/);
   });
 
+  it("a job the Studio dropped as unpolled (reported cancelled) while the task is alive is asked again, not ended as stopped", async () => {
+    let polls = 0;
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("/gradio_api/call/job_result/")) return new Response(sse({ type: "cancelled", job: "j1" }), { status: 200 });
+      if (url.includes("/gradio_api/call/chat/")) return new Response(sse(polls++ === 0 ? { type: "pending", job: "j1" } : { type: "done", job: "j2", text: "أجبتُ بعد إسقاط الاستوديو للطلب", tool_calls: [] }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "g2", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect(sent.map((s) => s.text)).toContain("أجبتُ بعد إسقاط الاستوديو للطلب");
+  });
+
   it("a job the restarted Studio no longer knows is asked again, not failed", async () => {
     let polls = 0;
     (global as any).fetch = jest.fn(async (url: string) => {
