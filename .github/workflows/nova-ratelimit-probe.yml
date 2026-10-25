@@ -1,0 +1,23 @@
+name: Nova hub rate-limit probe (free, read-only)
+# Sends the cheap status call to one coder Studio at three speeds and prints how the hub refuses (HTTP 429) and which headers it sends. Never prints the token. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio number 1-5"
+        default: "2"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - run: python3 scripts/nova-eval/ratelimit_probe.py "$N"
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          N: ${{ inputs.studio }}
