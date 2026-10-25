@@ -525,13 +525,26 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
   const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
   const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
+  // A warm-up reads the whole conversation to fill the Studio's cache: on a cold Studio that is MINUTES of the one worker (measured 2026-10-25: a 35k-character conversation held a Studio for 7+ minutes
+  // while the owner's real request waited behind it). So it is small-only, and the moment a real request of the same chat is sent it is cancelled (cancelWarm).
+  if (messages.reduce((n, m) => n + String((m as { content?: string }).content || "").length, 0) > (Number(process.env.CODER_PREWARM_MAX_CHARS) || 16000)) return;
   const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000, tag: "prewarm" }).catch(() => null);
   let r = o?.reply || null;
+  if (r?.job) warming.set(chatId, r.job);
   const t0 = Date.now();
-  while (r?.type === "pending" && r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
-    await new Promise((res) => setTimeout(res, 5000));
+  while (r?.type === "pending" && r.job && warming.get(chatId) === r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
+    await new Promise((res) => setTimeout(res, Number(process.env.CODER_PREWARM_POLL_MS) || 5000));
     r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
   }
+  if (r?.job && warming.get(chatId) === r.job) warming.delete(chatId);
+}
+const warming = new Map<number, string>();                       // chat -> the Studio job of its warm-up, while it runs
+/** A real request is about to be sent for this chat: its warm-up (if still running) must not stand in front of it. */
+export async function cancelWarm(chatId: number): Promise<void> {
+  const job = warming.get(chatId);
+  if (!job) return;
+  warming.delete(chatId);
+  await coderCancel(job).catch(() => null);
 }
 
 /** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
@@ -1758,6 +1771,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
+    await cancelWarm(chatId);
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham_loop" : "sham") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);

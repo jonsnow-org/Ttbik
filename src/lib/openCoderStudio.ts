@@ -426,5 +426,6 @@ export function renderRange(text: string, a: number, b: number): string {
 /** Is any Studio ready with nothing queued (answered within `capMs`)? A step waiting in a queue moves there at once. */
 export async function anyIdleStudio(capMs = 900): Promise<boolean> {
   const all = await allStudioStatus(capMs);
-  return all.some((st) => st && st.phase === "ready" && !(Number(st.queue) > 0));
+  // a Studio that did not answer (the hub rate-limits status asks too) may well be idle: it counts, otherwise a 429 on the asks would keep a step waiting behind a long job
+  return all.some((st) => (st && st.phase === "ready" && !(Number(st.queue) > 0)) || st === null);
 }

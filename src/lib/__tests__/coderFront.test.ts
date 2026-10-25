@@ -228,3 +228,29 @@ describe("the model is told how long it has been working", () => {
     process.env.CODER_TIME_NOTE = "off"; expect(progressNote({ step: 9, startedAt: t0 }, t0 + 25 * 60000)).toBe(""); delete process.env.CODER_TIME_NOTE;
   });
 });
+
+describe("a warm-up must not stand in front of a real request", () => {
+  it("the warm-up of a chat is cancelled on the Studio when a real request of that chat is about to be sent; a big conversation is not warmed at all", async () => {
+    process.env.OPEN_CODER_STUDIO_URL = "https://w1.test"; delete process.env.OPEN_CODER_STUDIO_URLS;
+    process.env.MODELSCOPE_API_TOKEN = "ms"; process.env.CODER_PREWARM = "1"; process.env.CODER_PREWARM_POLL_MS = "20"; process.env.CODER_TOKEN_KEY = "test-key";
+    const { prewarmChat, cancelWarm } = require("@/lib/coderSections");
+    const seen: string[] = [];
+    (global as any).fetch = jest.fn(async (url: string, init: any) => {
+      if (url.includes("/gradio_api/call/v2/")) { seen.push(url.split("/call/v2/")[1]); return new Response(JSON.stringify({ event_id: "e" }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/chat/")) return new Response(sse({ type: "pending", job: "warm1", status: "running", phase: "ready", queue_pos: 0, total: 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/cancel/")) return new Response(sse({ type: "cancelled", job: "warm1" }), { status: 200 });
+      if (url.includes("/gradio_api/call/job_result/")) return new Response(sse({ type: "pending", job: "warm1", status: "running", phase: "ready" }), { status: 200 });
+      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: 0 }), { status: 200 });
+      return new Response("{}", { status: 200 });
+    });
+    const db = fakeDb();
+    const p = prewarmChat(777001, db);
+    for (let i = 0; i < 60 && !seen.includes("chat"); i++) await new Promise((r) => setTimeout(r, 50));
+    expect(seen).toContain("chat");
+    await new Promise((r) => setTimeout(r, 100));
+    await cancelWarm(777001);
+    expect(seen).toContain("cancel");                              // the Studio was told to drop it
+    await p;                                                        // and the warm-up's own loop has ended
+    delete process.env.CODER_PREWARM; delete process.env.CODER_PREWARM_POLL_MS;
+  });
+});
