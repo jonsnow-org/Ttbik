@@ -50,4 +50,6 @@ srv3=http.server.ThreadingHTTPServer(("127.0.0.1",0),H3); threading.Thread(targe
 app.LLAMA_PORT=srv3.server_address[1]
 job3=dict(job, think=True, text="", reasoning="", seen=time.time(), tool_calls=[]); app._stream(job3)
 print("empty thought:",calls,repr(job3["text"])); assert calls==[True,False] and job3["text"]=="real answer"
+assert app._think_flag("1") == (True, 0) and app._think_flag("") == (False, 0) and app._think_flag("true") == (True, 0)
+assert app._think_flag("1:500") == (True, 500) and app._think_flag("1:99999") == (True, 6000) and app._think_flag("1:5") == (True, 200) and app._think_flag("0:500") == (False, 500)
 print("OK")

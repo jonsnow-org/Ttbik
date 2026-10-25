@@ -87,6 +87,9 @@ export function smallTalkReply(text: string, name = ""): string {
  * A run whose loop is gone (lease not renewed for RUN_DEAD_MS, not waiting for a confirmation): its Studio job is cancelled and the run
  * is closed as failed, so the next message starts fresh and the app stops showing it as running. Returns true when it cleared one.
  */
+/** How long a thought may be, by accuracy mode (characters): the mode that wants speed thinks briefly, the precise one is given room. 1200 = the Studio's own default (nothing extra is sent). */
+export const thinkCapFor = (a?: string): number => Number(process.env[`CODER_THINK_CAP_${String(isAccuracy(a) ? a : "balanced").toUpperCase()}`]) || (a === "fast" ? 500 : a === "precise" ? 3000 : 1200);
+
 // reads that do not depend on each other and change nothing
 const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
 
@@ -1591,7 +1594,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(st.accuracy), avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {

@@ -335,7 +335,7 @@ def _stream_once(job: dict) -> None:
                     job["text"] += d["content"]
                 if d.get("reasoning_content"):
                     job["reasoning"] += d["reasoning_content"]
-                    if job["think"] and not job["text"] and not calls and len(job["reasoning"]) > THINK_CAP_CHARS:
+                    if job["think"] and not job["text"] and not calls and len(job["reasoning"]) > (job.get("think_cap") or THINK_CAP_CHARS):
                         job["think_cut"] = True                      # too long a thought for this box: the step is asked again, thinking off
                         break
                 for tc in d.get("tool_calls") or []:
@@ -419,6 +419,15 @@ def _num(x, default: float) -> float:
         return default
 
 
+def _think_flag(think) -> "tuple[bool, int]":
+    """'1' / 'true' = thinking on with the Studio's default cap; '1:600' = on with that many characters of thought at most (the accuracy mode sets it: fast short, precise long)."""
+    t = str(think).strip().lower()
+    head, _, cap = t.partition(":")
+    on = head in ("1", "true", "yes", "on")
+    n = int(cap) if cap.isdigit() else 0
+    return on, (max(200, min(6000, n)) if n else 0)
+
+
 def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "", temperature: float = 0.6, wait_s: float = 20) -> str:
     """Queue one chat completion; wait up to wait_s (max 50) for it, else answer pending + job id."""
     try:
@@ -428,7 +437,7 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     except Exception as exc:
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
     jid = uuid.uuid4().hex
-    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": str(think).lower() in ("1", "true", "yes", "on"),
+    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1],
            "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time()}
     with JOBS_LOCK:
         JOBS[jid] = job

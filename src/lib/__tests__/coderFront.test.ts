@@ -204,3 +204,14 @@ describe("a Studio queue that does not move", () => {
     delete process.env.OPEN_CODER_STUDIO_URLS; delete process.env.CODER_QUEUE_MOVE_MS;
   });
 });
+
+describe("thinking budget by accuracy mode", () => {
+  it("fast thinks briefly, balanced uses the Studio's default (nothing extra is sent), precise is given room; env can override", () => {
+    const { thinkCapFor } = require("@/lib/coderSections");
+    expect(thinkCapFor("fast")).toBeLessThan(thinkCapFor("balanced"));
+    expect(thinkCapFor("balanced")).toBe(1200);
+    expect(thinkCapFor("precise")).toBeGreaterThan(thinkCapFor("balanced"));
+    expect(thinkCapFor(undefined)).toBe(1200);
+    process.env.CODER_THINK_CAP_FAST = "700"; expect(thinkCapFor("fast")).toBe(700); delete process.env.CODER_THINK_CAP_FAST;
+  });
+});

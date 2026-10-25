@@ -116,3 +116,9 @@ A task waited 3+ minutes at "queued behind 1" on its home Studio while the other
 (`queue_pos > 0`, nothing read yet) and does not move for `CODER_QUEUE_MOVE_MS` (default 25 s), it is cancelled and sent to an idle Studio (`avoidHome`, up to 3 times per step); the home mapping follows the new Studio.
 Also seen in that task: deeper thinking was ON (step 1 on a 1.2k-token prompt took ~2 min); the read-progress % moves in coarse jumps (it stayed at 59% for 40+ s on a 3.7k-token prompt).
 Over the last 24 h: 19 runs, 98 step sends, only 3 runs with a resend — a double read is not the normal path.
+
+## Thinking stays ON in all three modes (owner, 2026-10-25)
+The goal is that fast / balanced / precise all work with deeper thinking; "turn thinking off" is not the answer. The accuracy mode now sets how long a thought may be (`thinkCapFor` in `coderSections.ts`,
+sent as `think="1:<chars>"`, read by the Studio's `_think_flag`): fast 500 chars, balanced 1200 (the default, sent as plain "1" so an older Studio still thinks), precise 3000;
+`CODER_THINK_CAP_FAST/BALANCED/PRECISE` override. A Studio that is not redeployed yet treats "1:500"/"1:3000" as thinking OFF (it only reads the plain "1"), so fast and precise take effect after the next Studio deploy.
+Sampling temperature and the accuracy prompt line were already per mode. Measured on balanced (live task 2026-10-25): ~30-50 s of thought per step.

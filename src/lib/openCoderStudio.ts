@@ -229,7 +229,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop", tools: opts.tools });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
@@ -242,7 +242,7 @@ export function coderChat(
       messages: JSON.stringify(messages),
       tools: opts.tools?.length ? JSON.stringify(opts.tools) : "",
       max_tokens: opts.maxTokens ?? 0,
-      think: opts.think ? "1" : "",
+      think: opts.think ? (opts.thinkCap && opts.thinkCap !== 1200 ? `1:${Math.round(opts.thinkCap)}` : "1") : "",
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
     },
