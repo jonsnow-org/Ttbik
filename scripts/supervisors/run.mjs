@@ -13,25 +13,25 @@ export const SECTIONS = {
   zenobia: {
     site: [["coin pictures page", "/zenobia/coins.html", "gate", ok200], ["trade page", "/zenobia/trade.html", "gate", ok200], ["journey page", "/zenobia/journey.html", "gate", ok200],
       ["oracle status", "/api/ops/oracle-status", "gate", ok200, true], ["coins index API", "/api/zenobia/coins/index", "gate", json((j) => Array.isArray(j.coins))]],
-    workflows: [["znbt-guard.yml", "ZNBt guard", 3], ["zenobia-watch.yml", "Zenobia watch", 12], ["zenobia-season.yml", "Zenobia season", 30], ["znbt-index.yml", "Coin index", 12]],
+    workflows: [["znbt-guard.yml", "ZNBt guard", 12], ["zenobia-watch.yml", "Zenobia watch", 12], ["zenobia-season.yml", "Zenobia season", 30], ["znbt-index.yml", "Coin index", 12]],
     errorWords: /zenobia|znb/i, frozen: true,
   },
   "palmyra-launch": {
     site: [["coins page", "/zenobia/coins.html", "gate", ok200], ["create page", "/zenobia/create.html", "gate", ok200], ["portfolio page", "/zenobia/portfolio.html", "gate", ok200],
       ["journey page", "/zenobia/journey.html", "gate", ok200], ["swap page", "/zenobia/swap.html", "gate", ok200, true], ["coins index API", "/api/zenobia/coins/index", "gate", json((j) => Array.isArray(j.coins))]],
-    workflows: [["znbt-index.yml", "Coin index", 12], ["referral-sync.yml", "Invite reward sync", 12], ["coins-channel-post.yml", "Coins channel posts", 16]],
+    workflows: [["znbt-index.yml", "Coin index", 12], ["referral-sync.yml", "Invite reward sync", 12], ["coins-channel-post.yml", "Coins channel posts", 30]],
     errorWords: /palmyra|launch|coin|referral|stars/i, frozen: true,
   },
   "telegram-bots": {
     site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200]],
-    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 3]],
+    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
     errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i,
   },
   "site-content": {
     site: [["home", "/", "vercel", ok200], ["news", "/news", "vercel", ok200], ["articles", "/articles", "vercel", ok200], ["prices", "/prices", "vercel", ok200],
       ["markets", "/markets", "vercel", ok200], ["English desk", "/en", "vercel", ok200], ["markets API", "/api/markets", "vercel", hasDigits], ["markets API (English)", "/api/markets-en", "vercel", hasDigits, true],
       ["sitemap", "/sitemap.xml", "vercel", (t) => t.includes("<urlset") && t.includes("/free-tools/")], ["llms.txt", "/llms.txt", "vercel", ok200, true]],
-    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 3]],
+    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
     errorWords: /news|article|price|market|ticker|tool|seo|sitemap|ad/i,
   },
   athar: {
@@ -44,7 +44,8 @@ export const SECTIONS = {
 // Tier-1 repair: the ONLY thing a bot may do on its own is rerun the failed jobs of these idempotent workflows (read-only checks / index rebuilds).
 // Never anything that mints, pays, posts or edits code. Rules that keep the bots out of our way are in decideRerun().
 export const RERUN_OK = new Set(["znbt-index.yml", "error-triage.yml", "znbt-guard.yml", "zenobia-watch.yml", "promo-projects.yml"]);
-export const GRACE_MIN = 15;   // a failure must be at least this old, and nobody may have pushed in this long, before a bot touches it
+export const FAIL_AGE_MIN = 12 * 60;   // owner order 2026-10-25: a failure must stay unfixed for 12 hours before a bot touches it
+export const PUSH_QUIET_MIN = 15;   // and nobody may have pushed to main/production in the last 15 minutes (a person or session is working right now)
 export const PAUSE_LABEL = "bots-pause";   // any OPEN issue with this label pauses every automatic action (we are mid-change)
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
 
@@ -53,8 +54,8 @@ const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
  * Conflict rules (so bots never collide with people or other sessions):
  *  - paused: an open issue labelled `bots-pause` exists  -> do nothing
  *  - the failure is the latest completed run and nobody fixed it (no newer success)
- *  - it is at least GRACE_MIN minutes old                 -> someone may be fixing it right now
- *  - no commit landed on main / production in the last GRACE_MIN minutes (a push usually re-triggers or repairs it)
+ *  - it is at least FAIL_AGE_MIN (12 h) old               -> long enough for us to have fixed it ourselves
+ *  - no commit landed on main / production in the last PUSH_QUIET_MIN (15) minutes (someone is working right now)
  *  - no run of that workflow is queued or in progress     (someone already re-dispatched it)
  *  - only the first attempt is retried, once              (run_attempt === 1)
  */
@@ -67,8 +68,8 @@ export function decideRerun({ file, runs, active = [], lastPushAt, paused = fals
   if (active.length) return { ok: false, why: "a newer run is queued or in progress" };
   if (last.run_attempt !== 1) return { ok: false, why: "already retried once" };
   const ageMin = (now - Date.parse(last.updated_at)) / 60000;
-  if (ageMin < GRACE_MIN) return { ok: false, why: `failure is only ${Math.round(ageMin)} min old (grace ${GRACE_MIN})` };
-  if (lastPushAt && (now - Date.parse(lastPushAt)) / 60000 < GRACE_MIN) return { ok: false, why: `a push landed ${Math.round((now - Date.parse(lastPushAt)) / 60000)} min ago` };
+  if (ageMin < FAIL_AGE_MIN) return { ok: false, why: `failure is only ${Math.round(ageMin / 60 * 10) / 10} h old (waits ${FAIL_AGE_MIN / 60} h)` };
+  if (lastPushAt && (now - Date.parse(lastPushAt)) / 60000 < PUSH_QUIET_MIN) return { ok: false, why: `a push landed ${Math.round((now - Date.parse(lastPushAt)) / 60000)} min ago` };
   return { ok: true, why: `failed ${Math.round(ageMin)} min ago, nobody fixed it` };
 }
 
