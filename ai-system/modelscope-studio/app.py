@@ -696,6 +696,17 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL", 
                     output2 = llm.create_chat_completion(messages=followup, max_tokens=max_tokens, temperature=temperature)
                     raw = output2["choices"][0]["message"]["content"]
 
+        # Learned on Nova (2026-10-25): a thought that eats the whole token budget leaves NO answer, and _extract_final_answer would then
+        # ship the half-written <تفكير> as if it were the reply. One more pass, told to answer directly, only in that case (no extra latency otherwise).
+        if "<تفكير>" in raw and not _ANSWER_TAG_RE.search(raw) and not _ANSWER_OPEN_TAG_RE.search(raw):
+            try:
+                direct = [{"role": "system", "content": f"{system_content}\n\nأجب الآن مباشرة داخل <اجابة> بلا تفكير طويل: الخلاصة أولاً."}, messages[1]]
+                raw2 = llm.create_chat_completion(messages=direct, max_tokens=max_tokens, temperature=temperature)["choices"][0]["message"]["content"]
+                if raw2.strip():
+                    raw = raw2
+            except Exception:
+                pass
+
         # AST syntax gate (see _first_python_syntax_error above) — one
         # real corrective pass, only when there's a confirmed syntax
         # error, never a guess.
