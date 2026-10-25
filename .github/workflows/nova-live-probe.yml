@@ -10,6 +10,9 @@ on:
       prompt_tokens:
         description: "approximate prompt size in tokens"
         default: "1700"
+      cache:
+        description: "1 = measure prompt-cache reuse (cold, then same start + 2 messages, then changed system line)"
+        default: "0"
 permissions:
   contents: read
 jobs:
@@ -22,6 +25,7 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
           N: ${{ inputs.studio }}
           P: ${{ inputs.prompt_tokens }}
+          CACHE: ${{ inputs.cache }}
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.request
@@ -50,6 +54,24 @@ jobs:
           filler = " ".join(f"item{i} value{i % 97}" for i in range(words))
           msgs = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."},
                   {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK and one short sentence about Python."}]
+          def one(msgs, label):
+              t0 = time.time()
+              r = call("chat", {"messages": json.dumps(msgs), "tools": "", "max_tokens": 40, "think": "", "temperature": 0.3, "wait_s": 5})
+              job = r.get("job"); last = None
+              while time.time() - t0 < 900:
+                  if r.get("type") != "pending": break
+                  time.sleep(3); r = call("job_result", {"job_id": job, "offset": 0})
+                  pf = r.get("prefill") or {}
+                  cur = (pf.get("processed"), r.get("type"))
+                  if cur != last: print(f"   [{label}] {time.time()-t0:5.0f}s prefill={pf} type={r.get('type')}", flush=True); last = cur
+              print(f"== {label}: {time.time()-t0:.0f}s total, timings={r.get('timings')}, prefill={r.get('prefill')}, text={(r.get('text') or '')[:80]!r}", flush=True)
+              return r
+          if os.environ.get("CACHE") == "1":
+              base = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."}, {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK."}]
+              a = one(base, "first (cold)")
+              b = one(base + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "second (same start, +2 messages)")
+              c = one([{"role": "system", "content": "You are a helpful assistant. Reply briefly. Extra volatile note: 7"}] + base[1:] + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "third (system line changed)")
+              raise SystemExit(0)
           t0 = time.time()
           r = call("chat", {"messages": json.dumps(msgs), "tools": "", "max_tokens": 80, "think": "", "temperature": 0.3, "wait_s": 5})
           job = r.get("job"); print(f"{time.time()-t0:5.0f}s submitted", {k: r.get(k) for k in ("type", "status", "phase", "queue_pos", "prefill")})
