@@ -70,3 +70,30 @@ describe("tools Nova was missing", () => {
     expect(await call("github_edit_file", { repo: "o/r", branch: "f", path: "a.ts", old: "zzz", new: "y" }, ctx)).toMatch(/occurs 0 times/);
   });
 });
+
+describe("general tools", () => {
+  const call = (name: string, args: object, ctx: any = { gh: null, addNote: () => undefined }) => runTool({ id: "x", type: "function", function: { name, arguments: JSON.stringify(args) } }, ctx);
+  it("http_request reaches a public API (answer read), refuses private / local addresses, and a write does not follow redirects", async () => {
+    const seen: any[] = [];
+    const fetchImpl = (async (url: string, init: any) => {
+      seen.push({ url, method: init.method, body: init.body, headers: init.headers });
+      if (url.endsWith("/redir")) return new Response("", { status: 302, headers: { location: "https://93.184.216.35/new" } });
+      return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+    }) as any;
+    const ctx = { gh: null, addNote: () => undefined, fetchImpl };
+    expect(await call("http_request", { url: "https://93.184.216.34/api" }, ctx)).toMatch(/HTTP 200 application\/json\n\{"ok":true\}/);
+    expect(seen[0].method).toBe("GET");
+    expect(await call("http_request", { method: "POST", url: "https://93.184.216.34/api", headers: { Authorization: "Bearer t" }, body: '{"a":1}' }, ctx)).toMatch(/HTTP 200/);
+    expect(seen[1].method).toBe("POST"); expect(seen[1].body).toBe('{"a":1}'); expect(seen[1].headers.Authorization).toBe("Bearer t");
+    expect(await call("http_request", { method: "POST", url: "https://93.184.216.34/redir" }, ctx)).toMatch(/HTTP 302 → https:\/\/93\.184\.216\.35\/new/);
+    for (const u of ["http://127.0.0.1/x", "http://localhost/x", "http://10.0.0.5/x", "http://169.254.169.254/latest/meta-data", "ftp://93.184.216.34/x"]) expect(await call("http_request", { url: u }, ctx)).toMatch(/^error:/);
+    expect(await call("http_request", { method: "TRACE", url: "https://93.184.216.34/" }, ctx)).toMatch(/^error: method must be/);
+  });
+  it("http_request writes need the user's confirmation (a read does not); send_file is refused for a sub-agent", async () => {
+    const { classifyCall } = await import("@/lib/coderAgent");
+    const c = (a: object) => classifyCall({ id: "1", type: "function", function: { name: "http_request", arguments: JSON.stringify(a) } }, null);
+    expect((await c({ url: "https://x.test/a" })).risks).toEqual([]);
+    expect((await c({ method: "DELETE", url: "https://x.test/a" })).risks).toEqual(["external_write"]);
+    expect(await call("send_file", { path: "a.txt" })).toMatch(/main chat only/);
+  });
+});

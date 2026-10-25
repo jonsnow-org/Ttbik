@@ -142,3 +142,8 @@ Compared with the tools the building session itself uses (shell, read / write / 
 (needs an SSRF-safe design; `connector_api` / `mcp_call` cover linked services), image viewing, a notebook tool. The tool list changed, so each Studio reads the first prompt once from zero after this ships.
 How the model decides how long to think (checked in code and training): today Nova is the base Qwen3.5-4B (Nova 1 has not trained yet); the thought length is the base model's own, the harness only caps it per mode (500 / 1200 / 3000 chars)
 and the Studio re-asks without thinking if a thought ends empty. Nova 1's data has 12% reasoning traces (OpenCodeReasoning) but no examples that teach "short question -> answer without a long thought"; adding such examples to the training mix is the way to make the MODEL decide it.
+
+## General tools, not only code (2026-10-25)
+`http_request` (any public HTTP API; same address guard as `fetch_page`; a write asks first), `send_file` (a file the task made in the VM goes to the user's chat as a document; main chat only, 45 MB) join the earlier additions.
+Documents / spreadsheets / archives are made in the VM with its own Python (pip) and sent with `send_file`. The task log now says, once per Studio job, how many tokens the Studio really read and how many came from its cache
+("📊 الاستوديو N: يقرأ X رمزاً جديداً من Y"), the evidence for or against "it reads everything again".

@@ -8,7 +8,7 @@
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
-import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
+import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
@@ -28,7 +28,7 @@ export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -1109,6 +1109,28 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
+      if (call.function.name === "send_file" && !run.agent) {
+        // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
+        const a = parseArgs(call);
+        let out: string;
+        try {
+          const { readSandboxFile } = await import("@/lib/coderSandbox");
+          const f = await readSandboxFile({ chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken }, String(a.path || ""), a.cwd ? String(a.cwd) : undefined);
+          if (!f) out = "error: the file was not found in the VM (check the path first, e.g. with sandbox_search)";
+          else if (f.bytes.length > 45 * 1024 * 1024) out = "error: the file is too large for Telegram (45 MB at most)";
+          else {
+            await (ioBot.api as any).sendDocument(chatId, new InputFile(f.bytes, f.path.split("/").pop() || "file"), a.caption ? { caption: String(a.caption).slice(0, 900) } : {});
+            out = `sent ${f.path} (${f.bytes.length} bytes) to the user`;
+          }
+        } catch (e) {
+          out = `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`;
+        }
+        await taskEvent(run.id, "tool", toolLabel(call), db);
+        st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: "send_file" });
+        run.queued = rest;
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       const approvedKey = toolCallKey(call);
       const wasApproved = (run.approved || []).includes(approvedKey);
       const skip = wasApproved ? null : beforeCall(run.stall, call);
@@ -1291,6 +1313,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "النموذج يفكّر قبل أن يكتب…" : readDone ? "النموذج يكتب الردّ…" : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, phase);
+        }
+        // once per job: how much of the prompt the Studio really had to read (the rest came from its cache) and on which Studio: the evidence for "does it read everything again?"
+        if (r.prefill && Number(r.prefill.total) > 0 && run.pfLogged !== run.job) {
+          run.pfLogged = run.job;
+          const sn = Number(/^s(\d+)~/.exec(String(run.job))?.[1] || 0) + 1;
+          await taskEvent(run.id, "info", `📊 الاستوديو ${sn}: يقرأ ${Number(r.prefill.total) - Number(r.prefill.cache || 0)} رمزاً جديداً من ${r.prefill.total} (${Number(r.prefill.cache || 0)} من ذاكرته).`, db);
         }
         // a Studio whose model server is in ERROR (not just loading) will not answer this job: with other Studios available the step goes to another one at once
         if (r.phase === "error" && coderStudioUrls().length > 1 && (run.stallRetries || 0) < 2) {

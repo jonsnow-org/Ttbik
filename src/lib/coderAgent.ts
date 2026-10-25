@@ -75,6 +75,8 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
+  tool("http_request", "Call any public HTTP API (GET / POST / PUT / PATCH / DELETE) and read the answer. For your own linked services use connector_api; for a plain page use fetch_page. Writes ask the user first. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers, e.g. Authorization" }, body: s("request body text (JSON as a string)") }, ["url"])),
+  tool("send_file", "Send a file you made in the VM to the user in this chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
@@ -121,8 +123,8 @@ export function coderTools(github: boolean, connectors = false): CoderTool[] {
 export type ToolGroup = "github" | "computer" | "web" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
-  computer: "computer (a private Linux VM: clone a repo, run commands and tests, read and write files)",
-  web: "web (web search, read a page, deep research)",
+  computer: "computer (a private Linux VM: clone a repo, run any command and tests, read / write / edit / search files, make documents or archives and send them to the user)",
+  web: "web (web search, read a page, deep research, call any public HTTP API)",
   memory: "memory (notes for this task, long-term memory about this user)",
   schedule: "schedule (create, list and delete tasks that run by themselves at a time or on a GitHub event)",
   connectors: "connectors (services the user linked in the app, MCP servers)",
@@ -130,8 +132,8 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: SANDBOX_TOOL_DEFS,
-    web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch"]),
+    computer: [...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
+    web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     memory: by(["memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
@@ -417,6 +419,7 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
     case "github_delete_release": return { risks: ["delete"], summary: `${a.repo} release ${a.id}` };
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
     case "github_write_files": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
+    case "http_request": { const m = String(a.method || "GET").toUpperCase(); return m === "GET" || m === "HEAD" ? { risks: [], summary: "" } : { risks: ["external_write"], summary: `${m} ${String(a.url || "").slice(0, 200)}${a.body ? `\n${String(typeof a.body === "string" ? a.body : JSON.stringify(a.body)).slice(0, 300)}` : ""}` }; }
     case "github_edit_file": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${a.path}` };
     case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
     case "github_merge_pr": {
@@ -575,6 +578,17 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!p.ok) return `error: could not read ${p.url}: ${p.error}`;
       return clip(`${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}`, Math.max(RESULT_MAX, Number(a.max_chars) || 20000));
     }
+    if (name === "http_request") {
+      const { safeRequest } = await import("@/lib/coderWeb");
+      try {
+        const hdrs = a.headers && typeof a.headers === "object" ? (a.headers as Record<string, string>) : {};
+        const r = await safeRequest(String(a.method || "GET"), String(a.url || ""), { fetchImpl: ctx.fetchImpl, headers: hdrs, body: typeof a.body === "string" ? a.body : a.body ? JSON.stringify(a.body) : undefined });
+        return clip(`HTTP ${r.status}${r.type ? ` ${r.type.split(";")[0]}` : ""}${r.location ? ` → ${r.location}` : ""}\n${r.body}`);
+      } catch (e) {
+        return `error: ${String((e as Error)?.message || e).slice(0, 300)}`;
+      }
+    }
+    if (name === "send_file") return "error: send_file works in the main chat only (the sub-agent has no chat to send to). Put the result in your report instead.";
     if (name === "connector_api" || name === "mcp_list_tools" || name === "mcp_call") {
       if (ctx.userId === undefined) return "error: connectors are not available here";
       const c = await import("@/lib/coderConnectors");
@@ -855,7 +869,7 @@ export function toolLabel(call: CoderToolCall): string {
 // Plain-Arabic step names for the chat's progress card (the task history keeps the same text).
 const FRIENDLY: Record<string, [string, string]> = {
   github_whoami: ["👤", "التعرّف على الحساب"], github_list_repos: ["📚", "عرض المستودعات"], github_repo_info: ["📦", "معلومات المستودع"],
-  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_ci_logs: ["🧪", "سجل فشل CI"], github_pr_info: ["🔀", "تفاصيل طلب دمج"], github_commits: ["🕘", "آخر الإيداعات"], github_compare: ["↔️", "مقارنة نسختين"], github_edit_file: ["✏️", "تعديل ملف"], sandbox_edit_file: ["✏️", "تعديل ملف في الجهاز"], sandbox_search: ["🔎", "بحث في ملفات الجهاز"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
+  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_ci_logs: ["🧪", "سجل فشل CI"], http_request: ["🛰️", "طلب HTTP"], send_file: ["📎", "إرسال ملف"], github_pr_info: ["🔀", "تفاصيل طلب دمج"], github_commits: ["🕘", "آخر الإيداعات"], github_compare: ["↔️", "مقارنة نسختين"], github_edit_file: ["✏️", "تعديل ملف"], sandbox_edit_file: ["✏️", "تعديل ملف في الجهاز"], sandbox_search: ["🔎", "بحث في ملفات الجهاز"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
   github_list_branches: ["🌿", "عرض الفروع"], github_create_branch: ["🌱", "إنشاء فرع"], github_write_files: ["✍️", "كتابة تعديلات"],
   github_delete_files: ["🗑️", "حذف ملفات"], github_delete_branch: ["🗑️", "حذف فرع"], github_create_pr: ["🔀", "فتح طلب دمج"],
   github_merge_pr: ["✅", "دمج طلب"], github_list_prs: ["🔀", "عرض طلبات الدمج"], github_list_issues: ["📝", "عرض المشكلات"],

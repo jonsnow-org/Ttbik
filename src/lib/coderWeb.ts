@@ -85,6 +85,33 @@ export async function safeGet(raw: string, o: FetchOpts = {}): Promise<{ status:
   }
   throw new Error("too many redirects");
 }
+/** Any HTTP method to a public address (an API the user wants called). Same guard as safeGet: http(s) only, no private / internal / dark-web hosts. GET / HEAD follow redirects with every hop re-checked;
+ *  a write does not follow redirects (the status and Location are returned instead). Body sent <= 100 KB, answer capped. */
+export async function safeRequest(method: string, raw: string, o: FetchOpts & { headers?: Record<string, string>; body?: string; maxBytes?: number } = {}): Promise<{ status: number; url: string; type: string; body: string; location?: string }> {
+  const f = o.fetchImpl || globalThis.fetch;
+  const m = method.toUpperCase();
+  if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(m)) throw new Error("method must be GET, HEAD, POST, PUT, PATCH or DELETE");
+  if ((o.body || "").length > 100_000) throw new Error("request body too large (100 KB max)");
+  const headers: Record<string, string> = { "User-Agent": UA, Accept: o.accept || "application/json,text/plain,*/*;q=0.5" };
+  for (const [k, v] of Object.entries(o.headers || {})) if (!/^(host|connection|content-length|transfer-encoding|upgrade)$/i.test(k)) headers[k] = String(v).slice(0, 2000);
+  const deadline = Date.now() + (o.timeoutMs || 20000);
+  let url = raw;
+  for (let hop = 0; hop < 6; hop++) {
+    const c = await checkUrl(url, o.resolve);
+    if (!c.ok) throw new Error(c.why);
+    const r = await f(c.url.toString(), { method: m, redirect: "manual", headers, body: m === "GET" || m === "HEAD" ? undefined : o.body, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+    const loc = r.headers.get("location");
+    if (r.status >= 300 && r.status < 400 && loc) {
+      if (m !== "GET" && m !== "HEAD") return { status: r.status, url: c.url.toString(), type: "", body: "", location: new URL(loc, c.url).toString() };
+      url = new URL(loc, c.url).toString();
+      continue;
+    }
+    const type = (r.headers.get("content-type") || "").toLowerCase();
+    const body = m === "HEAD" ? "" : await readCapped(r, o.maxBytes || 60_000);
+    return { status: r.status, url: c.url.toString(), type, body };
+  }
+  throw new Error("too many redirects");
+}
 async function readCapped(r: Response, max: number): Promise<string> {
   if (!r.body || typeof (r.body as any).getReader !== "function") return (await r.text()).slice(0, max);
   const reader = (r.body as ReadableStream<Uint8Array>).getReader();

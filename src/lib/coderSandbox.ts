@@ -216,6 +216,20 @@ async function open(ctx: SbxCtx): Promise<{ sb: SbxHandle; fresh: boolean; backe
   throw lastErr || new Error("no sandbox backend");
 }
 
+/** The bytes of a file in the task's VM (for send_file); null when the VM or the file is not there. Never creates a new VM. */
+export async function readSandboxFile(ctx: SbxCtx, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null> {
+  if (!ctx.chatKey || !ctx.runId) return null;
+  const name = sandboxName(ctx.chatKey, ctx.runId);
+  for (const b of backends()) {
+    const sb = await b.driver.get(name).catch(() => null);
+    if (!sb) continue;
+    const full = resolvePath(path, resolvePath(cwd || sb.home || HOME, sb.home || HOME));
+    const buf = await sb.read(full).catch(() => null);
+    return buf ? { path: full, bytes: buf } : null;
+  }
+  return null;
+}
+
 /** Stops the task's VM (task ended), on whichever backend has it. Best-effort. */
 export async function stopSandbox(chatKey: string, runId: string): Promise<void> {
   if (lightEnabled()) await import("@/lib/coderSandboxLight").then((m) => m.clearLight(sandboxName(chatKey, runId))).catch(() => null);
