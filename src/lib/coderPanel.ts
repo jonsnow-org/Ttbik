@@ -104,15 +104,30 @@ export async function users(db: Db = prismaDb) {
 }
 
 export async function health() {
-  const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
+  const { coderStudioUrls } = await import("@/lib/openCoderStudio");
   const { sandboxHealth } = await import("@/lib/coderSandbox");
   const { searchHealth } = await import("@/lib/coderWeb");
-  const status = await coderStatus(8000).catch(() => null);
+  const { allStudioStatus } = await import("@/lib/openCoderStudio");
+  const { ctxTokens, historyChars } = await import("@/lib/coderContext");
+  const sts = await allStudioStatus(7000).catch(() => [] as (Record<string, unknown> | null)[]);
+  const studios = sts.map((x, i) => ({
+    n: i + 1,
+    ok: Boolean(x && x.phase === "ready"),
+    phase: x ? String(x.phase || "?") : "down",
+    queue: Number(x?.queue) || 0,
+    ctx: Number(x?.ctx) || 0,
+    memFreeGb: x?.mem_available_gb != null ? Number(x.mem_available_gb) : null,
+    upMin: x?.uptime_s != null ? Math.round(Number(x.uptime_s) / 60) : null,
+    error: x?.error ? String(x.error).slice(0, 140) : "",
+  }));
+  const sandbox = sandboxHealth().map((b) => ({ id: b.id, configured: b.configured, ok: b.ok }));
   return {
-    studio: { ok: Boolean(status), count: coderStudioUrls().length },
+    studio: { ok: studios.some((x) => x.ok), count: coderStudioUrls().length, ready: studios.filter((x) => x.ok).length },
+    studios,
+    live: { ctx: ctxTokens(), historyChars: historyChars(), quickLane: process.env.CODER_FRONT_ACK !== "0" && studios.length > 1 },
     nova1Studio: Boolean((process.env.NOVA1_STUDIO_URL || "").trim()),
     oracle: Boolean((process.env.CODER_SANDBOX_ORACLE_URL || "").trim()),
-    sandbox: sandboxHealth().map((b) => ({ id: b.id, configured: b.configured, ok: b.ok })),
+    sandbox,
     search: searchHealth().map((s) => ({ name: s.name, ok: s.ok })),
   };
 }
@@ -169,7 +184,9 @@ export function panelText(d: Awaited<ReturnType<typeof panel>>): string {
   } else out.push("تعذّرت القراءة الآن");
   out.push("", `👥 المستخدمون: ${u.chats} · نشطون 7 أيام: ${u.active7d} · اشتراكات: ${Object.entries(u.subscriptions).map(([k, v]) => `${k} ${v}`).join("، ") || "0"}`);
   if (h) {
-    out.push(`🩺 الاستوديو ${h.studio.ok ? "✅" : "❌"} (${h.studio.count}) · Oracle ${h.oracle ? "✅" : "—"} · استوديو نوفا 1 ${h.nova1Studio ? "✅" : "—"}`);
+    out.push(`🩺 الاستوديوهات ${h.studio.ready}/${h.studio.count} جاهزة · Oracle ${h.oracle ? "✅" : "—"} · استوديو نوفا 1 ${h.nova1Studio ? "✅" : "—"}`);
+    for (const x of h.studios) out.push(`  ${x.ok ? "✅" : x.phase === "loading" ? "⏳" : "❌"} Studio ${x.n}${x.ok ? ` · طابور ${x.queue} · حرّ ${x.memFreeGb ?? "—"}GB` : ` · ${x.error || x.phase}`}`);
+    out.push(`⚙️ السياق ${h.live.ctx} · نافذة المحادثة ${h.live.historyChars} حرف · الرد السريع ${h.live.quickLane ? "مفعّل" : "متوقف"}`);
     out.push(`الصناديق: ${h.sandbox.filter((b) => b.configured).map((b) => `${b.id}${b.ok ? "✅" : "⏳"}`).join(" ") || "—"}`);
   }
   if (d.steps.length) out.push("", "📝 خطوات يدوية باقية:", ...d.steps.map((s) => `• ${s.ar}`));

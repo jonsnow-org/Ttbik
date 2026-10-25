@@ -250,7 +250,20 @@ def _gc() -> None:
             JOBS.pop(k, None)
 
 
+# Deeper thinking at ~5 tokens/s: measured on a Studio, a trivial coding question with thinking ON used 700 tokens (134 s) of reasoning and had not started its
+# answer; with thinking OFF the same question took 23 s. So thinking is bounded: when a step's reasoning passes this many characters with no answer yet, the step
+# is stopped and asked again with thinking off (the prompt is already in the Studio's cache, so the second try only writes the answer).
+THINK_CAP_CHARS = max(300, int(os.environ.get("CODER_THINK_CAP_CHARS", "1200") or 1200))
+
+
 def _stream(job: dict) -> None:
+    _stream_once(job)
+    if job.get("think_cut") and not job.get("cancel"):
+        job.update(think=False, think_cut=False, thought_chars=len(job.get("reasoning", "")), text="", reasoning="", finish_reason="")
+        _stream_once(job)
+
+
+def _stream_once(job: dict) -> None:
     # cache_prompt: the part of the conversation that did not change since the last step is not read again (a CPU reads ~20-40 prompt tokens/s)
     body = {"messages": job["messages"], "stream": True, "temperature": job["temperature"], "cache_prompt": True, "return_progress": True,
             "chat_template_kwargs": {"enable_thinking": bool(job["think"])}}
@@ -308,6 +321,9 @@ def _stream(job: dict) -> None:
                     job["text"] += d["content"]
                 if d.get("reasoning_content"):
                     job["reasoning"] += d["reasoning_content"]
+                    if job["think"] and not job["text"] and not calls and len(job["reasoning"]) > THINK_CAP_CHARS:
+                        job["think_cut"] = True                      # too long a thought for this box: the step is asked again, thinking off
+                        break
                 for tc in d.get("tool_calls") or []:
                     slot = calls.setdefault(tc.get("index", 0), {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
                     if tc.get("id"):
@@ -317,6 +333,8 @@ def _stream(job: dict) -> None:
                     slot["function"]["arguments"] += fn.get("arguments") or ""
                 if ch.get("finish_reason"):
                     job["finish_reason"] = ch["finish_reason"]
+            if job.get("think_cut"):
+                break                                                # leave the stream: closing the connection stops llama-server's generation
             if ev.get("timings"):
                 job["timings"] = {k: ev["timings"].get(k) for k in ("prompt_n", "predicted_n", "predicted_per_second")}
     except (OSError, http.client.HTTPException):

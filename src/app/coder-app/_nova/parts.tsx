@@ -649,12 +649,25 @@ export function PanelPage({ lang }: { lang: Lang }) {
         <Cell after={String(d.users?.active7d ?? 0)}>{ar ? "نشطون خلال 7 أيام" : "Active in 7 days"}</Cell>
         {Object.entries(d.users?.subscriptions || {}).map(([k, v]) => <Cell key={k} after={String(v)}>{`${ar ? "اشتراك" : "Plan"} ${k}`}</Cell>)}
       </Section>
-      <Section header={ar ? "الخوادم والبدائل" : "Servers & fallbacks"}>
-        <Cell after={d.health?.studio?.ok ? "✅" : "❌"}>{`Studio (${d.health?.studio?.count ?? 0})`}</Cell>
+      <Section header={`${ar ? "الاستوديوهات" : "Studios"} (${d.health?.studio?.ready ?? 0}/${d.health?.studio?.count ?? 0} ${ar ? "جاهز" : "ready"})`}
+        footer={ar ? "كل استوديو يقرأ ويكتب لمحادثة واحدة في كل مرة. الطابور: كم طلباً عنده الآن." : "Each Studio serves one generation at a time. Queue = requests it holds now."}>
+        {(d.health?.studios || []).map((x: any) => (
+          <Cell key={x.n} multiline after={x.ok ? "✅" : x.phase === "loading" ? "⏳" : "❌"}
+            subtitle={x.ok ? `${ar ? "طابور" : "queue"} ${x.queue} · ${ar ? "ذاكرة حرة" : "free RAM"} ${x.memFreeGb ?? "—"} GB · ${ar ? "يعمل منذ" : "up"} ${x.upMin == null ? "—" : x.upMin >= 120 ? `${Math.round(x.upMin / 60)} ${ar ? "س" : "h"}` : `${x.upMin} ${ar ? "د" : "min"}`}` : (x.error || x.phase)}>
+            {`Studio ${x.n}`}
+          </Cell>
+        ))}
+      </Section>
+      <Section header={ar ? "الإعدادات الحية" : "Live settings"}>
+        <Cell after={String(d.health?.live?.ctx ?? "—")}>{ar ? "سياق النموذج (رمز)" : "Model context (tokens)"}</Cell>
+        <Cell after={String(d.health?.live?.historyChars ?? "—")}>{ar ? "نافذة المحادثة (حرف)" : "History window (chars)"}</Cell>
+        <Cell after={d.health?.live?.quickLane ? "✅" : "—"}>{ar ? "الرد السريع بسطر واحد" : "Quick one-line reply"}</Cell>
         <Cell after={d.health?.nova1Studio ? "✅" : "—"}>Nova 1 Studio</Cell>
-        <Cell after={d.health?.oracle ? "✅" : "—"}>Oracle</Cell>
-        {(d.health?.sandbox || []).filter((b: any) => b.configured).map((b: any) => <Cell key={b.id} after={b.ok ? "✅" : "⏳"}>{b.id}</Cell>)}
-        {(d.health?.search || []).map((s: any) => <Cell key={s.name} after={s.ok ? "✅" : "⏳"}>{s.name}</Cell>)}
+      </Section>
+      <Section header={ar ? "التنفيذ والبحث (بدائل)" : "Sandbox & search (fallbacks)"}>
+        <Cell after={d.health?.oracle ? "✅" : "—"}>{ar ? "خادم Oracle (تشغيل الكود)" : "Oracle host (code runner)"}</Cell>
+        {(d.health?.sandbox || []).filter((b: any) => b.configured && String(b.id).toLowerCase() !== "oracle").map((b: any) => <Cell key={b.id} after={b.ok ? "✅" : "⏳"}>{b.id}</Cell>)}
+        {(d.health?.search || []).map((x: any) => <Cell key={x.name} after={x.ok ? "✅" : "⏳"}>{x.name}</Cell>)}
       </Section>
       <Section header={`🔁 ${STR[lang].stalls}`}>
         {stalls === null ? <Loading /> : !stalls.length ? <Cell><Caption>{STR[lang].noStalls}</Caption></Cell>

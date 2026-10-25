@@ -21,6 +21,7 @@ export type CoderReply = {
   text?: string;
   offset?: number;
   total?: number;
+  reasoning_len?: number;                                 // characters of thinking so far (deeper thinking on)
   tool_calls?: CoderToolCall[];
   finish_reason?: string;
   queue_pos?: number;
@@ -258,6 +259,10 @@ export async function coderStatus(timeoutMs = 10000): Promise<Record<string, unk
     if (st) return st;
   }
   return null;
+}
+/** Every Studio's own status, in STUDIOS order (null = no answer): the owner panel shows each one instead of one ✅ for all. */
+export async function allStudioStatus(timeoutMs = 7000): Promise<(Record<string, unknown> | null)[]> {
+  return Promise.all(coderStudioUrls().map((b) => studioStatus(b, timeoutMs).catch(() => null)));
 }
 /** The Studio's `status` answer ({phase, queue, model, ...}). It has no `type` field, so parseCoderSse (completion answers) skips it. */
 export function parseStatusSse(body: string): Record<string, unknown> | null {

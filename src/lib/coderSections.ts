@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, accuracyNote, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -1209,7 +1209,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (Date.now() - (run.progressAt || 0) >= 12000) {
           run.progressAt = Date.now();
           const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
-          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
+          const readDone = Boolean(r.prefill && Number(r.prefill.total) > 0 && Number(r.prefill.processed) >= Number(r.prefill.total));
+          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "النموذج يفكّر قبل أن يكتب…" : readDone ? "النموذج يكتب الردّ…" : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           else if (run.progress?.msgId) void (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`).catch(() => null);
         }
@@ -1476,13 +1477,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (!run.ctxStamped) {
       let k = st.messages.length - 1;
       while (k >= 0 && !(st.messages[k].role === "user" && !String(st.messages[k].content).startsWith("[harness]"))) k--;
-      const ctxText = [`Current date (UTC): ${new Date().toISOString().slice(0, 10)}.`, run.memory || "", st.repo ? `Default repository for this user: ${st.repo}` : "", st.notes ? `Your notes so far:\n${st.notes}` : ""].filter(Boolean).join("\n");
+      const ctxText = [`Current date (UTC): ${new Date().toISOString().slice(0, 10)}.`, accuracyNote(isAccuracy(st.accuracy) ? st.accuracy : "balanced"), run.memory || "", st.repo ? `Default repository for this user: ${st.repo}` : "", st.notes ? `Your notes so far:\n${st.notes}` : ""].filter(Boolean).join("\n");
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
     const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop";      // Sham gets the bare words, no context block
     const wireOf = (m: CoderMessage): CoderMessage => (!toSham && m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...trimMessages(st.messages, run.histChars).map(wireOf)];
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...trimMessages(st.messages, run.histChars).map(wireOf)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
