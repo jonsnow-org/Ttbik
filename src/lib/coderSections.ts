@@ -1172,12 +1172,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= 12000) {
           run.progressAt = Date.now();
-          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : "جارٍ انتظار أول مخرجات النموذج";
+          const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
+          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           else if (run.progress?.msgId) void (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`).catch(() => null);
         }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
-        const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}`;
+        const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}|${r.prefill?.processed ?? ""}`;   // reading the prompt counts as life
         if (!run.jobMovedAt || size !== run.jobSize) {
           run.jobSize = size;
           run.jobMovedAt = Date.now();

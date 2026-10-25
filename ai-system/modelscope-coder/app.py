@@ -238,7 +238,7 @@ def _gc() -> None:
 
 def _stream(job: dict) -> None:
     # cache_prompt: the part of the conversation that did not change since the last step is not read again (a CPU reads ~20-40 prompt tokens/s)
-    body = {"messages": job["messages"], "stream": True, "temperature": job["temperature"], "cache_prompt": True,
+    body = {"messages": job["messages"], "stream": True, "temperature": job["temperature"], "cache_prompt": True, "return_progress": True,
             "chat_template_kwargs": {"enable_thinking": bool(job["think"])}}
     if job["tools"]:
         body["tools"] = job["tools"]
@@ -285,6 +285,9 @@ def _stream(job: dict) -> None:
                 continue
             if ev.get("error"):
                 raise RuntimeError(str(ev["error"])[:300])
+            pp = ev.get("prompt_progress")                 # llama-server: how much of the prompt is read (the box reads ~10-30 tokens/s)
+            if pp:
+                job["prefill"] = {k: pp.get(k) for k in ("total", "cache", "processed", "time_ms")}
             for ch in ev.get("choices") or []:
                 d = ch.get("delta") or {}
                 if d.get("content"):
@@ -351,7 +354,7 @@ def _view(jid: str, offset: int = 0) -> dict:
     job["seen"] = time.time()
     st = job["status"]
     out = {"job": jid, "status": st, "text": job["text"][offset:], "offset": offset, "total": len(job["text"]),
-           "reasoning_len": len(job["reasoning"]), "finish_reason": job.get("finish_reason", "")}
+           "reasoning_len": len(job["reasoning"]), "finish_reason": job.get("finish_reason", ""), "prefill": job.get("prefill")}
     if st in ("queued", "running"):
         out.update(type="pending", queue_pos=_queue_pos(jid), phase=STATE["phase"])
     elif st == "done":

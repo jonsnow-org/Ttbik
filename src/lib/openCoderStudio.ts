@@ -25,6 +25,7 @@ export type CoderReply = {
   finish_reason?: string;
   queue_pos?: number;
   phase?: string;
+  prefill?: { total?: number; cache?: number; processed?: number; time_ms?: number } | null;   // prompt reading progress (llama-server return_progress)
   error?: string;
   timings?: { prompt_n?: number; predicted_n?: number; predicted_per_second?: number };   // llama.cpp's own token counts (done jobs)
 };
