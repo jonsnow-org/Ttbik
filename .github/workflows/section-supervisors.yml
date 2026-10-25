@@ -3,7 +3,7 @@
 name: section-supervisors
 on:
   schedule:
-    - cron: "7,37 * * * *"   # every 30 min so a failure is picked up soon after its 15-minute grace
+    - cron: "7 * * * *"   # hourly; a failure waits 12 hours before a bot repairs it (scripts/supervisors/run.mjs)
   workflow_dispatch:
 concurrency:
   group: section-supervisors

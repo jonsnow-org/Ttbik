@@ -27,14 +27,14 @@ test("render carries the status marker and every section has config", () => {
   for (const k of ["zenobia", "palmyra-launch", "telegram-bots", "site-content", "athar"]) assert.ok(SECTIONS[k].site.length && SECTIONS[k].workflows.length);
 });
 
-test("tier-1 rerun: only after 15 min, once, when nobody fixed it and nobody is working", () => {
+test("tier-1 rerun: only after 12 h, once, when nobody fixed it and nobody is working", () => {
   const f = (m, extra = {}) => ({ conclusion: "failure", run_attempt: 1, updated_at: new Date(NOW - m * 60000).toISOString(), ...extra });
-  const base = (over) => ({ file: "znbt-index.yml", runs: [f(30)], active: [], lastPushAt: new Date(NOW - 60 * 60000).toISOString(), paused: false, ...over });
+  const base = (over) => ({ file: "znbt-index.yml", runs: [f(13 * 60)], active: [], lastPushAt: new Date(NOW - 60 * 60000).toISOString(), paused: false, ...over });
   assert.equal(decideRerun(base({}), NOW).ok, true);
-  assert.equal(decideRerun(base({ runs: [f(10)] }), NOW).ok, false);                       // too fresh
-  assert.equal(decideRerun(base({ runs: [f(30, { run_attempt: 2 })] }), NOW).ok, false);   // already retried
-  assert.equal(decideRerun(base({ runs: [f(30), { conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }] }), NOW).ok, false);
-  assert.equal(decideRerun(base({ runs: [{ conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }, f(30)] }), NOW).ok, false);   // latest is a success
+  assert.equal(decideRerun(base({ runs: [f(11 * 60)] }), NOW).ok, false);                       // too fresh
+  assert.equal(decideRerun(base({ runs: [f(13 * 60, { run_attempt: 2 })] }), NOW).ok, false);   // already retried
+  assert.equal(decideRerun(base({ runs: [f(13 * 60), { conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }] }), NOW).ok, false);
+  assert.equal(decideRerun(base({ runs: [{ conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }, f(13 * 60)] }), NOW).ok, false);   // latest is a success
   assert.equal(decideRerun(base({ active: [{ id: 1 }] }), NOW).ok, false);                  // someone re-dispatched
   assert.equal(decideRerun(base({ lastPushAt: new Date(NOW - 5 * 60000).toISOString() }), NOW).ok, false);   // someone is pushing
   assert.equal(decideRerun(base({ paused: true }), NOW).ok, false);                         // bots-pause label
