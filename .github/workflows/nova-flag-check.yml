@@ -1,0 +1,21 @@
+name: Nova llama-server flag check (free, read-only)
+# Does the pinned llama.cpp (same as ai-system/modelscope-coder/app.py) accept the flags the Studio passes? Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          BIN=$(find llama -name llama-server | head -1)
+          export LD_LIBRARY_PATH=$(dirname "$BIN")
+          "$BIN" --help 2>&1 | grep -n -A3 -E -- '--cache-ram|--alias|--ctx-checkpoints|--return-progress|cache-reuse' | head -40
