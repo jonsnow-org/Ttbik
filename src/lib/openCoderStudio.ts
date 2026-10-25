@@ -160,7 +160,7 @@ async function idleFirst(order: { b: string; i: number }[], preferred?: string):
     let left = order.length;
     let firstIdle: string | null = null;
     let done = false;
-    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && (seen.get(preferred) ?? 9) <= 1 ? preferred : firstIdle); };   // one job ahead on the cache-holding Studio is seconds; a cold read elsewhere is minutes
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && (seen.get(preferred) ?? 9) === 0 ? preferred : firstIdle); };   // one job ahead on the cache-holding Studio is seconds; a cold read elsewhere is minutes
     const timer = setTimeout(finish, capMs);
     for (const { b } of order) {
       studioStatus(b, capMs).then((st) => {
@@ -170,7 +170,7 @@ async function idleFirst(order: { b: string; i: number }[], preferred?: string):
         left--;
         if (q === 0 && !firstIdle) firstIdle = b;
         // the Studio that holds this conversation's prompt cache wins when it is free; another idle one is taken only once the preferred one has answered (or the time is up)
-        if (b === preferred && q0 <= 1) finish();
+        if (b === preferred && q0 === 0) finish();
         else if (q === 0 && (!preferred || b === preferred || seen.has(preferred))) finish();
         else if (left === 0) finish();
       });
@@ -386,4 +386,10 @@ export function renderRange(text: string, a: number, b: number): string {
   const body = text.slice(a, b).replace(/^\n+/, "");
   const after = openFenceAt(text.slice(0, b));
   return `${before ? before + "\n" : ""}${body}${after ? "\n```" : ""}`;
+}
+
+/** Is any Studio ready with nothing queued (answered within `capMs`)? A step waiting in a queue moves there at once. */
+export async function anyIdleStudio(capMs = 900): Promise<boolean> {
+  const all = await allStudioStatus(capMs);
+  return all.some((st) => st && st.phase === "ready" && !(Number(st.queue) > 0));
 }

@@ -11,7 +11,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
@@ -1291,21 +1291,22 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
         const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}|${r.prefill?.processed ?? ""}`;   // reading the prompt counts as life
-        if (!run.jobMovedAt || size !== run.jobSize) {
-          run.jobSize = size;
-          run.jobMovedAt = Date.now();
-        } else if (r.queue_pos && r.queue_pos > 0 && !r.total && (!r.phase || r.phase === "ready") && (run.queueMoves || 0) < 3 && Date.now() - run.jobMovedAt > (Number(process.env.CODER_QUEUE_MOVE_MS) || 25000)) {
-          // Waiting in a Studio's queue behind a job that does not finish (measured: 3+ minutes at "position 1" while four other Studios were idle): the step is
-          // cancelled and sent again to a Studio that does not hold this conversation's cache (it reads the short prompt from zero, seconds, instead of waiting for unknown).
+        if (r.queue_pos && r.queue_pos > 0 && !r.total && (!r.phase || r.phase === "ready") && (run.queueMoves || 0) < 3 && Date.now() - (run.jobAt || run.jobMovedAt || 0) > (process.env.CODER_QUEUE_MOVE_MS !== undefined ? Number(process.env.CODER_QUEUE_MOVE_MS) : 1500) && await anyIdleStudio()) {
+          // Waiting in a Studio's queue while another Studio is idle (measured: 3+ minutes at "position 1" with four idle): the step is cancelled and sent again at once to an idle
+          // Studio (about 1.5 s after the first poll shows the queue). Speed first: a cold read of a short prompt is seconds, waiting behind an unknown job was minutes.
           await coderCancel(run.job).catch(() => null);
           run.queueMoves = (run.queueMoves || 0) + 1;
           run.avoidHome = true;
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
           run.logged = 0;
-          await taskEvent(run.id, "info", `🔀 الاستوديو مشغول بطلب آخر منذ ${Math.round((Date.now() - run.jobMovedAt) / 1000)} ث؛ أرسل الخطوة إلى استوديو آخر فارغ.`, db);
+          await taskEvent(run.id, "info", `🔀 الاستوديو مشغول بطلب آخر منذ ${Math.round((Date.now() - (run.jobAt || run.jobMovedAt || 0)) / 1000)} ث؛ أرسل الخطوة إلى استوديو آخر فارغ.`, db);
           await saveState(chatId, st, db, slot);
           continue;
+        }
+        if (!run.jobMovedAt || size !== run.jobSize) {
+          run.jobSize = size;
+          run.jobMovedAt = Date.now();
         } else if (Date.now() - run.jobMovedAt > Math.max(jobStallMs(), readingMs(run, r))) {
           const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
           await coderCancel(run.job).catch(() => null);

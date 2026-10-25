@@ -436,6 +436,8 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     deadline = time.time() + max(0.0, min(50.0, _num(wait_s, 20)))
     while time.time() < deadline and job["status"] in ("queued", "running"):
         job["seen"] = time.time()                                  # its caller is still on the line
+        if job["status"] == "queued" and time.time() - job["created"] > 1.2:
+            break                                                  # still waiting behind another job: say so NOW (the bot can send the step to an idle Studio) instead of holding the line for wait_s
         time.sleep(0.5)
     return json.dumps(_view(jid), ensure_ascii=False)
 
