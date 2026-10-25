@@ -78,9 +78,11 @@ const lastStudio = new Map<string, string>();
 let pickLock: Promise<void> = Promise.resolve();
 let ctxAskedAt = 0;
 const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
-const rememberStudio = (key: string, base: string) => { lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
+const heldAt = new Map<string, number>();         // base -> when a conversation last used it (its prompt cache is warm there)
+const HELD_MS = 15 * 60000;
+const rememberStudio = (key: string, base: string) => { heldAt.set(base, Date.now()); lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string): Promise<CoderOutcome> {
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
@@ -93,6 +95,11 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
   let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
+  if (fresh && api === "chat") {
+    // a side call (the quick acknowledgement) must not push a conversation's prompt out of a Studio that holds it (one slot each): only Studios nobody used lately
+    order = order.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
+    if (!order.length) return { reply: null, failure: "http", detail: "no free Studio" };
+  }
   if (api === "chat" && bases.length > 1) {
     // choosing is one at a time: calls that start together (parallel agents / report sections) must not all see the same Studio idle
     const turn = pickLock.then(async () => { const o = await idleFirst(order, affinity ? lastStudio.get(affinity) : undefined); recentPick.set(o[0].b, Date.now()); return o; });
@@ -194,7 +201,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop" });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
@@ -213,6 +220,7 @@ export function coderChat(
     },
     opts.timeoutMs ?? (waitS + 12) * 1000,
     opts.affinity,
+    opts.fresh,
   );
 }
 

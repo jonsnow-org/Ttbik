@@ -447,7 +447,39 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   await saveState(chatId, st, db);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
+  if (!st.inbox.length) { const rid = st.run!.id; later(() => frontAck(bot, chatId, rid, content, "telegram", db)); }
   return true;
+}
+
+const frontAt = new Map<number, number>();
+/**
+ * The quick lane: the main worker has to read the whole conversation first (minutes on a CPU, silent), so a second, tiny call on a Studio
+ * nobody is using answers within seconds: what the model understood and what it will do first. It never touches a Studio that holds a
+ * conversation's prompt cache, never answers the task itself, and is dropped if the real answer has already started.
+ */
+async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
+  if (coderStudioUrls().length < 2 || content.trim().length < 12) return;
+  if (Date.now() - (frontAt.get(chatId) || 0) < 30000) return;
+  frontAt.set(chatId, Date.now());
+  await new Promise((res) => setTimeout(res, 800));                  // the main call picks its Studio first
+  const messages: CoderMessage[] = [
+    { role: "system", content: "You are Nova AI, built by the Sham team. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
+    { role: "user", content: content.slice(0, 700) },
+  ];
+  const o = await coderChat(messages, { maxTokens: 70, temperature: 0.3, waitS: 8, timeoutMs: 20000, fresh: true }).catch(() => null);
+  let r = o?.reply || null;
+  for (let i = 0; r?.type === "pending" && r.job && i < 12; i++) {
+    await new Promise((res) => setTimeout(res, 3000));
+    r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
+  }
+  if (r?.type === "pending" && r.job) { await coderCancel(r.job).catch(() => null); return; }
+  const text = r?.type === "done" ? stripForeignScript(r.text || "", content).trim() : "";
+  if (!text) return;
+  const cur = await loadState(chatId, db).catch(() => null);
+  if (!cur?.run || cur.run.id !== runId || cur.run.sent || cur.run.botSent) return;   // the real answer got there first
+  if (surface === "app") await taskEvent(runId, "info", `🤖 ${text}`, db);
+  else await send(bot, chatId, `🤖 ${text}`);
 }
 
 /** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
@@ -481,6 +513,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   // Acknowledge immediately in Telegram; the final model answer is delivered there and recorded in the terminal feed.
   await send(bot, chatId, "📨 وصل طلبك من الطرفية. ستظهر النتيجة هنا وفي الطرفية تلقائياً.");
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
+  later(() => frontAck(bot, chatId, runId, content, "app", db));
   return { runId, queued: false };
 }
 
@@ -1431,7 +1464,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
-    await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
+    await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً (تعليمات " + estimateTokens(String(messages[0].content || "")) + " + محادثة " + estimateTokens(messages.slice(1).map((m) => m.content || "").join("\n")) + ").", db);
     const modelStartedAt = Date.now();
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, run.keepGroups).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;

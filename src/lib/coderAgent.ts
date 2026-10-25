@@ -209,7 +209,13 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
 const TRIM_STEP = 8;
 
 /** Keep the conversation inside the model's context: newest messages first, whole turns only (never start on a tool result). */
-export function trimMessages(msgs: CoderMessage[], maxChars = historyChars()): CoderMessage[] {
+/** The same user text sent again with no answer in between (a retry after a failed or stalled attempt) says nothing new: one copy is enough, and the CPU does not read it twice. */
+export function collapseRepeats(msgs: CoderMessage[]): CoderMessage[] {
+  return msgs.filter((m, i) => !(i > 0 && m.role === "user" && msgs[i - 1].role === "user" && typeof m.content === "string" && m.content.length > 20 && m.content === msgs[i - 1].content));
+}
+
+export function trimMessages(all: CoderMessage[], maxChars = historyChars()): CoderMessage[] {
+  const msgs = collapseRepeats(all);
   let total = 0;
   let i = msgs.length;
   while (i > 0) {
