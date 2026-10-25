@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix | native | toolsel"
+        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix | native | toolsel | newbuild"
         required: false
         default: "all"
 permissions:
@@ -344,3 +344,27 @@ jobs:
           for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 3; done
           EVAL_BASE=http://127.0.0.1:8080/v1 EVAL_PAYLOAD=scripts/nova-eval/base_payload.json python3 scripts/nova-eval/model_eval.py --models qwen3.5-4b-all-62-tools
           kill $PID
+  newbuild:
+    if: inputs.job == 'newbuild'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: "the pinned release and the newest release, same model"
+        run: |
+          curl -sSL -o old.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  old.tgz" | sha256sum -c -
+          NEW=$(curl -sSLI -o /dev/null -w '%{url_effective}' https://github.com/ggml-org/llama.cpp/releases/latest | sed 's|.*/||')
+          echo "newest release: $NEW"
+          curl -sSL --fail -o new.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${NEW}/llama-${NEW}-bin-ubuntu-x64.tar.gz"
+          mkdir old new && tar -xzf old.tgz -C old && tar -xzf new.tgz -C new
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          for v in old new; do
+            B=$(dirname "$(find $v -name llama-bench | head -1)"); export LD_LIBRARY_PATH="$B"
+            echo "### $v: $("$B/llama-bench" --version 2>&1 | head -1)"
+          done
+          for i in 1 2; do
+            for v in old new; do
+              B=$(dirname "$(find $v -name llama-bench | head -1)"); export LD_LIBRARY_PATH="$B"
+              echo "### $v run $i"; taskset -c 0,1 "$B/llama-bench" -m m.gguf -t 2 -p 512,2048 -n 32 -r 2 2>&1 | grep -E "pp|tg"
+            done
+          done
