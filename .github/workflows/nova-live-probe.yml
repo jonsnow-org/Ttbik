@@ -67,10 +67,10 @@ jobs:
               print(f"== {label}: {time.time()-t0:.0f}s total, timings={r.get('timings')}, prefill={r.get('prefill')}, text={(r.get('text') or '')[:80]!r}", flush=True)
               return r
           if os.environ.get("CACHE") == "1":
-              base = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."}, {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK."}]
-              a = one(base, "first (cold)")
-              b = one(base + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "second (same start, +2 messages)")
-              c = one([{"role": "system", "content": "You are a helpful assistant. Reply briefly. Extra volatile note: 7"}] + base[1:] + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "third (system line changed)")
+              conv = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."}, {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK."}]
+              a = one(conv, "first (cold)")
+              b = one(conv + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "second (same start, +2 messages)")
+              c = one([{"role": "system", "content": "You are a helpful assistant. Reply briefly. Extra volatile note: 7"}] + conv[1:] + [{"role": "assistant", "content": (a.get("text") or "OK")}, {"role": "user", "content": "Now say the word PINEAPPLE."}], "third (system line changed)")
               raise SystemExit(0)
           t0 = time.time()
           r = call("chat", {"messages": json.dumps(msgs), "tools": "", "max_tokens": 80, "think": "", "temperature": 0.3, "wait_s": 5})
