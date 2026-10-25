@@ -462,7 +462,7 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   if (coderStudioUrls().length < 2 || content.trim().length < 12) return;
   if (Date.now() - (frontAt.get(chatId) || 0) < 30000) return;
   frontAt.set(chatId, Date.now());
-  await new Promise((res) => setTimeout(res, 800));                  // the main call picks its Studio first
+  await new Promise((res) => setTimeout(res, 2500));                 // the main call picks its Studio first
   const messages: CoderMessage[] = [
     { role: "system", content: "You are Nova AI, built by the Sham team. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
     { role: "user", content: content.slice(0, 700) },
@@ -1513,7 +1513,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     run.jobMovedAt = Date.now();
     run.jobSize = "";
     if (r.type !== "pending") cached = r;
-    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
+    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0 && tierFor(chatId) !== "owner") await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);   // the owner sees the queue on the progress card, never as a message
     if (r.type === "pending" && r.phase && r.phase !== "ready") await send(ioBot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
     await saveState(chatId, st, db, slot);
   }

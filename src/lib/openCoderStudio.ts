@@ -96,16 +96,25 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
   let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
-  if (fresh && api === "chat") {
-    // a side call (the quick acknowledgement) must not push a conversation's prompt out of a Studio that holds it (one slot each): only Studios nobody used lately
-    order = order.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
-    if (!order.length) return { reply: null, failure: "http", detail: "no free Studio" };
-  }
-  if (api === "chat" && bases.length > 1) {
-    // choosing is one at a time: calls that start together (parallel agents / report sections) must not all see the same Studio idle
-    const turn = pickLock.then(async () => { const o = await idleFirst(order, affinity ? lastStudio.get(affinity) : undefined); recentPick.set(o[0].b, Date.now()); return o; });
+  if (api === "chat") {
+    // choosing is one at a time (calls that start together must not all see the same Studio idle), and a Studio is marked as holding a conversation
+    // the moment a normal call is sent to it: the side calls (quick acknowledgement, quiet work) are `fresh` and may only use a Studio no conversation
+    // used in the last 15 minutes, so they can never take the slot of the user's own request ("1 ahead") or push its prompt cache out
+    const turn = pickLock.then(async () => {
+      let ord = order;
+      if (fresh) {
+        ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
+        if (!ord.length) return null;
+      }
+      const o = bases.length > 1 ? await idleFirst(ord, !fresh && affinity ? lastStudio.get(affinity) : undefined) : ord;
+      recentPick.set(o[0].b, Date.now());
+      if (!fresh) heldAt.set(o[0].b, Date.now());
+      return o;
+    });
     pickLock = turn.then(() => undefined, () => undefined);
-    order = await turn;
+    const picked = await turn;
+    if (!picked) return { reply: null, failure: "http", detail: "no free Studio" };
+    order = picked;
   }
   let last: CoderOutcome = { reply: null, failure: "network" };
   const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
