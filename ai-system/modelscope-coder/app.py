@@ -65,7 +65,19 @@ PREFIX = os.environ.get("CODER_API_PREFIX", "")
 LLAMA_PORT = int(os.environ.get("CODER_LLAMA_PORT", "8081"))
 JOB_TTL = 6 * 3600
 
-STATE = {"vision": False, "phase": "starting", "detail": "", "model": "", "model_repo": "", "ctx": CTX, "threads": THREADS,
+def _cpu_info() -> dict:
+    """What this box's processor offers llama.cpp (model name + the vector features that decide prompt-reading speed); read-only, from /proc/cpuinfo."""
+    try:
+        txt = open("/proc/cpuinfo").read()
+        name = next((l.split(":", 1)[1].strip() for l in txt.splitlines() if l.startswith("model name")), "")
+        flags = next((l.split(":", 1)[1].split() for l in txt.splitlines() if l.startswith("flags")), [])
+        keep = [f for f in flags if f in ("avx", "avx2", "fma", "f16c", "avx512f", "avx512bw", "avx512vl", "avx512_vnni", "avx512_bf16", "avx_vnni", "amx_tile", "amx_int8", "amx_bf16")]
+        return {"cpu": name[:80], "cpu_flags": keep}
+    except Exception:
+        return {"cpu": "", "cpu_flags": []}
+
+
+STATE = {**_cpu_info(), "vision": False, "phase": "starting", "detail": "", "model": "", "model_repo": "", "ctx": CTX, "threads": THREADS,
          "llama_build": LLAMA_BUILD, "error": "", "started_at": time.time(), "ready_at": 0}
 JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 JOBS_LOCK = threading.Lock()
