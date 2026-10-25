@@ -152,3 +152,12 @@ Documents / spreadsheets / archives are made in the VM with its own Python (pip)
 Readers: + CI failure logs, PR conversation, commits, compare, `deep_research`, `web_fetch`, `http_request` (GET / HEAD only, enforced in `agentToolAllowed` with the call's arguments). Testers: + `sandbox_search`.
 Workers already take every tool the parent has (new ones included; `send_file` stays main-chat only). New preset helper jobs a worker can start: `ci_doctor`, `pr_reviewer`, `change_digest`, `api_reader`.
 `http_request` is the general HTTP tool (public hosts only; a write asks the user first); the owner will design its fuller behaviour later.
+
+## Time awareness (2026-10-25)
+A live "analyse the project" task ran 38 minutes / 11 steps (each step 2-4 min on the 4B CPU model: thinking, then ~19k real tokens of context, two 429s) before the owner stopped it; the model never decided to stop reading.
+From step 6 or the 8th minute on, the tool result carries one line (`progressNote`): step number, minutes spent, and "if what you have read is enough, write the answer now". Information only, the model decides;
+it is stored with the tool result so the cached prompt prefix stays identical. `CODER_TIME_NOTE=off` removes it.
+
+## Can the Studio model see pictures? Measured 2026-10-25 (`nova-vision-probe.yml`)
+Yes, with the model's vision file (`mmproj-F16.gguf`, 672 MB, on ModelScope as well as Hugging Face) passed to llama-server (`--mmproj`). On 2 pinned cores: one 448x448 picture = 38 s (228 prompt tokens at 6.6 tok/s, answer at 5.8 tok/s);
+it named the red square, the blue circle and the black text, but read the small text wrongly ("NOVA 09" for "NOVA 2026"). Memory: the server was 6.8 GB with the vision file at ctx 65536 (+~170 MB while a picture is read); a Studio has 7.88 GB, so vision must not be added to every Studio at 64k.

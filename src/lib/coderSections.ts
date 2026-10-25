@@ -831,6 +831,15 @@ async function handOff(botRow: BotRow, chatId: number, chain: string, slot = "")
  * the first tool sends a message, the next ones edit it, so the chat is not flooded with one line per step. A text reply from the
  * model closes the card; the next tools open a new one. CODER_PROGRESS_CARD=off restores one message per tool.
  */
+/** What the model is told about its own time, so IT can decide to stop reading: the step and minutes spent on this task, from step 6 or the 8th minute on. Information only (the model decides);
+ *  it is stored with the tool result, so the prompt prefix the Studio cached stays byte-identical on the next step. CODER_TIME_NOTE=off removes it. */
+export function progressNote(run: { step: number; startedAt?: number; agent?: boolean }, now = Date.now()): string {
+  if (run.agent || (process.env.CODER_TIME_NOTE || "").toLowerCase() === "off") return "";
+  const min = Math.round((now - (run.startedAt || now)) / 60000);
+  if (run.step < 5 && min < 8) return "";
+  return `\n[time: step ${run.step + 1}, ${min} min spent on this task${min >= 20 ? "; this is already long" : ""}. If what you have read is enough to answer, write the answer now instead of reading more.]`;
+}
+
 /** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
 function cardText(run: Run): string {
   const p = run.progress || { lines: [] as string[] };
@@ -1219,7 +1228,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const outs = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}${batch.length > 1 ? ` (+${batch.length - 1})` : ""}`, () => Promise.all(batch.map((b) => runTool(b, ctx))));
       run.queued = rest.slice(batch.length - 1);
       for (let i = 0; i < batch.length; i++) {
-        st.messages.push({ role: "tool", content: outs[i], tool_call_id: batch[i].id, name: batch[i].function.name });
+        st.messages.push({ role: "tool", content: outs[i] + (i === batch.length - 1 ? progressNote(run) : ""), tool_call_id: batch[i].id, name: batch[i].function.name });
         const seen = afterCall(run.stall, batch[i], outs[i], run.step);
         if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
         if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();

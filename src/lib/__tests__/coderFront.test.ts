@@ -215,3 +215,16 @@ describe("thinking budget by accuracy mode", () => {
     process.env.CODER_THINK_CAP_FAST = "700"; expect(thinkCapFor("fast")).toBe(700); delete process.env.CODER_THINK_CAP_FAST;
   });
 });
+
+describe("the model is told how long it has been working", () => {
+  const { progressNote } = require("@/lib/coderSections");
+  it("nothing early; from step 6 or minute 8 a one-line note with the step and the minutes; off with CODER_TIME_NOTE=off; never for agents", () => {
+    const t0 = 1_000_000;
+    expect(progressNote({ step: 2, startedAt: t0 }, t0 + 3 * 60000)).toBe("");
+    expect(progressNote({ step: 6, startedAt: t0 }, t0 + 12 * 60000)).toMatch(/step 7, 12 min spent/);
+    expect(progressNote({ step: 1, startedAt: t0 }, t0 + 9 * 60000)).toMatch(/9 min spent/);
+    expect(progressNote({ step: 9, startedAt: t0 }, t0 + 25 * 60000)).toMatch(/already long/);
+    expect(progressNote({ step: 9, startedAt: t0, agent: true }, t0 + 25 * 60000)).toBe("");
+    process.env.CODER_TIME_NOTE = "off"; expect(progressNote({ step: 9, startedAt: t0 }, t0 + 25 * 60000)).toBe(""); delete process.env.CODER_TIME_NOTE;
+  });
+});
