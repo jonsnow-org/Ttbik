@@ -28,7 +28,7 @@ export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -1458,7 +1458,19 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
     const agentLast = Boolean(run.agent && run.step >= agentMaxSteps(run.agentRole) - 1);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    // The model server reuses its prompt cache only while the START of the prompt is byte-identical (measured: one changed line in the system
+    // message = the whole conversation read again, 77 s for 3k tokens; same start + new messages = 4 s). So the system message is the same text every
+    // time, and what varies (date, memories, default repo, notes) rides on the task's own request message, stamped once when the task starts.
+    if (!run.ctxStamped) {
+      let k = st.messages.length - 1;
+      while (k >= 0 && !(st.messages[k].role === "user" && !String(st.messages[k].content).startsWith("[harness]"))) k--;
+      const ctxText = [`Current date (UTC): ${new Date().toISOString().slice(0, 10)}.`, run.memory || "", st.repo ? `Default repository for this user: ${st.repo}` : "", st.notes ? `Your notes so far:\n${st.notes}` : ""].filter(Boolean).join("\n");
+      if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
+      run.ctxStamped = true;
+    }
+    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop";      // Sham gets the bare words, no context block
+    const wireOf = (m: CoderMessage): CoderMessage => (!toSham && m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...trimMessages(st.messages, run.histChars).map(wireOf)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
@@ -1521,6 +1533,7 @@ ${summary}`, db);
   run.segStep = run.step;
   run.compacting = false;
   run.histChars = undefined;                                            // a fresh context gets the full budget again
+  run.ctxStamped = false;
   run.retries = 0;
   if (run.stall) {
     run.stall.calls = [];

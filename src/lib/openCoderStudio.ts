@@ -10,7 +10,7 @@ import { noteStudioCtx } from "@/lib/coderContext";
 import { providerConfig, providerChat, shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system" | "user"; content: string; ctx?: string }
   | { role: "assistant"; content: string; tool_calls?: CoderToolCall[] }
   | { role: "tool"; content: string; tool_call_id?: string; name?: string };
 export type CoderTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
@@ -134,7 +134,7 @@ async function idleFirst(order: { b: string; i: number }[], preferred?: string):
     let left = order.length;
     let firstIdle: string | null = null;
     let done = false;
-    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && seen.get(preferred) === 0 ? preferred : firstIdle); };
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && (seen.get(preferred) ?? 9) <= 1 ? preferred : firstIdle); };   // one job ahead on the cache-holding Studio is seconds; a cold read elsewhere is minutes
     const timer = setTimeout(finish, capMs);
     for (const { b } of order) {
       studioStatus(b, capMs).then((st) => {
@@ -144,7 +144,8 @@ async function idleFirst(order: { b: string; i: number }[], preferred?: string):
         left--;
         if (q === 0 && !firstIdle) firstIdle = b;
         // the Studio that holds this conversation's prompt cache wins when it is free; another idle one is taken only once the preferred one has answered (or the time is up)
-        if (q === 0 && (!preferred || b === preferred || seen.has(preferred))) finish();
+        if (b === preferred && q0 <= 1) finish();
+        else if (q === 0 && (!preferred || b === preferred || seen.has(preferred))) finish();
         else if (left === 0) finish();
       });
     }

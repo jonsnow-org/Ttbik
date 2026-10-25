@@ -186,8 +186,10 @@ describe("in the bot", () => {
     await handleCoderSections(bot, botRow, { message: { chat: { id: A }, text: "push the fix to main; release notes in Arabic from now on" } }, db);
     await new Promise((r) => setTimeout(r, 300));
     const sys = bodies[0][0].content;
-    expect(sys).toMatch(/Always open a PR instead of pushing to main/);
-    expect(sys).not.toMatch(/falcon/);                                         // never another user's memory
+    const asked = bodies[0].filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n");
+    expect(sys).not.toMatch(/Always open a PR/);                               // the system message is the same text every time (prompt cache)
+    expect(asked).toMatch(/Always open a PR instead of pushing to main/);      // the memories ride on the task's own request message
+    expect(sys + asked).not.toMatch(/falcon/);                                 // never another user's memory
     expect(sent.some((s) => s.text === "تم.")).toBe(true);
     // not on the reply path any more: memories are learned in quiet time from the saved conversation thread
     expect(bodies.some((b) => /long-term memory about ONE user/.test(b[0]?.content || ""))).toBe(false);
