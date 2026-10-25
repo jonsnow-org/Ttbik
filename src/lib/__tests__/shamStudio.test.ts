@@ -46,6 +46,21 @@ describe("shamStudio think", () => {
     expect(p?.decision).toBe("image");
     expect(p?.later?.[0].text).toBe("قديم");
   });
+  it("a network blip is tried once more; a timeout is not", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch;
+    let n = 0;
+    global.fetch = (async () => { n++; throw Object.assign(new Error("down"), { name: "TypeError" }); }) as any;
+    const o = await shamThink("مرحبا", "1", null, 80, 30000);
+    expect(o.failure).toBe("network");
+    expect(n).toBe(2);                       // the submit fetch, once more after the blip
+    n = 0;
+    global.fetch = (async () => { n++; throw Object.assign(new Error("slow"), { name: "TimeoutError" }); }) as any;
+    expect((await shamThink("مرحبا", "1", null, 80, 30000)).failure).toBe("timeout");
+    expect(n).toBe(1);
+    global.fetch = real;
+    delete process.env.MODELSCOPE_API_TOKEN;
+  });
   it("is off without a token and says why", async () => {
     delete process.env.MODELSCOPE_API_TOKEN;
     const o = await shamThink("مرحبا", "1");

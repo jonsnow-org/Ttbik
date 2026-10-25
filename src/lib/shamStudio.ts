@@ -124,7 +124,7 @@ export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promi
 // Each call has its own short timeout; the outcome says WHY when there is no answer, so the bot can tell the user the truth.
 export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
 
-export async function shamCallOutcome(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+async function shamCallOnce(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
   const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
@@ -184,4 +184,14 @@ export function shamPendingText(decision?: string): string {
   if (decision === "audio") return "🔊 قرّر شام أن يرد بصوت — سأرسله حين يجهز.";
   if (decision === "video") return "🎬 قرّر شام أن يصنع مقطعاً — سأرسله حين يجهز.";
   return "🧠 شام ما زال يفكّر (وقد يبحث) — سأرسل الرد حين يجهز.";
+}
+
+// A network blip (the connection never reached the Studio: a restart, a dropped link) is tried once more after a moment, as long as time is left;
+// a timeout or an HTTP answer is never repeated (the Studio may already be working on it). Learned on Nova: a short outage is not worth an error message.
+export async function shamCallOutcome(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+  const t0 = Date.now();
+  const first = await shamCallOnce(api, payload, timeoutMs);
+  if (first.failure !== "network" || Date.now() - t0 > timeoutMs - 6000) return first;
+  await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 1500));
+  return shamCallOnce(api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)));
 }
