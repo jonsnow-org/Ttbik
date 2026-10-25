@@ -188,7 +188,7 @@ export async function quietWork(db: Db = prismaDb, deps: QuietDeps = {}): Promis
       const chatId = r.chat_enc ? decryptToken(String(r.chat_enc)) : null;
       if (chatId && (process.env.CODER_MEMORY || "").toLowerCase() !== "off") {
         const { extractMemories, studioLlm } = await import("@/lib/coderMemory");
-        const base = deps.llm || studioLlm(240000);
+        const base = deps.llm || studioLlm(240000, true);
         let answered = false;
         // the model's answer is what counts: a timeout or an empty answer must not mark the thread as learned from (it is retried next tick)
         const llm = async (m: CoderMessage[]) => { const out = await base(m); if (String(out || "").trim()) answered = true; return out; };
@@ -214,7 +214,7 @@ async function summarizeThread(r: any, msgs: CoderMessage[], db: Db, deps: Quiet
   if (deps.llm) text = await deps.llm(ask).catch(() => "");
   else {
     const { studioLlm } = await import("@/lib/coderMemory");
-    text = await studioLlm(40000)(ask).catch(() => "");
+    text = await studioLlm(40000, true)(ask).catch(() => "");
   }
   const summary = usableSummary(text) ? text.trim() : fallbackSummary(goal, msgs, [], String(r.notes || ""));
   // the summary becomes the start of the context; the last exchanges stay word for word

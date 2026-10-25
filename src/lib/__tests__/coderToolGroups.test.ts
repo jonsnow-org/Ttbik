@@ -98,18 +98,20 @@ describe("one context size for every budget", () => {
   afterEach(() => { ctx.forgetStudioCtx(); delete process.env.CODER_CTX_TOKENS; });
   it("at the old 32,768 tokens every budget keeps its old value", () => {
     expect(ctx.ctxTokens()).toBe(32768);
-    expect(ctx.historyChars()).toBe(40000);
+    expect(ctx.historyChars()).toBe(24000);                 // the history window is capped (slow CPU reads), the other budgets keep their old values
     expect(ctx.segmentCharsFor()).toBe(52500);
     expect(ctx.reportsHardChars()).toBe(60000);
   });
   it("they all follow the Studios' own context, and the smallest Studio wins", () => {
     ctx.noteStudioCtx("https://a", 131072);
-    expect(ctx.historyChars()).toBe(160000);
+    expect(ctx.reportsHardChars()).toBe(240000);
     ctx.noteStudioCtx("https://b", 65536);
     expect(ctx.ctxTokens()).toBe(65536);
-    expect(ctx.historyChars()).toBe(80000);
+    expect(ctx.historyChars()).toBe(24000);                 // a bigger context does not make the model re-read more history
     expect(ctx.reportsHardChars()).toBe(120000);
-    expect(require("@/lib/coderAgent").trimMessages([{ role: "user", content: "x".repeat(70000) }, { role: "assistant", content: "y".repeat(5000) }]).length).toBe(2);   // 75,000 characters now fit the history window
+    process.env.CODER_HISTORY_CHARS = "80000";
+    expect(ctx.historyChars()).toBe(80000);
+    delete process.env.CODER_HISTORY_CHARS;
   });
   it("CODER_CTX_TOKENS forces a value; nonsense is ignored", () => {
     process.env.CODER_CTX_TOKENS = "98304";

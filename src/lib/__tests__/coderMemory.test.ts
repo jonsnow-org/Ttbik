@@ -192,6 +192,7 @@ describe("in the bot", () => {
     // not on the reply path any more: memories are learned in quiet time from the saved conversation thread
     expect(bodies.some((b) => /long-term memory about ONE user/.test(b[0]?.content || ""))).toBe(false);
     const { quietWork } = await import("@/lib/coderThreads");
+    (await import("@/lib/openCoderStudio")).forgetStudioHeld();                  // quiet work only uses a Studio no conversation used in the last 15 minutes
     expect(await quietWork(db, { status: async () => ({ queue: 0 }) })).toMatch(/^memory /);
     expect(bodies.some((b) => /long-term memory about ONE user/.test(b[0]?.content || ""))).toBe(true);
     const texts = (await listMemories(A, db)).map((m) => m.text);

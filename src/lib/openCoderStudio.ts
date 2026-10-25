@@ -80,6 +80,7 @@ let ctxAskedAt = 0;
 const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
 const heldAt = new Map<string, number>();         // base -> when a conversation last used it (its prompt cache is warm there)
 const HELD_MS = 15 * 60000;
+export const forgetStudioHeld = (): void => { heldAt.clear(); };
 const rememberStudio = (key: string, base: string) => { heldAt.set(base, Date.now()); lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false): Promise<CoderOutcome> {

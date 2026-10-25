@@ -18,8 +18,11 @@ export function ctxTokens(): number {
   return seen.size ? Math.min(...seen.values()) : DEFAULT_CTX;
 }
 const scaled = (perCtx: number) => Math.round((ctxTokens() * perCtx) / DEFAULT_CTX);
-/** What the model sees of the history each step (old default 40,000 characters at 32k tokens). */
-export const historyChars = (): number => Number(process.env.CODER_HISTORY_CHARS) || scaled(40000);
+/** What the model sees of the history each step. */
+export const HISTORY_CAP_CHARS = 24000;
+/** The window is NOT raised with the context: a CPU Studio reads ~30-45 prompt tokens/s, so every extra 10,000 characters is minutes of silence on a cold
+ *  start and on every shift of the window. A bigger context stays free for long tool results and agents; CODER_HISTORY_CHARS overrides. */
+export const historyChars = (): number => Number(process.env.CODER_HISTORY_CHARS) || Math.min(scaled(40000), HISTORY_CAP_CHARS);
 /** When a long task closes its segment with a checkpoint summary (old 52,500 at 32k). */
 export const segmentCharsFor = (): number => Math.max(8000, Number(process.env.CODER_SEGMENT_CHARS) || scaled(52500));
 /** All agent reports together before the system condenses (old 60,000 at 32k). */
