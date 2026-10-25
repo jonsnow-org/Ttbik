@@ -83,3 +83,8 @@ Up to 4 consecutive read-only GitHub calls from one model step (read file / list
 confirmation stay sequential. Off with `CODER_PARALLEL_TOOLS=off`. Not adopted from the review, on purpose: a pre-planner / staged "adaptive engine"
 (the owner's rule: the request goes to the model at once, no stages), a repo index and composite tools (separate, measured work first), speculative decoding
 (no spare RAM/CPU on 2 vCPU).
+
+## Composite reads and the speculative-decoding switch (2026-10-25)
+- `github_repo_scan` (facts + top-level folders/files + README start + main manifest) and `github_read_files` (up to 4 files) answer in one model step what took 4-6; their inner GitHub calls run together. Both are also allowed for sub-agents and in the parallel-read batch.
+- `CODER_SPEC` (Studio env, empty = off): extra llama-server flags for speculative decoding, e.g. `--spec-type ngram-simple` (no draft model, no extra RAM). If the server does not come up with them, the supervisor restarts it without them by itself. Not enabled anywhere: run `nova-flag-check` to see which spec flags build b11757 accepts, then measure on ONE Studio before enabling.
+- Not built, on purpose: a pre-task planner/stage (a changed tool list at task start would also break the prewarmed prefix), a persistent repo index (measure `github_repo_scan` first).

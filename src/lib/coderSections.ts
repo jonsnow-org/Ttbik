@@ -88,7 +88,7 @@ export function smallTalkReply(text: string, name = ""): string {
  * is closed as failed, so the next message starts fresh and the app stops showing it as running. Returns true when it cleared one.
  */
 // reads that do not depend on each other and change nothing
-const PAR_READ = new Set(["github_read_file", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
+const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
 
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);

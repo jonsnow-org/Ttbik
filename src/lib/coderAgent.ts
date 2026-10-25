@@ -22,6 +22,8 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_whoami", "Who the GitHub token belongs to.", obj({})),
   tool("github_list_repos", "List repositories the token can access.", obj({ owner: s("optional org or user") })),
   tool("github_repo_info", "Repository facts: default branch, description, visibility, open issues.", obj({ repo: REPO }, ["repo"])),
+  tool("github_repo_scan", "ONE call that gives the lay of a repository: facts, top-level folders and files, the README start and the main manifest (package.json / pyproject / requirements). Use it first on an unfamiliar repo instead of several separate calls.", obj({ repo: REPO }, ["repo"])),
+  tool("github_read_files", "Read up to 4 text files of one repository in ONE call (the start of each). Use it when you already know which files you need.", obj({ repo: REPO, paths: { type: "array", items: { type: "string" }, description: "file paths, at most 4" }, ref: s("branch / sha") }, ["repo", "paths"])),
   tool("github_list_files", "List files of a repository (recursive tree, or one folder).", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a text file. Use start_line/end_line for big files.", obj({ repo: REPO, path: s("file path"), ref: s("branch / sha"), start_line: n("1-based"), end_line: n("inclusive") }, ["repo", "path"])),
   tool("github_search_code", "Search code in one repository.", obj({ repo: REPO, query: s("search words") }, ["repo", "query"])),
@@ -607,6 +609,24 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     }
     if (name !== "github_whoami" && name !== "github_list_repos" && name !== "github_search_repos" && !repoOk(a.repo)) return "error: repo must be owner/name";
     const R = `/repos/${a.repo}`;
+    if (name === "github_repo_scan" || name === "github_read_files") {
+      // composite reads: the independent GitHub calls inside run together and come back as one compact report (fewer slow model steps)
+      const sub = (n: string, args: Record<string, unknown>) => runTool({ id: `${call.id || "c"}_${n}`, type: "function", function: { name: n, arguments: JSON.stringify(args) } }, ctx);
+      if (name === "github_read_files") {
+        const paths = (Array.isArray(a.paths) ? a.paths : []).map(String).filter(Boolean).slice(0, 4);
+        if (!paths.length) return "error: paths is required (1 to 4 files)";
+        const outs = await Promise.all(paths.map((path) => sub("github_read_file", { repo: a.repo, path, ...(a.ref ? { ref: a.ref } : {}), end_line: 400 })));
+        return clip(outs.map((o, i) => `=== ${paths[i]} ===\n${o.slice(0, 7000)}`).join("\n\n"));
+      }
+      const [info, top] = await Promise.all([sub("github_repo_info", { repo: a.repo }), sub("github_list_files", { repo: a.repo, path: "" })]);
+      const files = top.split("\n").slice(1);
+      const has = (re: RegExp) => files.find((f) => re.test(f.trim()));
+      const readme = has(/^README(\.md)?$/i), manifests = ["package.json", "pyproject.toml", "requirements.txt", "go.mod", "Cargo.toml"].filter((m) => files.includes(m));
+      const roots = [...new Set(files.filter((f) => !f.includes("/")))].slice(0, 40), dirs = [...new Set(files.filter((f) => f.includes("/")).map((f) => f.split("/")[0]))].slice(0, 40);
+      const picks = [readme, ...manifests.slice(0, 2)].filter(Boolean) as string[];
+      const got = await Promise.all(picks.map((path) => sub("github_read_file", { repo: a.repo, path, end_line: path.startsWith("README") ? 60 : 50 })));
+      return clip(`${info}\n\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, 3500)}`).join("\n\n")}`);
+    }
     switch (name) {
       case "github_whoami": {
         const r = await gh("GET", "/user");
@@ -771,7 +791,7 @@ export function toolLabel(call: CoderToolCall): string {
 // Plain-Arabic step names for the chat's progress card (the task history keeps the same text).
 const FRIENDLY: Record<string, [string, string]> = {
   github_whoami: ["👤", "التعرّف على الحساب"], github_list_repos: ["📚", "عرض المستودعات"], github_repo_info: ["📦", "معلومات المستودع"],
-  github_list_files: ["🗂️", "استعراض الملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
+  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
   github_list_branches: ["🌿", "عرض الفروع"], github_create_branch: ["🌱", "إنشاء فرع"], github_write_files: ["✍️", "كتابة تعديلات"],
   github_delete_files: ["🗑️", "حذف ملفات"], github_delete_branch: ["🗑️", "حذف فرع"], github_create_pr: ["🔀", "فتح طلب دمج"],
   github_merge_pr: ["✅", "دمج طلب"], github_list_prs: ["🔀", "عرض طلبات الدمج"], github_list_issues: ["📝", "عرض المشكلات"],

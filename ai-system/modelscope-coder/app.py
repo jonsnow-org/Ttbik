@@ -172,10 +172,20 @@ def _wait_health(timeout: float = 900) -> bool:
     return False
 
 
+_SPEC = {"on": False, "bad": False}
+
+
 def _start_server(model: Path, bindir: Path) -> None:
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
            "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+    # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
+    # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
+    if os.environ.get("CODER_SPEC", "").strip() and not _SPEC["bad"]:
+        cmd += os.environ["CODER_SPEC"].split()
+        _SPEC["on"] = True
+    else:
+        _SPEC["on"] = False
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
@@ -200,13 +210,16 @@ def _supervisor() -> None:
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
         except Exception as exc:
+            if _SPEC["on"]:
+                _SPEC["bad"] = True                      # the experimental flags were on: next start goes without them, at once
+                _log("speculative flags failed; restarting without them")
             STATE.update(phase="error", error=f"{type(exc).__name__}: {str(exc)[:300]}")
             _log(traceback.format_exc()[-800:])
             p = _PROC["p"]
             if p is not None and p.poll() is None:
                 p.kill()
             _PROC["p"] = None
-            time.sleep(60)
+            time.sleep(5 if _SPEC["bad"] and _SPEC["on"] else 60)
             continue
         time.sleep(10)
 
