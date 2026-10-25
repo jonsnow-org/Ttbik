@@ -32,6 +32,9 @@ TOOLS = [
     tool("github_delete_branch", "Delete a branch of a repository.", {"repo": S("owner/name"), "branch": S("branch")}, ["repo", "branch"]),
 ]
 SYSTEM = "You are Nova AI, the coding assistant by the Sham team. Use the tools when they fit; ask the user only when a needed detail is missing. Reply in the user's language."
+if os.environ.get("EVAL_PAYLOAD"):                                       # Nova's real system prompt and its WHOLE tool set (scripts/nova-eval/base_payload.json): can the model still pick the right tool among them all?
+    _p = json.load(open(os.environ["EVAL_PAYLOAD"]))
+    TOOLS, SYSTEM = _p["full"], _p["system"]
 # (prompt, expected tool or None, argument check)
 TOOL_CASES = [
     ("اقرأ الملف README.md من المستودع acme/site", "github_read_file", lambda a: "acme/site" in str(a.get("repo")) and "README" in str(a.get("path"))),
