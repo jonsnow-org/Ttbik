@@ -1213,6 +1213,17 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           else if (run.progress?.msgId) void (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`).catch(() => null);
         }
+        // a Studio whose model server is in ERROR (not just loading) will not answer this job: with other Studios available the step goes to another one at once
+        if (r.phase === "error" && coderStudioUrls().length > 1 && (run.stallRetries || 0) < 2) {
+          await coderCancel(run.job).catch(() => null);
+          run.stallRetries = (run.stallRetries || 0) + 1;
+          run.job = undefined;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+          run.logged = 0;
+          await taskEvent(run.id, "info", "🔁 خادم النموذج هذا في حالة خطأ؛ أعيد إرسال الخطوة إلى استوديو آخر.", db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
         const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}|${r.prefill?.processed ?? ""}`;   // reading the prompt counts as life
         if (!run.jobMovedAt || size !== run.jobSize) {

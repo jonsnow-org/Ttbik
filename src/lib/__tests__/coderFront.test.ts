@@ -72,3 +72,35 @@ describe("quick acknowledgement", () => {
     expect(seen).toHaveLength(0);
   });
 });
+
+describe("a Studio whose model server is in error", () => {
+  it("the step goes to another Studio at once instead of waiting for the stall watchdog", async () => {
+    process.env.OPEN_CODER_STUDIO_URL = "https://s1.test";
+    process.env.OPEN_CODER_STUDIO_URLS = "https://s1.test,https://s2.test";
+    process.env.MODELSCOPE_API_TOKEN = "ms";
+    process.env.CODER_POLL_MS = "5";
+    process.env.SUPER_ADMIN_TELEGRAM_ID = String(CHAT + 1);
+    process.env.CODER_TOKEN_KEY = "test-key";
+    let broken = "";
+    const answered: string[] = [];
+    (global as any).fetch = jest.fn(async (url: string) => {
+      const host = new URL(url).origin;
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("status")) return new Response(sse({ phase: host === broken ? "error" : "ready", queue: 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) {
+        if (!broken) broken = host;                                   // the first Studio asked is the one that is broken
+        if (host === broken) return new Response(sse({ type: "pending", job: "j1", status: "running", phase: "error", queue_pos: 0, total: 0 }), { status: 200 });
+        answered.push(host);
+        return new Response(sse({ type: "done", job: "j2", text: "تم من الاستوديو الآخر", tool_calls: [] }), { status: 200 });
+      }
+      return new Response("{}", { status: 202 });
+    });
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT + 1 }, text: "اشرح لي ما هو هذا المشروع بإيجاز شديد" } }, fakeDb());
+    for (let i = 0; i < 80 && !sent.some((s) => /تم من الاستوديو الآخر/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 100));
+    expect(sent.some((s) => /تم من الاستوديو الآخر/.test(s.text))).toBe(true);
+    expect(answered.length).toBeGreaterThan(0);
+    delete process.env.OPEN_CODER_STUDIO_URLS;
+  });
+});

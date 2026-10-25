@@ -336,8 +336,8 @@ def _runner() -> None:
             if job:
                 job.update(status="cancelled", finished=time.time())
             continue
-        while STATE["phase"] != "ready":
-            time.sleep(2)
+        while STATE["phase"] != "ready" and not (job.get("cancel") or _stale(job)):
+            time.sleep(2)                                              # the model is loading / in error: a cancelled or abandoned job must not hold the one worker meanwhile
         if job.get("cancel") or _stale(job):
             job.update(status="cancelled", finished=time.time())
             _log("skipped abandoned job", jid)
