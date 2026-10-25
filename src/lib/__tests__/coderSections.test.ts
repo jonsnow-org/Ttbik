@@ -481,3 +481,23 @@ describe("notices of a task started from the chat", () => {
     expect(b.sent).toEqual([]);
   });
 });
+
+describe("a poll the hub refuses for a moment does not end the task", () => {
+  it("a 429 on the job poll is waited out and the task finishes", async () => {
+    process.env.CODER_POLL_MS = "5";
+    let polls = 0;
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/gradio_api/call/v2/job_result")) { polls++; return polls < 3 ? new Response('{"error":{"message":"Request limit exceeded."}}', { status: 429 }) : new Response(JSON.stringify({ event_id: "e" }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("/gradio_api/call/job_result/")) return new Response(sse({ type: "done", job: "j1", text: "تم بعد رفض مؤقت", tool_calls: [] }), { status: 200 });
+      if (url.includes("/gradio_api/call/chat/")) return new Response(sse({ type: "pending", job: "j1", status: "running" }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "p429", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 60000);
+    expect(sent.map((s) => s.text)).toContain("تم بعد رفض مؤقت");
+    expect(polls).toBeGreaterThanOrEqual(3);
+  }, 70000);
+});

@@ -881,6 +881,10 @@ export function progressNote(run: { step: number; startedAt?: number; agent?: bo
   return `\n[time: step ${run.step + 1}, ${min} min spent on this task${min >= 20 ? "; this is already long" : ""}. If what you have read is enough to answer, write the answer now instead of reading more.]`;
 }
 
+/** A poll that got no answer for a reason that passes: no connection, a timeout, the hub's rate limit (429) or a server error (5xx). The job is not lost; the poll is repeated. */
+export const pollTransient = (o: { failure?: string; status?: number }): boolean =>
+  o.failure === "timeout" || o.failure === "network" || (o.failure === "http" && (o.status === 429 || Number(o.status) >= 500 || o.status === undefined));
+
 /** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
 function cardText(run: Run): string {
   const p = run.progress || { lines: [] as string[] };
@@ -1367,7 +1371,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       cached = null;
       const r: CoderReply | null = o.reply;
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
-        if (run.compacting && r?.type !== "cancelled" && !(!r && (o.failure === "timeout" || o.failure === "network"))) {
+        if (run.compacting && r?.type !== "cancelled" && !(!r && pollTransient(o))) {
           run.job = undefined;                        // the summary job failed: the harness writes the summary itself
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
@@ -1375,7 +1379,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
-        if (!r && (o.failure === "timeout" || o.failure === "network")) {
+        if (!r && pollTransient(o)) {
           run.pollFailSince = run.pollFailSince || Date.now();
           if (Date.now() - run.pollFailSince > jobStallMs() && (run.goneRetries || 0) < 3) {
             // the server has not answered for minutes: it probably restarted and lost the job: ask again (same step)
@@ -1389,7 +1393,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             continue;
           }
           await saveState(chatId, st, db, slot);
-          await new Promise((res) => setTimeout(res, pollMs()));
+          await new Promise((res) => setTimeout(res, o.status === 429 ? Math.max(pollMs(), 8000) : pollMs()));      // a 429 (the hub's request limit) is answered with a longer pause, not more asks
           continue;                                   // a slow / flaky poll is not the end of the job
         }
         run.pollFailSince = undefined;
