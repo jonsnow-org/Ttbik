@@ -14,6 +14,7 @@ import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { shamToolsEnabled } from "@/lib/shamTools";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
+import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
@@ -1324,6 +1325,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const outs = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}${batch.length > 1 ? ` (+${batch.length - 1})` : ""}`, () => Promise.all(batch.map((b) => runTool(b, ctx))));
       run.queued = rest.slice(batch.length - 1);
       for (let i = 0; i < batch.length; i++) {
+        await bankAdd(run.id, coderChatKey(chatId), run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
         st.messages.push({ role: "tool", content: outs[i] + (i === batch.length - 1 ? progressNote(run) : ""), tool_call_id: batch[i].id, name: batch[i].function.name });
         const seen = afterCall(run.stall, batch[i], outs[i], run.step);
         if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);

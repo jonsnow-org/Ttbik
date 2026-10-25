@@ -91,6 +91,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   }, ["prompt", "kind"])),
   tool("schedule_list", "List the user's scheduled tasks (id, title, when, next run, status).", obj({})),
   tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
+  tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -139,7 +140,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     computer: [...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
-    memory: by(["memory_note", "memory_save", "memory_search", "memory_forget"]),
+    memory: by(["recall", "memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
@@ -583,6 +584,11 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!p.ok) return `error: could not read ${p.url}: ${p.error}`;
       return clip(`${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}`, Math.max(RESULT_MAX, Number(a.max_chars) || 20000));
     }
+    if (name === "recall") {
+      if (!ctx.runId || !ctx.chatKey) return "error: nothing to recall here";
+      const { bankRecall } = await import("@/lib/coderBank");
+      return clip(await bankRecall(ctx.runId, ctx.chatKey, String(a.query || ""), Number(a.count) || 3, ctx.db));
+    }
     if (name === "http_request") {
       const { safeRequest } = await import("@/lib/coderWeb");
       try {
@@ -883,7 +889,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
   sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
-  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
+  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };

@@ -105,6 +105,8 @@ export function segmentMessages(goal: string, summary: string, segment: number):
       "",
       `[harness] This is segment ${segment} of a long task. The earlier context was replaced by this progress summary written at the end of segment ${segment - 1}. Continue the task from NEXT STEP; do not redo work listed under DONE unless you verify it is missing. Re-read files before editing them.`,
       summary.slice(0, 12000),
+      "",
+      "(Everything you read earlier in this task is kept: recall(query) gives it back; do not read the same file again.)",
     ].join("\n"),
   }];
 }

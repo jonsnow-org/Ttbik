@@ -173,3 +173,9 @@ Measured first (`nova-vision-probe.yml`): the Studio model can read pictures wit
 - Bot: a request that contains a picture goes only to a Studio that says `vision` (none: it says so, never guesses). A Telegram photo (caption = the question) is shrunk to `CODER_IMAGE_MAX_PX` (512) and shown to the model once; after its answer the picture becomes a note.
 - Tools (group `media`): `view_image` (URL or VM file), `view_video` (a few frames taken with ffmpeg in the VM; install it first if missing), `make_media` (Sham makes a picture / sound / video and it is sent to the chat; owner only). Main chat and workers.
 - Not built: understanding SOUND (the model repo has no audio file; it needs a separate speech model). A picture sent while a task is already running is not queued as a picture.
+
+## The task's read bank + `recall` (2026-10-25; the "episodic bank" of Sham's Palmyra memory, adapted)
+Sham's memory plan (SessionKV on disk, EpisodicBank, FactKNN, text memory) was written for a model with a 1-2k window. Nova's window is 65k; its limit is read speed (35-44 tok/s on CPU). What carries over:
+`coder_task_bank` (`coderBank.ts`): every read result (files, scans, CI logs, pages, search results) is kept in full, per task, outside the conversation (newest 60, 16k chars each). The model gets pieces back with the
+`recall(query)` tool (memory group) instead of reading the same file again; segment messages remind it. Plain lexical ranking over ~1000-char pieces. Not carried over: FactKNN (needs logits, which llama-server does not expose),
+the user text memory (Nova already has `coder_memories`, thread and segment summaries).
