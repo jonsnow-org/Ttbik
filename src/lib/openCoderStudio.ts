@@ -288,7 +288,17 @@ export function parseStatusSse(body: string): Record<string, unknown> | null {
   }
   return null;
 }
-async function studioStatus(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+// The hub rate-limits the account ("429 Request limit exceeded" seen on a live task): status asks are shared for 1.5 s (idle-picking, the panel, the queue check all ask the same Studios).
+const statusShared = new Map<string, { t: number; p: Promise<Record<string, unknown> | null> }>();
+function studioStatus(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  if (process.env.NODE_ENV === "test") return studioStatusRaw(base, timeoutMs);
+  const hit = statusShared.get(base);
+  if (hit && Date.now() - hit.t < 1500) return hit.p;
+  const p = studioStatusRaw(base, timeoutMs);
+  statusShared.set(base, { t: Date.now(), p });
+  return p;
+}
+async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
   const name = apiName("status");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = coderToken();

@@ -189,6 +189,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Work like a senior engineer on a real project, in a loop:",
     "1. PLAN: for any non-trivial task first write a short numbered plan (save it with memory_note).",
     "2. ACT: use the tools one step at a time. Read the relevant files before changing them; never guess file contents or APIs.",
+    "READING RULE: never describe a file, folder or project from its name. When asked what files contain or do, read them first (github_read_files takes up to 4 files in one call; github_repo_scan gives a repository's lay in one call) and say only what you read. Answer EVERY part of the request in the form and length asked (\"five lines\" = five lines, \"each file\" = one line per file); before you finish, check each part was answered, and say plainly what you could not check.",
     "3. VERIFY: after a change, re-read what you wrote and check CI with github_ci_status (or start a workflow). If something fails, read the error, fix it, verify again.",
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
