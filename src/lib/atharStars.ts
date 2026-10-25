@@ -115,7 +115,7 @@ export async function isTaken(site: string, dateIndex: number, tier: Tier, fetch
 /** True when this holder now holds the date (it was free, expired, or already this holder's). */
 export async function takeLock(dateIndex: number, holder: string, ttlSeconds: number): Promise<boolean> {
   const n = await x(
-    `insert into athar_date_locks (date_index, holder, expires_at) values ($1,$2, now() + make_interval(secs => $3))
+    `insert into athar_date_locks (date_index, holder, expires_at) values ($1,$2, now() + make_interval(secs => $3::double precision))
      on conflict (date_index) do update set holder=excluded.holder, expires_at=excluded.expires_at
      where athar_date_locks.expires_at < now() or athar_date_locks.holder = excluded.holder`, dateIndex, holder, ttlSeconds);
   return n > 0;
@@ -245,12 +245,12 @@ export async function sweep(apiFor: (botId: string) => RefundApi | null, site: s
   await ensureTables();
   const out: Sweep = { expired: 0, flagged: 0, minted: 0, refunded: 0, notify: [] };
   // unpaid for more than 15 minutes: expired, the date is free again
-  const exp = await q<Order>(`update athar_star_orders set status='expired' where status='pending' and created_at < now() - make_interval(mins => $1) returning ${COLS}`, PENDING_MINUTES);
+  const exp = await q<Order>(`update athar_star_orders set status='expired' where status='pending' and created_at < now() - make_interval(mins => $1::int) returning ${COLS}`, PENDING_MINUTES);
   for (const o of exp) await releaseLock(o.date_index, `stars:${o.id}`);
   out.expired = exp.length;
   await x(`delete from athar_date_locks where expires_at < now() - interval '1 day'`);
   // paid but not minted for 7 days: back to the person
-  out.flagged = await x(`update athar_star_orders set status='refund_pending', last_error='not minted within ${UNMINTED_DAYS} days' where status='paid' and paid_at < now() - make_interval(days => $1)`, UNMINTED_DAYS);
+  out.flagged = await x(`update athar_star_orders set status='refund_pending', last_error='not minted within ${UNMINTED_DAYS} days' where status='paid' and paid_at < now() - make_interval(days => $1::int)`, UNMINTED_DAYS);
   // a claimed order whose token now exists on the chain is minted (to be exact: the kind of that date is taken after we claimed it)
   for (const o of await q<Order>(`select ${COLS} from athar_star_orders where status='minting' limit 50`)) {
     if ((await isTaken(site, o.date_index, o.tier)) === true && (await x(`update athar_star_orders set status='minted', minted_at=now() where id=$1 and status='minting'`, o.id)) > 0) {

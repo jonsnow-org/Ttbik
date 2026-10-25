@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "ok", expired: res.expired, flagged: res.flagged, minted: res.minted, refunded: res.refunded });
   } catch (e) {
     console.error("[athar-stars cron]", e);
-    return NextResponse.json({ status: "error" }, { status: 500 });
+    // the route is secret-gated, so a short reason is safe here and lets the workflow log say what failed
+    return NextResponse.json({ status: "error", detail: String((e as Error)?.message || e).replace(/\s+/g, " ").slice(0, 200) }, { status: 500 });
   }
 }
