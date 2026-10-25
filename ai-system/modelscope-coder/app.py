@@ -455,13 +455,17 @@ def status() -> str:
     _purge()
     with JOBS_LOCK:
         q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running") and not j.get("cancel"))
+        now_t = time.time()
+        # what is in the queue right now (no text, only facts): lets the bot say WHO is ahead of a step instead of guessing
+        active = [dict(status=j["status"], age_s=int(now_t - j.get("created", now_t)), think=bool(j.get("think")), cancelled=bool(j.get("cancel")), prompt_chars=len(json.dumps(j.get("messages", []), ensure_ascii=False)),
+                       max_tokens=j.get("max_tokens", 0)) for j in JOBS.values() if j["status"] in ("queued", "running")][:8]
     mem = {}
     try:      # the box's real memory, so the context size can be checked against it (kB -> GB)
         info = dict(l.split(":", 1) for l in open("/proc/meminfo").read().splitlines() if ":" in l)
         mem = {"mem_total_gb": round(int(info["MemTotal"].split()[0]) / 1048576, 2), "mem_available_gb": round(int(info["MemAvailable"].split()[0]) / 1048576, 2)}
     except Exception:
         pass
-    return json.dumps(dict(STATE, queue=q, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
+    return json.dumps(dict(STATE, queue=q, active=active, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 
 def start_background() -> None:

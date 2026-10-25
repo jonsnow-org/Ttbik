@@ -93,7 +93,13 @@ const HELD_MS = 15 * 60000;
 export const forgetStudioHeld = (): void => { heldAt.clear(); };
 const rememberStudio = (key: string, base: string) => { heldAt.set(base, Date.now()); lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false): Promise<CoderOutcome> {
+/** What this process sent to the Studios (purpose, which Studio, when): when a step finds a job ahead of it, this says whether the bot itself put it there. */
+const studioLog: { t: number; studio: number; tag: string }[] = [];
+export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; tag: string }[] {
+  const now = Date.now();
+  return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
+}
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = ""): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
@@ -133,6 +139,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     if (last.reply) {
       studioCooling.delete(b);
       if (affinity) rememberStudio(affinity, b);
+      if (api === "chat") { studioLog.push({ t: Date.now(), studio: i + 1, tag: tag || "?" }); if (studioLog.length > 60) studioLog.shift(); }
       return i ? tagJob(last, i) : last;
     }
     studioCooling.set(b, Date.now() + COOL_MS);
@@ -222,7 +229,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop", tools: opts.tools });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
@@ -243,6 +250,7 @@ export function coderChat(
     opts.affinity,
     opts.fresh,
     opts.avoidHome,
+    opts.tag,
   );
 }
 

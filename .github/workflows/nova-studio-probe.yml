@@ -23,7 +23,7 @@ jobs:
             if [ "$code" = "200" ]; then
               ev=$(python3 -c "import json;print(json.load(open('r.json')).get('event_id',''))")
               sleep 2
-              out=$(curl -sS -m 25 -H "Authorization: Bearer $T" "$B/gradio_api/call/status/$ev" | head -c 600)
+              out=$(curl -sS -m 25 -H "Authorization: Bearer $T" "$B/gradio_api/call/status/$ev" | head -c 1800)
               echo "status    : $out"
             else
               head -c 200 r.json; echo

@@ -54,7 +54,7 @@ export function studioWriter(affinityBase: string, deadlineMs = 170000): Writer 
   return async (messages, index) => {
     const { coderChat, coderJobResult } = await import("@/lib/openCoderStudio");
     const t0 = Date.now();
-    const o = await coderChat(messages, { think: false, temperature: 0.3, maxTokens: 480, waitS: 15, timeoutMs: 25000, affinity: `${affinityBase}:${index}` });
+    const o = await coderChat(messages, { think: false, temperature: 0.3, maxTokens: 480, waitS: 15, timeoutMs: 25000, tag: "parallel", affinity: `${affinityBase}:${index}` });
     let r = o.reply;
     while (r && r.type === "pending" && r.job && Date.now() - t0 < deadlineMs) r = (await coderJobResult(r.job, 0, 10000)).reply || r;
     return r && r.type === "done" ? r.text || "" : "";
