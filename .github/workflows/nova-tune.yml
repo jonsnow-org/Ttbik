@@ -353,7 +353,7 @@ jobs:
         run: |
           curl -sSL -o old.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
           echo "${LLAMA_SHA256}  old.tgz" | sha256sum -c -
-          NEW=$(curl -sSLI -o /dev/null -w '%{url_effective}' https://github.com/ggml-org/llama.cpp/releases/latest | sed 's|.*/||')
+          NEW=b11887
           echo "newest release: $NEW"
           curl -sSL --fail -o new.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${NEW}/llama-${NEW}-bin-ubuntu-x64.tar.gz"
           mkdir old new && tar -xzf old.tgz -C old && tar -xzf new.tgz -C new
