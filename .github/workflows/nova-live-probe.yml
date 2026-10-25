@@ -10,6 +10,9 @@ on:
       prompt_tokens:
         description: "approximate prompt size in tokens"
         default: "1700"
+      think:
+        description: "1 = compare deeper thinking OFF vs ON on the same coding question (time, reasoning size, answer size)"
+        default: "0"
       cache:
         description: "1 = measure prompt-cache reuse (cold, then same start + 2 messages, then changed system line)"
         default: "0"
@@ -26,6 +29,7 @@ jobs:
           N: ${{ inputs.studio }}
           P: ${{ inputs.prompt_tokens }}
           CACHE: ${{ inputs.cache }}
+          THINK: ${{ inputs.think }}
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.request
@@ -66,6 +70,19 @@ jobs:
                   if cur != last: print(f"   [{label}] {time.time()-t0:5.0f}s prefill={pf} type={r.get('type')}", flush=True); last = cur
               print(f"== {label}: {time.time()-t0:.0f}s total, timings={r.get('timings')}, prefill={r.get('prefill')}, text={(r.get('text') or '')[:80]!r}", flush=True)
               return r
+          if os.environ.get("THINK") == "1":
+              q = [{"role": "system", "content": "You are Nova AI, a coding assistant. Reply in the user's language, briefly."},
+                   {"role": "user", "content": "I have a Next.js app. Which files do I touch to add a GET /api/ping endpoint with a jest test? Answer in 4 short bullets."}]
+              for label, th in (("thinking OFF", ""), ("thinking ON", "1")):
+                  t1 = time.time()
+                  r = call("chat", {"messages": json.dumps(q), "tools": "", "max_tokens": 700, "think": th, "temperature": 0.6, "wait_s": 5})
+                  job = r.get("job")
+                  while r.get("type") == "pending" and time.time() - t1 < 600:
+                      time.sleep(3); r = call("job_result", {"job_id": job, "offset": 0})
+                  tm = r.get("timings") or {}
+                  print(f"== {label}: {time.time()-t1:.0f}s | reasoning chars={r.get('reasoning_len')} | answer chars={r.get('total')} | tokens generated={tm.get('predicted_n')} at {tm.get('predicted_per_second')} tok/s | prompt_n={tm.get('prompt_n')}", flush=True)
+                  print("   answer:", (r.get("text") or "")[:300].replace("\n", " / "), flush=True)
+              raise SystemExit(0)
           if os.environ.get("CACHE") == "1":
               conv = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."}, {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK."}]
               a = one(conv, "first (cold)")
