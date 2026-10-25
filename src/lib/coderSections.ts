@@ -1241,7 +1241,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
         await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
-        await new Promise((res) => setTimeout(res, pollMs()));
+        // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
+        await new Promise((res) => setTimeout(res, r.total ? pollMs() : Math.max(pollMs(), Number(process.env.CODER_PREFILL_POLL_MS ?? (process.env.NODE_ENV === "test" ? 0 : 4000)))));
         continue;
       }
       // done: metered in model tokens (plans are token-based): the Studio's own counts (llama.cpp timings) when it sends them,
