@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25 16:33 UTC",
+  "generated_at": "2026-10-25 21:00 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -243,13 +243,13 @@
       "size_mb": 0.0,
       "last_updated": "2026-10-25",
       "progress": {
-        "samples_consumed": 134928,
-        "step": 34824,
+        "samples_consumed": 149056,
+        "step": 36590,
         "last_run_sources": {
           "cv17-ar": 1000
         },
         "codebook_usage": 2012,
-        "recon": 0.01253075916797687
+        "recon": 0.012107706686947495
       },
       "has_key_files": true
     },
@@ -267,13 +267,13 @@
       "size_mb": 0.0,
       "last_updated": "2026-10-25",
       "progress": {
-        "samples_consumed": 101376,
-        "step": 9604,
+        "samples_consumed": 108756,
+        "step": 11449,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 2487,
-        "recon": 0.07214060885941281
+        "codebook_usage": 3270,
+        "recon": 0.05984762058489852
       },
       "has_key_files": true
     },
@@ -328,7 +328,7 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 0.0,
+      "size_mb": 11.7,
       "last_updated": "2026-10-25",
       "progress": {
         "videos_consumed": 2967
@@ -398,13 +398,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 134928,
-          "step": 34824,
+          "samples_consumed": 149056,
+          "step": 36590,
           "last_run_sources": {
             "cv17-ar": 1000
           },
           "codebook_usage": 2012,
-          "recon": 0.01253075916797687
+          "recon": 0.012107706686947495
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
