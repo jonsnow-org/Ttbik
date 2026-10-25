@@ -160,6 +160,11 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
  */
 async function idleFirst(order: { b: string; i: number }[], preferred?: string): Promise<{ b: string; i: number }[]> {
   if ((process.env.CODER_STUDIO_BALANCE || "").toLowerCase() === "off") return order;
+  if (preferred && order.some((x) => x.b === preferred)) {
+    // the conversation's own Studio first: when it is ready with nothing queued, the other four are not asked at all (five asks at once is the burst the hub refuses)
+    const st0 = await studioStatus(preferred, Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900))).catch(() => null);
+    if (st0 && st0.phase === "ready" && !(Number(st0.queue) > 0)) return [...order].sort((x, y) => Number(y.b === preferred) - Number(x.b === preferred));
+  }
   const capMs = Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900));
   const seen = new Map<string, number>();                                  // base -> queue length (Infinity = not ready / no answer)
   const score = (st: Record<string, unknown> | null) => (st && st.phase === "ready" ? Number(st.queue) || 0 : Infinity);
@@ -212,7 +217,38 @@ async function errorDetail(r: Response): Promise<string> {
   }
 }
 
+// The hub refuses BURSTS, not a steady stream. Measured 2026-10-26 (nova-ratelimit-probe.yml, one call at a time even 4 per second = never refused): 6 calls at once → 1 refused (429),
+// 10 at once → 5 refused, 10-20 at once over the five Studios → all refused. A call here is two requests (submit, then the result stream), and the bot used to ask all five Studios
+// for their status in parallel at every step plus the poll: a burst. So every request to a Studio goes through ONE gate (CODER_HUB_CONCURRENCY, default 3 at a time), and a 429 is
+// asked again after a short pause (the burst is over in seconds) instead of ending the step.
+let hubActive = 0;
+const hubWaiters: (() => void)[] = [];
+async function hubSlot<T>(fn: () => Promise<T>): Promise<T> {
+  const max = Math.max(1, Number(process.env.CODER_HUB_CONCURRENCY || 3));
+  while (hubActive >= max) await new Promise<void>((res) => hubWaiters.push(res));
+  hubActive++;
+  try {
+    return await fn();
+  } finally {
+    hubActive--;
+    hubWaiters.shift()?.();
+  }
+}
+const HUB_RETRY_MS = (): number[] => (process.env.NODE_ENV === "test" ? [0, 0] : [1500, 3500, 7000]);
+
 async function callOne(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
+  const started = Date.now();
+  const waits = HUB_RETRY_MS();
+  for (let k = 0; ; k++) {
+    const o = await hubSlot(() => callOnce(base, api, payload, timeoutMs));
+    if (o.status !== 429 || k >= waits.length) return o;
+    const pause = waits[k] + (waits[k] ? Math.random() * 600 : 0);
+    if (Date.now() + pause + 1500 > started + timeoutMs) return o;           // no room left in this call's own time budget: the caller's own pause takes over
+    await new Promise((res) => setTimeout(res, pause));
+  }
+}
+
+async function callOnce(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = coderToken();
@@ -325,6 +361,9 @@ function studioStatus(base: string, timeoutMs: number): Promise<Record<string, u
   return p;
 }
 async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  return hubSlot(() => studioStatusOnce(base, timeoutMs));
+}
+async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
   const name = apiName("status");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = coderToken();

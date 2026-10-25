@@ -94,7 +94,7 @@ def default_repair_data(model, tokenizer, gate_hold_questions: set, n_batches: i
     try:
         dialogues, _ = load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))      # the gate's own four Arabic sets (its yardstick never moves)
         train_part, _hold = split_holdout(dialogues, seed=7)        # نفس تقسيم الميزان ⇒ لا تسريب
-        more, _ = load_arabic_dialogues({"cidar": 5000, "aya_ar": 5000}, 4000)
+        more, _ = load_arabic_dialogues({"cidar": 5000, "aya_ar": 5000}, 4000, plan=_chat_plan(extra=False))     # the repair mix stays the Arabic sets it was built on
         pairs = [(q, a) for q, a in train_part + more if " ".join(q.split()) not in gate_hold_questions]
         ex = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in pairs]
         chat = batch_examples(ex, BATCH, seed=seed)
