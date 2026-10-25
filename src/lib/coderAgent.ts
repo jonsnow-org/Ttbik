@@ -160,7 +160,7 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
   const loaded = loadedGroups(msgs, groups);
   for (const g of keep) if (groups[g]) loaded.add(g);                       // groups used before a segment break stay loaded (the new context starts empty)
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
-  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...[...loaded].flatMap((g) => groups[g])];
+  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
 }
 
 export type Accuracy = "fast" | "balanced" | "precise";
@@ -217,6 +217,31 @@ const TRIM_STEP = 8;
 /** The same user text sent again with no answer in between (a retry after a failed or stalled attempt) says nothing new: one copy is enough, and the CPU does not read it twice. */
 export function collapseRepeats(msgs: CoderMessage[]): CoderMessage[] {
   return msgs.filter((m, i) => !(i > 0 && m.role === "user" && msgs[i - 1].role === "user" && typeof m.content === "string" && m.content.length > 20 && m.content === msgs[i - 1].content));
+}
+
+const msgChars = (m: CoderMessage): number => (m.content || "").length + JSON.stringify((m as { tool_calls?: unknown }).tool_calls || "").length;
+
+/**
+ * The conversation the model reads each step: from a FIXED start (`start`, kept in the chat's state) to the end. While the start does not move the prompt only
+ * ever grows at its end, so the model server reuses everything it already read and a new message costs almost nothing. The start moves only when the window
+ * has grown past `maxChars`, and then it jumps FORWARD to a small window (`smallChars`, always including the latest request whole): one short re-read instead of
+ * a re-read of the full window on every task. (A CPU Studio reads ~30-45 prompt tokens/s: 24,000 Arabic characters ≈ 11k tokens ≈ 5-7 minutes.)
+ */
+export function windowFrom(all: CoderMessage[], start: number, maxChars: number, smallChars: number): { msgs: CoderMessage[]; start: number } {
+  let from = Number.isFinite(start) && start > 0 && start < all.length ? Math.floor(start) : 0;
+  const size = (a: number) => { let t = 0; for (let k = a; k < all.length; k++) t += msgChars(all[k]); return t; };
+  if (size(from) > maxChars) {
+    let lastUser = -1;
+    for (let k = all.length - 1; k >= 0; k--) if (all[k].role === "user" && !String(all[k].content).startsWith("[harness]")) { lastUser = k; break; }
+    let i = all.length, acc = 0;
+    while (i > 0) { const len = msgChars(all[i - 1]); if (acc + len > smallChars && i < all.length) break; acc += len; i--; }
+    if (lastUser >= 0 && i > lastUser) i = lastUser;
+    while (i < all.length && all[i].role !== "user" && i < (lastUser < 0 ? all.length : lastUser)) i++;      // start on a user message, never on a tool result
+    if (i > from) from = i;
+  }
+  let out = collapseRepeats(all.slice(from));
+  while (out.length > 1 && out[0].role !== "user") out = out.slice(1);
+  return { msgs: out, start: from };
 }
 
 export function trimMessages(all: CoderMessage[], maxChars = historyChars()): CoderMessage[] {

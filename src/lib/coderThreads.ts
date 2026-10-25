@@ -226,6 +226,7 @@ async function summarizeThread(r: any, msgs: CoderMessage[], db: Db, deps: Quiet
     const last = (m: CoderMessage[]) => JSON.stringify(m[m.length - 1] || null);
     if (state.run || last(state.messages || []) !== last(msgs)) return `skip ${r.id} (changed)`;
     state.messages = next;
+    state.winStart = 0;
     await db.exec(`UPDATE coder_chat_state SET state = $2::jsonb, updated_at = now() WHERE chat_key = $1`, r.chat_key, JSON.stringify(state));
   }
   // updated_at is kept as it was: a summary is not new activity

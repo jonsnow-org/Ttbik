@@ -95,6 +95,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   switch (op) {
     case "me": {
       const st = await loadState(chatId, db);
+      void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
       return {

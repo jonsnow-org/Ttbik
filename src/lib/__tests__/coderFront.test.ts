@@ -104,3 +104,70 @@ describe("a Studio whose model server is in error", () => {
     delete process.env.OPEN_CODER_STUDIO_URLS;
   });
 });
+
+describe("the conversation window", () => {
+  const { windowFrom } = require("@/lib/coderAgent");
+  const m = (role: string, n: number, tag = "") => ({ role, content: `${tag}${"x".repeat(n)}` });
+  it("only grows at its end while it is under the cap; past the cap it jumps forward to a small window that keeps the latest request", () => {
+    const all: any[] = [];
+    for (let i = 0; i < 6; i++) all.push(m("user", 1000, `u${i} `), m("assistant", 1000, `a${i} `));      // 12k chars
+    const a = windowFrom(all, 0, 24000, 5000);
+    expect(a.start).toBe(0);
+    expect(a.msgs).toHaveLength(12);
+    all.push(m("user", 1000, "u6 "), m("assistant", 1000, "a6 "));
+    const b = windowFrom(all, a.start, 24000, 5000);
+    expect(b.start).toBe(0);                                              // the start did not move: the new prompt extends the old one
+    for (let i = 7; i < 14; i++) all.push(m("user", 1500, `u${i} `), m("assistant", 1500, `a${i} `));           // now > 24k
+    const c = windowFrom(all, b.start, 24000, 5000);
+    expect(c.start).toBeGreaterThan(0);
+    expect(c.msgs[0].role).toBe("user");
+    expect(c.msgs.reduce((t: number, x: any) => t + x.content.length, 0)).toBeLessThanOrEqual(6500);
+    expect(String(c.msgs[c.msgs.length - 1].content).startsWith("a13")).toBe(true);
+    const d = windowFrom(all, c.start, 24000, 5000);
+    expect(d.start).toBe(c.start);                                        // stays put again until it is full again
+  });
+  it("a long current task is kept whole (its own steps are its working memory); the start never passes the latest request", () => {
+    const all: any[] = [m("user", 800, "old "), m("assistant", 800), m("user", 500, "REQUEST ")];
+    for (let i = 0; i < 12; i++) all.push({ role: "assistant", content: "", tool_calls: [{ id: `c${i}`, type: "function", function: { name: "t", arguments: "{}" } }] }, { role: "tool", content: "r".repeat(3000), tool_call_id: `c${i}` });
+    const w = windowFrom(all, 0, 24000, 5000);
+    expect(String(w.msgs[0].content).startsWith("REQUEST")).toBe(true);
+    expect(w.msgs.length).toBe(25);
+  });
+});
+
+describe("a cold Studio", () => {
+  it("when the Studio says it must read a huge prompt from zero, the step is sent again with a short window", async () => {
+    const { saveState, loadState } = require("@/lib/coderSections");
+    process.env.OPEN_CODER_STUDIO_URL = "https://s1.test";
+    delete process.env.OPEN_CODER_STUDIO_URLS;
+    process.env.MODELSCOPE_API_TOKEN = "ms"; process.env.CODER_POLL_MS = "5"; process.env.CODER_PREFILL_POLL_MS = "0";
+    process.env.SUPER_ADMIN_TELEGRAM_ID = String(CHAT + 2); process.env.CODER_TOKEN_KEY = "test-key";
+    const db = fakeDb();
+    const msgs: any[] = [];
+    for (let i = 0; i < 10; i++) msgs.push({ role: "user", content: `سؤال ${i} ` + "ن".repeat(1000) }, { role: "assistant", content: `جواب ${i} ` + "ج".repeat(1000) });      // ~20k chars: under the cap, so the first window is the whole of it
+    await saveState(CHAT + 2, { mode: "coder", think: false, messages: msgs, notes: "", inbox: [], run: null }, db);
+    const sizes: number[] = [];
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
+      if (url.includes("/gradio_api/call/v2/")) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        if (body.messages) sizes.push(body.messages.length);
+        return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      }
+      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) {
+        if (sizes.length < 2) return new Response(sse({ type: "pending", job: "j1", status: "running", phase: "ready", queue_pos: 0, total: 0, prefill: { total: 14000, cache: 0, processed: 14, time_ms: 300 } }), { status: 200 });
+        return new Response(sse({ type: "done", job: "j2", text: "جاهز بعد التقصير", tool_calls: [] }), { status: 200 });
+      }
+      return new Response("{}", { status: 202 });
+    });
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT + 2 }, text: "اشرح لي هذا المشروع بإيجاز" } }, db);
+    for (let i = 0; i < 80 && !sent.some((s) => /جاهز بعد التقصير/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 100));
+    expect(sent.some((s) => /جاهز بعد التقصير/.test(s.text))).toBe(true);
+    expect(sizes.length).toBeGreaterThanOrEqual(2);
+    expect(sizes[sizes.length - 1]).toBeLessThan(sizes[0] * 0.75);       // the second try carries far less history
+    const st = await loadState(CHAT + 2, db);
+    expect(st.winStart || 0).toBeGreaterThan(0);                           // and the new start is remembered, so later tasks extend it
+  });
+});

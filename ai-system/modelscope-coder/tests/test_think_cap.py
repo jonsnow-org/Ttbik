@@ -36,4 +36,18 @@ srv2=http.server.ThreadingHTTPServer(("127.0.0.1",0),H2); threading.Thread(targe
 app.LLAMA_PORT=srv2.server_address[1]
 job2=dict(job, think=True, text="", reasoning="", seen=time.time()); app._stream(job2)
 print("short thought:",calls,repr(job2["text"])); assert calls==[True] and job2["text"]=="done"
+# thinking that ends with NO answer and no tool call (everything written inside the thought) is asked again with thinking off
+calls.clear()
+class H3(H):
+    def do_POST(self):
+        body=json.loads(self.rfile.read(int(self.headers["Content-Length"]))); think=body["chat_template_kwargs"]["enable_thinking"]; calls.append(think)
+        self.send_response(200); self.send_header("Content-Type","text/event-stream"); self.end_headers()
+        def ev(d): self.wfile.write(b"data: "+json.dumps(d).encode()+b"\n\n"); self.wfile.flush()
+        if think: ev({"choices":[{"delta":{"reasoning_content":"short thought with the answer inside"}}]})
+        else: ev({"choices":[{"delta":{"content":"real answer"}}]})
+        self.wfile.write(b"data: [DONE]\n\n")
+srv3=http.server.ThreadingHTTPServer(("127.0.0.1",0),H3); threading.Thread(target=srv3.serve_forever,daemon=True).start()
+app.LLAMA_PORT=srv3.server_address[1]
+job3=dict(job, think=True, text="", reasoning="", seen=time.time(), tool_calls=[]); app._stream(job3)
+print("empty thought:",calls,repr(job3["text"])); assert calls==[True,False] and job3["text"]=="real answer"
 print("OK")

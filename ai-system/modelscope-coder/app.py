@@ -258,8 +258,9 @@ THINK_CAP_CHARS = max(300, int(os.environ.get("CODER_THINK_CAP_CHARS", "1200") o
 
 def _stream(job: dict) -> None:
     _stream_once(job)
-    if job.get("think_cut") and not job.get("cancel"):
-        job.update(think=False, think_cut=False, thought_chars=len(job.get("reasoning", "")), text="", reasoning="", finish_reason="")
+    # a thought that was too long, or one that ended with no answer and no tool call (the answer / call written inside the thinking): ask again, thinking off
+    if job["think"] and not job.get("cancel") and (job.get("think_cut") or (not job["text"].strip() and not job.get("tool_calls"))):
+        job.update(think=False, think_cut=False, thought_chars=len(job.get("reasoning", "")), text="", reasoning="", finish_reason="", tool_calls=[])
         _stream_once(job)
 
 

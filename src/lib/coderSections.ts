@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, accuracyNote, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -28,7 +28,7 @@ export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -43,7 +43,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string; agentResult?: AgentResult };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string; agentResult?: AgentResult };
 export type { Db };
 export { coderChatKey };
 
@@ -382,6 +382,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (st.mode === "sham") return false;                     // the existing Sham path, exactly as before
 
   if (cmd === "/start" || cmd === "/help") {
+    later(() => prewarmChat(chatId, db));
     await ensureMenuButton(bot, chatId, st, db, true);
     await send(bot, chatId, welcomeText(String(msg.from?.first_name || "")), { reply_markup: welcomeKeyboard() });
     return true;
@@ -480,6 +481,35 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   if (!cur?.run || cur.run.id !== runId || cur.run.sent || cur.run.botSent) return;   // the real answer got there first
   if (surface === "app") await taskEvent(runId, "info", `🤖 ${text}`, db);
   else await send(bot, chatId, `🤖 ${text}`);
+}
+
+const warmedAt = new Map<number, number>();
+/**
+ * Reads the conversation into the Studio's cache BEFORE the user's next message, while they are still typing: when the app is opened or /start is sent and the
+ * conversation's Studio is not holding it (restarted, or used by something else), one invisible request with the same start as the next prompt (system, tools,
+ * the same history window) and a dummy last line, one token of output. Measured: a prompt that differs only in its last message is then read in ~3 s instead of
+ * ~110 s. It writes nothing to the chat, runs only when no task is running, at most once per 8 minutes, and CODER_PREWARM=0 turns it off.
+ */
+export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<void> {
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || !coderEnabled()) return;
+  if (Date.now() - (warmedAt.get(chatId) || 0) < 8 * 60000) return;
+  warmedAt.set(chatId, Date.now());
+  const st = await loadState(chatId, db);
+  if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "nova_pro") return;
+  const ctx = await toolCtx(chatId, st, db, null);
+  const github = Boolean(ctx.gh);
+  const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+  const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
+  const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
+  const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
+  const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
+  const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000 }).catch(() => null);
+  let r = o?.reply || null;
+  const t0 = Date.now();
+  while (r?.type === "pending" && r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
+    await new Promise((res) => setTimeout(res, 5000));
+    r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
+  }
 }
 
 /** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
@@ -581,7 +611,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
   else if (st.messages.length) await ensureThread(chatId, st, db);
   if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
-  const next: ChatState = { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
+  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
   if (target) {
     next.threadId = target.id;
     next.messages = target.messages || [];
@@ -1225,6 +1255,19 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
+        // A cold Studio (restarted, or another conversation took its slot) would read this whole prompt from zero: ~30-45 tokens/s, minutes of silence. The Studio's
+        // first progress report says how much it must read; when that is a lot, the window restarts small (the latest request plus a few recent turns) and the step is sent again.
+        if (r.prefill && !run.coldReset && Number(r.prefill.total) > 0 && Number(r.prefill.total) - Number(r.prefill.cache || 0) > (Number(process.env.CODER_COLD_MAX_TOKENS) || 5000)) {
+          await coderCancel(run.job).catch(() => null);
+          run.coldReset = true;
+          st.winStart = windowFrom(st.messages, st.winStart || 0, 0, Number(process.env.CODER_RESET_CHARS) || 5000).start;
+          run.job = undefined;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+          run.logged = 0;
+          await taskEvent(run.id, "info", `🧊 الاستوديو بارد: كان سيقرأ ${Number(r.prefill.total) - Number(r.prefill.cache || 0)} رمزاً من الصفر؛ أقصّر المحادثة وأعيد الإرسال.`, db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
         const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}|${r.prefill?.processed ?? ""}`;   // reading the prompt counts as life
         if (!run.jobMovedAt || size !== run.jobSize) {
@@ -1283,6 +1326,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         run.job = undefined;
         run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
+        // With deeper thinking a small model sometimes writes its whole answer (or its tool call) inside the thinking part, which the server hands back as "no text":
+        // the same step is asked again with thinking off, for the rest of this run, before anything else is tried.
+        if ((st.think || run.stall.level >= 2) && !run.thinkOff) {
+          run.thinkOff = true;
+          await taskEvent(run.id, "info", "🔁 انتهت الخطوة بلا نص مع التفكير الأعمق؛ أعيدها بدونه.", db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
         if ((run.retries || 0) < 1) {
           run.retries = (run.retries || 0) + 1;
           run.histChars = Math.max(12000, Math.floor((run.histChars || historyChars()) / 2));
@@ -1482,8 +1533,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.ctxStamped = true;
     }
     const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop";      // Sham gets the bare words, no context block
+    const histOf = (): CoderMessage[] => {
+      if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
+      const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
+      st.winStart = w.start;
+      return w.msgs;
+    };
     const wireOf = (m: CoderMessage): CoderMessage => (!toSham && m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...trimMessages(st.messages, run.histChars).map(wireOf)];
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
@@ -1491,7 +1548,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً (تعليمات " + estimateTokens(String(messages[0].content || "")) + " + محادثة " + estimateTokens(messages.slice(1).map((m) => m.content || "").join("\n")) + ").", db);
     const modelStartedAt = Date.now();
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, run.keepGroups).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, run.keepGroups), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    // The tool list sits at the very START of the prompt, so any change to it makes the Studio read the whole conversation again. Groups once used in this
+    // chat therefore stay loaded for every later task (persisted with the state): the list only grows, the first time a new group is needed.
+    const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
+    if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
+    const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -1502,6 +1564,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!run.outageNoted) {
           run.outageNoted = true;
           await taskEvent(run.id, "info", `⏳ خادم النموذج غير متاح الآن (${o.failure}${o.status ? ` HTTP ${o.status}` : ""})؛ أعاود تلقائياً لمدة تصل إلى ${Math.round(outageMs() / 60000)} دقيقة.`, db);
+        }
+        if (!run.outageSaid && Date.now() - run.outageSince >= (process.env.NODE_ENV === "test" ? 0 : 45000)) {          // a blip of a few seconds is not worth a message
+          run.outageSaid = true;
           await send(ioBot, chatId, "⏳ خادم النموذج غير متاح لحظياً؛ أعاود تلقائياً وسأكمل المهمة حين يعود.");
         }
         await saveState(chatId, st, db, slot);
@@ -1518,7 +1583,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return;
     }
     run.job = r.job;
-    run.outageSince = undefined; run.outageNoted = undefined;
+    run.outageSince = undefined; run.outageNoted = undefined; run.outageSaid = undefined;
     run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
     run.jobAt = Date.now();
@@ -1542,6 +1607,7 @@ async function startSegment(bot: TelegramBot, chatId: number, st: ChatState, run
   await taskEvent(run.id, "segment", `${seg} → ${seg + 1}${own ? "" : " (harness summary)"}
 ${summary}`, db);
   st.messages = segmentMessages(run.goal || "", summary, seg + 1);
+  st.winStart = 0;
   run.segment = seg + 1;
   run.segStep = run.step;
   run.compacting = false;
