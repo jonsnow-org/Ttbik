@@ -4,7 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
-import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 
 // Recognized the same way as every other bot template on this platform
@@ -787,9 +787,10 @@ async function sendShamLater(bot: TelegramBot, chatId: number, later?: ShamReply
 async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
   const t0 = Date.now();
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-  const first = await shamThink(text, mem?.chatKey || chatKey(chatId), mem, 80, 28000);
+  const first = await shamThinkPatient(text, mem?.chatKey || chatKey(chatId), mem, 80, 28000, 40000);
   if (shamThinkUnavailable(first)) return false;
-  const r = first.reply;
+  let r = first.reply;
+  let reasked = false;
   await sendShamLater(bot, chatId, r?.later);
   const done = async (x: ShamReply) => {
     await sendShamReply(bot, chatId, x);
@@ -808,7 +809,15 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     await new Promise((res) => setTimeout(res, 3000));
     const left = 50000 - (Date.now() - t0);
     if (left < 2000) break;
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const o = await shamJobResult(r.job, false, Math.min(8000, left));
+    if (o.reply?.type === "gone" && !reasked && left > 20000) {
+      // the Studio restarted and lost the job: the same message is asked again once (Nova does the same for a lost step) instead of asking the user to resend
+      reasked = true;
+      const again = await shamThink(text, mem?.chatKey || chatKey(chatId), mem, 80, Math.min(25000, left - 4000));
+      if (again.reply?.type === "pending" && again.reply.job) { r = again.reply; continue; }
+      if (again.reply && again.reply.type !== "pending" && again.reply.type !== "gone") { await done(again.reply); return true; }
+    }
     if (o.reply && o.reply.type !== "pending") {
       await done(o.reply.type === "gone" ? { type: "notice", text: shamStatusText(o) } : o.reply);
       return true;

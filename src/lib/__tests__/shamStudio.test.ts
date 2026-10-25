@@ -1,4 +1,4 @@
-import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkUnavailable } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
@@ -58,6 +58,32 @@ describe("shamStudio think", () => {
     global.fetch = (async () => { n++; throw Object.assign(new Error("slow"), { name: "TimeoutError" }); }) as any;
     expect((await shamThink("مرحبا", "1", null, 80, 30000)).failure).toBe("timeout");
     expect(n).toBe(1);
+    global.fetch = real;
+    delete process.env.MODELSCOPE_API_TOKEN;
+  });
+  it("patient think: busy is asked again, an empty text once more, a good answer is passed on untouched", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch;
+    const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+    const run = async (replies: object[]) => {
+      let n = 0, sub = 0;
+      global.fetch = (async (url: string) => {
+        if (/call\/v2\//.test(url)) { sub++; return { ok: true, json: async () => ({ event_id: "e" }) } as any; }
+        return { ok: true, text: async () => sse(replies[Math.min(n++, replies.length - 1)]) } as any;
+      }) as any;
+      const o = await shamThinkPatient("مرحبا", "1", null, 80, 28000, 100000);
+      return { o, sub };
+    };
+    let x = await run([{ type: "busy" }, { type: "busy" }, { type: "text", text: "أهلاً" }]);
+    expect(x.o.reply).toEqual({ type: "text", text: "أهلاً" }); expect(x.sub).toBe(3);
+    x = await run([{ type: "busy" }, { type: "busy" }, { type: "busy" }, { type: "text", text: "late" }]);
+    expect(x.o.reply?.type).toBe("busy"); expect(x.sub).toBe(3);                  // two more tries at most
+    x = await run([{ type: "text", text: "  " }, { type: "text", text: "الآن" }]);
+    expect(x.o.reply?.text).toBe("الآن"); expect(x.sub).toBe(2);
+    x = await run([{ type: "text", text: "  " }]);
+    expect(x.sub).toBe(2);                                                         // one retry only, then it is passed on
+    x = await run([{ type: "text", text: "مرحبا بك" }]);
+    expect(x.sub).toBe(1);
     global.fetch = real;
     delete process.env.MODELSCOPE_API_TOKEN;
   });

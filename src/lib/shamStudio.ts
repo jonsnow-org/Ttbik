@@ -195,3 +195,30 @@ export async function shamCallOutcome(api: string, payload: Record<string, unkno
   await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 1500));
   return shamCallOnce(api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)));
 }
+
+// What Nova's loop does when a step comes back with nothing usable, for Sham's one-step `think` (the webhook has ~60 s, so every wait is bounded):
+// "busy" (the Studio is on another request) is asked again after a moment, twice at most; a text reply with no text at all is asked once more.
+// Whatever the model writes is passed on untouched; nothing is invented. `budgetMs` is the time this call may use in total.
+export async function shamThinkPatient(
+  prompt: string,
+  userId: string,
+  mem: Parameters<typeof shamThink>[2],
+  maxNewTokens: number,
+  timeoutMs: number,
+  budgetMs = 40000,
+): Promise<ShamOutcome> {
+  const t0 = Date.now();
+  let out = await shamThink(prompt, userId, mem, maxNewTokens, timeoutMs);
+  let busy = 0, empty = 0;
+  for (;;) {
+    const r = out.reply;
+    const left = budgetMs - (Date.now() - t0);
+    if (r?.type === "busy" && busy < 2 && left > timeoutMs / 2) {
+      busy++;
+      await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 3000));
+    } else if (r?.type === "text" && !(r.text || "").trim() && empty < 1 && left > timeoutMs / 2) {
+      empty++;
+    } else return out;
+    out = await shamThink(prompt, userId, mem, maxNewTokens, Math.max(5000, Math.min(timeoutMs, budgetMs - (Date.now() - t0))));
+  }
+}
