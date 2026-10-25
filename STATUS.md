@@ -1,4 +1,4 @@
-# حالة مشروع شام — 2026-10-25 11:39 UTC
+# حالة مشروع شام — 2026-10-25 16:29 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
@@ -34,7 +34,7 @@
 - complete | مسار جمع وترميز الفيديو 1 | الدور: primary | آخر تشغيل 2026-10-01
 - error | مسار ترميز الصوت 3 | الدور: primary | آخر تشغيل 2026-10-11 | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - complete | مسار ترميز الصورة 3 | الدور: primary | آخر تشغيل 2026-10-12
-- running | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-10-24
+- running | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-10-25
 - complete | المسار A 1 | الدور: primary | آخر تشغيل 2026-10-12
 - complete | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-10
 - complete | المرحلة الثانية 1 | الدور: primary | آخر تشغيل 2026-09-23
@@ -44,17 +44,13 @@
 - (+5 دفتراً غير تابع لشام، +4 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-25T11:39 in_progress ، 2026-10-25T04:49 success
-- Sham Collector (free CPU runner): 2026-10-25T11:19 in_progress ، 2026-10-25T04:35 success
-- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-10-25T11:14 success ، 2026-10-25T09:10 success ، 2026-10-25T04:05 success
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-25T11:13 in_progress ، 2026-10-25T04:28 success
-- Sham Merge + Repair + Eval (free CPU runner): 2026-10-25T10:11 in_progress ، 2026-10-25T01:46 success
-- Sham decoder refine (image / audio tokenizer decoder only): 2026-10-25T08:42 queued
-- Sham Vault (checkpoint backup to ModelScope): 2026-10-25T08:41 success
-- Sham CI (contract + self-tests, read-only): 2026-10-25T08:01 success ، 2026-10-25T08:01 success
-- Sham ModelScope Studio (host + worker): 2026-10-25T07:38 success
-- Sham Token Shards (free CPU runner): 2026-10-25T05:23 success
-- Sham Kaggle Inspect (read-only): 2026-10-25T05:14 success
+- Sham Status (supervision snapshot): 2026-10-25T16:28 in_progress ، 2026-10-25T11:39 success
+- Sham Collector (free CPU runner): 2026-10-25T16:11 in_progress ، 2026-10-25T11:19 success
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-25T16:00 in_progress ، 2026-10-25T11:13 success
+- Sham Merge + Repair + Eval (free CPU runner): 2026-10-25T15:03 success
+- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-10-25T13:44 success ، 2026-10-25T11:14 success
+- Sham Token Shards (free CPU runner): 2026-10-25T12:06 success
+- Sham Kaggle Inspect (read-only): 2026-10-25T11:57 success
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - لا أخطاء حديثة ✅
@@ -73,24 +69,24 @@
 | sham-cpu-track-checkpoint-v2 | 0 | 2026-10-25 | track_a | المسار A: تدريب نصي مستمر على CPU |
 | sham-research-track-checkpoint-v2 | 0 | 2026-10-24 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
 | sham-crawl-checkpoint | 0 | 2026-10-25 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
-| sham-crawl-corpus | 0 | 2026-10-25 | live_trainer | نصوص المدرّب الحي على Kaggle |
+| sham-crawl-corpus | 1327918 | 2026-10-25 | live_trainer | نصوص المدرّب الحي على Kaggle |
 | sham-crawl-legacy | — | غير موجودة | repair | ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح) |
 | sham-chat-checkpoint-incoming | — | غير موجودة | repair | ما نُشر فوق مجموعة المحادثة من دفتر آخر (يُنقل بالإصلاح) |
 | sham-crawl-gh | 0 | 2026-10-25 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
-| sham-crawl-gh-corpus | 1216396 | 2026-10-25 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
+| sham-crawl-gh-corpus | 0 | 2026-10-25 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
 | sham-crawl-gh-collect-corpus | 0 | 2026-10-25 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
 | sham-merged-checkpoint | 0 | 2026-10-25 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
-| sham-reports | 13995 | 2026-10-25 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
+| sham-reports | 0 | 2026-10-25 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
 | sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | — | مُرمِّز صوت (VQ) تجربة قديمة — مرشّح صوتي، تُدمج أوزانه بحسب نوعها (صوت) حين تتوافق البنية، وإلا يبقى مرشّحاً |
 | sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | — | مُرمِّز صوت (VQ) النسخة الثانية للتجربة — مرشّح صوتي (صوت) |
 | sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | — | مُرمِّزا صورة وصوت من مسار الفيديو — مرشّحان لمساري الصورة والصوت بحسب نوع كل ملف |
 | sham-orchestrator-state | 277 | 2026-09-27 | — | حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
-| sham-keeper-state | 719 | 2026-10-25 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
+| sham-keeper-state | 0 | 2026-10-25 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
 | sham-crawl-selflearn | — | غير موجودة | selflearn | نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*) |
 | sham-crawl-selflearn-corpus | — | غير موجودة | selflearn | نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً) |
-| sham-text-shards | 0 | 2026-10-25 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
+| sham-text-shards | 22 | 2026-10-25 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
 | sham-crawl-modal | — | غير موجودة | modal_gpu | نموذج جلسات GPU على Modal (مرشّح لبوابة الدمج) |
 | sham-grown-checkpoint | 718122048 | 2026-10-11 | model_grow | أفضل نقطة حفظ بالقياس بعد التكبير (طبقات أكثر وسياق أطول، الدالة محفوظة) — يفضّلها الدمج والمدرّب الحي عند التعادل |
 | sham-image-tokenizer-v2-checkpoint | 144015040 | 2026-10-15 | lightning_probe | مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning) |
@@ -237,6 +233,62 @@
 - sham-media-image-202610110605: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 
 ## آخر تقارير الجلسات (الأحدث أولاً)
+### 2026-10-25 16:35 UTC — 🧩 الدمج والتقييم على CPU (GitHub)
+```
+🧩 الدمج والتقييم على CPU (GitHub)
+الأساس: sham-merged-checkpoint (يكمل من ناتجه السابق) (خطوة 61,555)
+قبل: text=4.571, chat=2.083, media=7.628
+بعد: text=4.591, chat=2.035, media=7.441
+⏭ sham-multimodal-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 3fee44a7)
+⏭ sham-chat-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 244cc996)
+⏭ sham-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 44b327f2)
+⏭ sham-cpu-track-checkpoint-v2: النقطة نفسها جُرّبت سابقاً (البصمة 6b355461)
+⏭ sham-research-track-checkpoint-v2: ❌ لا توجد معه أداة تقسيم نص لمعرفة معنى صفوفه
+📏 sham-crawl-checkpoint (خطوة 61,967) وحده على الميزان: text=4.591, chat=2.022, media=7.431 | الأساس: text=4.571, chat=2.083, media=7.628
+⏭ sham-crawl-agent: النقطة نفسها جُرّبت سابقاً (البصمة ba84359a)
+📏 sham-crawl-gh (خطوة 62,046) وحده على الميزان: text=4.245, chat=3.906, media=8.868 | الأساس: text=4.571, chat=2.083, media=7.628
+⏭ sham-crawl-lightning: النقطة نفسها جُرّبت سابقاً (البصمة 180d5ec9)
+⏭ sham-crawl-xlive: النقطة نفسها جُرّبت سابقاً (البصمة ef90815f)
+⏭ sham-chat-arabic-sft-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة acd9355b)
+⏭ sham-cpu-track-checkpoint: لا توجد نقطة حفظ
+⏭ sham-grown-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 08300e9a)
+⏭ sham-repair-remerge-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة c9166018)
+قبل الدمج: text=4.571, chat=2.083, media=7.628
+✅ sham-crawl-checkpoint (خطوة 61,967): دُمج بنسبة 1.00 — text=4.591, chat=2.035, media=7.441
+❌ sham-crawl-gh (خطوة 62,046): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.591→4.527 (-1.4%), chat 2.035→2.097 (+3.0%), media 7.441→7.523 (+1.1%)
+🔬 مسبار التفكير المتسلسل (1083 خطوة، 45.5 د): خسارة الحلول 4.40→0.41 | نص 4.51→7.50 | إصابة 0%→25% ⇒ قرار تلقائي: حصة التفكير المتسلسل 0%
+  audio: لا مُرمِّز في الحساب أفضل بما يكفي من مُرمِّز 
+```
+### 2026-10-25 16:33 UTC — 🕸 الزاحف العام (GitHub): 99,368 وثيقة، 127.2 مليون حرف في 5.2 ساعة | crossref:63
+```
+🕸 الزاحف العام (GitHub): 99,368 وثيقة، 127.2 مليون حرف في 5.2 ساعة | crossref:63423 hackernews:34183 github:627 arxiv:583 ia_books:302 gutenberg:153 stackexchange:97 | لم يُنشر
+```
+### 2026-10-25 16:11 UTC — 🤖 مدرّب CPU على GitHub: 1,055 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: 
+```
+🤖 مدرّب CPU على GitHub: 1,055 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.717
+```
+### 2026-10-25 12:16 UTC — 🧩 الدمج والتقييم على CPU (GitHub)
+```
+🧩 الدمج والتقييم على CPU (GitHub)
+الأساس: sham-merged-checkpoint (يكمل من ناتجه السابق) (خطوة 61,555)
+قبل: text=4.571, chat=2.083, media=7.628
+بعد: text=4.571, chat=2.083, media=7.628
+⏭ sham-multimodal-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 3fee44a7)
+📏 sham-chat-checkpoint (خطوة 75,958) وحده على الميزان: text=4.872, chat=3.350, media=8.525 | الأساس: text=4.571, chat=2.083, media=7.628
+⏭ sham-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 44b327f2)
+📏 sham-cpu-track-checkpoint-v2 (خطوة 65,298) وحده على الميزان: text=4.119, chat=4.075, media=9.637 | الأساس: text=4.571, chat=2.083, media=7.628
+⏭ sham-research-track-checkpoint-v2: ❌ لا توجد معه أداة تقسيم نص لمعرفة معنى صفوفه
+📏 sham-crawl-checkpoint (خطوة 62,620) وحده على الميزان: text=4.426, chat=3.563, media=8.445 | الأساس: text=4.571, chat=2.083, media=7.628
+قبل الدمج: text=4.571, chat=2.083, media=7.628
+❌ sham-chat-checkpoint (خطوة 75,958): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.571→4.574 (+0.1%), chat 2.083→2.151 (+3.2%), media 7.628→7.654 (+0.3%)
+❌ sham-cpu-track-checkpoint-v2 (خطوة 65,298): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.571→4.523 (-1.0%), chat 2.083→2.181 (+4.7%), media 7.628→7.708 (+1.0%)
+❌ sham-crawl-checkpoint (خطوة 62,620): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.571→4.519 (-1.1%), chat 2.083→2.145 (+2.9%), media 7.628→7.694 (+0.9%)
+⏭ sham-crawl-agent: النقطة نفسها جُرّبت سابقاً (البصمة ba84359a)
+📏 sham-crawl-gh (خطوة 63,171) وحده على الميزان: text=4.416, chat=3.768, media=8.278 | الأساس: text=4.571, chat=2.083, media=7.628
+⏭ sham-crawl-lightning: النقطة نفسها جُرّبت سابقاً (البصمة 180d5ec9)
+⏭ sham-crawl-xlive: النقطة نفسها جُرّبت سابقاً (البصمة ef90815f)
+📏 sham-chat-arabic-sft-checkpoint (خطوة 74,371) و
+```
 ### 2026-10-25 09:47 UTC — 🕸 الزاحف العام (GitHub): 96,484 وثيقة، 125.2 مليون حرف في 5.2 ساعة | crossref:61
 ```
 🕸 الزاحف العام (GitHub): 96,484 وثيقة، 125.2 مليون حرف في 5.2 ساعة | crossref:61310 hackernews:33239 github:705 arxiv:462 gutenberg:428 ia_books:302 stackexchange:27 europepmc:11 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus
@@ -244,68 +296,4 @@
 ### 2026-10-25 09:28 UTC — 🤖 مدرّب CPU على GitHub: 1,616 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: 
 ```
 🤖 مدرّب CPU على GitHub: 1,616 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.711
-```
-### 2026-10-25 07:21 UTC — 🧠 تقرير جلسة شام — التدريب المستمر على المعالج المركزي (Track A)
-```
-🧠 تقرير جلسة شام — التدريب المستمر على المعالج المركزي (Track A)
-خطوات تدريب حقيقية هذه الجلسة: 232 (الخطوة النهائية: 65,298)
-متوسط الخسارة أول 10 خطوات: 4.0178
-متوسط الخسارة آخر 10 خطوات: 3.5166
-(كل رقم منهما دفعة واحدة، يتأرجح بنحو ±1.5 وحده — الحَكَم هو القياس على نص لم يُدرَّب عليه أدناه)
-📏 على نص لم يُدرَّب عليه: قبل 2.508 → بعد 2.441 (-0.067)
-🛡 الحارس: نهاية الجلسة كانت أسوأ على النص غير المرئي (2.641) فاستُعيدت أفضل أوزان وُجدت (بعد 100 دفعة، 2.441) ولم تُنشر الأوزان الأسوأ.
-خسارة التدريب في آخر 50 خطوة: 3.666
-نُشر إلى: jonsnowjonsnow/sham-cpu-track-checkpoint-v2
-```
-### 2026-10-25 04:52 UTC — 📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 75,958
-```
-📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 75,958
-خسارة الإجابة (أقل أفضل): 3.443 (-0.632) على 120 سؤالاً لم يُدرَّب عليها
-تكرار الكلمة نفسها (أقل أفضل): 0.00 (-0.02)
-تنوّع العبارات (أعلى أفضل): 0.91 (+0.00)
-👤 ما هي عاصمة سوريا؟
-🤖 عاصمة سوريا هي موريش، وهي مدينة غير هادئة. تقع في قارة آسيا.
-👤 اكتب جملة عن فوائد القراءة.
-🤖 اللغة العربية هي مجموعة من القضايا التي يمكن أن تؤدي إلى شعور بالحياة.
-👤 من أنت؟
-🤖 نعم، لا يمكنني أن أفهم.
-🧬 التطوير الذاتي هذه الجلسة:
-  • الإصلاح قبل الدمج: final_multimodal.pt (خطوة 75,666): ✅ سليم — لم يحتج إصلاحاً
-  • الإصلاح قبل الدمج: final_chat.pt (خطوة 75,571): ✅ سليم — لم يحتج إصلاحاً
-  • الإصلاح قبل الدمج: step_62090.pt (خطوة 62,090): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: step_65066.pt (خطوة 65,066): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 64,958): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 71,639): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 42,893): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 62,191): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 62,201): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 51,425): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final_chat.pt (خطوة 73,810): ✅ سليم — لم يحتج إصلاحاً
-  • الإص
-```
-### 2026-10-25 03:57 UTC — 🧩 الدمج والتقييم على CPU (GitHub)
-```
-🧩 الدمج والتقييم على CPU (GitHub)
-الأساس: sham-merged-checkpoint (يكمل من ناتجه السابق) (خطوة 61,555)
-قبل: text=4.537, chat=2.245, media=7.673
-بعد: text=4.571, chat=2.083, media=7.628
-📏 sham-multimodal-checkpoint (خطوة 78,291) وحده على الميزان: text=4.559, chat=4.387, media=9.070 | الأساس: text=4.537, chat=2.245, media=7.673
-⏭ sham-chat-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة dfeb9046)
-⏭ sham-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 44b327f2)
-📏 sham-cpu-track-checkpoint-v2 (خطوة 65,066) وحده على الميزان: text=4.099, chat=4.093, media=9.907 | الأساس: text=4.537, chat=2.245, media=7.673
-⏭ sham-research-track-checkpoint-v2: ❌ لا توجد معه أداة تقسيم نص لمعرفة معنى صفوفه
-📏 sham-crawl-checkpoint (خطوة 71,639) وحده على الميزان: text=4.727, chat=1.628, media=7.472 | الأساس: text=4.537, chat=2.245, media=7.673
-قبل الدمج: text=4.537, chat=2.245, media=7.673
-❌ sham-multimodal-checkpoint (خطوة 78,291): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.537→4.530 (-0.1%), chat 2.245→2.322 (+3.4%), media 7.673→7.690 (+0.2%)
-❌ sham-cpu-track-checkpoint-v2 (خطوة 65,066): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.537→4.489 (-1.1%), chat 2.245→2.322 (+3.4%), media 7.673→7.761 (+1.1%)
-✅ sham-crawl-checkpoint (خطوة 71,639): دُمج بنسبة 0.30 — text=4.571, chat=2.083, media=7.628
-⏭ sham-crawl-agent: النقطة نفسها جُرّبت سابقاً (البصمة ba84359a)
-📏 sham-crawl-gh (خطوة 62,971) وحده على الميزان: text=4.211, chat=3.773, media=9.276 | الأساس: text=4.537, chat=2.245, media=7.673
-⏭ sham-crawl-lightning: النقطة نفسها جُرّبت سابقاً (البصمة 180d5ec9)
-⏭ sham-crawl-xlive: النقطة نفسها جُرّبت سابقاً (البصمة ef90815f)
-📏 sham-chat-arabic-sft-checkpoint (خطوة 73,810) وحده على الميزان: text=4.487, chat=3.027, media=11.233 | الأساس: text=4.537, chat=2
-```
-### 2026-10-25 02:29 UTC — 🕸 الزاحف العام (GitHub): 91,746 وثيقة، 117.8 مليون حرف في 5.2 ساعة | crossref:58
-```
-🕸 الزاحف العام (GitHub): 91,746 وثيقة، 117.8 مليون حرف في 5.2 ساعة | crossref:58917 hackernews:31323 github:576 ia_books:472 arxiv:293 europepmc:91 stackexchange:54 gutenberg:20 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus
 ```

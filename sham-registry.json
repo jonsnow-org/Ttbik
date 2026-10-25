@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25 11:43 UTC",
+  "generated_at": "2026-10-25 16:33 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -151,7 +151,7 @@
       "track": "ab_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-24",
+      "last_run": "2026-10-25",
       "gpu": false,
       "failure": ""
     },
