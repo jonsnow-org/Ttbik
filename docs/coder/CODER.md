@@ -122,3 +122,8 @@ The goal is that fast / balanced / precise all work with deeper thinking; "turn 
 sent as `think="1:<chars>"`, read by the Studio's `_think_flag`): fast 500 chars, balanced 1200 (the default, sent as plain "1" so an older Studio still thinks), precise 3000;
 `CODER_THINK_CAP_FAST/BALANCED/PRECISE` override. A Studio that is not redeployed yet treats "1:500"/"1:3000" as thinking OFF (it only reads the plain "1"), so fast and precise take effect after the next Studio deploy.
 Sampling temperature and the accuracy prompt line were already per mode. Measured on balanced (live task 2026-10-25): ~30-50 s of thought per step.
+
+## Automatic fast mode for simple requests (owner, 2026-10-25)
+`isSimpleRequest` (`coderAgent.ts`): a one-line chat / question (<= 90 chars, <= 16 words, no file / repository / code / action / link words, not in the middle of a task) is answered in the FAST mode by itself
+(short thought, quick tone, temperature .7), once per request, only when the user's mode is the default (balanced); a user who chose precise keeps it. It reads the words only: no model call, no extra step,
+nothing changes at the start of the prompt (the accuracy line rides on the request message). The task log says "⚡ طلب بسيط". Off with `CODER_AUTO_FAST=off`. The word list (`TASKISH`) is the thing to tune from real messages.

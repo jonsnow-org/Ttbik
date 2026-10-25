@@ -215,3 +215,20 @@ describe("thinking budget by accuracy mode", () => {
     process.env.CODER_THINK_CAP_FAST = "700"; expect(thinkCapFor("fast")).toBe(700); delete process.env.CODER_THINK_CAP_FAST;
   });
 });
+
+describe("a simple request is answered in the fast mode by itself", () => {
+  const { isSimpleRequest } = require("@/lib/coderAgent");
+  it("plain one-line chat or questions are simple; anything with work in it is not", () => {
+    for (const t of ["مرحبا", "كيف حالك؟", "من أنت؟", "ما عاصمة فرنسا؟", "شكراً لك", "what is the capital of France?"]) expect(isSimpleRequest(t)).toBe(true);
+    for (const t of [
+      "اقرأ الملف README.md من المستودع jonsnow-org/Ttbik", "قم بتحليل مشروع نوفا الموجود في المستودع", "اكتب لي دالة فرز", "أصلح الخطأ في ملف app.py", "ابحث عن أفضل مكتبات بايثون",
+      "https://example.com ماذا فيه", "سطر أول\nسطر ثان", "ا ".repeat(40), "",
+    ]) expect(isSimpleRequest(t)).toBe(false);
+  });
+  it("in the middle of a task, a short 'continue' is not simple; the switch can be turned off", () => {
+    const mid: any[] = [{ role: "user", content: "حلل" }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "x", arguments: "{}" } }] }, { role: "tool", content: "r", tool_call_id: "1" }];
+    expect(isSimpleRequest("تابع", mid)).toBe(false);
+    expect(isSimpleRequest("تابع", [{ role: "user", content: "مرحبا" }, { role: "assistant", content: "أهلاً" }] as any)).toBe(true);
+    process.env.CODER_AUTO_FAST = "off"; expect(isSimpleRequest("مرحبا")).toBe(false); delete process.env.CODER_AUTO_FAST;
+  });
+});

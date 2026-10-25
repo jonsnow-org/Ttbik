@@ -165,6 +165,17 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
   return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
 }
 
+/** A request that needs no work: a short one-line question or chat line with no file / repository / code / action in it, in a conversation that is not in the middle of a task.
+ *  Decided by reading the text (no model call, no extra step), so it costs nothing. Only the default mode ("balanced") is ever lowered to "fast": a user who picked precise keeps precise. */
+const TASKISH = /github|git\b|repo|مستودع|ريبو|فرع|branch|commit|pull|\bPR\b|workflow|deploy|انشر|ادفع|ملف|ملفات|مجلد|file|folder|src\/|\.(?:ts|tsx|js|py|json|md|yml|sql)\b|كود|code|برمج|اكتب|أنشئ|انشئ|عدّل|عدل|أصلح|اصلح|حلّل|حلل|قارن|ابحث|بحث|اقرأ|راجع|نفّذ|نفذ|شغّل|شغل|اختبار|test|bug|خطأ|جدول|ذكّرني|ذكرني|احفظ|ذاكرة|مشروع|تقرير|اشرح لي|لخّص|لخص|ترجم|http|```|`/i;
+export function isSimpleRequest(text: string, msgs: CoderMessage[] = []): boolean {
+  if ((process.env.CODER_AUTO_FAST || "").toLowerCase() === "off") return false;
+  const t = String(text || "").trim();
+  if (!t || t.length > 90 || /\n/.test(t) || t.split(/\s+/).length > 16 || TASKISH.test(t)) return false;
+  const recent = msgs.slice(-8);
+  return !recent.some((m) => m.role === "tool" || Boolean((m as { tool_calls?: unknown[] }).tool_calls?.length));       // in the middle of a task: "continue" is not a simple request
+}
+
 export type Accuracy = "fast" | "balanced" | "precise";
 /** The user's "accuracy" setting (Mini App → model settings) as sampling temperature; recovery knobs may still raise it. */
 export const ACCURACY_TEMPERATURE: Record<Accuracy, number> = { fast: 0.7, balanced: 0.6, precise: 0.2 };
