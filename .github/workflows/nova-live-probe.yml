@@ -28,10 +28,21 @@ jobs:
           n = os.environ["N"]; sfx = "" if n == "1" else f"-{n}"
           base = f"https://studio-novaai2026-coder-inference-server{sfx}.api-inference.modelscope.net/gradio_api"
           hdr = {"Authorization": "Bearer " + os.environ["T"], "content-type": "application/json"}
+          import urllib.error
+          def op(req, t):
+              for k in range(6):
+                  try:
+                      return urllib.request.urlopen(req, timeout=t).read().decode()
+                  except urllib.error.HTTPError as e:
+                      h = {a: b for a, b in e.headers.items() if a.lower().startswith(("retry", "x-ratelimit", "x-request"))}
+                      print(f"   HTTP {e.code} {req.full_url.rsplit('/', 2)[-2]} body={e.read(300)!r} headers={h}", flush=True)
+                      if e.code != 429: raise
+                      time.sleep(5 * (k + 1))
+              raise SystemExit("still 429")
           def call(name, data):
               req = urllib.request.Request(f"{base}/call/v2/{name}", json.dumps(data).encode(), hdr)
-              ev = json.load(urllib.request.urlopen(req, timeout=60))["event_id"]
-              raw = urllib.request.urlopen(urllib.request.Request(f"{base}/call/{name}/{ev}", headers=hdr), timeout=120).read().decode()
+              ev = json.loads(op(req, 60))["event_id"]
+              raw = op(urllib.request.Request(f"{base}/call/{name}/{ev}", headers=hdr), 120)
               line = [l for l in raw.splitlines() if l.startswith("data:")][-1]
               return json.loads(json.loads(line[5:])[0])
           print("status", json.dumps(call("status", {})))
