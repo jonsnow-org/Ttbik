@@ -1,6 +1,6 @@
 // Athar Stars: the pure decisions (prices, dates, addresses, pre-checkout) and the "off by default" guarantees. The database is not touched here.
 jest.mock("@/lib/prisma", () => ({ prisma: { $executeRawUnsafe: jest.fn(), $queryRawUnsafe: jest.fn(async () => []) } }));
-import { decidePreCheckout, isOrderPayload, isTaken, parseDateIndex, parseRecipient, starsEnabled, starsPrices, dateText, type Order } from "../atharStars";
+import { sweep, decidePreCheckout, isOrderPayload, isTaken, parseDateIndex, parseRecipient, starsEnabled, starsPrices, dateText, type Order } from "../atharStars";
 import { handleStarsMessage, isPaySupport } from "../atharStarsBot";
 
 const order = (o: Partial<Order> = {}): Order => ({
@@ -105,5 +105,17 @@ describe("/paysupport (Telegram Bot Developer Terms 6.2.1)", () => {
     const msg = { chat: { id: 5 }, from: { id: 5, username: "u" }, text: "where is my token", reply_to_message: { text: "x\nref: paysupport" } };
     expect(await handleStarsMessage({ api: a } as any, "b", msg, "en")).toBe(true);
     expect(a.sendMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("sweep SQL", () => {
+  it("casts interval parameters (Prisma sends numbers as bigint; make_interval(mins/days) needs int)", async () => {
+    const { prisma } = jest.requireMock("@/lib/prisma");
+    prisma.$queryRawUnsafe.mockClear(); prisma.$executeRawUnsafe.mockClear();
+    await sweep(() => null, "https://athar.example");
+    const sql = [...prisma.$queryRawUnsafe.mock.calls, ...prisma.$executeRawUnsafe.mock.calls].map((c: any[]) => String(c[0])).join("\n");
+    expect(sql).toMatch(/make_interval\(mins => \$1::int\)/);
+    expect(sql).toMatch(/make_interval\(days => \$1::int\)/);
+    expect(sql).not.toMatch(/make_interval\((mins|days) => \$\d\)/);
   });
 });
