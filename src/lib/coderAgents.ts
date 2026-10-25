@@ -8,6 +8,9 @@
 import { reportsHardChars } from "@/lib/coderContext";
 import { shamToolsEnabled } from "@/lib/shamTools";
 
+/** CODER_TOOL_GROUPS=lazy brings back the earlier lazy loading (load_tools); the default is ONE fixed tool list on every step (coderAgent.ts coderToolsFor). */
+export const toolGroupsLazy = (): boolean => (process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "lazy";
+
 export const AGENT_MAX = 5;          // agents one run can start at once
 export const SUB_AGENT_MAX = 2;      // sub-agents ONE "worker" agent can start (read-only helpers, one level only)
 export const AGENT_MAX_DEPTH = 2;    // run (0) → agents (1) → sub-agents (2); sub-agents cannot start anything
@@ -110,7 +113,7 @@ export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "
   "You are a worker agent of Nova AI. A parent agent gave you ONE job; do it completely with your tools (read, search, edit files, branches, pull requests, tests in your VM, connected services).",
   "You have the SAME permissions and the SAME settings as the user's main assistant: anything consequential (delete, merge, push to the main branch, settings, releases, connected-service writes) is asked of the USER on their phone, who answers ✅ or ❌. If a step is declined or denied, do not retry it: continue without it and say so in your report.",
   `You may start at most ${SUB_AGENT_MAX} read-only helper agents with the delegate tool for parts of your job${depth >= AGENT_MAX_DEPTH ? " (not available to you: you are already a helper level)" : ""}. Give each helper a job name and ONE argument (helper + arg), the server writes the recipe: ${Object.entries(HELPERS).map(([id, h]) => `${id}(${h.hint})`).join(", ")}. runner is the only one with a VM (one per call). You cannot ask the user free questions.`,
-  "Tools come in groups: call load_tools with the group you need (github, computer, web, memory, schedule, connectors); its tools are there from the next step.",
+  ...(toolGroupsLazy() ? ["Tools come in groups: call load_tools with the group you need (github, computer, web, memory, schedule, connectors); its tools are there from the next step."] : []),
   `You have at most ${WORKER_MAX_STEPS} steps; on your last step stop calling tools and write the report.`,
   `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; code, paths and identifiers stay in English." : "Write the report in English."}`,
   REPORT_RULES(lang),

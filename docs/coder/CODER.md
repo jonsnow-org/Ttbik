@@ -186,3 +186,19 @@ Built in `app.py` (`CODER_SLOTS=off` removes it): after a job with >= 1500 promp
 when another conversation or a restart has taken the slot, the next job of that conversation restores its file first. Newest 3 kept (`CODER_SLOT_KEEP`), a state over 1500 MB is dropped (`CODER_SLOT_MAX_MB`). Limits, honestly: per Studio (the file is on that Studio's disk), so it fixes
 restarts and "another conversation took the slot", not a move to a different Studio; the size for a 10k-token context was not measured (267 MB at 1.7k may be mostly a fixed part of this hybrid model, or it may grow).
 Studio 5 reads pictures since the last deploy (status: `vision: true`, 1.96 GB memory free vs 2.6 GB on the others).
+
+## Speed: one fixed start for every prompt (2026-10-25)
+
+Why a simple request took 10 min 38 s (task log of 2026-10-25): the Studio read ~8,650 tokens at step 1 and ~10,170 tokens from zero at step 2 (the request had been sent to another Studio after a hub 429). Reading, not writing, is the cost: 31 tokens/s at 10k tokens on the 2 free vCPU.
+
+Measured on the Studio's own llama.cpp flags (GitHub runner pinned to 2 cores; `nova-tune.yml`, job `prefix` / `fit`):
+
+| | result |
+|---|---|
+| same long start, other question | 516 new tokens read of 10,452 (27 s instead of 342 s) |
+| Nova's real system text + ALL tools (9,063 tokens), then a NEW conversation | read 24 new tokens, 6 s; the cache survives other conversations |
+| the earlier way (small list, a group added with load_tools mid-task) | 6,138 tokens read from cache 0 (the start changed) |
+
+So since this change every step carries ONE fixed tool list (ask_user, delegate, then all groups in a fixed order; `coderToolsFor`), no `load_tools`. `CODER_TOOL_GROUPS=lazy` brings the earlier way back, `=off` sends `coderTools()`. A 429 on a NEW call neither cools the Studio nor fails over to a cold one (`coderCall`). `prewarmChat` reads the shared start (system + tools) even when the conversation is too long to read ahead, and the self-hosted server runs it for the owner's chat a minute after every start (`instrumentation-node.ts`, `CODER_BOOT_WARM=0` turns it off). The first read of the start still costs minutes ONCE per Studio start.
+
+Tried and rejected (all measured, same 2 cores, `nova-tune.yml`): speculative decoding (n-gram 6.0→4.3 tok/s, 0.8B draft 1.4-3.1, the model's own MTP head 6.1→4.7 although 76% of drafts were accepted), flash attention (+3%), q8 KV cache (worse), micro-batch size (no effect), other models (Granite 4 H Tiny: faster writing but reads 10k tokens no faster, Arabic 1.4 chars/token against 3.4 and 7.8 GB peak; LFM2-8B-A1B tools 2/6; Qwen3.5-2B reads 2.3x faster but tools 5/6 code 5/6; Qwen2.5-Coder-3B tools 1/6), quantisations (IQ4_XS = same 6/6 6/6; IQ3_XXS 5/6 and 4/6). Compacting the tool texts saves only ~6% (the schema structure is the weight), so it is off (`CODER_TOOLS_COMPACT=on`).

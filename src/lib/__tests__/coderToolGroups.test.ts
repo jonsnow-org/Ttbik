@@ -2,7 +2,34 @@ import { coderTools, coderToolsFor, loadedGroups, runTool, toolGroups } from "@/
 
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
 
-describe("tool groups the model loads itself", () => {
+beforeAll(() => { process.env.CODER_TOOL_GROUPS = "lazy"; });
+afterAll(() => { delete process.env.CODER_TOOL_GROUPS; });
+
+describe("fixed tool list (default)", () => {
+  beforeAll(() => { delete process.env.CODER_TOOL_GROUPS; });
+  afterAll(() => { process.env.CODER_TOOL_GROUPS = "lazy"; });
+  it("every step carries the same list: ask_user, delegate, then all groups; no load_tools", () => {
+    const a = coderToolsFor(true, false, [{ role: "user", content: "x" }]);
+    const b = coderToolsFor(true, false, [{ role: "user", content: "y" }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "web_search", arguments: "{}" } }] } as any], ["web"]);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(names(a).slice(0, 2)).toEqual(["ask_user", "delegate"]);
+    expect(names(a)).not.toContain("load_tools");
+    expect(names(a)).toEqual(expect.arrayContaining(["github_write_files", "sandbox_exec", "web_search", "memory_note", "schedule_create", "make_media"]));
+  });
+  it("compact: shorter texts, the same tools, parameters, types, enums and required lists", () => {
+    const whole = coderToolsFor(true, true, []);
+    process.env.CODER_TOOLS_COMPACT = "on";
+    const small = coderToolsFor(true, true, []);
+    delete process.env.CODER_TOOLS_COMPACT;
+    expect(names(small)).toEqual(names(whole));
+    expect(JSON.stringify(small).length).toBeLessThan(JSON.stringify(whole).length);
+    const strip = (x: any): any => Array.isArray(x) ? x.map(strip) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([k]) => k !== "description").map(([k, v]) => [k, strip(v)])) : x;
+    for (let i = 0; i < small.length; i++) expect(strip((small[i].function.parameters))).toEqual(strip((whole[i].function.parameters)));
+    expect(small.every((t) => (t.function.description || "").length <= 175)).toBe(true);
+  });
+});
+
+describe("tool groups the model loads itself (CODER_TOOL_GROUPS=lazy)", () => {
   it("a fresh conversation carries only load_tools, ask_user and delegate, with the groups available here", () => {
     const t = coderToolsFor(true, false, [{ role: "user", content: "من انت" }]);
     expect(names(t)).toEqual(["load_tools", "ask_user", "delegate"]);
@@ -35,7 +62,7 @@ describe("tool groups the model loads itself", () => {
   });
   it("CODER_TOOL_GROUPS=off sends every tool", () => {
     process.env.CODER_TOOL_GROUPS = "off";
-    try { expect(names(coderToolsFor(true, false, []))).toEqual(names(coderTools(true))); } finally { delete process.env.CODER_TOOL_GROUPS; }
+    try { expect(names(coderToolsFor(true, false, []))).toEqual(names(coderTools(true))); } finally { process.env.CODER_TOOL_GROUPS = "lazy"; }
   });
   it("load_tools answers what was loaded", async () => {
     const ctx: any = { gh: null, addNote: () => {} };

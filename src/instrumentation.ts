@@ -5,3 +5,10 @@ export async function onRequestError(err: unknown, request: { path?: string; met
     await report(err, request, context);
   }
 }
+
+export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { bootWarm } = await import("./instrumentation-node");
+    bootWarm();
+  }
+}

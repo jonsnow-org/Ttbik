@@ -4,7 +4,7 @@
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { historyChars } from "@/lib/coderContext";
-import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, type AgentRole } from "@/lib/coderAgents";
+import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
@@ -170,10 +170,40 @@ function loadArgs(call: CoderToolCall): string[] {
   const xs = Array.isArray(a.groups) ? a.groups : typeof a.groups === "string" ? String(a.groups).split(/[\s,]+/) : typeof a.group === "string" ? [a.group] : [];
   return xs.map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
 }
-/** The tools for the next step of this conversation (see toolGroups). */
+/** A description cut at a sentence (or word) end: the names, parameters, types, enums and required lists of a tool are never touched. */
+function cutText(t: string, max: number): string {
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  const stop = Math.max(head.lastIndexOf(". "), head.lastIndexOf("; "), head.lastIndexOf(": "));
+  return (stop > max * 0.5 ? head.slice(0, stop + 1) : head.slice(0, Math.max(head.lastIndexOf(" "), 1))).trim();
+}
+function compactSchema(x: unknown): unknown {
+  if (Array.isArray(x)) return x.map(compactSchema);
+  if (!x || typeof x !== "object") return x;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) out[k] = k === "description" && typeof v === "string" ? cutText(v, 80) : compactSchema(v);
+  return out;
+}
+/** Shorter tool texts (CODER_TOOLS_COMPACT=on; off by default): measured, cutting every description saves only ~6% of the list (the schema structure is the weight), so it stays whole. */
+export function compactTool(t: CoderTool): CoderTool {
+  return { type: "function", function: { name: t.function.name, description: cutText(t.function.description || "", 170), parameters: compactSchema(t.function.parameters) as Record<string, unknown> } };
+}
+const compactOn = (): boolean => (process.env.CODER_TOOLS_COMPACT || "").toLowerCase() === "on";
+
+/**
+ * The tools for the next step of this conversation.
+ * Default: ONE fixed list (ask_user, delegate, then every group in a fixed order). Measured on a llama.cpp server with Nova's real prompt (2 cores, 9k-token start):
+ * with the same start on every request a NEW conversation read 24 new tokens instead of 9,000 (6 s instead of minutes), and the cache survived other conversations; the earlier
+ * way (a small list that grows with load_tools) re-read the whole prompt (6,138 tokens, from cache 0) the moment a group was added. CODER_TOOL_GROUPS=lazy = the earlier way, =off = every tool of coderTools().
+ */
 export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[], keep: string[] = []): CoderTool[] {
-  if ((process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "off") return coderTools(github, connectors);
+  const mode = (process.env.CODER_TOOL_GROUPS || "").toLowerCase();
+  if (mode === "off") return coderTools(github, connectors);
   const groups = toolGroups(github, connectors);
+  if (!toolGroupsLazy()) {
+    const all = [ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).flatMap((g) => groups[g])];
+    return compactOn() ? all.map(compactTool) : all;
+  }
   const loaded = loadedGroups(msgs, groups);
   for (const g of keep) if (groups[g]) loaded.add(g);                       // groups used before a segment break stay loaded (the new context starts empty)
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));

@@ -515,10 +515,12 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
   const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
-  const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
+  let messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
   // A warm-up reads the whole conversation to fill the Studio's cache: on a cold Studio that is MINUTES of the one worker (measured 2026-10-25: a 35k-character conversation held a Studio for 7+ minutes
   // while the owner's real request waited behind it). So it is small-only, and the moment a real request of the same chat is sent it is cancelled (cancelWarm).
-  if (messages.reduce((n, m) => n + String((m as { content?: string }).content || "").length, 0) > (Number(process.env.CODER_PREWARM_MAX_CHARS) || 16000)) return;
+  // A long conversation is not read ahead (minutes of the one worker), but the START every conversation shares (system text + the whole fixed tool list, ~9k tokens) still is:
+  // measured, a new conversation then reads ~24 new tokens instead of ~9,000 (the cache keeps that start across conversations).
+  if (messages.reduce((n, m) => n + String((m as { content?: string }).content || "").length, 0) > (Number(process.env.CODER_PREWARM_MAX_CHARS) || 16000)) messages = [messages[0], messages[messages.length - 1]];
   const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000, tag: "prewarm" }).catch(() => null);
   let r = o?.reply || null;
   if (r?.job) warming.set(chatId, r.job);

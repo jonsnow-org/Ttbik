@@ -214,9 +214,11 @@ describe("sections and the loop", () => {
     expect(st.run).toBeNull();
     expect(sent.map((s) => s.text)).toContain("تم الدفع.");
     const chatCalls = calls.filter((c) => c.url.includes("/call/v2/chat"));
-    // tools come in groups the model loads itself (load_tools); the GitHub group is offered here
+    // one fixed tool list on every step (no load_tools): the GitHub tools are there from the first step
     const first = JSON.parse(chatCalls[0].body.tools);
-    expect(first.find((t: any) => t.function.name === "load_tools").function.parameters.properties.groups.items.enum).toContain("github");
+    expect(first.map((t: any) => t.function.name)).toEqual(expect.arrayContaining(["github_read_file", "github_update_ref", "ask_user"]));
+    expect(first.some((t: any) => t.function.name === "load_tools")).toBe(false);
+    expect(JSON.stringify(JSON.parse(chatCalls[1].body.tools).map((t: any) => t.function.name))).toBe(JSON.stringify(first.map((t: any) => t.function.name)));   // the same list at every step: the Studio's cache keeps the start
   });
 
   it("a declined delete is NOT executed and the model is told", async () => {
