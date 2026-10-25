@@ -11,3 +11,4 @@ deploy/oracle
 deploy/hosting/*.sh
 deploy/hosting/env-names.txt
 *.log
+training

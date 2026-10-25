@@ -1,5 +1,10 @@
 # Nova 1 — coding model (phase 1: code only)
 
+> **Live source = the branch `training/nova1`.** The Kaggle restarter (`ai-system/supervision/nova1_slot.py`) reads `kaggle/run_request.json` and pushes the notebook from THAT branch,
+> and the notebook clones that branch. This copy on `main` is for review and backup: change the branch, not this folder, then merge the branch into `main` again.
+> Status 2026-10-25: Nova 1 has not trained yet (the restarter waits for Sham's held notebook to finish its session first).
+
+
 Nova 1 is a LoRA fine-tune of **Qwen/Qwen3.5-4B** (Apache-2.0) made to write, fix and test code better, and to drive the coder
 bot's tools. Phase 1 is code only: code instructions, repair/debugging, agentic coding with tool calls, and tests. Arabic is used
 only for the wording of coding tasks and for explanations around code, never as general chat data. Broader phases come later.
