@@ -78,6 +78,15 @@ const lastStudio = new Map<string, string>();
 let pickLock: Promise<void> = Promise.resolve();
 let ctxAskedAt = 0;
 const recentPick = new Map<string, number>();     // a Studio just handed to one call is not 'idle' for the next call a moment later (two agents starting together go to different Studios)
+/** The Studio that holds a conversation's prompt cache: the one that answered it last, and — after a restart of this server, when that memory is gone — the same
+ *  one again by a fixed hash of the conversation key, so a deploy of the bot does not send every conversation to a cold Studio. */
+export function homeStudio(key: string, bases: string[]): string {
+  const known = lastStudio.get(key);
+  if (known && bases.includes(known)) return known;
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) >>> 0;
+  return bases[h % bases.length];
+}
 const heldAt = new Map<string, number>();         // base -> when a conversation last used it (its prompt cache is warm there)
 const HELD_MS = 15 * 60000;
 export const forgetStudioHeld = (): void => { heldAt.clear(); };
@@ -106,7 +115,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
         ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
         if (!ord.length) return null;
       }
-      const o = bases.length > 1 ? await idleFirst(ord, !fresh && affinity ? lastStudio.get(affinity) : undefined) : ord;
+      const o = bases.length > 1 ? await idleFirst(ord, !fresh && affinity ? homeStudio(affinity, bases) : undefined) : ord;
       recentPick.set(o[0].b, Date.now());
       if (!fresh) heldAt.set(o[0].b, Date.now());
       return o;
