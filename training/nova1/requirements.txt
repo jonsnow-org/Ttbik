@@ -1,0 +1,12 @@
+# Qwen3.5 needs transformers v5
+transformers>=5.0.0
+trl>=0.24
+peft>=0.17
+datasets>=3.0
+accelerate
+pyyaml
+datasketch>=1.6
+evalplus>=0.3.1
+huggingface_hub
+modelscope
+# GPU boxes: pip install unsloth   (Colab / Kaggle / ModelScope / Lightning all work)

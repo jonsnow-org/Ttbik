@@ -1,0 +1,33 @@
+# Nova 1 phase 1 (code) — bf16 LoRA on Qwen3.5-4B.
+# 4-bit QLoRA is NOT used: Unsloth's Qwen3.5 guide (checked 2026-10-21) advises against QLoRA for Qwen3.5 because of larger
+# quantisation error; bf16 LoRA on the 4B needs ~10 GB VRAM, which fits a free T4/P100 (16 GB) at 4k context, or an L4/A10 at 8k.
+base_model: Qwen/Qwen3.5-4B
+max_seq_length: 4096          # 8192 on a 24 GB+ GPU; agent traces longer than this are split at tool-result boundaries
+load_in_16bit: true
+load_in_4bit: false
+lora:
+  r: 32
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  use_rslora: false
+train:
+  epochs: 2
+  lr: 1.0e-4
+  scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  per_device_batch: 1
+  grad_accum: 16              # effective batch 16 sequences
+  packing: false              # keeps tool-call turns intact
+  assistant_only_loss: true   # loss only on assistant turns (incl. tool calls), never on tool outputs or prompts
+  optim: adamw_8bit
+  seed: 3407
+  save_steps: 200             # checkpoints are pushed to the HF/ModelScope repo so a free-tier session can resume
+  eval_steps: 200
+data:
+  train: data/mix.jsonl
+  holdout_share: 0.01
+  thinking_share_min: 0.75    # Qwen3.5: keep >= 75% reasoning-style rows so thinking mode survives (Unsloth guidance)
+budget:
+  target_tokens: 60_000_000   # ~2 epochs => ~120M tokens; ~25-35 GPU-hours on a T4, ~8-10 on an L4/A10G

@@ -1,0 +1,6 @@
+data/*.jsonl
+out/
+reports/
+llama.cpp/
+__pycache__/
+train/lightning_ledger.json
