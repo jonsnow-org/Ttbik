@@ -31,6 +31,7 @@ import collections
 import hashlib
 import json
 import os
+import shutil
 import queue
 import socket
 import http.client
@@ -130,20 +131,28 @@ def _download_model() -> Path:
             STATE.update(model=fname, model_repo=repo, detail="model from disk")
             return have
     errors = []
-    for repo, fname in MODELS:
-        STATE.update(detail=f"downloading {repo}/{fname}", model_repo=repo)
-        try:
+    for anonymous in (False, True):
+        if anonymous:
+            # the hub answered 403 ("Check repo_exists return status code 403") to the logged-in call for these PUBLIC repos: a stale / refused token
+            # poisons every request, so the second pass drops the login (cookies and env) and downloads anonymously
+            os.environ.pop("MODELSCOPE_API_TOKEN", None)
+            os.environ.pop("MODELSCOPE_TOKEN", None)
+            shutil.rmtree(Path.home() / ".modelscope" / "credentials", ignore_errors=True)
+            errors.append("-- retrying without a login --")
+        for repo, fname in MODELS:
+            STATE.update(detail=f"downloading {repo}/{fname}" + (" (anonymous)" if anonymous else ""), model_repo=repo)
             try:
-                d = snapshot_download(repo, allow_patterns=[fname], cache_dir=str(HERE / "_models"))
-            except TypeError:
-                d = snapshot_download(repo, allow_file_pattern=[fname], cache_dir=str(HERE / "_models"))
-            p = next(iter(Path(d).rglob(fname)), None)
-            if p and p.stat().st_size > 100_000_000:
-                STATE.update(model=fname, model_repo=repo)
-                return p
-            errors.append(f"{repo}: file missing")
-        except Exception as exc:
-            errors.append(f"{repo}: {type(exc).__name__}: {str(exc)[:160]}")
+                try:
+                    d = snapshot_download(repo, allow_patterns=[fname], cache_dir=str(HERE / "_models"))
+                except TypeError:
+                    d = snapshot_download(repo, allow_file_pattern=[fname], cache_dir=str(HERE / "_models"))
+                p = next(iter(Path(d).rglob(fname)), None)
+                if p and p.stat().st_size > 100_000_000:
+                    STATE.update(model=fname, model_repo=repo)
+                    return p
+                errors.append(f"{repo}: file missing")
+            except Exception as exc:
+                errors.append(f"{repo}: {type(exc).__name__}: {str(exc)[:160]}")
     raise RuntimeError(" | ".join(errors))
 
 
