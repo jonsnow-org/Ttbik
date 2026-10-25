@@ -96,7 +96,11 @@ with tempfile.TemporaryDirectory() as d:
     assert ("save", k2 + ".bin") not in slot_calls, "a short prompt is cheap to read again: not saved"
     slot_calls.clear(); app._LAST["conv"] = k1; app._slot_before({"conv": k1}); assert slot_calls == [], "the slot already holds this conversation"
     app._LAST["conv"] = k2; job = {"conv": k1}; app._slot_before(job)
-    assert slot_calls == [("restore", k1 + ".bin")] and job.get("slot_restored"), "another conversation took the slot: its state comes back"
+    assert slot_calls == [] and not job.get("slot_restored"), "another conversation took the slot: the live cache already holds the shared start, the saved (maybe older) state must not replace it"
+    os.environ["CODER_SLOT_RESTORE"] = "always"; app._LAST["conv"] = k2; job = {"conv": k1}; app._slot_before(job)
+    assert slot_calls == [("restore", k1 + ".bin")] and job.get("slot_restored"), "CODER_SLOT_RESTORE=always: the earlier behaviour"
+    del os.environ["CODER_SLOT_RESTORE"]; slot_calls.clear(); app._LAST["conv"] = ""; job = {"conv": k1}; app._slot_before(job)
+    assert slot_calls == [("restore", k1 + ".bin")] and job.get("slot_restored"), "a fresh server: the saved state comes back"
     slot_calls.clear(); app._LAST["conv"] = ""; job = {"conv": "nofile"}; app._slot_before(job); assert slot_calls == [], "nothing saved for it: nothing to restore"
     for c in ("c2", "c3"):
         app._slot_after({"conv": c, "prefill": {"total": 2000}, "status": "done"}); time.sleep(0.02)

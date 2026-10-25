@@ -332,6 +332,10 @@ def _slot_before(job: dict) -> None:
     conv = job.get("conv") or ""
     if not (SLOTS_ON and conv) or _LAST["conv"] == conv:
         return
+    # Only on a fresh server (nothing has run since it started) the saved state comes back. Once something has run, the live prompt cache already holds the start every conversation shares
+    # (measured 2026-10-26: a restore of a conversation saved under an OLDER tool list threw that start away, 0 of 11,169 tokens reusable, the whole start read again). CODER_SLOT_RESTORE=always = the earlier behaviour.
+    if _LAST["conv"] and os.environ.get("CODER_SLOT_RESTORE", "fresh") != "always":
+        return
     f = SLOT_DIR / f"{conv}.bin"
     if f.is_file() and _slot_call("restore", f.name):
         job["slot_restored"] = True
