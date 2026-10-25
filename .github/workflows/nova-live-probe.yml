@@ -1,0 +1,55 @@
+name: Nova live probe (one real request through a Studio)
+# Sends ONE chat request of a given size to one coder Studio exactly like the bot does (Gradio call, then polling) and prints the timeline:
+# when the first token arrives, prompt-processing progress when the Studio reports it, and the final timings. Never prints the token. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio number 1-5"
+        default: "1"
+      prompt_tokens:
+        description: "approximate prompt size in tokens"
+        default: "1700"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: one request, timeline
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          N: ${{ inputs.studio }}
+          P: ${{ inputs.prompt_tokens }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          n = os.environ["N"]; sfx = "" if n == "1" else f"-{n}"
+          base = f"https://studio-novaai2026-coder-inference-server{sfx}.api-inference.modelscope.net/gradio_api"
+          hdr = {"Authorization": "Bearer " + os.environ["T"], "content-type": "application/json"}
+          def call(name, data):
+              req = urllib.request.Request(f"{base}/call/v2/{name}", json.dumps({"data": data}).encode(), hdr)
+              ev = json.load(urllib.request.urlopen(req, timeout=60))["event_id"]
+              raw = urllib.request.urlopen(urllib.request.Request(f"{base}/call/{name}/{ev}", headers=hdr), timeout=120).read().decode()
+              line = [l for l in raw.splitlines() if l.startswith("data:")][-1]
+              return json.loads(json.loads(line[5:])[0])
+          print("status", json.dumps(call("status", [])))
+          words = int(os.environ["P"]) // 2
+          filler = " ".join(f"item{i} value{i % 97}" for i in range(words))
+          msgs = [{"role": "system", "content": "You are a helpful assistant. Reply briefly."},
+                  {"role": "user", "content": f"Here is some noise: {filler}\nIgnore it. Say OK and one short sentence about Python."}]
+          t0 = time.time()
+          r = call("chat", [json.dumps(msgs), "", 80, "", 0.3, 5])
+          job = r.get("job"); print(f"{time.time()-t0:5.0f}s submitted", {k: r.get(k) for k in ("type", "status", "phase", "queue_pos", "prefill")})
+          last = None
+          while time.time() - t0 < 1200:
+              r = call("job_result", [job, 0])
+              cur = (r.get("type"), r.get("total"), r.get("prefill"))
+              if cur != last:
+                  print(f"{time.time()-t0:5.0f}s", {k: r.get(k) for k in ("type", "status", "total", "prefill", "queue_pos", "timings")})
+                  last = cur
+              if r.get("type") != "pending":
+                  print("text:", (r.get("text") or "")[:200]); break
+              time.sleep(4)
+          PY
