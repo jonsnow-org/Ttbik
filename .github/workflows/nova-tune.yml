@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec | mtp"
+        description: "which job: all | flags | quants | spec | mtp | models"
         required: false
         default: "all"
 permissions:
@@ -178,3 +178,42 @@ jobs:
           go "draft-mtp, up to 2" --spec-type draft-mtp --spec-draft-n-max 2
           go "draft-mtp, up to 3" --spec-type draft-mtp --spec-draft-n-max 3
           go "draft-mtp, up to 4" --spec-type draft-mtp --spec-draft-n-max 4
+  models:
+    if: inputs.job == 'models'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: granite-4.0-h-tiny-7b-a1b, url: "https://huggingface.co/unsloth/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf" }
+          - { id: lfm2-8b-a1b, url: "https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF/resolve/main/LFM2-8B-A1B-Q4_K_M.gguf" }
+          - { id: qwen3-4b-instruct-2507, url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf" }
+          - { id: qwen3.5-2b, url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "${{ matrix.url }}"
+          ls -l m.gguf
+      - name: speed (llama-bench) and quality (tool calling + code tests), 2 cores
+        run: |
+          set -o pipefail
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          echo "### ${{ matrix.id }}: speed"
+          taskset -c 0,1 "$BIN/llama-bench" -m m.gguf -t 2 -p 512,2048 -n 48 -r 2 2>&1 | tail -5
+          taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 5; done
+          echo "### ${{ matrix.id }}: quality"
+          EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "${{ matrix.id }}"
+          RSS=$(awk '/VmHWM/ {printf "%.1f", $2/1048576}' /proc/$PID/status)
+          echo "peak memory: ${RSS} GB"
+          kill $PID
