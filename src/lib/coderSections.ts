@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, isSimpleRequest, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -28,7 +28,7 @@ export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; autoFast?: boolean; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -1585,12 +1585,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
-    // a plain one-line chat / question is answered in the fast mode by itself (short thought, quick tone) when the user's mode is the default; decided once per request, from its words
-    if (run.autoFast === undefined) {
-      run.autoFast = !run.agent && (!isAccuracy(st.accuracy) || st.accuracy === "balanced") && isSimpleRequest(run.goal || "", st.messages.slice(0, -1));
-      if (run.autoFast) await taskEvent(run.id, "info", "⚡ طلب بسيط: أجيب بالوضع السريع تلقائياً.", db);
-    }
-    const accuracy: Accuracy = run.autoFast ? "fast" : isAccuracy(st.accuracy) ? st.accuracy : "balanced";
+    const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
     if (run.agent && run.agentRole !== "sham" && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
