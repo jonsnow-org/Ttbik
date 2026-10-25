@@ -445,7 +445,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
     await saveState(chatId, st, db);
-    await send(bot, chatId, st.run.pending ? "📥 وصلت رسالتك؛ المهمة تنتظر تأكيدك على الزر أعلاه." : "📥 وصلت رسالتك؛ سأضيفها للمهمة الجارية في الخطوة التالية.");
     return true;
   }
   if (!st.run) {
@@ -460,13 +459,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
-  // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
-  // waits for this short Telegram API call; all heavy work remains in the background continuation.
-  const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
-  if (accepted?.message_id && st.run) {
-    st.run.progress = { msgId: accepted.message_id, lines: ["📥 تم استلام الطلب", "⏳ بانتظار بدء المعالجة"] };
-    await taskEvent(st.run.id, "info", "📥 تم استلام الطلب؛ بدأ مسار المعالجة الخلفية.", db);
-  }
+  // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
+  if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
@@ -474,7 +468,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   return true;
 }
 
-const frontAt = new Map<number, number>();
 /**
  * The quick lane: the main worker has to read the whole conversation first (minutes on a CPU, silent), so a second, tiny call on a Studio
  * nobody is using answers within seconds: what the model understood and what it will do first. It never touches a Studio that holds a
@@ -482,10 +475,8 @@ const frontAt = new Map<number, number>();
  */
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
-  if (coderStudioUrls().length < 2 || content.trim().length < 12) return;
-  if (Date.now() - (frontAt.get(chatId) || 0) < 30000) return;
-  frontAt.set(chatId, Date.now());
-  await new Promise((res) => setTimeout(res, 2500));                 // the main call picks its Studio first
+  if (coderStudioUrls().length < 2) return;
+  await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
   const messages: CoderMessage[] = [
     { role: "system", content: "You are Nova AI, built by the Sham team. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
     { role: "user", content: content.slice(0, 700) },
@@ -575,8 +566,6 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   const runId = st.run!.id;
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveStateStrict(chatId, st, db);
-  // Acknowledge immediately in Telegram; the final model answer is delivered there and recorded in the terminal feed.
-  await send(bot, chatId, "📨 وصل طلبك من الطرفية. ستظهر النتيجة هنا وفي الطرفية تلقائياً.");
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
   later(() => frontAck(bot, chatId, runId, content, "app", db));
   return { runId, queued: false };
