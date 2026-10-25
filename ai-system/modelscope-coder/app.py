@@ -83,6 +83,8 @@ JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 JOBS_LOCK = threading.Lock()
 QUEUE: "queue.Queue[str]" = queue.Queue()
 _PROC = {"p": None}
+_PATHS = {"model": "", "bindir": ""}
+_BENCH = {"running": False}
 
 
 def _log(*a) -> None:
@@ -241,6 +243,7 @@ def _start_server(model: Path, bindir: Path) -> None:
         else:
             _VIS["bad"] = True
     STATE["vision"] = bool(_VIS["on"])
+    _PATHS.update(model=str(model), bindir=str(bindir))
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
@@ -498,6 +501,8 @@ def _stream_once(job: dict) -> None:
 def _runner() -> None:
     while True:
         jid = QUEUE.get()
+        while _BENCH["running"]:
+            time.sleep(1)                                              # a speed measurement (bench) has the box to itself
         job = JOBS.get(jid)
         if not job or job.get("cancel"):
             if job:
@@ -599,6 +604,51 @@ def cancel(job_id: str) -> str:
     return json.dumps({"type": "cancelled" if job else "gone", "job": job_id})
 
 
+def _bench_once(bindir: str, model: str, label: str) -> str:
+    """One llama-bench pass over the prompt-reading speed (pp512). Returns the table line and which CPU backend loaded."""
+    env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
+    try:
+        r = subprocess.run([str(Path(bindir) / "llama-bench"), "-m", model, "-t", str(THREADS), "-p", "512", "-n", "0", "-r", "1"], env=env, capture_output=True, text=True, timeout=420, cwd=bindir)
+        out = (r.stdout or "") + "\n" + (r.stderr or "")
+    except Exception as exc:
+        return f"{label}: failed {type(exc).__name__}"
+    keep = [l.strip()[:200] for l in out.splitlines() if "pp512" in l or "CPU backend" in l or "system_info" in l.lower() or "AMX" in l]
+    return f"{label}: " + " | ".join(keep[:4])
+
+
+def _bench_thread() -> None:
+    import shutil
+    res = []
+    try:
+        bindir, model = _PATHS["bindir"], _PATHS["model"]
+        res.append(_bench_once(bindir, model, "A default backends"))
+        # B: the same files without the Sapphire Rapids / AMX CPU backends (hard links, no copy): what the box reads at without AMX
+        alt = HERE / "_bench_noamx"
+        shutil.rmtree(alt, ignore_errors=True)
+        subprocess.run(["cp", "-al", bindir, str(alt)], check=True, timeout=120)
+        for f in alt.rglob("libggml-cpu-*sapphirerapids*.so"):
+            f.unlink()
+        res.append(_bench_once(str(alt), model, "B without the sapphirerapids backend"))
+        shutil.rmtree(alt, ignore_errors=True)
+    except Exception as exc:
+        res.append(f"failed {type(exc).__name__}: {str(exc)[:120]}")
+    finally:
+        STATE["bench"] = res
+        _BENCH["running"] = False
+
+
+def bench() -> str:
+    """Starts the speed measurement in the background (only when nothing is queued): the answer is in `status` under `bench`."""
+    with JOBS_LOCK:
+        busy = any(j["status"] in ("queued", "running") for j in JOBS.values())
+    if busy or _BENCH["running"] or STATE["phase"] != "ready" or not _PATHS["model"]:
+        return json.dumps({"started": False, "reason": "busy or not ready"})
+    STATE.pop("bench", None)
+    _BENCH["running"] = True
+    threading.Thread(target=_bench_thread, daemon=True).start()
+    return json.dumps({"started": True})
+
+
 def status() -> str:
     _purge()
     with JOBS_LOCK:
@@ -631,8 +681,9 @@ def build_ui():
                      api_name=f"{PREFIX}job_result", flagging_mode="never"),
         gr.Interface(cancel, [gr.Textbox(label="job_id")], gr.Textbox(label="json"), api_name=f"{PREFIX}cancel", flagging_mode="never"),
         gr.Interface(status, None, gr.Textbox(label="status"), api_name=f"{PREFIX}status", flagging_mode="never"),
+        gr.Interface(bench, None, gr.Textbox(label="bench"), api_name=f"{PREFIX}bench", flagging_mode="never"),
     ]
-    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status"], title="coder")
+    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench"], title="coder")
 
 
 if __name__ == "__main__":
