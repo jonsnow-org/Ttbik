@@ -1,0 +1,25 @@
+name: Nova base warm (reads the conversation start into every Studio's cache)
+# Sends Nova's real system text + fixed tool list to each coder Studio (max 1 token out), then a NEW short conversation on the same start, and prints how many tokens each had to read.
+# Costs only Studio time (a few minutes per Studio, once after a Studio start). Never prints the token. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      studios:
+        description: "Studio numbers, space separated"
+        default: "1 2 3 4 5"
+permissions:
+  contents: read
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: warm and prove
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIOS: ${{ inputs.studios }}
+        run: python3 scripts/nova-eval/base_warm.py $STUDIOS
