@@ -1,0 +1,33 @@
+name: Nova hosted-model check (free, read-only)
+# Which free hosted inference keys exist as repository secrets (only yes/no is printed, never a value), and which model ids each provider offers.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+    steps:
+      - run: |
+          for v in GROQ_API_KEY CEREBRAS_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY MODELSCOPE_TOKEN; do
+            if [ -n "${!v}" ]; then echo "$v: set"; else echo "$v: not set"; fi
+          done
+          list() { # name, url, key
+            [ -n "$3" ] || return 0
+            echo "### $1 models"
+            curl -s -m 30 -H "Authorization: Bearer $3" "$2/models" | python3 -c "import sys,json
+try:
+  d=json.load(sys.stdin); ids=sorted(m.get('id','') for m in d.get('data',[])); print(len(ids),'models'); print(', '.join(ids[:80]))
+except Exception as e: print('could not read list:', type(e).__name__)"
+          }
+          list groq https://api.groq.com/openai/v1 "$GROQ_API_KEY"
+          list cerebras https://api.cerebras.ai/v1 "$CEREBRAS_API_KEY"
+          list openrouter https://openrouter.ai/api/v1 "$OPENROUTER_API_KEY"
+          list modelscope https://api-inference.modelscope.cn/v1 "$MODELSCOPE_TOKEN"

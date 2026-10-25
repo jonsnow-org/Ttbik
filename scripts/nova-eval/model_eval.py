@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse, json, os, re, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 BASE = os.environ.get("EVAL_BASE", "https://api-inference.modelscope.cn/v1").rstrip("/")   # EVAL_BASE=http://127.0.0.1:8080/v1 = a local llama-server
-LOCAL = "EVAL_BASE" in os.environ                                       # local: no token, long timeouts (CPU speed), shorter code answers
+LOCAL = "EVAL_BASE" in os.environ and not os.environ.get("EVAL_KEY")                                       # local: no token, long timeouts (CPU speed), shorter code answers
 TIMEOUT = int(os.environ.get("EVAL_TIMEOUT", "900" if LOCAL else "150"))
 CODE_TOKENS = int(os.environ.get("EVAL_CODE_TOKENS", "900" if LOCAL else "1800"))
 CANDIDATES = [
@@ -65,7 +65,7 @@ def call(model, messages, tools=None, max_tokens=1500, timeout=None):
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
-    req = urllib.request.Request(f"{BASE}/chat/completions", data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {os.environ.get('MODELSCOPE_TOKEN', '')}", "Content-Type": "application/json"})
+    req = urllib.request.Request(f"{BASE}/chat/completions", data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {os.environ.get('EVAL_KEY') or os.environ.get('MODELSCOPE_TOKEN', '')}", "Content-Type": "application/json"})
     t0 = time.time(); ttft = None; text = ""; calls = {}; usage = {}
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
