@@ -1,0 +1,58 @@
+name: Nova slot save/restore probe (free, read-only)
+# Can the Studio model's conversation state (its prompt cache) be saved to disk and restored later, even by a NEW server process? Same llama.cpp build and model as the coder Studio,
+# pinned to 2 cores. Prints: the file size of a saved state, the time to read a ~3k-token prompt from zero, the time to save and to restore it, and how many tokens a follow-up
+# message has to read after a restore (the point: only the new message). Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          "$BIN/llama-server" --help 2>&1 | grep -n -E -- '--slot-save-path|--cache-ram|--ctx-checkpoints' | head -5
+      - name: save, restore, and restore into a fresh process
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          mkdir -p slots
+          python3 - <<'PY'
+          import json
+          text = ("The deployment pipeline builds the image, runs the tests, pushes the artifact and restarts the service while the monitor watches latency and error rates. " * 60)
+          def body(extra): return {"messages": [{"role": "system", "content": "You are a coding assistant."}, {"role": "user", "content": text}] + extra, "max_tokens": 8, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": True}
+          json.dump(body([]), open("p1.json", "w"))
+          json.dump(body([{"role": "assistant", "content": "Understood."}, {"role": "user", "content": "Now say OK."}]), open("p2.json", "w"))
+          PY
+          start() { taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c 16384 -t 2 -np 1 -n -1 --jinja --cache-ram 1024 --ctx-checkpoints 8 --slot-save-path "$PWD/slots" --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+                  PID=$!; for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && return; kill -0 $PID 2>/dev/null || { echo "server exited"; tail -5 server.log; exit 0; }; sleep 3; done; }
+          post() { curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @"$1"; }
+          show() { python3 -c "import json,sys;t=json.load(sys.stdin).get('timings',{});print('$1: prompt_n(read now)=',t.get('prompt_n'),'cached=',t.get('cache_n'),'read',round(t.get('prompt_ms',0)/1000,1),'s')"; }
+          { start
+            post p1.json | show "1. first read from zero"
+            s0=$(date +%s.%N); r=$(curl -s -X POST "http://127.0.0.1:8080/slots/0?action=save" -H 'content-type: application/json' -d '{"filename":"c1.bin"}'); s1=$(date +%s.%N)
+            echo "2. save: $(python3 -c "print(round($s1-$s0,2))") s; answer: $(echo "$r" | head -c 200)"
+            ls -l slots | tail -2
+            curl -s -X POST "http://127.0.0.1:8080/slots/0?action=erase" > /dev/null
+            r0=$(date +%s.%N); r=$(curl -s -X POST "http://127.0.0.1:8080/slots/0?action=restore" -H 'content-type: application/json' -d '{"filename":"c1.bin"}'); r1=$(date +%s.%N)
+            echo "3. restore into the same process: $(python3 -c "print(round($r1-$r0,2))") s; answer: $(echo "$r" | head -c 160)"
+            post p2.json | show "4. follow-up after restore (same process)"
+            kill $PID; wait $PID 2>/dev/null; sleep 2
+            start
+            r0=$(date +%s.%N); r=$(curl -s -X POST "http://127.0.0.1:8080/slots/0?action=restore" -H 'content-type: application/json' -d '{"filename":"c1.bin"}'); r1=$(date +%s.%N)
+            echo "5. restore into a NEW process: $(python3 -c "print(round($r1-$r0,2))") s; answer: $(echo "$r" | head -c 160)"
+            post p2.json | show "6. follow-up after restore (new process)"
+            kill $PID; wait $PID 2>/dev/null
+          } | tee result.txt
+          { echo "### Slot save / restore (2 cores)"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
