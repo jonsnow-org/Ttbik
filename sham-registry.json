@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25 21:00 UTC",
+  "generated_at": "2026-10-25 23:23 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -328,10 +328,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 11.7,
+      "size_mb": 0.0,
       "last_updated": "2026-10-25",
       "progress": {
-        "videos_consumed": 2967
+        "videos_consumed": 3067
       },
       "has_key_files": true
     },
@@ -413,7 +413,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 2967
+          "videos_consumed": 3067
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
