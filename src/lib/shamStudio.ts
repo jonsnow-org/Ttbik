@@ -222,3 +222,6 @@ export async function shamThinkPatient(
     out = await shamThink(prompt, userId, mem, maxNewTokens, Math.max(5000, Math.min(timeoutMs, budgetMs - (Date.now() - t0))));
   }
 }
+
+/** How many new tokens one Telegram reply may use: 80 today (small model, 60 s webhook), SHAM_LIMITS=open or SHAM_REPLY_TOKENS lifts it (the Studio's own cap, SHAM_MAX_NEW_TOKENS, still applies). */
+export const shamReplyTokens = (): number => Number(process.env.SHAM_REPLY_TOKENS) || ((process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open" ? 400 : 80);

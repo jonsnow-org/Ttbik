@@ -36,6 +36,10 @@ import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 os.environ.setdefault("SHAM_SELF_LEARN_DIR", str(HERE / "_selflearn"))      # experiences from understand_media wait here (self_learn.py)
+# Limits that exist only because today's Sham is small and still training. SHAM_LIMITS=open lifts them to what the model itself can hold
+# (its max_seq_len), with no code change; each can also be set alone. Defaults = today's behaviour exactly.
+_OPEN = os.environ.get("SHAM_LIMITS", "").strip().lower() == "open"
+MAX_NEW_TOKENS = int(os.environ.get("SHAM_MAX_NEW_TOKENS", "768" if _OPEN else "200"))
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
 _LOCK = threading.Lock()
@@ -177,7 +181,7 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
-    n = int(max(1, min(200, max_new_tokens)))
+    n = int(max(1, min(MAX_NEW_TOKENS, max_new_tokens)))
     try:
         with _LOCK:
             res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
@@ -262,7 +266,7 @@ def ask_web(question: str, max_new_tokens: float = 60) -> str:
         return _busy()
     try:
         answer, hits, sources = ask_web_generate(serve._state["model"], serve._state["text_tokenizer"], q,
-                                                 max_new_tokens=int(max(1, min(200, max_new_tokens))), use_chat_wrap=True)
+                                                 max_new_tokens=int(max(1, min(MAX_NEW_TOKENS, max_new_tokens))), use_chat_wrap=True)
     except Exception as exc:
         print(f"ask_web failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر البحث الآن.")
@@ -306,7 +310,7 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     import serve
     from generate import generate_tokens
     from model import SpecialTokens
-    n = int(max(1, min(200, max_new_tokens)))
+    n = int(max(1, min(MAX_NEW_TOKENS, max_new_tokens)))
     with _LOCK:
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
         try:        # 2026-10-12: dialogue layout + today's date as context + the model's own learned web search (sham_studio_chat.py, hot code)

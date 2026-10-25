@@ -59,11 +59,22 @@ export async function providerChat(
  * its raw answer comes back for the parent to judge. Sham has no tool calling and no system prompt here: only the task text is sent.
  * An unreachable / loading Studio is reported as a failure, so the run's patience loop waits for it like for any model server.
  */
+/** What Sham is given inside Nova's engine. Today's numbers fit a small, still-training model; SHAM_LIMITS=open (or each SHAM_* alone) lifts them
+ *  without a code change when the trained Sham can take more. Read per call so a changed environment value applies at once. */
+export const SHAM_LIM = {
+  get open() { return (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open"; },
+  get maxNew() { return Number(process.env.SHAM_MAX_NEW_TOKENS) || (this.open ? 768 : 200); },
+  get turns() { return Number(process.env.SHAM_HISTORY_TURNS) || (this.open ? 20 : 6); },
+  get turnChars() { return Number(process.env.SHAM_TURN_CHARS) || (this.open ? 1200 : 300); },
+  get sources() { return Number(process.env.SHAM_SOURCES_CHARS) || (this.open ? 6000 : 1800); },
+  get promptChars() { return Number(process.env.SHAM_PROMPT_CHARS) || (this.open ? 12000 : 3200); },
+};
+
 export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean } = {}): Promise<CoderOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
   const prompt = opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
   if (!prompt) return { reply: null, failure: "unreadable" };
-  const r = await shamGenerateAny(prompt, Math.min(200, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
+  const r = await shamGenerateAny(prompt, Math.min(SHAM_LIM.maxNew, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
   if (!r) return { reply: null, failure: "network" };
   const job = `${PROVIDER_JOB_PREFIX}sham${Date.now().toString(36)}`;
   if (r.type === "text" && (r.text || "").trim()) return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
@@ -80,10 +91,10 @@ export function shamConversationPrompt(messages: CoderMessage[]): string {
   const turns = messages.filter((m) => (m.role === "user" || m.role === "assistant") && String(m.content || "").trim() && !String(m.content).startsWith("[harness]"));
   const tool = [...messages].reverse().find((m) => m.role === "tool" && String(m.content || "").trim().length > 40);
   const last = [...turns].reverse().find((m) => m.role === "user");
-  const history = turns.slice(-7, -1).map((m) => `${m.role === "user" ? "المستخدم" : "شام"}: ${String(m.content).trim().slice(0, 300)}`);
+  const history = turns.slice(-(SHAM_LIM.turns + 1), -1).map((m) => `${m.role === "user" ? "المستخدم" : "شام"}: ${String(m.content).trim().slice(0, SHAM_LIM.turnChars)}`);
   const parts: string[] = [];
-  if (tool) parts.push(`المصادر:\n${String(tool.content).trim().slice(0, 1800)}`);
+  if (tool) parts.push(`المصادر:\n${String(tool.content).trim().slice(0, SHAM_LIM.sources)}`);
   if (history.length) parts.push(history.join("\n"));
   parts.push(`${tool ? "السؤال" : "المستخدم"}: ${String(last?.content || "").trim().slice(0, 700)}\nشام:`);
-  return parts.join("\n\n").slice(0, 3200);
+  return parts.join("\n\n").slice(0, SHAM_LIM.promptChars);
 }

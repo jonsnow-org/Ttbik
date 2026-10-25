@@ -88,3 +88,14 @@ confirmation stay sequential. Off with `CODER_PARALLEL_TOOLS=off`. Not adopted f
 - `github_repo_scan` (facts + top-level folders/files + README start + main manifest) and `github_read_files` (up to 4 files) answer in one model step what took 4-6; their inner GitHub calls run together. Both are also allowed for sub-agents and in the parallel-read batch.
 - `CODER_SPEC` (Studio env, empty = off): extra llama-server flags for speculative decoding, e.g. `--spec-type ngram-simple` (no draft model, no extra RAM). If the server does not come up with them, the supervisor restarts it without them by itself. Not enabled anywhere: run `nova-flag-check` to see which spec flags build b11757 accepts, then measure on ONE Studio before enabling.
 - Not built, on purpose: a pre-task planner/stage (a changed tool list at task start would also break the prewarmed prefix), a persistent repo index (measure `github_repo_scan` first).
+
+## Sham rule (owner's standing goal, restated 2026-10-25)
+When Sham's training is finished it must meet NO limit of any kind (speed, agents, generation, tools). Sham was built from scratch to avoid the mistakes of other models and is
+meant to be advanced despite its small size. So: every invention, tool or smart method added to Nova is also added to Sham, adapted to Sham's structure; and every ceiling
+that exists only because today's Sham is small must be a SETTING, never a constant.
+- Limits found (2026-10-25) and now settings (defaults = today's behaviour): Studio answer cap 200 tokens (`SHAM_MAX_NEW_TOKENS`, in `modelscope-sham/app.py`), prompt window 384 tokens
+  (`SHAM_MAX_PROMPT_TOKENS`, `sham_studio_chat.py`), Telegram reply 80 tokens (`SHAM_REPLY_TOKENS`), inside Nova's engine: history turns/chars, sources, prompt size
+  (`SHAM_HISTORY_TURNS`, `SHAM_TURN_CHARS`, `SHAM_SOURCES_CHARS`, `SHAM_PROMPT_CHARS`, `SHAM_LIM` in `coderProvider.ts`). `SHAM_LIMITS=open` lifts all of them at once, no code change.
+- Still real limits, not settings: the model's own `max_seq_len` (2048 in the config; prompt + answer must fit), the 60 s Telegram webhook of the one-step path (long Sham work goes through
+  `sham_loop`, Nova's engine, which has no such ceiling), and Sham has no OpenAI-style tool calling inside the engine (the engine does the searching, retrying, long tasks for it).
+  When a trained Sham learns the call format, switch the engine's Sham path from "bare words" to tool schemas (`shamAsModel` in `coderProvider.ts`) — nothing else needs to change.

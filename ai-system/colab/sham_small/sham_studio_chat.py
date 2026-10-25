@@ -22,7 +22,8 @@ import os
 
 import torch
 
-MAX_PROMPT_TOKENS = 384
+# prompt window in tokens: 384 today (small model, short context); SHAM_LIMITS=open or SHAM_MAX_PROMPT_TOKENS lifts it (the model's max_seq_len bounds prompt + answer)
+MAX_PROMPT_TOKENS = int(os.environ.get("SHAM_MAX_PROMPT_TOKENS", "1200" if os.environ.get("SHAM_LIMITS", "").strip().lower() == "open" else "384"))
 
 
 def _on(name: str) -> bool:
