@@ -99,3 +99,14 @@ that exists only because today's Sham is small must be a SETTING, never a consta
 - Still real limits, not settings: the model's own `max_seq_len` (2048 in the config; prompt + answer must fit), the 60 s Telegram webhook of the one-step path (long Sham work goes through
   `sham_loop`, Nova's engine, which has no such ceiling), and Sham has no OpenAI-style tool calling inside the engine (the engine does the searching, retrying, long tasks for it).
   When a trained Sham learns the call format, switch the engine's Sham path from "bare words" to tool schemas (`shamAsModel` in `coderProvider.ts`) — nothing else needs to change.
+
+## Sham gets Nova's tools (2026-10-25)
+Nova's tool families (GitHub read/write/PR/CI/workflows, `github_repo_scan`/`github_read_files`, the private VM / terminal `sandbox_clone/exec/wait/read_file/write_file`, `web_search/fetch_page/deep_research`,
+memory, schedules, `delegate` sub-agents, `ask_user`, `connector_api`, `mcp_list_tools/mcp_call` = every connected service such as Vercel / Supabase / Cloudflare) all live in Nova's engine, not in the model.
+Sham reaches them through the engine as TEXT (`src/lib/shamTools.ts`), because its vocabulary is fixed and it has no JSON tool calling:
+the engine shows the LOADED tools (Nova's groups, short list) and the call format; Sham writes `<tool_call>{"name": "...", "arguments": {...}}</tool_call>`; the engine runs it with the same permissions,
+sandbox and stall guard as a Nova call and shows the result next turn. Switch: `SHAM_TOOLS=on` (or `SHAM_LIMITS=open`); `SHAM_TOOLS=off` always wins; off by default so an untrained Sham is not shown a format it cannot follow.
+Teaching it: `ai-system/colab/sham_small/sham_tools_data.py` builds examples (calls learned, results masked, answers learned) from Nova lessons of ANY kind plus a synthetic catalog covering every family;
+`SHAM_TOOLS_MIX` (default 0) is the share in a training mix — the training pipeline has not been wired to it yet.
+Compared with Claude's own toolset (the session that builds this): terminal = `sandbox_exec`; file read/write = `sandbox_read_file/write_file`; search = `github_search_code` + `grep` in the VM; web = `web_search/fetch_page`;
+sub-agents = `delegate`; MCP services = `mcp_call`/`connector_api`. Gaps: an exact-replace file EDIT tool (Nova rewrites whole files), a dedicated glob tool (use `ls`/`find` in the VM), image viewing.

@@ -5,6 +5,7 @@
 //   NOVA_PRO_API_URL (default https://api-inference.modelscope.cn/v1).
 import type { CoderMessage, CoderOutcome, CoderReply, CoderTool } from "@/lib/openCoderStudio";
 import { shamGenerateAny, shamStudioEnabled } from "@/lib/shamStudio";
+import { parseShamToolCalls, shamToolConversation, shamToolsEnabled } from "@/lib/shamTools";
 
 export const PROVIDER_JOB_PREFIX = "p~";
 
@@ -70,14 +71,21 @@ export const SHAM_LIM = {
   get promptChars() { return Number(process.env.SHAM_PROMPT_CHARS) || (this.open ? 12000 : 3200); },
 };
 
-export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean } = {}): Promise<CoderOutcome> {
+export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean; tools?: CoderTool[] } = {}): Promise<CoderOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
-  const prompt = opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
+  const withTools = Boolean(opts.conversation && opts.tools?.length && shamToolsEnabled());       // Nova's loaded tools, as text (shamTools.ts)
+  const prompt = withTools ? shamToolConversation(messages, opts.tools!, { turns: SHAM_LIM.turns, turnChars: SHAM_LIM.turnChars, maxChars: SHAM_LIM.promptChars }) : opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
   if (!prompt) return { reply: null, failure: "unreadable" };
   const r = await shamGenerateAny(prompt, Math.min(SHAM_LIM.maxNew, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
   if (!r) return { reply: null, failure: "network" };
   const job = `${PROVIDER_JOB_PREFIX}sham${Date.now().toString(36)}`;
-  if (r.type === "text" && (r.text || "").trim()) return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
+  if (r.type === "text" && (r.text || "").trim()) {
+    if (withTools) {
+      const p = parseShamToolCalls(String(r.text), opts.tools!);
+      return { reply: { type: "done", job, text: p.text, tool_calls: p.calls } };
+    }
+    return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
+  }
   if (r.type === "image" || r.type === "audio" || r.type === "video") return { reply: { type: "done", job, text: `[Sham answered with ${r.type}, not shown here]${r.text ? ` ${String(r.text).slice(0, 300)}` : ""}`, tool_calls: [] } };
   return { reply: null, failure: r.type === "pending" ? "timeout" : "http" };     // loading / busy / gone / notice: not an answer
 }
