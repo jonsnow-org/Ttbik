@@ -24,14 +24,16 @@ export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toL
 /** The only tools a sub-agent may call. Anything else is refused by the runner. */
 export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "github_repo_info", "github_repo_scan", "github_read_files", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_read_file", "github_search_code", "github_search_repos", "github_list_branches", "github_list_prs", "github_list_issues",
-  "web_search", "fetch_page", "memory_search",
+  "web_search", "fetch_page", "web_fetch", "deep_research", "http_request", "memory_search",
 ]);
 
 /** What the "tester" role adds: run the project's own tests in its own disposable VM. Never write files into the repo, never push. */
 export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file", "sandbox_search"]);
 /** A worker may use every tool the parent has (each consequential call still goes through the user's permission settings and asks), except asking the user a free question, and starting agents at the deepest level. */
-export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1): boolean => {
+export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1, args?: Record<string, unknown>): boolean => {
   if (role === "sham") return false;
+  // http_request: a reader / tester may only read (GET / HEAD); a write is the worker's, through the user's permission settings
+  if (name === "http_request" && role !== "worker" && args && !/^(GET|HEAD)$/i.test(String(args.method || "GET"))) return false;
   if (role === "worker") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);
   return AGENT_TOOL_NAMES.has(name) || (role === "tester" && TESTER_TOOL_NAMES.has(name));
 };
@@ -54,6 +56,10 @@ export const HELPERS: Record<string, HelperJob> = {
   page_reader: { title: "قارئ صفحة", role: "reader", hint: "url [question]", make: (a) => `Read this page and extract what matters (format "url [question]"): ${a}. Use fetch_page; report the key points that answer the question, with short quotes. ${NEVER_INVENT}` },
   verifier: { title: "متحقق", role: "reader", hint: "claim | optional source", make: (a) => `Verify this claim against real sources (format "claim | optional source or repo"): ${a}. Search / read what is needed, then give a verdict: CONFIRMED, NOT CONFIRMED or NOT FOUND, with the evidence and where you saw it. ${NEVER_INVENT}` },
   issue_digest: { title: "ملخّص القضايا", role: "reader", hint: "owner/name", make: (a) => `Digest the open work of ${a}: list open pull requests and open issues, group them by theme, and report the 5 most important with number, title and one line each, plus anything that looks stuck or conflicting. ${NEVER_INVENT}` },
+  ci_doctor: { title: "طبيب CI", role: "reader", hint: "owner/name [branch]", make: (a) => `Find why CI failed in (format "owner/name [branch]"): ${a}. Call github_ci_logs for it, then read the file and lines the log points at (github_read_file with start_line / end_line). Report: the failing job and step, the exact error, the file and line, and the smallest fix. ${NEVER_INVENT}` },
+  pr_reviewer: { title: "مراجع طلب دمج", role: "reader", hint: "owner/name #number", make: (a) => `Review a pull request (format "owner/name #number"): ${a}. Call github_pr_info, read the 2-3 most important changed files, and report: what it changes, risks or bugs you can point at (file and line), what the reviewers asked, and whether it looks ready. ${NEVER_INVENT}` },
+  change_digest: { title: "ملخّص التغييرات", role: "reader", hint: "owner/name [base..head]", make: (a) => `Summarise what changed (format "owner/name [base..head]"): ${a}. Use github_commits (and github_compare when two refs are given), group the changes by theme, and report the 5 most important with the commit or file. ${NEVER_INVENT}` },
+  api_reader: { title: "قارئ واجهة", role: "reader", hint: "url [question]", make: (a) => `Call this public API with GET and extract what matters (format "url [question]"): ${a}. Use http_request (GET only); report the relevant fields with their values. ${NEVER_INVENT}` },
   runner: { title: "منفّذ أوامر", role: "tester", hint: "owner/name | commands", make: (a) => `Run commands in your private VM (format "owner/name | commands"): ${a}. sandbox_clone the repository, install what the commands need, run them (sandbox_wait for long ones) and report the exact commands, their key output lines and PASS/FAIL. You cannot write to GitHub. ${NEVER_INVENT}` },
 };
 export const HELPER_IDS = Object.keys(HELPERS);
@@ -107,7 +113,7 @@ export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "
   REPORT_RULES(lang),
 ].join("\n") : role === "tester" ? [
   "You are a test-runner sub-agent of Nova AI. A parent agent gave you ONE job: run the project's own checks in YOUR private, disposable Linux VM and report what happened.",
-  "Typical steps: sandbox_clone the repository, install dependencies (npm ci / pip install -r …), run the test / lint / build command the task names (or the project's own: look at package.json scripts, Makefile, CI workflow files), read the output.",
+  "Typical steps: sandbox_clone the repository, install dependencies (npm ci / pip install -r …), run the test / lint / build command the task names (or the project's own: look at package.json scripts, Makefile, CI workflow files), read the output; sandbox_search finds text or files in the VM.",
   "You cannot change the user's repository: no pushing, no pull requests, no GitHub writes (the VM is thrown away when you finish). You cannot ask the user or start other agents; commands that need a confirmation are refused.",
   `You have at most ${TESTER_MAX_STEPS} steps; long commands: use sandbox_wait instead of repeating them. On your last step stop calling tools and write the report.`,
   "For a test run, DONE holds the exact command(s), PASS or FAIL, the failing test names and key error lines; never claim a pass you did not see in the output.",
@@ -115,7 +121,7 @@ export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "
   REPORT_RULES(lang),
 ].join("\n") : [
   "You are a read-only research sub-agent of Nova AI. A parent agent gave you ONE investigation; nobody else will answer questions for you.",
-  "Use your tools (read files, search code, list issues/PRs, search the web) to find the facts. You cannot write, run commands, ask the user or start other agents.",
+  "Use your tools (read files, search code, CI failure logs, a pull request with its conversation, commits and comparisons, issues, the web and deep research, GET calls to public APIs) to find the facts. You cannot write, run commands, ask the user or start other agents.",
   `You have at most ${AGENT_MAX_STEPS} steps. Never repeat a call. When you have enough (or on your last step), STOP calling tools and write the final report.`,
   `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; code, paths and identifiers stay in English." : "Write the report in English."}`,
   REPORT_RULES(lang),

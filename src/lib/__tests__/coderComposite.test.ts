@@ -97,3 +97,21 @@ describe("general tools", () => {
     expect(await call("send_file", { path: "a.txt" })).toMatch(/main chat only/);
   });
 });
+
+describe("what the agents may use", () => {
+  const { agentToolAllowed, HELPER_IDS, AGENT_TOOL_NAMES } = require("@/lib/coderAgents");
+  it("readers and testers get the new read tools; HTTP only for reading; a worker has everything", () => {
+    for (const n of ["github_ci_logs", "github_pr_info", "github_commits", "github_compare", "deep_research", "web_fetch", "http_request"]) expect(agentToolAllowed(n, "reader")).toBe(true);
+    for (const n of ["github_edit_file", "github_write_files", "send_file", "sandbox_edit_file"]) expect(agentToolAllowed(n, "reader")).toBe(false);
+    expect(agentToolAllowed("sandbox_search", "tester")).toBe(true); expect(agentToolAllowed("sandbox_search", "reader")).toBe(false);
+    expect(agentToolAllowed("http_request", "reader", 1, { method: "GET" })).toBe(true);
+    expect(agentToolAllowed("http_request", "reader", 1, { method: "POST" })).toBe(false);
+    expect(agentToolAllowed("http_request", "tester", 1, { method: "DELETE" })).toBe(false);
+    expect(agentToolAllowed("http_request", "worker", 1, { method: "POST" })).toBe(true);
+    expect(agentToolAllowed("github_edit_file", "worker")).toBe(true);
+    expect(AGENT_TOOL_NAMES.has("github_edit_file")).toBe(false);
+  });
+  it("there are preset helper jobs for the new tools", () => {
+    expect(HELPER_IDS).toEqual(expect.arrayContaining(["ci_doctor", "pr_reviewer", "change_digest", "api_reader"]));
+  });
+});

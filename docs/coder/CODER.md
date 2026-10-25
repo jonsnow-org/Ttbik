@@ -147,3 +147,8 @@ and the Studio re-asks without thinking if a thought ends empty. Nova 1's data h
 `http_request` (any public HTTP API; same address guard as `fetch_page`; a write asks first), `send_file` (a file the task made in the VM goes to the user's chat as a document; main chat only, 45 MB) join the earlier additions.
 Documents / spreadsheets / archives are made in the VM with its own Python (pip) and sent with `send_file`. The task log now says, once per Studio job, how many tokens the Studio really read and how many came from its cache
 ("📊 الاستوديو N: يقرأ X رمزاً جديداً من Y"), the evidence for or against "it reads everything again".
+
+## Agents and the new tools (2026-10-25)
+Readers: + CI failure logs, PR conversation, commits, compare, `deep_research`, `web_fetch`, `http_request` (GET / HEAD only, enforced in `agentToolAllowed` with the call's arguments). Testers: + `sandbox_search`.
+Workers already take every tool the parent has (new ones included; `send_file` stays main-chat only). New preset helper jobs a worker can start: `ci_doctor`, `pr_reviewer`, `change_digest`, `api_reader`.
+`http_request` is the general HTTP tool (public hosts only; a write asks the user first); the owner will design its fuller behaviour later.

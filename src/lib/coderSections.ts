@@ -1073,7 +1073,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
-      if (run.agent && !agentToolAllowed(call.function.name, run.agentRole, run.agentDepth || 1)) {
+      if (run.agent && !agentToolAllowed(call.function.name, run.agentRole, run.agentDepth || 1, parseArgs(call))) {
         // an agent only uses its role's tools: enforced here, whatever the model asks for
         st.messages.push({ role: "tool", content: "DENIED: your role has no such tool. Use only the tools you were given, or write your report now.", tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
@@ -1207,7 +1207,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const prefs = await loadPrefs(chatId, db);
         for (const nx of rest) {
           if (batch.length >= 4 || !PAR_READ.has(nx.function.name)) break;
-          if (run.agent && !agentToolAllowed(nx.function.name, run.agentRole, run.agentDepth || 1)) break;
+          if (run.agent && !agentToolAllowed(nx.function.name, run.agentRole, run.agentDepth || 1, parseArgs(nx))) break;
           if (beforeCall(run.stall, nx) || (run.approved || []).includes(toolCallKey(nx))) break;
           const gx = await evaluateCall(nx, ctx.gh, ctx.tier, contextOf(run), prefs, [...new Set([...(run.allowCats || []), ...(await parentAllowCats(chatId, run, db))])]);
           if (gx.action !== "run" || gx.autoAllowed.length) break;
