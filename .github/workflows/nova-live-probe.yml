@@ -10,6 +10,9 @@ on:
       prompt_tokens:
         description: "approximate prompt size in tokens"
         default: "1700"
+      reuse:
+        description: "1 = does the cache survive when only the LAST user message changes, and when the tool list changes?"
+        default: "0"
       think:
         description: "1 = compare deeper thinking OFF vs ON on the same coding question (time, reasoning size, answer size)"
         default: "0"
@@ -30,6 +33,7 @@ jobs:
           P: ${{ inputs.prompt_tokens }}
           CACHE: ${{ inputs.cache }}
           THINK: ${{ inputs.think }}
+          REUSE: ${{ inputs.reuse }}
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.request
@@ -70,6 +74,23 @@ jobs:
                   if cur != last: print(f"   [{label}] {time.time()-t0:5.0f}s prefill={pf} type={r.get('type')}", flush=True); last = cur
               print(f"== {label}: {time.time()-t0:.0f}s total, timings={r.get('timings')}, prefill={r.get('prefill')}, text={(r.get('text') or '')[:80]!r}", flush=True)
               return r
+          if os.environ.get("REUSE") == "1":
+              def tl(n):  # n dummy tools
+                  return json.dumps([{"type": "function", "function": {"name": f"tool_{i}", "description": f"does thing number {i} with a file or a repository", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}} for i in range(n)])
+              S = {"role": "system", "content": "You are a helpful assistant. Reply briefly."}
+              A = {"role": "user", "content": f"Background notes: {filler}"}
+              def run(msgs, tools, label):
+                  t1 = time.time()
+                  r = call("chat", {"messages": json.dumps(msgs), "tools": tools, "max_tokens": 4, "think": "", "temperature": 0.3, "wait_s": 5})
+                  job = r.get("job")
+                  while r.get("type") == "pending" and time.time() - t1 < 900:
+                      time.sleep(3); r = call("job_result", {"job_id": job, "offset": 0})
+                  pf = r.get("prefill") or {}
+                  print(f"== {label}: {time.time()-t1:.0f}s | total {pf.get('total')} | from cache {pf.get('cache')} | read now {r.get('timings',{}).get('prompt_n')}", flush=True)
+              run([S, A, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "Question X: say one."}], tl(3), "1 cold (3 tools, question X)")
+              run([S, A, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "Question Y: say two."}], tl(3), "2 same tools, ONLY the last user message differs")
+              run([S, A, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "Question Y: say two."}], tl(12), "3 same messages, tool list grew 3 -> 12")
+              raise SystemExit(0)
           if os.environ.get("THINK") == "1":
               q = [{"role": "system", "content": "You are Nova AI, a coding assistant. Reply in the user's language, briefly."},
                    {"role": "user", "content": "I have a Next.js app. Which files do I touch to add a GET /api/ping endpoint with a jest test? Answer in 4 short bullets."}]
