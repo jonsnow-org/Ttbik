@@ -93,7 +93,7 @@ const HELD_MS = 15 * 60000;
 export const forgetStudioHeld = (): void => { heldAt.clear(); };
 const rememberStudio = (key: string, base: string) => { heldAt.set(base, Date.now()); lastStudio.delete(key); lastStudio.set(key, base); if (lastStudio.size > 500) lastStudio.delete(lastStudio.keys().next().value as string); };
 
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false): Promise<CoderOutcome> {
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
@@ -116,7 +116,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
         ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
         if (!ord.length) return null;
       }
-      const o = bases.length > 1 ? await idleFirst(ord, !fresh && affinity ? homeStudio(affinity, bases) : undefined) : ord;
+      const o = bases.length > 1 ? await idleFirst(ord, !fresh && !avoidHome && affinity ? homeStudio(affinity, bases) : undefined) : ord;
       recentPick.set(o[0].b, Date.now());
       if (!fresh) heldAt.set(o[0].b, Date.now());
       return o;
@@ -222,7 +222,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop", tools: opts.tools });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
@@ -242,6 +242,7 @@ export function coderChat(
     opts.timeoutMs ?? (waitS + 12) * 1000,
     opts.affinity,
     opts.fresh,
+    opts.avoidHome,
   );
 }
 

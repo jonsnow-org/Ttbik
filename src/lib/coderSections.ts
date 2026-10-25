@@ -28,7 +28,7 @@ export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -1294,6 +1294,18 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!run.jobMovedAt || size !== run.jobSize) {
           run.jobSize = size;
           run.jobMovedAt = Date.now();
+        } else if (r.queue_pos && r.queue_pos > 0 && !r.total && (!r.phase || r.phase === "ready") && (run.queueMoves || 0) < 3 && Date.now() - run.jobMovedAt > (Number(process.env.CODER_QUEUE_MOVE_MS) || 25000)) {
+          // Waiting in a Studio's queue behind a job that does not finish (measured: 3+ minutes at "position 1" while four other Studios were idle): the step is
+          // cancelled and sent again to a Studio that does not hold this conversation's cache (it reads the short prompt from zero, seconds, instead of waiting for unknown).
+          await coderCancel(run.job).catch(() => null);
+          run.queueMoves = (run.queueMoves || 0) + 1;
+          run.avoidHome = true;
+          run.job = undefined;
+          run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
+          run.logged = 0;
+          await taskEvent(run.id, "info", `🔀 الاستوديو مشغول بطلب آخر منذ ${Math.round((Date.now() - run.jobMovedAt) / 1000)} ث؛ أرسل الخطوة إلى استوديو آخر فارغ.`, db);
+          await saveState(chatId, st, db, slot);
+          continue;
         } else if (Date.now() - run.jobMovedAt > Math.max(jobStallMs(), readingMs(run, r))) {
           const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
           await coderCancel(run.job).catch(() => null);
@@ -1386,6 +1398,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
       run.retries = 0;
+      run.avoidHome = false; run.queueMoves = 0;          // a finished step: the next one may go back to the Studio that holds the cache
       if (calls.length) {
         run.queued = calls;
         run.step++;
@@ -1574,7 +1587,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? "sham" : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, avoidHome: run.avoidHome || undefined, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {

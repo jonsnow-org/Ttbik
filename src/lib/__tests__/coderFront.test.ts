@@ -171,3 +171,36 @@ describe("a cold Studio", () => {
     expect(st.winStart || 0).toBeGreaterThan(0);                           // and the new start is remembered, so later tasks extend it
   });
 });
+
+describe("a Studio queue that does not move", () => {
+  it("the step is cancelled and sent to another, idle Studio instead of waiting minutes behind the job ahead", async () => {
+    process.env.OPEN_CODER_STUDIO_URL = "https://s1.test";
+    process.env.OPEN_CODER_STUDIO_URLS = "https://s1.test,https://s2.test";
+    process.env.MODELSCOPE_API_TOKEN = "ms";
+    process.env.CODER_POLL_MS = "5";
+    process.env.CODER_QUEUE_MOVE_MS = "150";
+    process.env.SUPER_ADMIN_TELEGRAM_ID = String(CHAT + 2);
+    process.env.CODER_TOKEN_KEY = "test-key";
+    let stuck = "";
+    const answered: string[] = [];
+    (global as any).fetch = jest.fn(async (url: string) => {
+      const host = new URL(url).origin;
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: host === stuck ? 1 : 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) {
+        if (!stuck) stuck = host;                                     // the first Studio asked is the one with a job ahead that never finishes
+        if (host === stuck) return new Response(sse({ type: "pending", job: "j1", status: "queued", phase: "ready", queue_pos: 1, total: 0 }), { status: 200 });
+        answered.push(host);
+        return new Response(sse({ type: "done", job: "j2", text: "تم من الاستوديو الفارغ", tool_calls: [] }), { status: 200 });
+      }
+      return new Response("{}", { status: 202 });
+    });
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT + 2 }, text: "اشرح لي ما هو هذا المشروع بإيجاز شديد" } }, fakeDb());
+    for (let i = 0; i < 100 && !sent.some((s) => /تم من الاستوديو الفارغ/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 100));
+    expect(sent.some((s) => /تم من الاستوديو الفارغ/.test(s.text))).toBe(true);
+    expect(answered.length).toBeGreaterThan(0);
+    delete process.env.OPEN_CODER_STUDIO_URLS; delete process.env.CODER_QUEUE_MOVE_MS;
+  });
+});

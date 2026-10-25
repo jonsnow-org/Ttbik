@@ -110,3 +110,9 @@ Teaching it: `ai-system/colab/sham_small/sham_tools_data.py` builds examples (ca
 `SHAM_TOOLS_MIX` (default 0) is the share in a training mix — the training pipeline has not been wired to it yet.
 Compared with Claude's own toolset (the session that builds this): terminal = `sandbox_exec`; file read/write = `sandbox_read_file/write_file`; search = `github_search_code` + `grep` in the VM; web = `web_search/fetch_page`;
 sub-agents = `delegate`; MCP services = `mcp_call`/`connector_api`. Gaps: an exact-replace file EDIT tool (Nova rewrites whole files), a dedicated glob tool (use `ls`/`find` in the VM), image viewing.
+
+## A Studio queue that does not move (2026-10-25, measured on a live task)
+A task waited 3+ minutes at "queued behind 1" on its home Studio while the other four were idle (status probe: Studio 1 queue 2, the rest 0), then the step was sent again. Now, when the job sits in a queue
+(`queue_pos > 0`, nothing read yet) and does not move for `CODER_QUEUE_MOVE_MS` (default 25 s), it is cancelled and sent to an idle Studio (`avoidHome`, up to 3 times per step); the home mapping follows the new Studio.
+Also seen in that task: deeper thinking was ON (step 1 on a 1.2k-token prompt took ~2 min); the read-progress % moves in coarse jumps (it stayed at 59% for 40+ s on a 3.7k-token prompt).
+Over the last 24 h: 19 runs, 98 step sends, only 3 runs with a resend — a double read is not the normal path.
