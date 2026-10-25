@@ -137,7 +137,7 @@ jobs:
     timeout-minutes: 60
     continue-on-error: true
     steps:
-      - name: llama.cpp and the MTP model (the model's own multi-token-prediction head: no draft model)
+      - name: "llama.cpp and the MTP model (the model own multi-token-prediction head, no draft model)"
         run: |
           curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
           echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
