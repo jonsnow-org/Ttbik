@@ -76,3 +76,10 @@ The Studios read a prompt at ~30-45 tokens/s and write ~4 tokens/s (2 CPU thread
 - **Quiet work** (memory extraction, thread titles) now runs only on a Studio no conversation used in the last 15 minutes (`fresh`), so it never evicts a conversation's prompt cache or queues ahead of a user's request.
 - **The start of the prompt never changes** (measured with `nova-live-probe.yml cache=1`: same start + 2 new messages = 4 s, 23 tokens read; ONE changed line in the system message = the whole 3.4k-token prompt read again, 77 s). The system message is now the same text every time (no date, no notes, no memories); those ride on the task's own request message as a `ctx` field stamped once per task (`ctxStamped`). A new message therefore reads only itself when the conversation's Studio still holds its cache, and a request goes back to that Studio when it has at most one job ahead.
 - **Engineer review (2026-10-25) follow-ups**: the Studio's worker no longer sits on a cancelled / abandoned job while the model is loading or in error (it re-checks every 2 s); a Studio whose model server is in `error` makes the bot resend the step to another Studio at once (max 2 times) instead of waiting out the 3-minute stall limit. Known and accepted: the job queue lives in the Studio process memory (a restart loses a running generation; the bot's orphan sweeper re-sends the step), one generation at a time per Studio, ~4 tokens/s on the free 2-vCPU box.
+
+## Parallel independent reads (engineer review, 2026-10-25)
+Up to 4 consecutive read-only GitHub calls from one model step (read file / list files / search code / branches / PRs / issues) run together
+(`PAR_READ` in `coderSections.ts`), each one still passing the role check, the repeat guard and the permission policy; writes and anything that needs
+confirmation stay sequential. Off with `CODER_PARALLEL_TOOLS=off`. Not adopted from the review, on purpose: a pre-planner / staged "adaptive engine"
+(the owner's rule: the request goes to the model at once, no stages), a repo index and composite tools (separate, measured work first), speculative decoding
+(no spare RAM/CPU on 2 vCPU).

@@ -87,6 +87,9 @@ export function smallTalkReply(text: string, name = ""): string {
  * A run whose loop is gone (lease not renewed for RUN_DEAD_MS, not waiting for a confirmation): its Studio job is cancelled and the run
  * is closed as failed, so the next message starts fresh and the app stops showing it as running. Returns true when it cleared one.
  */
+// reads that do not depend on each other and change nothing
+const PAR_READ = new Set(["github_read_file", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
+
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
   const run = st.run;
@@ -1151,12 +1154,30 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
       await progressLine(ioBot, chatId, run, short);
       await taskEvent(run.id, "tool", toolLabel(call), db);
-      const out = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}`, () => runTool(call, ctx));
-      st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
-      run.queued = rest;
-      const seen = afterCall(run.stall, call, out, run.step);
-      if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
-      if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
+      // Independent reads the model asked for in the same step (e.g. three files) run together instead of one after the other; each
+      // one still passes the same checks (role, repeat guard, permissions). Writes and anything that needs a confirmation stay one by one.
+      const batch = [call];
+      if (PAR_READ.has(call.function.name) && process.env.CODER_PARALLEL_TOOLS !== "off") {
+        const prefs = await loadPrefs(chatId, db);
+        for (const nx of rest) {
+          if (batch.length >= 4 || !PAR_READ.has(nx.function.name)) break;
+          if (run.agent && !agentToolAllowed(nx.function.name, run.agentRole, run.agentDepth || 1)) break;
+          if (beforeCall(run.stall, nx) || (run.approved || []).includes(toolCallKey(nx))) break;
+          const gx = await evaluateCall(nx, ctx.gh, ctx.tier, contextOf(run), prefs, [...new Set([...(run.allowCats || []), ...(await parentAllowCats(chatId, run, db))])]);
+          if (gx.action !== "run" || gx.autoAllowed.length) break;
+          batch.push(nx);
+        }
+      }
+      if (batch.length > 1) await taskEvent(run.id, "info", `⚡ ${batch.length} قراءات مستقلة بالتوازي`, db);
+      for (const b of batch.slice(1)) await taskEvent(run.id, "tool", toolLabel(b), db);
+      const outs = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}${batch.length > 1 ? ` (+${batch.length - 1})` : ""}`, () => Promise.all(batch.map((b) => runTool(b, ctx))));
+      run.queued = rest.slice(batch.length - 1);
+      for (let i = 0; i < batch.length; i++) {
+        st.messages.push({ role: "tool", content: outs[i], tool_call_id: batch[i].id, name: batch[i].function.name });
+        const seen = afterCall(run.stall, batch[i], outs[i], run.step);
+        if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
+        if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
+      }
       await saveState(chatId, st, db, slot);
       continue;
     }
