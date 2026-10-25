@@ -1,0 +1,5 @@
+# Studios that can READ PICTURES (one name per line, same names as STUDIOS). Empty = no Studio reads pictures; nothing else changes.
+# A vision Studio loads the model's vision file (+0.7 GB memory; ~38 s per picture on 2 cores, measured 2026-10-25), so give it to ONE Studio first,
+# then check its `mem_available_gb` in the Studio status (nova-studio-probe.yml). If memory is tight, set CODER_VISION_CTX lower on that Studio.
+# Example (switch on for the fifth Studio):
+# coder-inference-server-5

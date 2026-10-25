@@ -65,7 +65,7 @@ PREFIX = os.environ.get("CODER_API_PREFIX", "")
 LLAMA_PORT = int(os.environ.get("CODER_LLAMA_PORT", "8081"))
 JOB_TTL = 6 * 3600
 
-STATE = {"phase": "starting", "detail": "", "model": "", "model_repo": "", "ctx": CTX, "threads": THREADS,
+STATE = {"vision": False, "phase": "starting", "detail": "", "model": "", "model_repo": "", "ctx": CTX, "threads": THREADS,
          "llama_build": LLAMA_BUILD, "error": "", "started_at": time.time(), "ready_at": 0}
 JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 JOBS_LOCK = threading.Lock()
@@ -173,6 +173,38 @@ def _wait_health(timeout: float = 900) -> bool:
 
 
 _SPEC = {"on": False, "bad": False}
+# Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
+# A Studio is a vision Studio when the deploy put a `vision.on` file next to app.py (deploy-modelscope-coder.yml, from ai-system/modelscope-coder/VISION_STUDIOS) or CODER_VISION=on.
+# If the server does not come up with it, or it dies while it is on (memory), the next start goes without it (_VIS["bad"]) so a picture never takes a Studio down for good.
+MMPROJ_REPO, MMPROJ_FILE = "unsloth/Qwen3.5-4B-GGUF", "mmproj-F16.gguf"
+_VIS = {"on": False, "bad": False, "path": ""}
+
+
+def _vision_wanted() -> bool:
+    return not _VIS["bad"] and ((HERE / "vision.on").exists() or os.environ.get("CODER_VISION", "").strip().lower() in ("1", "on", "true", "yes"))
+
+
+def _download_mmproj() -> str:
+    have = next(iter((HERE / "_models").rglob(MMPROJ_FILE)), None) if (HERE / "_models").is_dir() else None
+    if have and have.stat().st_size > 100_000_000:
+        return str(have)
+    from modelscope import snapshot_download
+    for anonymous in (False, True):
+        if anonymous:
+            os.environ.pop("MODELSCOPE_API_TOKEN", None)
+            os.environ.pop("MODELSCOPE_TOKEN", None)
+        try:
+            try:
+                d = snapshot_download(MMPROJ_REPO, allow_patterns=[MMPROJ_FILE], cache_dir=str(HERE / "_models"))
+            except TypeError:
+                d = snapshot_download(MMPROJ_REPO, allow_file_pattern=[MMPROJ_FILE], cache_dir=str(HERE / "_models"))
+            p = next(iter(Path(d).rglob(MMPROJ_FILE)), None)
+            if p and p.stat().st_size > 100_000_000:
+                return str(p)
+        except Exception as exc:
+            _log("mmproj download:", type(exc).__name__, str(exc)[:120])
+    return ""
+
 
 
 def _start_server(model: Path, bindir: Path) -> None:
@@ -186,6 +218,16 @@ def _start_server(model: Path, bindir: Path) -> None:
         _SPEC["on"] = True
     else:
         _SPEC["on"] = False
+    _VIS["on"] = False
+    if _vision_wanted():
+        STATE.update(detail="loading the vision file")
+        mm = _download_mmproj()
+        if mm:
+            cmd += ["--mmproj", mm]
+            _VIS.update(on=True, path=mm)
+        else:
+            _VIS["bad"] = True
+    STATE["vision"] = bool(_VIS["on"])
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
@@ -195,6 +237,9 @@ def _supervisor() -> None:
     while True:
         try:
             if _PROC["p"] is None or _PROC["p"].poll() is not None:
+                if _PROC["p"] is not None and _VIS["on"]:
+                    _VIS["bad"] = True                    # the server died while the vision file was loaded (most likely memory): start again without it
+                    _log("server exited with vision on; restarting without it")
                 STATE.update(phase="loading", error="")
                 bindir = _llama_dir()
                 model = _download_model()
@@ -210,6 +255,9 @@ def _supervisor() -> None:
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
         except Exception as exc:
+            if _VIS["on"]:
+                _VIS["bad"] = True
+                _log("vision failed to start; restarting without it")
             if _SPEC["on"]:
                 _SPEC["bad"] = True                      # the experimental flags were on: next start goes without them, at once
                 _log("speculative flags failed; restarting without them")

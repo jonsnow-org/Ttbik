@@ -165,3 +165,11 @@ it named the red square, the blue circle and the black text, but read the small 
 ## Sham as an agent uses tools (2026-10-25)
 The agent role "sham" no longer stays a raw, tool-less answer once the bridge is on (`SHAM_TOOLS=on` or `SHAM_LIMITS=open`; `SHAM_TOOLS=off` always wins): it then runs through `sham_loop` with the worker's tools and permission settings
 (more than one step), and, like a worker, can `send_file` to the user. With the bridge off (an untrained Sham cannot follow the call format) it is the raw answer as before.
+
+## Pictures, video frames and media made by Sham (2026-10-25)
+Measured first (`nova-vision-probe.yml`): the Studio model can read pictures with its vision file (mmproj, 672 MB) at ~38 s per 448 px picture on 2 cores; small text is misread. Built, OFF until a Studio is named in `ai-system/modelscope-coder/VISION_STUDIOS`:
+- Studio (`app.py`): a Studio listed there gets a `vision.on` file at deploy, loads the vision file and says `vision: true` in its status; if it does not start, or dies while vision is on (memory), the next start is without it. Check its `mem_available_gb` after the first deploy (`nova-studio-probe.yml`);
+  if it is tight, set `CODER_VISION_CTX` lower on that Studio.
+- Bot: a request that contains a picture goes only to a Studio that says `vision` (none: it says so, never guesses). A Telegram photo (caption = the question) is shrunk to `CODER_IMAGE_MAX_PX` (512) and shown to the model once; after its answer the picture becomes a note.
+- Tools (group `media`): `view_image` (URL or VM file), `view_video` (a few frames taken with ffmpeg in the VM; install it first if missing), `make_media` (Sham makes a picture / sound / video and it is sent to the chat; owner only). Main chat and workers.
+- Not built: understanding SOUND (the model repo has no audio file; it needs a separate speech model). A picture sent while a task is already running is not queued as a picture.

@@ -75,6 +75,9 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
+  tool("view_image", "LOOK at a picture: from a public URL or from a file in the VM. You see it in your next step (a few seconds to a minute on this server). Use it for screenshots, photos, charts, scans. Small text in a picture may be misread: say so when it matters.", obj({ url: s("https URL of the picture"), path: s("or a file path in the VM"), cwd: s("base dir for path") })),
+  tool("view_video", "LOOK at a video that is a file in the VM: it takes a few frames spread over the video (ffmpeg in the VM) and you see them in your next step, in order. Each frame costs about as much time as one picture.", obj({ path: s("video file path in the VM"), frames: n("how many frames, default 4, max 6"), cwd: s("base dir") }, ["path"])),
+  tool("make_media", "Have Sham (the team's own model) MAKE a picture, a sound or a short video from a description, and send it to the user in the chat. Describe it plainly. Owner only; slow on a free CPU.", obj({ kind: s("image | audio | video"), prompt: s("what to make") }, ["kind", "prompt"])),
   tool("http_request", "Call any public HTTP API (GET / POST / PUT / PATCH / DELETE) and read the answer. For your own linked services use connector_api; for a plain page use fetch_page. Writes ask the user first. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers, e.g. Authorization" }, body: s("request body text (JSON as a string)") }, ["url"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first. Workers can send files too.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
@@ -120,11 +123,12 @@ export function coderTools(github: boolean, connectors = false): CoderTool[] {
 // ~4,700 of a ~5,300-token first step, ~2 of its ~2.3 minutes; the system text alone is ~600 tokens. So a step carries only
 // load_tools (one short schema) plus the groups this conversation has already used; the model picks a group when it needs one and its
 // tools are there from the next step. CODER_TOOL_GROUPS=off sends every tool on every step (the earlier behaviour).
-export type ToolGroup = "github" | "computer" | "web" | "memory" | "schedule" | "connectors";
+export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
   computer: "computer (a private Linux VM: clone a repo, run any command and tests, read / write / edit / search files, make documents or archives and send them to the user)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
+  media: "media (look at a picture or a few frames of a video; have Sham make a picture, sound or video and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
   schedule: "schedule (create, list and delete tasks that run by themselves at a time or on a GitHub event)",
   connectors: "connectors (services the user linked in the app, MCP servers)",
@@ -134,6 +138,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
   const g: Record<string, CoderTool[]> = {
     computer: [...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
+    media: by(["view_image", "view_video", "make_media"]),
     memory: by(["memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
@@ -588,6 +593,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         return `error: ${String((e as Error)?.message || e).slice(0, 300)}`;
       }
     }
+    if (name === "view_image" || name === "view_video" || name === "make_media") return "error: this tool works in the main chat or in a worker only (it needs the chat to show or send the result).";
     if (name === "send_file") return "error: send_file is not available to this agent role (a reader or tester only reports). Put the result in your report instead.";
     if (name === "connector_api" || name === "mcp_list_tools" || name === "mcp_call") {
       if (ctx.userId === undefined) return "error: connectors are not available here";
@@ -869,7 +875,7 @@ export function toolLabel(call: CoderToolCall): string {
 // Plain-Arabic step names for the chat's progress card (the task history keeps the same text).
 const FRIENDLY: Record<string, [string, string]> = {
   github_whoami: ["👤", "التعرّف على الحساب"], github_list_repos: ["📚", "عرض المستودعات"], github_repo_info: ["📦", "معلومات المستودع"],
-  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_ci_logs: ["🧪", "سجل فشل CI"], http_request: ["🛰️", "طلب HTTP"], send_file: ["📎", "إرسال ملف"], github_pr_info: ["🔀", "تفاصيل طلب دمج"], github_commits: ["🕘", "آخر الإيداعات"], github_compare: ["↔️", "مقارنة نسختين"], github_edit_file: ["✏️", "تعديل ملف"], sandbox_edit_file: ["✏️", "تعديل ملف في الجهاز"], sandbox_search: ["🔎", "بحث في ملفات الجهاز"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
+  github_list_files: ["🗂️", "استعراض الملفات"], github_repo_scan: ["🧭", "مسح المستودع"], github_ci_logs: ["🧪", "سجل فشل CI"], http_request: ["🛰️", "طلب HTTP"], view_image: ["👁️", "النظر إلى صورة"], view_video: ["🎞️", "النظر إلى لقطات فيديو"], make_media: ["🎨", "صنع وسائط بشام"], send_file: ["📎", "إرسال ملف"], github_pr_info: ["🔀", "تفاصيل طلب دمج"], github_commits: ["🕘", "آخر الإيداعات"], github_compare: ["↔️", "مقارنة نسختين"], github_edit_file: ["✏️", "تعديل ملف"], sandbox_edit_file: ["✏️", "تعديل ملف في الجهاز"], sandbox_search: ["🔎", "بحث في ملفات الجهاز"], github_read_files: ["📖", "قراءة عدة ملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
   github_list_branches: ["🌿", "عرض الفروع"], github_create_branch: ["🌱", "إنشاء فرع"], github_write_files: ["✍️", "كتابة تعديلات"],
   github_delete_files: ["🗑️", "حذف ملفات"], github_delete_branch: ["🗑️", "حذف فرع"], github_create_pr: ["🔀", "فتح طلب دمج"],
   github_merge_pr: ["✅", "دمج طلب"], github_list_prs: ["🔀", "عرض طلبات الدمج"], github_list_issues: ["📝", "عرض المشكلات"],

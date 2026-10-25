@@ -124,6 +124,8 @@ jobs:
           git config --global user.email "ci@coder.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
+          # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
+          if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
           # ModelScope keeps big files (*.gz) in Git LFS; a fresh Studio instance then holds only the 130-byte LFS pointer (proven 2026-10-24:
           # its sha256 was exactly the pointer's) and llama.cpp cannot start. So the release goes in as 4 MiB plain parts (no LFS pattern
           # matches .partNNN), and app.py joins them and checks the pinned sha256.
@@ -134,6 +136,7 @@ jobs:
           cp ../llama-${LLAMA_BUILD}.part* .
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
           git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
+          if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 

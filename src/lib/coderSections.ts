@@ -13,6 +13,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { shamToolsEnabled } from "@/lib/shamTools";
+import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
@@ -412,6 +413,19 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 
   let content = text;
   if (msg.document) content = `${text}\n\n${await readDocument(bot, botRow, msg.document)}`.trim();
+  // a photo goes to the model as a picture (a vision Studio reads it); the caption is the question
+  let images: string[] = [];
+  if (Array.isArray(msg.photo) && msg.photo.length) {
+    const { anyVisionStudio } = await import("@/lib/openCoderStudio");
+    if (!(await anyVisionStudio())) {
+      await send(bot, chatId, "📷 قراءة الصور غير مفعّلة بعد على الاستوديوهات. أرسل طلبك نصاً.");
+      return true;
+    }
+    const img = await telegramPhoto(bot, botRow, msg.photo);
+    if (img) images = [img];
+    else { await send(bot, chatId, "تعذّر تحميل الصورة. جرّب مرة أخرى."); return true; }
+    if (!content) content = String(msg.caption || "").trim() || "ماذا ترى في هذه الصورة؟ صفها بإيجاز.";
+  }
   if (!content) {
     await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
     return true;
@@ -443,7 +457,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await addUsage(chatId, "tasks", 1, db);
   }
   if (st.run) st.inbox.push(content);
-  else st.messages.push({ role: "user", content });
+  else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
   // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
   // waits for this short Telegram API call; all heavy work remains in the background continuation.
@@ -508,7 +522,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
   const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
-  const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
+  const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
   const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
   const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000, tag: "prewarm" }).catch(() => null);
   let r = o?.reply || null;
@@ -767,6 +781,18 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
 
 const contextOf = (run: Run): Context => (run.agent ? run.parentCtx || "interactive" : run.source && run.source !== "interactive" ? "scheduled" : "interactive");
 const toolCallKey = (call: CoderToolCall): string => call.id || `${call.function.name}:${call.function.arguments}`;
+
+/** The largest size of a Telegram photo, downloaded and shrunk to what the model should be shown. */
+async function telegramPhoto(bot: TelegramBot, botRow: BotRow, sizes: { file_id: string; file_size?: number; width?: number }[]): Promise<string | null> {
+  try {
+    const big = [...sizes].sort((x, y) => (y.width || 0) - (x.width || 0) || (y.file_size || 0) - (x.file_size || 0))[0];
+    const f = await bot.api.getFile(big.file_id);
+    const r = await fetch(`https://api.telegram.org/file/bot${botRow.token}/${f.file_path}`, { signal: AbortSignal.timeout(20000) });
+    return await toModelImage(Buffer.from(await r.arrayBuffer()));
+  } catch {
+    return null;
+  }
+}
 
 async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: string; file_name?: string; file_size?: number }): Promise<string> {
   if ((doc.file_size || 0) > 400_000) return `[file ${doc.file_name || ""} is too big to read here (${doc.file_size} bytes)]`;
@@ -1119,6 +1145,75 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+        // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
+        const a = parseArgs(call);
+        let out = "";
+        let shown: string[] = [];
+        let from = "";
+        try {
+          if (call.function.name === "make_media") {
+            if (tierFor(chatId) !== "owner") out = "error: making media with Sham is for the owner only.";
+            else {
+              const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
+              const prompt = String(a.prompt || "").trim().slice(0, 600);
+              const { shamGenerateMedia, shamStudioEnabled } = await import("@/lib/shamStudio");
+              if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
+              else if (!shamStudioEnabled()) out = "error: Sham's Studio is not connected here";
+              else {
+                const r = await withHeartbeat(ioBot, chatId, run, `شام يصنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوتاً" : "مقطعاً"}`, () => shamGenerateMedia(kind, prompt, 120000));
+                const rb = realBot(bot);
+                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = "made by Sham and sent to the user as a picture"; }
+                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.wav"), { caption: prompt.slice(0, 200) }); out = "made by Sham and sent to the user as a sound file"; }
+                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = "made by Sham and sent to the user as a short video"; }
+                else out = `error: Sham made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
+              }
+            }
+          } else {
+            const { anyVisionStudio } = await import("@/lib/openCoderStudio");
+            if (!(await anyVisionStudio())) out = "error: no Studio reads pictures yet (vision is not switched on). Say so to the user; do not guess what the picture shows.";
+            else if (call.function.name === "view_image") {
+              let bytes: Buffer | null = null;
+              if (a.url) {
+                const { safeGetBytes } = await import("@/lib/coderWeb");
+                bytes = (await safeGetBytes(String(a.url))).bytes; from = String(a.url).slice(0, 160);
+              } else if (a.path) {
+                const { readSandboxFile } = await import("@/lib/coderSandbox");
+                const f = await readSandboxFile({ chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken }, String(a.path), a.cwd ? String(a.cwd) : undefined);
+                bytes = f?.bytes || null; from = f?.path || String(a.path);
+              } else out = "error: give a url or a path";
+              if (!out) { const img = bytes ? await toModelImage(bytes) : null; if (img) shown = [img]; else out = "error: that is not a picture I can read (or the file was not found)"; }
+            } else {
+              const n = Math.max(1, Math.min(6, Number(a.frames) || 4));
+              const { runSandboxTool, readSandboxFile } = await import("@/lib/coderSandbox");
+              const sc = { chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken };
+              const file = String(a.path || "").replace(/'/g, "'\\''");
+              const cmd = `command -v ffmpeg >/dev/null || { echo "NO_FFMPEG"; exit 3; }; mkdir -p /tmp/vf && rm -f /tmp/vf/f*.jpg; D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 '${file}' 2>/dev/null || echo 4); for i in $(seq 1 ${n}); do T=$(python3 -c "print(max(0, float('$D'.strip() or 4) * ($i - 0.5) / ${n}))"); ffmpeg -loglevel error -y -ss $T -i '${file}' -frames:v 1 -vf scale=512:-2 /tmp/vf/f$i.jpg; done; ls /tmp/vf`;
+              const r = (await runSandboxTool("sandbox_exec", { command: cmd, cwd: a.cwd }, sc)) || "";
+              if (/NO_FFMPEG/.test(r)) out = "error: ffmpeg is not installed in the VM. Install it first with sandbox_exec (e.g. `sudo dnf install -y ffmpeg-free` or `pip install imageio-ffmpeg`), then call view_video again.";
+              else {
+                for (let i = 1; i <= n; i++) {
+                  const f = await readSandboxFile(sc, `/tmp/vf/f${i}.jpg`);
+                  const img = f ? await toModelImage(f.bytes, 512) : null;
+                  if (img) shown.push(img);
+                }
+                from = String(a.path).slice(0, 160);
+                if (!shown.length) out = `error: no frames could be taken from the video (${r.slice(0, 200)})`;
+              }
+            }
+          }
+        } catch (e) {
+          out = `error: ${String((e as Error)?.message || e).slice(0, 240)}`;
+        }
+        await taskEvent(run.id, "tool", toolLabel(call), db);
+        if (shown.length) {
+          st.messages.push({ role: "tool", content: `${shown.length} picture${shown.length > 1 ? "s" : ""} from ${from} will be shown to you in the next message.`, tool_call_id: call.id, name: call.function.name });
+          st.messages.push({ role: "user", content: `[the ${call.function.name === "view_video" ? "frames of the video" : "picture"} you asked to see: ${from}]`, images: shown });
+        } else st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
         // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
         const a = parseArgs(call);
@@ -1460,6 +1555,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       const calls = completedCalls;
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
+      dropShownImages(st.messages);                        // a picture is shown to the model once; after its answer it is only a note
       run.job = undefined;
       run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;

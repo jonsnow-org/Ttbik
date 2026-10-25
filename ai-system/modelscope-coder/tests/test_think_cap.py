@@ -1,3 +1,4 @@
+import os
 # Offline check of the Studio's thinking cap (run: python ai-system/modelscope-coder/tests/test_think_cap.py): a long thought is cut and the step is asked again with thinking off.
 import http.server, json, threading, sys, time, importlib.util, os
 os.environ["CODER_MODEL_PATH"]="/nonexistent"
@@ -52,4 +53,20 @@ job3=dict(job, think=True, text="", reasoning="", seen=time.time(), tool_calls=[
 print("empty thought:",calls,repr(job3["text"])); assert calls==[True,False] and job3["text"]=="real answer"
 assert app._think_flag("1") == (True, 0) and app._think_flag("") == (False, 0) and app._think_flag("true") == (True, 0)
 assert app._think_flag("1:500") == (True, 500) and app._think_flag("1:99999") == (True, 6000) and app._think_flag("1:5") == (True, 200) and app._think_flag("0:500") == (False, 500)
+# vision is opt-in per Studio: a vision.on marker next to app.py (or CODER_VISION=on) switches it on, and a failed vision start switches it off again
+import tempfile, pathlib
+_here = app.HERE
+with tempfile.TemporaryDirectory() as d:
+    app.HERE = pathlib.Path(d)
+    os.environ.pop("CODER_VISION", None); app._VIS.update(on=False, bad=False)
+    assert app._vision_wanted() is False
+    (app.HERE / "vision.on").write_text("on")
+    assert app._vision_wanted() is True
+    app._VIS["bad"] = True
+    assert app._vision_wanted() is False, "a Studio whose vision start failed must not try again"
+    app._VIS["bad"] = False; (app.HERE / "vision.on").unlink(); os.environ["CODER_VISION"] = "on"
+    assert app._vision_wanted() is True
+    os.environ.pop("CODER_VISION", None)
+app.HERE = _here; app._VIS.update(on=False, bad=False)
+assert app.STATE["vision"] is False
 print("OK")

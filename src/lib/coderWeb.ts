@@ -112,6 +112,25 @@ export async function safeRequest(method: string, raw: string, o: FetchOpts & { 
   }
   throw new Error("too many redirects");
 }
+/** A picture or any file from a public address, as bytes (<= 8 MB), with the same address guard and per-hop checks as safeGet. */
+export async function safeGetBytes(raw: string, o: FetchOpts & { maxBytes?: number } = {}): Promise<{ status: number; url: string; type: string; bytes: Buffer }> {
+  const f = o.fetchImpl || globalThis.fetch;
+  const max = o.maxBytes || 8_000_000;
+  const deadline = Date.now() + (o.timeoutMs || 20000);
+  let url = raw;
+  for (let hop = 0; hop < 6; hop++) {
+    const c = await checkUrl(url, o.resolve);
+    if (!c.ok) throw new Error(c.why);
+    const r = await f(c.url.toString(), { redirect: "manual", headers: { "User-Agent": UA, Accept: "image/*,*/*;q=0.5" }, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+    if (r.status >= 300 && r.status < 400 && r.headers.get("location")) { url = new URL(r.headers.get("location")!, c.url).toString(); continue; }
+    const len = Number(r.headers.get("content-length") || 0);
+    if (len > max) throw new Error(`too large (${len} bytes)`);
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > max) throw new Error(`too large (${buf.length} bytes)`);
+    return { status: r.status, url: c.url.toString(), type: (r.headers.get("content-type") || "").toLowerCase(), bytes: buf };
+  }
+  throw new Error("too many redirects");
+}
 async function readCapped(r: Response, max: number): Promise<string> {
   if (!r.body || typeof (r.body as any).getReader !== "function") return (await r.text()).slice(0, max);
   const reader = (r.body as ReadableStream<Uint8Array>).getReader();

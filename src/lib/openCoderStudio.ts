@@ -10,7 +10,7 @@ import { noteStudioCtx } from "@/lib/coderContext";
 import { providerConfig, providerChat, shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
-  | { role: "system" | "user"; content: string; ctx?: string }
+  | { role: "system" | "user"; content: string; ctx?: string; images?: string[] }          // images: data URLs of pictures the model should SEE (only a vision Studio can)
   | { role: "assistant"; content: string; tool_calls?: CoderToolCall[] }
   | { role: "tool"; content: string; tool_call_id?: string; name?: string };
 export type CoderTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
@@ -99,7 +99,7 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
   const now = Date.now();
   return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
 }
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = ""): Promise<CoderOutcome> {
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
@@ -118,6 +118,11 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     // used in the last 15 minutes, so they can never take the slot of the user's own request ("1 ahead") or push its prompt cache out
     const turn = pickLock.then(async () => {
       let ord = order;
+      if (needVision) {
+        await Promise.all(bases.map((b) => studioStatus(b, 1500).catch(() => null)));          // learn which Studios read pictures
+        ord = ord.filter((x) => visionBases.has(x.b));
+        if (!ord.length) return null;
+      }
       if (fresh) {
         ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
         if (!ord.length) return null;
@@ -129,7 +134,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     });
     pickLock = turn.then(() => undefined, () => undefined);
     const picked = await turn;
-    if (!picked) return { reply: null, failure: "http", detail: "no free Studio" };
+    if (!picked) return { reply: null, failure: "http", detail: needVision ? "no Studio reads pictures (vision is off)" : "no free Studio" };
     order = picked;
   }
   let last: CoderOutcome = { reply: null, failure: "network" };
@@ -226,6 +231,24 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
   }
 }
 
+/** The messages as the model server reads them: a user message with pictures becomes content parts (text + image_url). Nothing else changes. */
+export function wireMessages(messages: CoderMessage[]): unknown[] {
+  return messages.map((m) => {
+    const imgs = (m as { images?: string[] }).images;
+    if (m.role !== "user" || !imgs?.length) return m;
+    const { images: _i, ...rest } = m as { images?: string[] } & Record<string, unknown>;
+    return { ...rest, content: [{ type: "text", text: String(m.content) + (m.ctx ? `\n\n${m.ctx}` : "") }, ...imgs.map((u) => ({ type: "image_url", image_url: { url: u } }))], ctx: undefined };
+  });
+}
+/** Studios that told us (in their status) they read pictures; refreshed by every status ask. */
+const visionBases = new Set<string>();
+export const hasImages = (messages: CoderMessage[]): boolean => messages.some((m) => (m as { images?: string[] }).images?.length);
+/** Is any Studio able to read pictures right now? (asks the Studios' status, shared for 1.5 s) */
+export async function anyVisionStudio(capMs = 1500): Promise<boolean> {
+  await Promise.all(coderStudioUrls().map((b) => studioStatus(b, capMs).catch(() => null)));
+  return coderStudioUrls().some((b) => visionBases.has(b));
+}
+
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
@@ -239,7 +262,7 @@ export function coderChat(
   return coderCall(
     "chat",
     {
-      messages: JSON.stringify(messages),
+      messages: JSON.stringify(wireMessages(messages)),
       tools: opts.tools?.length ? JSON.stringify(opts.tools) : "",
       max_tokens: opts.maxTokens ?? 0,
       think: opts.think ? (opts.thinkCap && opts.thinkCap !== 1200 ? `1:${Math.round(opts.thinkCap)}` : "1") : "",
@@ -251,6 +274,7 @@ export function coderChat(
     opts.fresh,
     opts.avoidHome,
     opts.tag,
+    hasImages(messages),
   );
 }
 
@@ -311,7 +335,8 @@ async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<
     if (!event_id) return null;
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) });
     const st = res.ok ? parseStatusSse(await res.text()) : null;
-    if (st && st.ctx != null) noteStudioCtx(base, st.ctx);        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
+    if (st && st.ctx != null) noteStudioCtx(base, st.ctx);
+    if (st) { if (st.vision === true) visionBases.add(base); else visionBases.delete(base); }        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
     return st;
   } catch {
     return null;
