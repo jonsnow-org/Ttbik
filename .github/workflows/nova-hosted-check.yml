@@ -19,13 +19,18 @@ jobs:
           for v in GROQ_API_KEY CEREBRAS_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY MODELSCOPE_TOKEN; do
             if [ -n "${!v}" ]; then echo "$v: set"; else echo "$v: not set"; fi
           done
+          cat > ids.py <<'PY'
+          import sys, json
+          try:
+              d = json.load(sys.stdin); ids = sorted(m.get("id", "") for m in d.get("data", []))
+              print(len(ids), "models"); print(", ".join(ids[:80]))
+          except Exception as e:
+              print("could not read list:", type(e).__name__)
+          PY
           list() { # name, url, key
             [ -n "$3" ] || return 0
             echo "### $1 models"
-            curl -s -m 30 -H "Authorization: Bearer $3" "$2/models" | python3 -c "import sys,json
-try:
-  d=json.load(sys.stdin); ids=sorted(m.get('id','') for m in d.get('data',[])); print(len(ids),'models'); print(', '.join(ids[:80]))
-except Exception as e: print('could not read list:', type(e).__name__)"
+            curl -s -m 30 -H "Authorization: Bearer $3" "$2/models" | python3 ids.py
           }
           list groq https://api.groq.com/openai/v1 "$GROQ_API_KEY"
           list cerebras https://api.cerebras.ai/v1 "$CEREBRAS_API_KEY"
