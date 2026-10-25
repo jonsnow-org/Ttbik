@@ -789,7 +789,7 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const first = await shamThinkPatient(text, mem?.chatKey || chatKey(chatId), mem, shamReplyTokens(), 28000, 40000);
   if (shamThinkUnavailable(first)) return false;
-  let r = first.reply;
+  const r = first.reply;
   let reasked = false;
   await sendShamLater(bot, chatId, r?.later);
   const done = async (x: ShamReply) => {
@@ -805,17 +805,18 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     return true;
   }
   await bot.api.sendMessage(chatId, shamPendingText(r.decision)).catch(() => null);
+  let job: string = r.job;
   while (Date.now() - t0 < 47000) {
     await new Promise((res) => setTimeout(res, 3000));
     const left = 50000 - (Date.now() - t0);
     if (left < 2000) break;
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-    const o = await shamJobResult(r.job, false, Math.min(8000, left));
+    const o = await shamJobResult(job, false, Math.min(8000, left));
     if (o.reply?.type === "gone" && !reasked && left > 20000) {
       // the Studio restarted and lost the job: the same message is asked again once (Nova does the same for a lost step) instead of asking the user to resend
       reasked = true;
       const again = await shamThink(text, mem?.chatKey || chatKey(chatId), mem, shamReplyTokens(), Math.min(25000, left - 4000));
-      if (again.reply?.type === "pending" && again.reply.job) { r = again.reply; continue; }
+      if (again.reply?.type === "pending" && again.reply.job) { job = again.reply.job; continue; }
       if (again.reply && again.reply.type !== "pending" && again.reply.type !== "gone") { await done(again.reply); return true; }
     }
     if (o.reply && o.reply.type !== "pending") {
@@ -823,7 +824,7 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
       return true;
     }
   }
-  await shamJobResult(r.job, true, 4000);       // detach: the Studio hands it over with this user's next message
+  await shamJobResult(job, true, 4000);       // detach: the Studio hands it over with this user's next message
   await bot.api.sendMessage(chatId, "ما زال شام يعمل على ردّك — سيصلك مع رسالتك القادمة.").catch(() => null);
   return true;
 }
