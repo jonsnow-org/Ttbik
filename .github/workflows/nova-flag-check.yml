@@ -18,4 +18,4 @@ jobs:
           mkdir llama && tar -xzf llama.tgz -C llama
           BIN=$(find llama -name llama-server | head -1)
           export LD_LIBRARY_PATH=$(dirname "$BIN")
-          "$BIN" --help 2>&1 | grep -n -A3 -E -- '--cache-ram|--alias|--ctx-checkpoints|--return-progress|cache-reuse|spec-type|spec-ngram|draft' | head -60
+          "$BIN" --help 2>&1 | grep -n -A3 -E -- '--cache-ram|--alias|checkpoint|--return-progress|cache-reuse|spec-type|spec-ngram|draft|batch-size|ubatch' | head -90
