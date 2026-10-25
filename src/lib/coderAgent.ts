@@ -76,7 +76,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
   tool("http_request", "Call any public HTTP API (GET / POST / PUT / PATCH / DELETE) and read the answer. For your own linked services use connector_api; for a plain page use fetch_page. Writes ask the user first. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers, e.g. Authorization" }, body: s("request body text (JSON as a string)") }, ["url"])),
-  tool("send_file", "Send a file you made in the VM to the user in this chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
+  tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first. Workers can send files too.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
@@ -588,7 +588,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         return `error: ${String((e as Error)?.message || e).slice(0, 300)}`;
       }
     }
-    if (name === "send_file") return "error: send_file works in the main chat only (the sub-agent has no chat to send to). Put the result in your report instead.";
+    if (name === "send_file") return "error: send_file is not available to this agent role (a reader or tester only reports). Put the result in your report instead.";
     if (name === "connector_api" || name === "mcp_list_tools" || name === "mcp_call") {
       if (ctx.userId === undefined) return "error: connectors are not available here";
       const c = await import("@/lib/coderConnectors");

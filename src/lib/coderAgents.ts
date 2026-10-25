@@ -6,6 +6,7 @@
 // CODER_AGENTS=off removes the tool.
 
 import { reportsHardChars } from "@/lib/coderContext";
+import { shamToolsEnabled } from "@/lib/shamTools";
 
 export const AGENT_MAX = 5;          // agents one run can start at once
 export const SUB_AGENT_MAX = 2;      // sub-agents ONE "worker" agent can start (read-only helpers, one level only)
@@ -14,7 +15,7 @@ export const AGENT_MAX_STEPS = 6;
 export const TESTER_MAX_STEPS = 10;
 export const WORKER_MAX_STEPS = 12;
 export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does; sham = the owner's own model, raw answer, owner only
-export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
+export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? (shamToolsEnabled() ? WORKER_MAX_STEPS : 1) : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 /** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
 export const agentReportsHard = (): number => reportsHardChars();
@@ -31,7 +32,9 @@ export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file", "sandbox_search"]);
 /** A worker may use every tool the parent has (each consequential call still goes through the user's permission settings and asks), except asking the user a free question, and starting agents at the deepest level. */
 export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1, args?: Record<string, unknown>): boolean => {
-  if (role === "sham") return false;
+  // Sham as an agent: a raw answer without tools until the owner switches the tool bridge on (SHAM_TOOLS / SHAM_LIMITS=open); then it has the worker's tools, through the same permission settings
+  if (role === "sham" && !shamToolsEnabled()) return false;
+  if (role === "sham") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);
   // http_request: a reader / tester may only read (GET / HEAD); a write is the worker's, through the user's permission settings
   if (name === "http_request" && role !== "worker" && args && !/^(GET|HEAD)$/i.test(String(args.method || "GET"))) return false;
   if (role === "worker") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);

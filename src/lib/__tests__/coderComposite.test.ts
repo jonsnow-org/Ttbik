@@ -94,7 +94,7 @@ describe("general tools", () => {
     const c = (a: object) => classifyCall({ id: "1", type: "function", function: { name: "http_request", arguments: JSON.stringify(a) } }, null);
     expect((await c({ url: "https://x.test/a" })).risks).toEqual([]);
     expect((await c({ method: "DELETE", url: "https://x.test/a" })).risks).toEqual(["external_write"]);
-    expect(await call("send_file", { path: "a.txt" })).toMatch(/main chat only/);
+    expect(await call("send_file", { path: "a.txt" })).toMatch(/not available to this agent role/);
   });
 });
 
@@ -113,5 +113,19 @@ describe("what the agents may use", () => {
   });
   it("there are preset helper jobs for the new tools", () => {
     expect(HELPER_IDS).toEqual(expect.arrayContaining(["ci_doctor", "pr_reviewer", "change_digest", "api_reader"]));
+  });
+});
+
+describe("Sham as an agent", () => {
+  const { agentToolAllowed, agentMaxSteps } = require("@/lib/coderAgents");
+  it("a raw answer without tools until the tool bridge is on; then the worker's tools (not ask_user), more than one step", () => {
+    const saved = [process.env.SHAM_TOOLS, process.env.SHAM_LIMITS]; delete process.env.SHAM_TOOLS; delete process.env.SHAM_LIMITS;
+    expect(agentToolAllowed("github_read_file", "sham")).toBe(false); expect(agentMaxSteps("sham")).toBe(1);
+    process.env.SHAM_TOOLS = "on";
+    expect(agentToolAllowed("github_read_file", "sham")).toBe(true); expect(agentToolAllowed("sandbox_exec", "sham")).toBe(true); expect(agentToolAllowed("send_file", "sham")).toBe(true);
+    expect(agentToolAllowed("ask_user", "sham")).toBe(false); expect(agentToolAllowed("delegate", "sham", 2)).toBe(false);
+    expect(agentMaxSteps("sham")).toBeGreaterThan(1);
+    process.env.SHAM_TOOLS = "off"; process.env.SHAM_LIMITS = "open"; expect(agentToolAllowed("github_read_file", "sham")).toBe(false);
+    saved[0] === undefined ? delete process.env.SHAM_TOOLS : (process.env.SHAM_TOOLS = saved[0]); saved[1] === undefined ? delete process.env.SHAM_LIMITS : (process.env.SHAM_LIMITS = saved[1]);
   });
 });

@@ -161,3 +161,7 @@ it is stored with the tool result so the cached prompt prefix stays identical. `
 ## Can the Studio model see pictures? Measured 2026-10-25 (`nova-vision-probe.yml`)
 Yes, with the model's vision file (`mmproj-F16.gguf`, 672 MB, on ModelScope as well as Hugging Face) passed to llama-server (`--mmproj`). On 2 pinned cores: one 448x448 picture = 38 s (228 prompt tokens at 6.6 tok/s, answer at 5.8 tok/s);
 it named the red square, the blue circle and the black text, but read the small text wrongly ("NOVA 09" for "NOVA 2026"). Memory: the server was 6.8 GB with the vision file at ctx 65536 (+~170 MB while a picture is read); a Studio has 7.88 GB, so vision must not be added to every Studio at 64k.
+
+## Sham as an agent uses tools (2026-10-25)
+The agent role "sham" no longer stays a raw, tool-less answer once the bridge is on (`SHAM_TOOLS=on` or `SHAM_LIMITS=open`; `SHAM_TOOLS=off` always wins): it then runs through `sham_loop` with the worker's tools and permission settings
+(more than one step), and, like a worker, can `send_file` to the user. With the bridge off (an untrained Sham cannot follow the call format) it is the raw answer as before.
