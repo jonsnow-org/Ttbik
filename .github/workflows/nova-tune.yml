@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix"
+        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix | native"
         required: false
         default: "all"
 permissions:
@@ -186,10 +186,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: granite-4.0-h-tiny-7b-a1b, url: "https://huggingface.co/unsloth/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf" }
-          - { id: lfm2-8b-a1b, url: "https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF/resolve/main/LFM2-8B-A1B-Q4_K_M.gguf" }
-          - { id: qwen3-4b-instruct-2507, url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf" }
-          - { id: qwen3.5-2b, url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" }
+          - { id: qwen2.5-coder-3b, url: "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf" }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -295,4 +292,31 @@ jobs:
             for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server_$mode.log; exit 1; }; sleep 3; done
             python3 scripts/nova-eval/prefix_test.py $mode
             kill $PID; wait $PID 2>/dev/null; sleep 2
+          done
+  native:
+    if: inputs.job == 'native'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: "what the prebuilt release carries, and the runner's CPU"
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          echo "CPU backends shipped in the prebuilt release (loaded at run time by the CPU's features):"
+          find llama -name 'libggml-cpu*' | sed 's|.*/||' | sort
+          lscpu | grep -E "Model name|Flags" | sed 's/Flags:/Flags (avx/amx subset):/' | grep -o -E "Model name.*|avx[0-9a-z_]*|amx[0-9a-z_]*|fma" | sort -u | tr '\n' ' '; echo
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+      - name: "build llama.cpp from source with -march=native"
+        run: |
+          git clone -q --depth 1 --branch ${LLAMA_BUILD} https://github.com/ggml-org/llama.cpp src
+          cmake -S src -B build -DGGML_NATIVE=ON -DGGML_BACKEND_DL=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release > cmake.log 2>&1 || { tail -20 cmake.log; exit 1; }
+          cmake --build build -j4 --target llama-bench > build.log 2>&1 || { tail -20 build.log; exit 1; }
+          ls -l build/bin/llama-bench
+      - name: "same model, same 2 pinned cores: prebuilt vs native, each twice, one after the other"
+        run: |
+          PRE=$(dirname "$(find llama -name llama-bench | head -1)"); export LD_LIBRARY_PATH="$PRE:${LD_LIBRARY_PATH:-}"
+          for i in 1 2; do
+            echo "### prebuilt run $i"; taskset -c 0,1 "$PRE/llama-bench" -m m.gguf -t 2 -p 512,2048 -n 32 -r 2 2>&1 | grep -E "pp|tg"
+            echo "### native run $i"; taskset -c 0,1 build/bin/llama-bench -m m.gguf -t 2 -p 512,2048 -n 32 -r 2 2>&1 | grep -E "pp|tg"
           done
