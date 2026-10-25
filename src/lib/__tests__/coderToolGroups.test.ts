@@ -30,7 +30,7 @@ describe("tool groups the model loads itself", () => {
     expect(n).toContain("load_tools");
   });
   it("every group loaded: load_tools itself is gone, all tools present", () => {
-    const msgs: any[] = [{ role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "load_tools", arguments: '{"groups":["github","computer","web","memory","schedule"]}' } }] }];
+    const msgs: any[] = [{ role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "load_tools", arguments: '{"groups":["github","computer","web","media","memory","schedule"]}' } }] }];
     expect(names(coderToolsFor(true, false, msgs)).sort()).toEqual(names(coderTools(true)).sort());
   });
   it("CODER_TOOL_GROUPS=off sends every tool", () => {
