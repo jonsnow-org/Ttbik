@@ -53,6 +53,9 @@ jobs:
           - { id: q4_k_m-current, file: Qwen3.5-4B-Q4_K_M.gguf }
           - { id: ud-q4_k_xl, file: Qwen3.5-4B-UD-Q4_K_XL.gguf }
           - { id: q5_k_m, file: Qwen3.5-4B-Q5_K_M.gguf }
+          - { id: q4_0, file: Qwen3.5-4B-Q4_0.gguf }
+          - { id: iq4_xs, file: Qwen3.5-4B-IQ4_XS.gguf }
+          - { id: ud-iq3_xxs, file: Qwen3.5-4B-UD-IQ3_XXS.gguf }
     steps:
       - uses: actions/checkout@v4
         with:
