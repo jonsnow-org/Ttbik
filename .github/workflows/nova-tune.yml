@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec"
+        description: "which job: all | flags | quants | spec | mtp"
         required: false
         default: "all"
 permissions:
@@ -131,3 +131,50 @@ jobs:
           go "n-gram (ngram-mod), up to 8" --spec-type ngram-mod --spec-draft-n-max 8
           go "0.8B draft model, up to 4" --spec-type draft-simple -md d.gguf --spec-draft-n-max 4
           go "0.8B draft model, up to 8" --spec-type draft-simple -md d.gguf --spec-draft-n-max 8
+  mtp:
+    if: inputs.job == 'mtp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - name: llama.cpp and the MTP model (the model's own multi-token-prediction head: no draft model)
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-MTP-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          lscpu | grep -E "Model name|Flags" | cut -c1-400
+          BIN=$(dirname "$(find llama -name llama-server | head -1)"); export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          "$BIN/llama-server" --help 2>&1 | grep -n -A2 -E -- 'spec-type|spec-draft-n-max' | head -20
+      - name: "MTP variants on 2 pinned cores - none vs draft-mtp 2/3/4"
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          CODE='Write a Python class LRUCache with get and put, then a second function that uses it to memoise fibonacci, with docstrings and a short usage example.'
+          PROSE='Explain in simple words why the sky is blue and why sunsets are red, in about two hundred words.'
+          AR='اشرح بجملتين بسيطتين ما هو الحوسبة السحابية ولماذا تستخدمها الشركات.'
+          go() { # name, extra server flags
+            echo "### $1"; shift
+            taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 8192 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8081 "$@" > srv.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 60); do curl -sf http://127.0.0.1:8081/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "server exited:"; tail -12 srv.log; return 0; }; sleep 5; done
+            curl -sf http://127.0.0.1:8081/health >/dev/null || { echo "not healthy"; tail -12 srv.log; kill $PID 2>/dev/null; return 0; }
+            for kind in code prose arabic; do
+              if [ $kind = code ]; then Q="$CODE"; elif [ $kind = prose ]; then Q="$PROSE"; else Q="$AR"; fi
+              for k in 1 2; do
+                python3 - "$Q" "$kind" "$k" <<'PY'
+          import sys, json, urllib.request
+          q, kind, k = sys.argv[1:4]
+          req = urllib.request.Request("http://127.0.0.1:8081/v1/chat/completions", data=json.dumps({"messages": [{"role": "user", "content": q}], "max_tokens": 200, "temperature": 0.2, "chat_template_kwargs": {"enable_thinking": False}}).encode(), headers={"content-type": "application/json"})
+          d = json.load(urllib.request.urlopen(req, timeout=900))
+          t = d.get("timings", {})
+          print("%s run %s: gen %.1f tok/s, n=%s, read %.1f tok/s, draft_n=%s accepted=%s | %s" % (kind, k, t.get("predicted_per_second", 0), t.get("predicted_n"), t.get("prompt_per_second", 0), t.get("draft_n"), t.get("draft_n_accepted"), d["choices"][0]["message"]["content"][:60].replace("\n", " ")))
+          PY
+              done
+            done
+            kill $PID 2>/dev/null; wait $PID 2>/dev/null
+          }
+          go "no speculation (MTP model file)"
+          go "draft-mtp, up to 2" --spec-type draft-mtp --spec-draft-n-max 2
+          go "draft-mtp, up to 3" --spec-type draft-mtp --spec-draft-n-max 3
+          go "draft-mtp, up to 4" --spec-type draft-mtp --spec-draft-n-max 4
