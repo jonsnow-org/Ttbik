@@ -4,7 +4,7 @@ Sends it N times (balanced accuracy, thinking off) to a local llama-server with 
 prints what the model did first each time."""
 import json, sys, urllib.request, collections
 
-P = json.load(open("scripts/nova-eval/ambig_payload.json"))
+P = json.load(open(sys.argv[2] if len(sys.argv) > 2 else "scripts/nova-eval/ambig_payload.json"))
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 8
 MSGS = {"vague (user without GitHub)": ("system_user", "هل تستطيع فحص مشروع على جيتهوب واصلاح الاخطاء"),
         "vague, other wording": ("system_user", "اريد منك مراجعة كود مشروعي واصلاح مشاكله"),

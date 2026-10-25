@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix | native | toolsel | newbuild | ambig"
+        description: "which job: all | flags | quants | spec | mtp | models | fit | prefix | native | toolsel | newbuild | ambig | ambig2"
         required: false
         default: "all"
 permissions:
@@ -391,4 +391,28 @@ jobs:
           PID=$!
           for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 3; done
           python3 scripts/nova-eval/ambig_test.py 8
+          kill $PID
+  ambig2:
+    if: inputs.job == 'ambig2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+      - name: "the same with the ASK FIRST rule in the system text"
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 65536 -t 2 -np 1 -n -1 --jinja --cache-ram 1024 --ctx-checkpoints 8 --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 3; done
+          python3 scripts/nova-eval/ambig_test.py 8 scripts/nova-eval/ambig_payload_rule.json
           kill $PID
