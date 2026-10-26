@@ -1,0 +1,125 @@
+name: "Deploy the Nova media Studio (image, Arabic speech, slideshow video on a free CPU Studio)"
+
+# A Studio of its own (nova-media-server), free CPU hardware only, private. Models are copied from Hugging Face into a private ModelScope model repo
+# (the Studio reaches only modelscope.cn). Uses the existing MODELSCOPE_TOKEN secret; nothing secret is printed; never deletes anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "true = copy the models into the ModelScope model repo first (once, or when they change)"
+        required: false
+        default: "true"
+
+concurrency:
+  group: deploy-modelscope-media
+  cancel-in-progress: false
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  REPO: nova-media-server
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Models into ModelScope
+        if: inputs.models != 'false'
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install modelscope huggingface_hub
+          python scripts/nova-media/push_models.py
+
+      - name: Account, free hardware and existing Studio (read-only)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -u
+          api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
+          echo "user:";      api /users/me | python3 -c "import json,sys;d=json.load(sys.stdin);x=d.get('data') or d.get('Data') or d;print({k:x.get(k) for k in ('username','name','level') if isinstance(x,dict)})" || true
+          echo "hardware:";  api "/studios/hardware?sdk_type=gradio" | tee hw.json | head -c 3000; echo
+          echo "sdk:";       api "/studios/sdk-versions?sdk_type=gradio" | tee sdk.json | head -c 1500; echo
+          code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          echo "studio http $code"; head -c 1500 studio.json; echo
+          echo "STUDIO_HTTP=$code" >> "$GITHUB_ENV"
+
+      - name: Create the Studio if missing (private, free CPU)
+        if: env.STUDIO_HTTP != '200'
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          HW=$(python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("hw.json"))
+          except Exception:
+              d = {}
+          items = d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items, dict):
+              items = items.get("items") or items.get("hardware") or []
+          free = [i for i in items if isinstance(i, dict) and str(i.get("resource_type", "")).lower() != "paid" and not str(i.get("name", "")).startswith("paid/")]
+          cpu = [i for i in free if "cpu" in str(i.get("name", "")).lower()]
+          pick = (cpu or free or [{"name": "platform/2v-cpu-16g-mem"}])[-1]
+          print(pick.get("name"))
+          PY
+          )
+          echo "hardware pick: $HW"
+          case "$HW" in paid/*) echo "refusing paid hardware"; exit 1;; esac
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create http $code"; head -c 2000 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above: quota / verification / one-Studio limit)"; exit 1; }
+
+      - name: Push the app into the Studio repo
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          git config --global user.name "media CI"
+          git config --global user.email "ci@media.local"
+          git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
+          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/requirements.txt ms-studio/
+          cd ms-studio
+          git add app.py requirements.txt
+          git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
+          git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
+
+      - name: Deploy and show status
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1500; echo
+          API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
+          for i in $(seq 1 40); do
+            sleep 30
+            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
+            echo "$(date -u +%H:%M:%S) studio: $st"
+            case "$st" in
+              *ail*|*rror*|*topped*)
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                exit 1;;
+              Running|running)
+                for j in $(seq 1 20); do
+                  ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                  [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
+                  echo "$out" | grep -q 'phase[^,]*ready' && exit 0
+                  if echo "$out" | grep -q 'phase[^,]*error'; then
+                    echo "::error::the Studio is running but the model server is in the error phase"
+                    curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                    exit 1
+                  fi
+                  sleep 30
+                done
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                echo "::error::the model server was not ready in time"
+                exit 1;;
+            esac
+          done
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+          exit 1
