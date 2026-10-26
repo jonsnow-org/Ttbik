@@ -1,0 +1,28 @@
+name: "Build Sham v2 from a chat-tuned donor and look at it (read-only, nothing published)"
+on:
+  workflow_dispatch:
+    inputs:
+      donor:
+        description: "Hugging Face id of the donor (plain dense Qwen3 family)"
+        default: "Qwen/Qwen3-1.7B"
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers tokenizers numpy requests pillow accelerate huggingface_hub
+      - name: Build and look
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          DONOR: ${{ inputs.donor }}
+        run: python scripts/transplant/build_v2.py "$DONOR"

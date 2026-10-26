@@ -53,6 +53,17 @@ def token_text(token: str) -> str | None:
         return None
 
 
+class _FloatView:
+    def __init__(self, d):
+        self.d = d
+
+    def __contains__(self, k):
+        return k in self.d
+
+    def __getitem__(self, k):
+        return self.d[k].detach().float()
+
+
 def rope_perm(head_dim: int) -> torch.Tensor:
     """new[j] = old[perm[j]]: donor layout (i, i + hd/2 paired) -> Sham layout ((2i, 2i + 1) paired)."""
     half = head_dim // 2
@@ -83,7 +94,7 @@ def config_from_hf(hf_cfg, vocab_size: int = TOTAL_VOCAB_SIZE, max_seq_len: int 
 
 def transplant_body(hf_model, vocab_size: int = TOTAL_VOCAB_SIZE, max_seq_len: int = 2048) -> ShamSmall:
     """A ShamSmall holding the donor's body. The embedding table is left at Sham's initialisation: fill it with fill_embeddings()."""
-    sd = {k: v.detach().float() for k, v in hf_model.state_dict().items()}
+    sd = _FloatView(hf_model.state_dict())                                  # converted tensor by tensor when read: no second full copy in memory
     has_bias = "model.layers.0.self_attn.q_proj.bias" in sd
     has_qk = "model.layers.0.self_attn.q_norm.weight" in sd
     cfg = config_from_hf(hf_model.config, vocab_size, max_seq_len, has_bias, has_qk)
@@ -141,6 +152,56 @@ def fill_embeddings(model: ShamSmall, donor_embed: torch.Tensor, donor_tok, sham
 
 
 
+def native_model(hf_model, max_seq_len: int = 2048, media_init: str = "mean", codebooks: dict | None = None, seed: int = 0, chat_format: str = "") -> ShamSmall:
+    """Sham that keeps the donor's OWN tokenizer: the donor's embedding rows are copied one to one (nothing to repair, so it works at once), and Sham's
+    image / audio / special rows sit above the text range (SHAM_TEXT_VOCAB must be the text width, e.g. 151936 for Qwen3). Run with the environment variable set
+    before anything of Sham is imported.
+      media_init = "mean"      the rows start where an untrained row would (the mean of the text rows plus small noise): what Sham already does for a switched tokenizer
+      media_init = "codebook"  the rows start from the media tokenizer's own codebook vectors (similar pictures / sounds get similar rows), projected into the model's width
+                               by a fixed random orthonormal map and scaled like the mean-init noise. codebooks = {"image": (8192, 256) tensor, "audio": (2048, 128) tensor}."""
+    from model import AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE, IMAGE_VOCAB_BASE, IMAGE_VOCAB_SIZE, TEXT_VOCAB_SIZE, TOTAL_VOCAB_SIZE
+    m = transplant_body(hf_model, TOTAL_VOCAB_SIZE, max_seq_len)
+    m.cfg.chat_format = chat_format
+    E = hf_model.get_input_embeddings().weight.detach().float()
+    if E.shape[0] > TEXT_VOCAB_SIZE:
+        raise ValueError(f"the donor has {E.shape[0]} embedding rows: set SHAM_TEXT_VOCAB to at least that")
+    g = torch.Generator().manual_seed(seed)
+    mean, std = E.mean(0), E.std()
+    d = E.shape[1]
+    with torch.no_grad():
+        W = m.token_embedding.weight
+        W[: E.shape[0]] = E
+        W[E.shape[0]:TEXT_VOCAB_SIZE] = mean
+        W[TEXT_VOCAB_SIZE:] = mean + 0.1 * std * torch.randn(W.shape[0] - TEXT_VOCAB_SIZE, d, generator=g)
+        if media_init == "codebook" and codebooks:
+            for kind, base, n in (("image", IMAGE_VOCAB_BASE, IMAGE_VOCAB_SIZE), ("audio", AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE)):
+                C = codebooks.get(kind)
+                if C is None:
+                    continue
+                C = C.detach().float()
+                C = (C - C.mean(0)) / (C.std() + 1e-8)
+                P = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T                  # (code_dim, d), orthonormal rows
+                X = C @ P
+                W[base:base + n] = mean + X * (0.1 * std / (X.std() + 1e-8))
+    return m
+
+
+def run_native(donor_id: str, out_dir: str | Path, media_init: str = "mean", codebooks: dict | None = None, max_seq_len: int = 2048) -> Path:
+    from checkpoint import save_checkpoint
+    from huggingface_hub import snapshot_download
+    from transformers import AutoModelForCausalLM
+
+    hf = AutoModelForCausalLM.from_pretrained(donor_id, dtype=torch.bfloat16).eval()
+    m = native_model(hf, max_seq_len, media_init, codebooks, chat_format="qwen3" if "qwen3" in str(donor_id).lower() and not str(donor_id).endswith("-Base") else "")
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    save_checkpoint(out / "step_000000.pt", m, 0, extra={"native_tokenizer": True})
+    tok_json = Path(snapshot_download(donor_id, allow_patterns=["tokenizer.json", "tokenizer_config.json"])) / "tokenizer.json"
+    (out / "sham_small_tokenizer.json").write_bytes(tok_json.read_bytes())
+    print(f"native Sham from {donor_id}: {sum(p.numel() for p in m.parameters()) / 1e6:.0f}M parameters, text vocabulary {m.cfg.vocab_size}")
+    return out
+
+
 def run(donor_id: str, out_dir: str | Path, sham_tok_json: str | Path, max_seq_len: int = 2048) -> Path:
     from checkpoint import save_checkpoint
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -180,6 +241,20 @@ def _self_test() -> None:
         err = float((want - got).abs().max())
         assert err < 1e-4, f"{name}: the transplanted body differs from the donor (max |logit diff| {err})"
         print(f"  {name}: logits equal to the donor's (max diff {err:.2e})")
+    # native tokenizer: the donor's rows are copied as they are, the body still equals the donor's, media rows start sensibly in both modes
+    hf = Qwen3ForCausalLM(Qwen3Config(vocab_size=256, hidden_size=48, intermediate_size=96, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2, head_dim=24,
+                                      max_position_embeddings=64, rope_theta=1_000_000.0, tie_word_embeddings=True)).eval()
+    cb = {"image": torch.randn(8192, 16), "audio": torch.randn(2048, 8)}
+    for mode in ("mean", "codebook"):
+        m = native_model(hf, max_seq_len=64, media_init=mode, codebooks=cb).eval()
+        with torch.no_grad():
+            want, got = hf(ids).logits, m(ids)[0][..., :256]
+        assert float((want - got).abs().max()) < 1e-4, mode
+        from model import IMAGE_VOCAB_BASE
+        rows = m.token_embedding.weight[IMAGE_VOCAB_BASE:IMAGE_VOCAB_BASE + 8192]
+        ref = float(hf.get_input_embeddings().weight.std())
+        assert torch.isfinite(rows).all() and 0.05 * ref < float(rows.std()) < 0.5 * ref
+        print(f"  native tokenizer, media rows '{mode}': text logits equal to the donor's, media rows std {float(rows.std()):.3f}")
     assert token_text("Ù") is None and token_text("ĠÙĥ") == " ك" and token_text("Ġthe") == " the"
     print("sham_transplant OK: the body behaves exactly like the donor's in Sham's own class.")
 

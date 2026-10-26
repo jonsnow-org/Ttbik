@@ -92,11 +92,29 @@ def _chat_try(model, tokenizer, prompt: str, max_new_tokens: int, today, temp: f
         return ""
 
 
+QWEN3_SYSTEM = os.environ.get("SHAM_QWEN3_SYSTEM", "أنت شام، مساعد ذكي صنعه فريقنا. أجب بلغة المستخدم بوضوح ودقة.")
+
+
+def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0) -> str:
+    """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on), in non-thinking mode.
+    No canned text: whatever the model writes is the answer. temperature 0 = greedy."""
+    from generate import generate_tokens
+    text = f"<|im_start|>system\n{QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
+    end = tokenizer.encode("<|im_end|>")[-1]
+    out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9,
+                          eos_id=end, repetition_penalty=1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens)
+    new = [i for i in out[0, ids.shape[1]:].tolist() if i != end and i < tokenizer.vocab_size]
+    return tokenizer.decode(new).strip()
+
+
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
     """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
     Two diagnostic prompts for the owner: «#info» reports which path is active; «#raw <text>» answers <text> with the old raw continuation, so the two
     ways can be compared on the same question."""
     stripped = prompt.strip()
+    if getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3" and not stripped.startswith("#"):
+        return qwen3_chat(model, tokenizer, prompt, max_new_tokens)
     if stripped == "#info":
         return (f"sham_studio_chat فعّال | حوار={_on('SHAM_STUDIO_CHAT')} بحث={_on('SHAM_STUDIO_SEARCH')} تاريخ={_on('SHAM_STUDIO_DATE')} | "
                 f"التاريخ في السياق الآن: {build_user_text('', today).splitlines()[0] if _on('SHAM_STUDIO_DATE') else '—'}")

@@ -88,6 +88,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
+import os
 
 # Owner spec, 2026-09-14: the shared vocabulary contract between this
 # model and image_tokenizer.py (and, later, audio_tokenizer.py) — see
@@ -95,7 +96,10 @@ import torch.utils.checkpoint
 # source of truth rather than each file guessing compatible offsets
 # independently, which is exactly the kind of mismatch that would
 # silently corrupt every generated image without ever raising an error.
-TEXT_VOCAB_SIZE = 32000
+# 32000 is the vocabulary of every Sham checkpoint trained so far. SHAM_TEXT_VOCAB=<n> (set BEFORE any Sham module is imported) makes the text range n ids wide, and the image / audio /
+# special ranges above it move with it, so a model that starts from a published open model's body can keep that model's own tokenizer (Qwen3: 151936) together with Sham's media ranges.
+# One process works with one text vocabulary: a checkpoint of the other size will not load into it.
+TEXT_VOCAB_SIZE = int(os.environ.get("SHAM_TEXT_VOCAB") or 32000)
 IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
 AUDIO_VOCAB_SIZE = 2048  # must equal audio_tokenizer.AudioTokenizerConfig.num_codes
 NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities (e.g. per-frame video markers)
@@ -255,6 +259,7 @@ class ShamSmallConfig:
     head_dim: int = 0               # 0 = d_model // n_heads
     qkv_bias: bool = False
     qk_norm: bool = False
+    chat_format: str = ""           # "" = Sham's own dialogue layout; "qwen3" = the donor's chat template (<|im_start|> ... <|im_end|>), see sham_studio_chat.py
 
     @property
     def hd(self) -> int:
