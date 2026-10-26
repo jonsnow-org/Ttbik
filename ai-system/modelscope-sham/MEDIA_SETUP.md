@@ -19,3 +19,7 @@ This change intentionally does not touch training or notebook code.
 - **Video:** LTX-Video temporal video diffusion on the separate Hugging Face ZeroGPU Space. Sham does not fall back to a repeated still/slideshow when this service is unavailable.
 - The existing text model is not retrained by this change. Text reasoning quality remains dependent on the checkpoint that is already deployed.
 - A code change cannot create the Hugging Face Space, grant GPU quota, or inject private tokens. Those are external account/deployment prerequisites and must be confirmed with a live generation after setup.
+
+## Standalone FastAPI/Streamlit deployment
+
+For the separate standalone backend used by the Streamlit UI, set `SHAM_MEDIA_ROOT` to the directory containing `sdxs/` and `piper/`. Set `HF_VIDEO_SPACE_ID` and `HF_TOKEN` in that backend's environment for real LTX-Video generation. Its `/generate/image`, `/generate/audio`, and `/generate/video` endpoints now return HTTP 503 with an explicit reason if the real backend is unavailable; they do not emit Sham token-decoder noise or a slideshow as if it were a successful result.
