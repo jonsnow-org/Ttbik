@@ -805,7 +805,7 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
-  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.gh)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore() });
+  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore() });
   if (r.kind === "none") return false;
   if (r.kind === "confirm") {                         // a write to the user's repository: ask first, run only on the tap
     const id = await shamSavePending(chatId, r.call);
