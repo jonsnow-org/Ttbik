@@ -140,8 +140,14 @@ def _push_ok(api, work_dir: Path, retries: int = 1) -> None:
             time.sleep(15)
 
 
-def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failure: str, state: dict, prefer_gpu: bool = False) -> str:
+def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failure: str, state: dict, prefer_gpu: bool = False, force_cpu: bool = False) -> str:
     entry = state.setdefault(slug, {})
+    if force_cpu:
+        # 2026-10-26 (owner): only the IMPORTANT notebooks start on GPU. Any other notebook runs on the free CPU, even one that was left on GPU in its settings.
+        _set_gpu(work_dir, False)
+        entry.pop("gpu_fallback_since", None)
+        _push_ok(api, work_dir)
+        return "CPU (not one of the important notebooks)"
     set_to_gpu = _set_gpu(work_dir, False)  # read the notebook's current setting
     _shape = json.loads((work_dir / "kernel-metadata.json").read_text(encoding="utf-8")).get("_sham_gpu_shape")
     if _shape:
@@ -288,6 +294,7 @@ def resume_kernel(
     state: dict | None = None,
     runtime_fixes: bool = False,
     prefer_gpu: bool = False,
+    force_cpu: bool = False,
 ) -> str:
     """Real orchestration logic, factored out from any CLI/argv concerns
     so it can be exercised directly (with a fake `api`) by this file's
@@ -358,7 +365,7 @@ def resume_kernel(
 
     if auto_accelerator:
         device = _resume_accelerator(api, work_dir, kernel_slug, status == KernelWorkerStatus.ERROR,
-                                     failure, state if state is not None else {}, prefer_gpu=prefer_gpu)
+                                     failure, state if state is not None else {}, prefer_gpu=prefer_gpu, force_cpu=force_cpu)
     else:
         api.kernels_push(str(work_dir))
         device = "accelerator unchanged"
@@ -484,7 +491,7 @@ if __name__ == "__main__":
         print("sync_from_repo=True correctly overwrote the pushed content with this repo's notebook.")
 
     # 5b) auto_accelerator: owner's CPU choice never moves to GPU; GPU falls back to CPU without quota
-    def run(meta_gpu, last_status=KernelWorkerStatus.COMPLETE, failure="", push_errors=(), state=None, prefer_gpu=False):
+    def run(meta_gpu, last_status=KernelWorkerStatus.COMPLETE, failure="", push_errors=(), state=None, prefer_gpu=False, force_cpu=False):
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = Path(tmp) / "kaggle-kernel"
             api = fake_api(last_status)
@@ -507,7 +514,7 @@ if __name__ == "__main__":
             api.kernels_push.side_effect = push
             state = {} if state is None else state
             assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
-                                 auto_accelerator=True, state=state, prefer_gpu=prefer_gpu) == "pushed"
+                                 auto_accelerator=True, state=state, prefer_gpu=prefer_gpu, force_cpu=force_cpu) == "pushed"
             return flags, state
 
     assert run(False)[0] == [False]                                                   # CPU stays CPU
@@ -523,6 +530,8 @@ if __name__ == "__main__":
     flags, st = run(False, state=st)
     assert flags == [True] and "gpu_fallback_since" not in st["user/slug"]            # back on GPU
     print("auto_accelerator: CPU choice never moves to GPU; GPU falls back to CPU without quota and returns later.")
+    assert run(True, force_cpu=True)[0] == [False]                                    # not an important notebook: CPU even if its settings say GPU
+    assert run(True, prefer_gpu=True)[0] == [True]                                    # an important one starts on GPU
     assert run(False, prefer_gpu=True)[0] == [True]                                   # the named notebook goes to GPU even if it was CPU
     flags, st = run(False, KernelWorkerStatus.ERROR, "You have exceeded your weekly GPU quota", prefer_gpu=True)
     assert flags == [False] and st["user/slug"]["gpu_fallback_since"]                 # ...and falls back to CPU when the quota is out

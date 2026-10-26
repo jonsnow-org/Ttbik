@@ -187,9 +187,10 @@ def main() -> int:
     print(f"عدد الدفاتر المراقَبة: {len(watch)} | الوضع: {'حي' if live else 'تجريبي (لا دفع)'}")
 
     # 2026-10-17 (owner): every main notebook was on CPU for weeks (~1,000 steps per 5 h), so the model did not move. The tracks named in SHAM_GPU_TRACKS
-    # (default: all_in_one, the one that trains the published head) spend Kaggle's free weekly GPU quota; they fall back to CPU when it is out and try the
-    # GPU again after a day (kaggle_auto_resume.prefer_gpu). SHAM_GPU_TRACKS="" turns this off.
-    gpu_tracks = [t.strip() for t in os.environ.get("SHAM_GPU_TRACKS", "all_in_one").split(",") if t.strip()]
+    # (default since 2026-10-26, owner: the IMPORTANT notebooks only start on GPU: all_in_one = the one that trains the published head, chat_image_in_one = chat + media
+    # tokenizers) spend Kaggle's free weekly GPU quota; they fall back to CPU when it is out and try the GPU again after a day (kaggle_auto_resume.prefer_gpu).
+    # Every other notebook stays on CPU. SHAM_GPU_TRACKS="" turns this off; SHAM_GPU_TRACKS="all_in_one,ab_in_one,..." changes the set.
+    gpu_tracks = [t.strip() for t in os.environ.get("SHAM_GPU_TRACKS", "all_in_one,chat_image_in_one").split(",") if t.strip()]
     gpu_slugs = {resolved.get("refs", {}).get(t) for t in gpu_tracks} - {None}
 
     def resume(slug, accel):
@@ -200,7 +201,7 @@ def main() -> int:
             return resume_kernel(slug, str(src / json.loads((src / "kernel-metadata.json").read_text(encoding="utf-8"))["code_file"]), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
                                  sync_from_repo=True, auto_accelerator=True, state=accel, runtime_fixes=True)
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
-                             runtime_fixes=True, prefer_gpu=slug in gpu_slugs)  # SHAM_SECRETS_FALLBACK (2026-10-15)
+                             runtime_fixes=True, prefer_gpu=slug in gpu_slugs, force_cpu=bool(gpu_slugs) and slug not in gpu_slugs)  # SHAM_SECRETS_FALLBACK (2026-10-15); GPU only for the important ones (2026-10-26)
 
     # One-time breaker reset after a deliberate fix of the failure that tripped it (2026-10-15: the
     # first-cell HTTP 400 on Kaggle Secrets). Bump FIX_EPOCH only together with such a fix.
