@@ -22,14 +22,58 @@ from pathlib import Path
 _CACHE: dict = {"pipe": None, "voice": None}
 
 
-def ready_root(model_dir: str | Path | None) -> Path | None:
-    """The folder with the ready weights, when they are part of the model repo (media/sdxs and media/piper)."""
+def inspect_ready_assets(model_dir: str | Path | None) -> dict:
+    """Inspect local donor weights without downloading anything or loading them into RAM."""
     if not model_dir:
-        return None
-    for cand in (Path(model_dir) / "media", *Path(model_dir).rglob("media")):
-        if (cand / "sdxs").is_dir() and any((cand / "piper").glob("*.onnx")):
-            return cand
-    return None
+        return {"ready": False, "root": "", "image_bytes": 0, "audio_bytes": 0, "reason": "model directory missing"}
+    base = Path(model_dir)
+    # The publishing workflow guarantees a single root-level media/ folder; avoid a full recursive walk of the 8 GiB snapshot.
+    for cand in (base / "media",):
+        sdxs = cand / "sdxs"
+        piper = cand / "piper"
+        if not sdxs.is_dir() or not piper.is_dir():
+            continue
+        # A directory name alone is not proof of a usable model: require a Diffusers
+        # model index + actual checkpoint tensors, and a Piper ONNX model + config.
+        index_ok = (sdxs / "model_index.json").is_file()
+        image_weights = [p for p in sdxs.rglob("*") if p.is_file() and p.suffix.lower() in {".safetensors", ".bin", ".ckpt"}]
+        voices = [p for p in piper.glob("*.onnx") if Path(str(p) + ".json").is_file() or p.with_suffix(".onnx.json").is_file()]
+        if not index_ok or not image_weights or not voices:
+            continue
+        voice_files = set(voices)
+        for voice in voices:
+            for cfg in (Path(str(voice) + ".json"), voice.with_suffix(".onnx.json")):
+                if cfg.is_file():
+                    voice_files.add(cfg)  # the two Piper config spellings can resolve to the same file
+        return {
+            "ready": True,
+            "root": str(cand),
+            "image_bytes": sum(p.stat().st_size for p in image_weights),
+            "audio_bytes": sum(p.stat().st_size for p in voice_files),
+            "image_weight_files": len(image_weights),
+            "voice_models": len(voices),
+            "reason": "",
+        }
+    return {"ready": False, "root": "", "image_bytes": 0, "audio_bytes": 0,
+            "reason": "valid local Diffusers image weights or Piper ONNX+JSON voice weights not found"}
+
+
+def ready_root(model_dir: str | Path | None) -> Path | None:
+    """Return only a complete local image+speech model bundle; never infer readiness from empty folders."""
+    info = inspect_ready_assets(model_dir)
+    return Path(info["root"]) if info["ready"] else None
+
+
+def _scene_prompts(prompt: str, count: int = 4) -> list[str]:
+    """Turn one idea into a small, explicit multi-shot storyboard for the local image model."""
+    prompt = prompt.strip()
+    shots = [
+        "wide establishing shot",
+        "medium shot showing the main subject clearly",
+        "close-up detail shot",
+        "wide closing shot with a changed composition",
+    ]
+    return [f"{prompt}. Cinematic storyboard, {shots[i]}." for i in range(count)]
 
 
 def _pipe(root: Path):
@@ -37,7 +81,7 @@ def _pipe(root: Path):
         import torch
         from diffusers import AutoPipelineForText2Image
         torch.set_num_threads(os.cpu_count() or 2)
-        p = AutoPipelineForText2Image.from_pretrained(str(root / "sdxs"), torch_dtype=torch.bfloat16, safety_checker=None)
+        p = AutoPipelineForText2Image.from_pretrained(str(root / "sdxs"), torch_dtype=torch.bfloat16, safety_checker=None, local_files_only=True)
         p.set_progress_bar_config(disable=True)
         _CACHE["pipe"] = p
     return _CACHE["pipe"]
@@ -46,7 +90,12 @@ def _pipe(root: Path):
 def _voice(root: Path):
     if _CACHE["voice"] is None:
         from piper import PiperVoice
-        _CACHE["voice"] = PiperVoice.load(str(sorted((root / "piper").glob("*.onnx"))[0]))
+        voices = sorted((root / "piper").glob("*.onnx"))
+        preferred = root / "piper" / "ar_JO-kareem-medium.onnx"
+        voice_path = preferred if preferred in voices else (voices[0] if voices else None)
+        if voice_path is None:
+            raise FileNotFoundError("No local Piper ONNX voice model was found")
+        _CACHE["voice"] = PiperVoice.load(str(voice_path))
     return _CACHE["voice"]
 
 
@@ -100,8 +149,17 @@ def make(root: Path, kind: str, prompt: str) -> dict:
         if kind in ("audio", "speech"):
             return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, prompt)).decode()}
         if kind == "video":
-            # a slideshow of a few pictures of the same subject (the model decides nothing here: the prompt is the scene list's first line)
-            return {"type": "video", "b64": base64.b64encode(_video(root, [prompt], prompt)).decode(), "text": prompt[:120]}
+            # Honest CPU path: four independently generated storyboard shots plus local narration.
+            # This is a slideshow-style video, not a temporally trained video-diffusion model.
+            scenes = _scene_prompts(prompt)
+            clip = _video(root, scenes, prompt, seconds=1.5)
+            return {
+                "type": "video",
+                "mime": "video/mp4",
+                "b64": base64.b64encode(clip).decode(),
+                "text": "مقطع شرائح سينمائي من أربع لقطات مولّدة محلياً مع تعليق صوتي؛ ليس توليد فيديو انتشارياً متصلاً.",
+                "frames": len(scenes),
+            }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except Exception as exc:                                   # noqa: BLE001
         return {"type": "error", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
@@ -111,12 +169,23 @@ if __name__ == "__main__":
     import tempfile as _t
     assert ready_root(None) is None
     with _t.TemporaryDirectory() as d:
-        assert ready_root(d) is None                                            # no media folder: not ready
-        (Path(d) / "media" / "sdxs").mkdir(parents=True)
-        assert ready_root(d) is None                                            # no voice yet: still not ready
-        (Path(d) / "media" / "piper").mkdir()
-        (Path(d) / "media" / "piper" / "v.onnx").write_bytes(b"x")
-        assert ready_root(d) == Path(d) / "media"
-        assert make(Path(d) / "media", "image", "")["type"] == "error"          # an empty prompt is refused, never raises
-        assert make(Path(d) / "media", "nothing", "x")["type"] == "error"
-    print("sham_media_ready OK: ready folder detection, empty prompt and unknown kind refused without raising")
+        assert ready_root(d) is None
+        media = Path(d) / "media"
+        sdxs, piper = media / "sdxs", media / "piper"
+        sdxs.mkdir(parents=True)
+        piper.mkdir()
+        assert ready_root(d) is None                                # empty folders are not models
+        (sdxs / "model_index.json").write_text("{}", encoding="utf-8")
+        (sdxs / "model.safetensors").write_bytes(b"weights")
+        voice = piper / "ar_voice.onnx"
+        voice.write_bytes(b"voice")
+        assert ready_root(d) is None                                # ONNX without its Piper config is not ready
+        Path(str(voice) + ".json").write_text("{}", encoding="utf-8")
+        assert ready_root(d) == media
+        info = inspect_ready_assets(d)
+        assert info["ready"] and info["image_bytes"] == 7 and info["audio_bytes"] == 7
+        assert len(_scene_prompts("a cat")) == 4
+        assert len(set(_scene_prompts("a cat"))) == 4
+        assert make(media, "image", "")["type"] == "error"
+        assert make(media, "nothing", "x")["type"] == "error"
+    print("sham_media_ready OK: validates actual local weight files, asset sizes, storyboard prompts, and invalid requests")

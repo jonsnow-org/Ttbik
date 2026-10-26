@@ -63,6 +63,22 @@ def _token() -> str:
 
 def _download() -> Path:
     import contextlib
+    cache = HERE / "_models"
+    # The media bundle is ~2.16 GiB. Do not start a new multi-gigabyte snapshot
+    # download on an almost-full 8 GiB Studio when a complete cached model can
+    # keep serving; report the low-space condition instead of filling the disk.
+    min_free = int(float(os.environ.get("SHAM_MIN_REFRESH_FREE_GIB", "2.6")) * (1024 ** 3))
+    try:
+        free = shutil.disk_usage(HERE).free
+    except OSError:
+        free = min_free
+    if free < min_free:
+        cached = sorted(cache.rglob("final_merged.pt"), key=lambda p: p.stat().st_mtime, reverse=True) if cache.exists() else []
+        for ckpt in cached:
+            if (ckpt.parent / "sham_small_tokenizer.json").is_file():
+                _say(f"disk low ({free / 2**30:.2f} GiB free): keeping cached model; skipped snapshot refresh")
+                return ckpt.parent
+        _say(f"disk low ({free / 2**30:.2f} GiB free) but no complete cached model; first download may fail")
     os.environ["TQDM_DISABLE"] = "1"                         # no progress bars in the log
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
@@ -71,7 +87,7 @@ def _download() -> Path:
         HubApi().login(tok)
     _say(f"downloading {MODEL_ID}")
     with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
-        path = Path(snapshot_download(MODEL_ID, cache_dir=str(HERE / "_models")))
+        path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache)))
     _say("download finished")
     return path
 
@@ -88,14 +104,7 @@ def _load(model_dir: Path) -> None:
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
-    try:
-        from sham_media_ready import ready_root
-        mr = ready_root(model_dir)                          # ready, trained media weights packaged inside Sham's own repo (media/sdxs, media/piper)
-        STATE["media_root"] = str(mr) if mr else ""
-        _say(f"media: {'ready weights in ' + str(mr) if mr else 'no ready weights in the repo (own decoder)'}")
-    except Exception as exc:                                # noqa: BLE001
-        STATE["media_root"] = ""
-        _say(f"media check failed: {type(exc).__name__}")
+    _refresh_media_assets(model_dir)
     _say("ready: the model is loaded")
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
     if manifest:
@@ -103,6 +112,33 @@ def _load(model_dir: Path) -> None:
             STATE["revision"] = json.loads(manifest.read_text(encoding="utf-8")).get("sha", "")[:12]
         except Exception:
             pass
+
+
+def _refresh_media_assets(model_dir: Path) -> None:
+    """Refresh media readiness independently from the large text checkpoint."""
+    try:
+        from sham_media_ready import inspect_ready_assets
+        assets = inspect_ready_assets(model_dir)
+        STATE["media_assets"] = assets
+        STATE["media_root"] = assets["root"] if assets["ready"] else ""
+        image_mb = assets.get("image_bytes", 0) / 2**20
+        audio_mb = assets.get("audio_bytes", 0) / 2**20
+        _say(f"media assets: ready={assets['ready']} image={image_mb:.1f} MiB audio={audio_mb:.1f} MiB reason={assets.get('reason', '')[:100]}")
+    except Exception as exc:                                # noqa: BLE001
+        STATE["media_root"] = ""
+        STATE["media_assets"] = {"ready": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
+        _say(f"media check failed: {type(exc).__name__}")
+
+
+def _media_signature(model_dir: Path) -> tuple:
+    """Cheap metadata-only signature so new media weights are detected without hashing gigabytes."""
+    root = model_dir / "media"
+    if not root.is_dir():
+        return ()
+    return tuple(
+        (str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(root.rglob("*")) if p.is_file()
+    )
 
 
 def _hot_sync(model_dir: Path) -> None:
@@ -148,15 +184,23 @@ def _worker_status() -> dict:
 
 def _worker() -> None:
     last_sha = None
+    last_media_sig = None
     while True:
         try:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
             model_dir = _download()
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
             sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
+            media_sig = _media_signature(model_dir)
             if sha is None or sha != last_sha or STATE["phase"] != "ready":
                 _load(model_dir)
                 last_sha = sha
+                last_media_sig = _media_signature(model_dir)
+            elif media_sig != last_media_sig:
+                # Media weights are published in a separate workflow and intentionally
+                # do not change the text checkpoint manifest. Refresh only media state.
+                _refresh_media_assets(model_dir)
+                last_media_sig = media_sig
             _hot_sync(model_dir)
         except Exception as exc:
             STATE.update(phase="waiting" if STATE["phase"] != "ready" else "ready",
@@ -168,11 +212,24 @@ def _worker() -> None:
 
 def status() -> str:
     msg = dict(STATE)
+    try:
+        disk = shutil.disk_usage(HERE)
+        msg["disk"] = {
+            "total_bytes": disk.total,
+            "used_bytes": disk.used,
+            "free_bytes": disk.free,
+            "free_mib": round(disk.free / 2**20, 1),
+            "warning": "المساحة الحرة أقل من 1 GiB" if disk.free < 2**30 else "",
+        }
+    except OSError as exc:
+        msg["disk"] = {"error": type(exc).__name__}
     w = _worker_status()
     if w:
         msg["worker"] = w
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
+    if not msg.get("media_assets", {}).get("ready"):
+        msg["media_hint"] = "لم تُثبت جاهزية الأوزان المحلية للصورة والصوت؛ لن يُستخدم أي مولّد خارجي. افحص media_assets.reason."
     return json.dumps(msg, ensure_ascii=False)
 
 
@@ -233,27 +290,51 @@ def _busy_wait() -> float:
         return 25.0
 
 
-def generate_media(kind: str, prompt: str) -> str:
-    """JSON like generate_any, but the USER chose the kind (image | audio | video), e.g. the bot's /image command.
-    Media is slow on this CPU: if another request holds the model for more than SHAM_STUDIO_BUSY_WAIT seconds, {"type": "busy"} comes back."""
+def _generate_media_with_backend(kind: str, prompt: str, backend: str) -> str:
+    """Run media generation through the selected local path. 'internal' is Sham's own tokenizer/decoder; 'ready' is the optional packaged-weight alternative."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
+    selected = (backend or "internal").strip().lower()
+    if selected not in ("internal", "ready"):
+        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
+    if selected == "ready" and not STATE.get("media_root"):
+        return json.dumps({
+            "type": "error",
+            "text": "المسار البديل غير جاهز: لم تُعثر أوزان الصورة والصوت المحلية المطلوبة داخل مستودع شام. اختر «شام الداخلي» أو جهّز الأوزان محلياً."
+        }, ensure_ascii=False)
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        if STATE.get("media_root"):                         # the ready weights inside Sham's repo: real pictures / speech / slideshow clips
+        if selected == "ready":
             from sham_media_ready import make
-            return json.dumps(make(Path(STATE["media_root"]), kind, prompt), ensure_ascii=False)
-        res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                              serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
-        return json.dumps(res, ensure_ascii=False)
+            result = make(Path(STATE["media_root"]), kind, prompt)
+        else:
+            result = _studio_modules()[1].make_media(
+                serve._state["model"], serve._state["text_tokenizer"],
+                serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
+                kind.strip().lower(), prompt
+            )
+        if isinstance(result, dict):
+            result.setdefault("backend", selected)
+        return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
-        print(f"generate_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
-        return _json_notice("تعذّر التوليد الآن.")
+        print(f"generate_media[{selected}] failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return json.dumps({"type": "error", "text": "تعذّر التوليد عبر المسار المحدد؛ لم يتم التحويل تلقائياً إلى مسار آخر.", "backend": selected}, ensure_ascii=False)
     finally:
         _LOCK.release()
 
+
+def generate_media(kind: str, prompt: str) -> str:
+    """Stable API for bots and callers: defaults to Sham's internal generator. Optional local ready weights are selected explicitly in the Studio UI."""
+    backend = os.environ.get("SHAM_MEDIA_BACKEND", "internal")
+    return _generate_media_with_backend(kind, prompt, backend)
+
+
+def generate_media_from_panel(kind: str, prompt: str, backend_label: str) -> str:
+    """Studio control-panel handler; selection applies to this request only and never silently changes another client's path."""
+    backend = "ready" if (backend_label or "").strip() == "المسار البديل (أوزان محلية جاهزة)" else "internal"
+    return _generate_media_with_backend(kind, prompt, backend)
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
     """Sham reads a picture / sound / video (base64 of the file, any format) and answers `question` about it — the same function as serve.py's
@@ -362,8 +443,22 @@ def build_ui():
                         gr.Textbox(label="text"), api_name="generate_text", flagging_mode="never")
     anyk = gr.Interface(generate_any, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
                         api_name="generate_any", flagging_mode="never")
-    media = gr.Interface(generate_media, [gr.Textbox(label="kind"), gr.Textbox(label="prompt")], gr.Textbox(label="json"),
-                         api_name="generate_media", flagging_mode="never")
+    media = gr.Interface(
+        generate_media_from_panel,
+        [
+            gr.Textbox(label="نوع الوسائط (image / audio / video)", value="image"),
+            gr.Textbox(label="الوصف أو النص المطلوب"),
+            gr.Radio(
+                choices=["شام الداخلي (الأساسي)", "المسار البديل (أوزان محلية جاهزة)"],
+                value="شام الداخلي (الأساسي)",
+                label="مسار وسائط شام — اختر المسار لكل طلب",
+                info="الأساسي يستخدم مفكك شام نفسه. البديل يعمل فقط إذا كانت أوزانه المحلية موجودة."
+            ),
+        ],
+        gr.Textbox(label="النتيجة (JSON)"),
+        api_name="generate_media_from_panel",
+        flagging_mode="never",
+    )
     read = gr.Interface(understand_media, [gr.Textbox(label="kind"), gr.Textbox(label="b64"), gr.Textbox(label="question"),
                                           gr.Textbox(label="teach"), gr.Number(label="num_frames", value=2)],
                         gr.Textbox(label="json"), api_name="understand_media", flagging_mode="never")

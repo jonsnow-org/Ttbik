@@ -32,20 +32,60 @@ jobs:
           from modelscope import snapshot_download
           from modelscope.hub.api import HubApi
           from modelscope.hub.constants import Visibility
+
+          target_id = "novaai2026/sham-v2"
+          media_id = "novaai2026/nova-media-models"
+          # Keep at least ~0.8 GiB of the Studio's 8 GiB storage free. Never push a
+          # media bundle if the resulting model snapshot would exceed this budget.
+          max_total = int(float(os.environ.get("SHAM_V2_MAX_MODEL_GIB", "7.2")) * (1024 ** 3))
           api = HubApi()
           api.login(os.environ["MODELSCOPE_TOKEN"])
-          src = Path(snapshot_download("novaai2026/nova-media-models", cache_dir="src"))
-          stage = Path("stage") / "media"
+          src = Path(snapshot_download(media_id, cache_dir="src"))
+          existing = Path(snapshot_download(target_id, cache_dir="existing"))
+
+          sdxs = src / "sdxs"
+          piper = src / "piper"
+          if not (sdxs / "model_index.json").is_file():
+              raise SystemExit("Donor SDXS model_index.json missing; refusing to publish incomplete media weights")
+          if not any(p.is_file() and p.suffix.lower() in {".safetensors", ".bin", ".ckpt"} for p in sdxs.rglob("*")):
+              raise SystemExit("Donor SDXS tensor weights missing; refusing to publish")
+          voice = piper / "ar_JO-kareem-medium.onnx"
+          voice_cfg = Path(str(voice) + ".json")
+          if not voice.is_file() or not voice_cfg.is_file():
+              raise SystemExit("Arabic Piper ONNX or its JSON config missing; refusing to publish")
+
+          def tree_bytes(root):
+              return sum(p.stat().st_size for p in root.rglob("*") if p.is_file() and ".git" not in p.parts)
+
+          current = tree_bytes(existing)
+          old_media = existing / "media"
+          old_media_bytes = tree_bytes(old_media) if old_media.is_dir() else 0
           shutil.rmtree("stage", ignore_errors=True)
+          stage = Path("stage") / "media"
           stage.mkdir(parents=True)
-          for d in ("sdxs", "piper"):
-              shutil.copytree(src / d, stage / d)
-          total = 0
+          shutil.copytree(sdxs, stage / "sdxs")
+          shutil.copytree(piper, stage / "piper")
+          media_bytes = tree_bytes(stage)
+          # push_model is additive: only files with the same relative path are
+          # replaced. Stale old files remain, so do not subtract the whole media/ tree.
+          replaced_bytes = 0
+          if old_media.is_dir():
+              for new_file in stage.rglob("*"):
+                  if new_file.is_file():
+                      old_file = old_media / new_file.relative_to(stage)
+                      if old_file.is_file():
+                          replaced_bytes += old_file.stat().st_size
+          projected = current - replaced_bytes + media_bytes
+          print(f"current model snapshot: {current / 2**30:.2f} GiB")
+          print(f"current media tree: {old_media_bytes / 2**30:.2f} GiB")
+          print(f"existing bytes replaced by same-path files: {replaced_bytes / 2**30:.2f} GiB")
+          print(f"new local media bundle: {media_bytes / 2**30:.2f} GiB")
+          print(f"projected model snapshot: {projected / 2**30:.2f} GiB (limit {max_total / 2**30:.2f} GiB)")
           for p in sorted(stage.rglob("*")):
               if p.is_file():
-                  total += p.stat().st_size
                   print(f"media/{p.relative_to(stage)}  {p.stat().st_size / 1e6:.1f} MB")
-          print(f"total {total / 1e9:.2f} GB")
-          api.push_model(model_id="novaai2026/sham-v2", model_dir="stage", visibility=Visibility.PRIVATE, license="apache-2.0", commit_message="ready media weights inside Sham v2 (media/sdxs, media/piper)")
+          if projected > max_total:
+              raise SystemExit("Refusing to publish: projected model snapshot would exceed the 7.2 GiB safety budget; keep the existing weights or use a smaller donor.")
+          api.push_model(model_id=target_id, model_dir="stage", visibility=Visibility.PRIVATE, license="apache-2.0", commit_message="ready media weights inside Sham v2 (media/sdxs, media/piper)")
           print("pushed media/ into novaai2026/sham-v2")
-          PY
+
