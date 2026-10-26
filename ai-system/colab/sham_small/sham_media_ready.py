@@ -140,8 +140,17 @@ def make(root: Path, kind: str, prompt: str) -> dict:
         if kind in ("audio", "speech"):
             return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, prompt)).decode()}
         if kind == "video":
-            # a slideshow of a few pictures of the same subject (the model decides nothing here: the prompt is the scene list's first line)
-            return {"type": "video", "b64": base64.b64encode(_video(root, [prompt], prompt)).decode(), "text": prompt[:120]}
+            # Honest CPU path: four independently generated storyboard shots plus local narration.
+            # This is a slideshow-style video, not a temporally trained video-diffusion model.
+            scenes = _scene_prompts(prompt)
+            clip = _video(root, scenes, prompt, seconds=1.5)
+            return {
+                "type": "video",
+                "mime": "video/mp4",
+                "b64": base64.b64encode(clip).decode(),
+                "text": "مقطع شرائح سينمائي من أربع لقطات مولّدة محلياً مع تعليق صوتي؛ ليس توليد فيديو انتشارياً متصلاً.",
+                "frames": len(scenes),
+            }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except Exception as exc:                                   # noqa: BLE001
         return {"type": "error", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
