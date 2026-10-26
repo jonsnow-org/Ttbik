@@ -18,7 +18,7 @@ import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel } from "@/lib/coderModels";
+import { chooseModel, listModels, modelReady } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -365,10 +365,14 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop" || st.model === "sham_v2")) {
-    st.mode = "coder";                                        // Sham and Nova Pro are the owner's only
-    if (st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop" || st.model === "sham_v2") st.model = undefined;
-    await saveState(chatId, st, db);
+  const OWNER_FIRST = new Set(["sham", "nova_pro", "sham_loop", "sham_v2"]);
+  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
+    const open = new Set((await listModels(db)).filter((m) => m.visible && modelReady(m)).map((m) => m.id));          // switched on for everyone AND ready (one tap by the owner)
+    if (!(st.model && open.has(st.model))) {
+      st.mode = "coder";                                        // these models are the owner's until the owner opens them
+      if (OWNER_FIRST.has(st.model || "")) st.model = undefined;
+      await saveState(chatId, st, db);
+    }
   }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
   // every other command (old habits, menus) answers with the button that opens the app on the right tab.

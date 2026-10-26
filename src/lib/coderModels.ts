@@ -13,7 +13,7 @@ export type CoderModel = {
   price_stars: number | null;          // null or 0 = no extra charge
   visible: boolean;                    // owner switch: shown to users
   isDefault?: boolean;
-  ownerOnly?: boolean;                 // never offered to users, whatever the visible switch says (Sham, Nova Pro)
+  ownerOnly?: boolean;                 // owner-only UNTIL the owner turns the visible switch on (one tap makes it public); a model that is not ready (no Studio / key) is never shown to users either
   serveEnv?: string;                   // the env var that will hold its serving address (owner-side only)
   sort: number;
 };
@@ -21,11 +21,11 @@ export type CoderModel = {
 export const DEFAULT_MODELS: CoderModel[] = [
   // The order here is the order in the picker. Each description says what the model is FOR and where it stands today (kept true to what was measured).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
-  { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد داخل محرّك Nova: يستعمل الأدوات كلها مع تدقيق الاستدعاء قبل التنفيذ، ويتتبّع المهام الطويلة ويصبر عند الانقطاع. قيد التجربة، للمالك فقط.", en: "Sham with a new body inside Nova's engine: uses all tools with every call checked before it runs, tracks long tasks and is patient on outages. Under test, owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 1 },
-  { id: "sham_loop", name: { ar: "شام (متقدم)", en: "Sham (advanced)" }, desc: { ar: "شام القديم داخل محرّك Nova: تتبّع ومهام أطول وصبر عند الانقطاع. جودة ردّه لم تكتمل بعد، للمالك فقط.", en: "The old Sham inside Nova's engine: tracking, longer tasks, patience on outages. Reply quality is not finished yet, owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 2 },
-  { id: "sham", name: { ar: "شام (قديم)", en: "Sham (old)" }, desc: { ar: "شام القديم بالمسار المباشر القديم: بحثه الخاص فقط، بلا أدوات Nova وبمهلة قصيرة. لم يكتمل تدريبه ولا يُعتمد عليه بعد، للمالك فقط.", en: "The old Sham on the old direct path: its own search only, none of Nova's tools, a short time limit. Not finished training, not to be relied on yet, owner only." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 3 },
-  { id: "nova_pro", name: { ar: "نوفا برو", en: "Nova Pro" }, desc: { ar: "نموذج خارجي أقوى للمهام الصعبة، يعمل حين يُضبط مفتاحه. للمالك فقط.", en: "A stronger external model for hard tasks, works once its key is set. Owner only." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "NOVA_PRO_MODEL", sort: 4 },
-  { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نموذج برمجة عربي ندرّبه بأنفسنا. قيد التحضير وغير متاح بعد.", en: "Our own Arabic coding model. In preparation, not available yet." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 5 },
+  { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد داخل محرّك Nova: يستعمل الأدوات كلها مع تدقيق كل استدعاء قبل تنفيذه. قيد التجربة ولم يكتمل تدريبه بعد.", en: "Sham with a new body inside Nova's engine: uses all tools with every call checked before it runs. Under test, training not finished." }, price_stars: null, visible: false, ownerOnly: true, sort: 1 },
+  { id: "sham_loop", name: { ar: "شام (متقدم)", en: "Sham (advanced)" }, desc: { ar: "شام القديم يعمل داخل محرّك Nova (بطاقة تتبّع وإعادة محاولة عند الانقطاع). المحرك لا يحسّن جودة ردّه، وردّه لم يكتمل تدريبه بعد: للتجربة الهندسية.", en: "The old Sham running inside Nova's engine (tracking card, retry on outages). The engine does not improve its answers and its replies are not finished training: for engineering tests." }, price_stars: null, visible: false, ownerOnly: true, sort: 2 },
+  { id: "sham", name: { ar: "شام (قديم)", en: "Sham (old)" }, desc: { ar: "شام القديم بالمسار المباشر القديم: بحثه الخاص فقط، بلا أدوات Nova وبمهلة قصيرة. لم يكتمل تدريبه ولا يُعتمد عليه بعد.", en: "The old Sham on the old direct path: its own search only, none of Nova's tools, a short time limit. Not finished training, not to be relied on yet." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 3 },
+  { id: "nova_pro", name: { ar: "نوفا برو", en: "Nova Pro" }, desc: { ar: "نموذج أكبر تستضيفه خدمة ModelScope الجاهزة (ليس على استوديوهاتنا) للمهام الأصعب. يعمل حين يُضبط اسم النموذج NOVA_PRO_MODEL، وحصته المجانية محدودة.", en: "A bigger model hosted by ModelScope's ready-made API (not on our Studios) for harder tasks. Works once NOVA_PRO_MODEL names the model; its free quota is limited." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "NOVA_PRO_MODEL", sort: 4 },
+  { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نفس نموذج Nova AI الأساسي (Qwen3.5-4B) بعد تدريب خفيف خاص بنا على الكود والإصلاح وصيغة أدوات البوت. قيد التدريب على Kaggle ولم يُنشر بعد.", en: "The same base model as Nova AI (Qwen3.5-4B) after our own light training on code, bug fixing and the bot's tool format. Training on Kaggle, not published yet." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 5 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -55,7 +55,7 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
         ...base,
         name: { ar: String(d.name?.ar || base.name.ar).slice(0, 40), en: String(d.name?.en || base.name.en).slice(0, 40) },
         price_stars: d.price_stars === undefined ? base.price_stars : cleanStars(d.price_stars),
-        visible: base.isDefault ? true : base.ownerOnly ? false : d.visible === undefined ? base.visible : Boolean(d.visible),
+        visible: base.isDefault ? true : d.visible === undefined ? base.visible : Boolean(d.visible),
       });
     }
   } catch {
@@ -70,7 +70,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   if (!cur) throw new Error("unknown model");
   const next: CoderModel = {
     ...cur,
-    visible: cur.isDefault ? true : cur.ownerOnly ? false : patch.visible === undefined ? cur.visible : Boolean(patch.visible),
+    visible: cur.isDefault ? true : patch.visible === undefined ? cur.visible : Boolean(patch.visible),
     price_stars: patch.price_stars === undefined ? cur.price_stars : cleanStars(patch.price_stars),
     name: { ar: String(patch.name?.ar ?? cur.name.ar).slice(0, 40), en: String(patch.name?.en ?? cur.name.en).slice(0, 40) },
   };
@@ -82,30 +82,39 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   return next;
 }
 
+/** Can this model answer right now (its Studio / key is set)? A model that is switched on for everyone but is not ready is still hidden from users. */
+export function modelReady(m: CoderModel): boolean {
+  if (m.isDefault || m.id === "sham") return true;
+  if (m.id === "sham_loop" || m.id === "sham_v2") return shamStudioEnabled();
+  if (m.id === "nova_pro") return providerReady("nova_pro");
+  return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
+}
+const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
+
 /** The model a chat may use: its pick if still visible (the owner may use hidden ones to test), else the default. */
 export function effectiveModel(models: CoderModel[], picked: string | undefined, owner: boolean): CoderModel {
   const m = models.find((x) => x.id === picked);
-  if (m && (owner || (m.visible && !m.ownerOnly))) return m;
+  if (m && (owner || openToUsers(m))) return m;
   return models.find((x) => x.isDefault) || models[0];
 }
 
 export type PublicModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
 export function publicModels(models: CoderModel[], picked: string | undefined): PublicModel[] {
   const sel = effectiveModel(models, picked, false).id;
-  return models.filter((m) => m.visible && !m.ownerOnly).map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, selected: m.id === sel }));
+  return models.filter(openToUsers).map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, selected: m.id === sel }));
 }
 
 /** Owner view: every model, its switch, its price, and whether its serving address is set (never the address itself). */
 export function ownerModels(models: CoderModel[], picked: string | undefined) {
   const sel = effectiveModel(models, picked, true).id;
-  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: m.isDefault || m.id === "sham" ? true : m.id === "sham_loop" || m.id === "sham_v2" ? shamStudioEnabled() : m.id === "nova_pro" ? providerReady("nova_pro") : Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim()) }));
+  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: modelReady(m) }));
 }
 
 /** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of
  *  truth, and the old Nova/Sham section follows from it. Returns false when this person may not use that model. */
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === id);
-  if (!m || !(owner || (m.visible && !m.ownerOnly))) return false;
+  if (!m || !(owner || openToUsers(m))) return false;
   if ((m.id === "sham_loop" || m.id === "sham_v2") && !shamStudioEnabled()) return false;                // needs Sham's Studio token
   if (m.id === "nova_pro" && !providerReady("nova_pro")) return false;     // not set up yet: it cannot be chosen
   st.model = m.id;
