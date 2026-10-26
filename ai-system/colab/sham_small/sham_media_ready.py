@@ -1,122 +1,273 @@
-"""
-Sham's media with READY, trained weights that live inside Sham's own model repo (novaai2026/sham-v2, folder media/): a distilled one-step diffusion model for
-pictures (SDXS-512), an Arabic voice for speech (Piper, ONNX) and a slideshow video (pictures + narration joined by ffmpeg).
+"""Production media adapters for Sham v2.
 
-The transplanted text body brings language and tools but no trained image decoder (its own decoder gave meaningless blobs), so Sham's `make_media` uses these
-weights through Sham's own Studio instead of calling another service. Everything loads lazily, on the first request, and stays loaded; the picture model is
-kept in bfloat16 so that it fits beside the 1.7B text body in the free 8 GB Studio.
-
-    root = ready_root(model_dir)          # model_dir/media if it holds sdxs/ and piper/, else None
-    reply = make(root, "image", "a rabbit playing")   # {"type": "image", "b64": "<png>"} | audio (wav) | video (mp4) | {"type": "error", "text": ...}
+Images use the bundled SDXS diffusion weights; Arabic speech uses the bundled
+Piper ONNX voice. Real motion video is delegated to the project's LTX-Video
+ZeroGPU Space (HF_VIDEO_SPACE_ID), because a CPU slideshow is not video
+generation. If that Space is not configured or returns an invalid file, the
+request fails explicitly instead of pretending a still-image MP4 is a video.
 """
 from __future__ import annotations
 
 import base64
 import io
 import os
+import re
 import subprocess
-import tempfile
 import wave
 from pathlib import Path
+from typing import Any
 
-_CACHE: dict = {"pipe": None, "voice": None}
+_CACHE: dict[str, Any] = {"pipe": None, "voice": None, "pipe_error": None}
+
+
+def _has_image_model(path: Path) -> bool:
+    if not path.is_dir() or not (path / "model_index.json").is_file():
+        return False
+    return any(path.rglob("*.safetensors")) or any(path.rglob("*.bin"))
+
+
+def _voice_path(root: Path) -> Path | None:
+    voice_dir = root / "piper"
+    for path in sorted(voice_dir.glob("*.onnx")):
+        # Piper needs its model configuration alongside the ONNX weights.
+        if path.with_suffix(path.suffix + ".json").is_file():
+            return path
+    return None
 
 
 def ready_root(model_dir: str | Path | None) -> Path | None:
-    """The folder with the ready weights, when they are part of the model repo (media/sdxs and media/piper)."""
+    """Find a media folder containing at least one usable, independently checked backend."""
     if not model_dir:
         return None
-    for cand in (Path(model_dir) / "media", *Path(model_dir).rglob("media")):
-        if (cand / "sdxs").is_dir() and any((cand / "piper").glob("*.onnx")):
+    base = Path(model_dir)
+    candidates = [base / "media", *base.rglob("media")]
+    seen: set[Path] = set()
+    for cand in candidates:
+        if cand in seen or not cand.is_dir():
+            continue
+        seen.add(cand)
+        if _has_image_model(cand / "sdxs") or _voice_path(cand) is not None:
             return cand
     return None
+
+
+def video_backend_status() -> dict[str, str | bool]:
+    space = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
+    return {
+        "configured": bool(space),
+        "backend": "Lightricks/LTX-Video via Hugging Face ZeroGPU",
+        "space_id": space or "",
+    }
 
 
 def _pipe(root: Path):
     if _CACHE["pipe"] is None:
         import torch
         from diffusers import AutoPipelineForText2Image
-        torch.set_num_threads(os.cpu_count() or 2)
-        p = AutoPipelineForText2Image.from_pretrained(str(root / "sdxs"), torch_dtype=torch.bfloat16, safety_checker=None)
-        p.set_progress_bar_config(disable=True)
-        _CACHE["pipe"] = p
+
+        model_dir = root / "sdxs"
+        if not _has_image_model(model_dir):
+            raise RuntimeError("أوزان SDXS غير مكتملة: يلزم model_index.json وملفات الأوزان داخل media/sdxs.")
+        torch.set_num_threads(max(1, min(os.cpu_count() or 2, 4)))
+        # SDXS is distilled for one-step inference. BF16 keeps its memory
+        # footprint modest on the CPU Studio; fail clearly if it cannot load.
+        dtype = torch.bfloat16 if not torch.cuda.is_available() else torch.float16
+        pipe = AutoPipelineForText2Image.from_pretrained(
+            str(model_dir), torch_dtype=dtype, safety_checker=None, local_files_only=True
+        )
+        pipe.set_progress_bar_config(disable=True)
+        _CACHE["pipe"] = pipe
     return _CACHE["pipe"]
 
 
 def _voice(root: Path):
     if _CACHE["voice"] is None:
         from piper import PiperVoice
-        _CACHE["voice"] = PiperVoice.load(str(sorted((root / "piper").glob("*.onnx"))[0]))
+
+        model = _voice_path(root)
+        if model is None:
+            raise RuntimeError("أوزان Piper أو ملف إعداد الصوت *.onnx.json غير موجودة داخل media/piper.")
+        _CACHE["voice"] = PiperVoice.load(str(model))
     return _CACHE["voice"]
 
 
 def _png(img) -> bytes:
     b = io.BytesIO()
-    img.save(b, "PNG")
-    return b.getvalue()
+    img.save(b, format="PNG")
+    raw = b.getvalue()
+    from PIL import Image
+
+    with Image.open(io.BytesIO(raw)) as check:
+        check.verify()
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError("مولّد الصور لم يُرجع PNG صالحاً.")
+    return raw
 
 
 def _speech_wav(root: Path, text: str) -> bytes:
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("اكتب النص الذي تريد تحويله إلى صوت.")
     b = io.BytesIO()
     with wave.open(b, "wb") as w:
         _voice(root).synthesize_wav(text[:1500], w)
-    return b.getvalue()
+    raw = b.getvalue()
+    with wave.open(io.BytesIO(raw), "rb") as check:
+        if check.getnframes() <= 0 or check.getframerate() <= 0:
+            raise RuntimeError("مولّد الصوت أخرج ملف WAV فارغاً.")
+    return raw
 
 
 def _image(root: Path, prompt: str, size: int = 512, seed: int = 0):
     import torch
+
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ValueError("اكتب وصفاً للصورة.")
     size = max(256, min(768, int(size) // 64 * 64))
-    gen = torch.Generator().manual_seed(int(seed))
-    return _pipe(root)(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    result = _pipe(root)(
+        prompt[:400], num_inference_steps=1, guidance_scale=0.0,
+        height=size, width=size, generator=generator,
+    )
+    if not getattr(result, "images", None):
+        raise RuntimeError("نموذج الصور لم يُرجع صورة.")
+    image = result.images[0]
+    if image.width < 64 or image.height < 64:
+        raise RuntimeError(f"أبعاد الصورة غير صالحة: {image.width}x{image.height}")
+    return image
 
 
-def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0) -> bytes:
+def _extract_video_path(result: Any) -> Path:
+    if isinstance(result, dict):
+        for key in ("video", "path", "name"):
+            if result.get(key):
+                result = result[key]
+                break
+    if not isinstance(result, (str, os.PathLike)):
+        raise RuntimeError(f"خدمة الفيديو أعادت نوع نتيجة غير مدعوم: {type(result).__name__}")
+    path = Path(result)
+    if not path.is_file():
+        raise RuntimeError("خدمة الفيديو لم تُرجع مسار ملف محلياً صالحاً.")
+    return path
+
+
+def _validate_mp4(path: Path) -> tuple[bytes, float]:
     import imageio_ffmpeg
-    ff = imageio_ffmpeg.get_ffmpeg_exe()
-    seconds = max(1.5, min(6.0, float(seconds or 3)))
-    with tempfile.TemporaryDirectory() as d:
-        dd = Path(d)
-        for i, p in enumerate(prompts[:6]):
-            _image(root, p, 512, i).save(dd / f"f{i:02d}.png")
-        audio: list[str] = []
-        if narration.strip():
-            (dd / "a.wav").write_bytes(_speech_wav(root, narration))
-            audio = ["-i", str(dd / "a.wav")]
-        cmd = [ff, "-y", "-framerate", f"1/{seconds}", "-i", str(dd / "f%02d.png"), *audio, "-vf", "format=yuv420p,scale=512:512",
-               "-c:v", "libx264", "-r", "24", *(["-c:a", "aac", "-shortest"] if audio else []), "-movflags", "+faststart", str(dd / "o.mp4")]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
-        return (dd / "o.mp4").read_bytes()
+
+    raw = path.read_bytes()
+    if len(raw) < 4096:
+        raise RuntimeError("ملف الفيديو الناتج فارغ أو أصغر من الحد الأدنى.")
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    probe = subprocess.run(
+        [ffmpeg, "-hide_banner", "-i", str(path), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=90,
+    )
+    metadata = probe.stderr or ""
+    if probe.returncode != 0 or "Video:" not in metadata:
+        raise RuntimeError("ملف MP4 الناتج غير قابل للفك أو لا يحتوي مسار فيديو.")
+    match = re.search(r"Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)", metadata)
+    duration = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + float(match.group(3)) if match else 0.0
+    if duration < 0.5:
+        raise RuntimeError("الفيديو الناتج لا يحتوي مدة تشغيل صالحة.")
+    return raw, duration
 
 
-def make(root: Path, kind: str, prompt: str) -> dict:
-    """One picture / one spoken sentence / one short slideshow, from the ready weights. Never raises: a failure is {"type": "error", "text": ...}."""
+def _real_video(prompt: str, seconds: float = 4.0) -> dict:
+    """Call the dedicated LTX-Video-2B Space; never replace a failed call with a slideshow."""
+    space_id = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if not space_id:
+        return {
+            "type": "error",
+            "text": "توليد الفيديو الحركي غير مهيأ: اضبط HF_VIDEO_SPACE_ID على مساحة Hugging Face ZeroGPU المنشورة لـ LTX-Video. لم يُنشأ فيديو شرائح بديلاً.",
+            "code": "video_backend_not_configured",
+        }
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return {"type": "error", "text": "اكتب وصف الفيديو.", "code": "empty_prompt"}
+    try:
+        from gradio_client import Client
+
+        client_kwargs = {"hf_token": token} if token else {}
+        client = Client(space_id, **client_kwargs)
+        seconds = max(1, min(6, int(float(seconds or 4))))
+        result = client.predict(prompt[:800], seconds, api_name="/generate")
+        path = _extract_video_path(result)
+        raw, duration = _validate_mp4(path)
+        return {
+            "type": "video", "mime": "video/mp4",
+            "b64": base64.b64encode(raw).decode("ascii"),
+            "duration_seconds": round(duration, 2),
+            "backend": "Lightricks/LTX-Video-2B",
+            "text": "فيديو مولّد بنموذج فيديو حركي.",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "type": "error",
+            "text": f"تعذّر توليد فيديو حركي من خدمة LTX-Video: {type(exc).__name__}: {str(exc)[:180]}",
+            "code": "video_generation_failed",
+        }
+
+
+def make(root: Path | None, kind: str, prompt: str) -> dict:
+    """Generate media and validate its container before reporting success."""
     kind = (kind or "").strip().lower()
     prompt = (prompt or "").strip()
     if not prompt:
-        return {"type": "error", "text": "prompt is required"}
+        return {"type": "error", "code": "empty_prompt", "text": "اكتب وصفاً أو نصاً أولاً."}
     try:
-        if kind == "image":
-            return {"type": "image", "b64": base64.b64encode(_png(_image(root, prompt))).decode()}
-        if kind in ("audio", "speech"):
-            return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, prompt)).decode()}
         if kind == "video":
-            # a slideshow of a few pictures of the same subject (the model decides nothing here: the prompt is the scene list's first line)
-            return {"type": "video", "b64": base64.b64encode(_video(root, [prompt], prompt)).decode(), "text": prompt[:120]}
-        return {"type": "error", "text": f"unknown kind {kind!r}"}
-    except Exception as exc:                                   # noqa: BLE001
-        return {"type": "error", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
+            return _real_video(prompt)
+        if root is None:
+            raise RuntimeError("أوزان الوسائط الجاهزة غير متاحة في مستودع شام v2.")
+        if kind == "image":
+            raw = _png(_image(root, prompt))
+            from PIL import Image
+
+            with Image.open(io.BytesIO(raw)) as image:
+                width, height = image.size
+            return {
+                "type": "image", "mime": "image/png",
+                "width": width, "height": height,
+                "backend": "SDXS-512",
+                "b64": base64.b64encode(raw).decode("ascii"),
+            }
+        if kind in ("audio", "speech"):
+            raw = _speech_wav(root, prompt)
+            with wave.open(io.BytesIO(raw), "rb") as audio:
+                duration = audio.getnframes() / audio.getframerate()
+            return {
+                "type": "audio", "mime": "audio/wav",
+                "duration_seconds": round(duration, 2),
+                "backend": "Piper ONNX",
+                "b64": base64.b64encode(raw).decode("ascii"),
+            }
+        return {"type": "error", "code": "unknown_kind", "text": f"نوع وسيط غير معروف: {kind}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"type": "error", "code": "media_generation_failed",
+                "text": f"{type(exc).__name__}: {str(exc)[:220]}"}
 
 
 if __name__ == "__main__":
-    import tempfile as _t
+    import tempfile
+
     assert ready_root(None) is None
-    with _t.TemporaryDirectory() as d:
-        assert ready_root(d) is None                                            # no media folder: not ready
-        (Path(d) / "media" / "sdxs").mkdir(parents=True)
-        assert ready_root(d) is None                                            # no voice yet: still not ready
-        (Path(d) / "media" / "piper").mkdir()
-        (Path(d) / "media" / "piper" / "v.onnx").write_bytes(b"x")
-        assert ready_root(d) == Path(d) / "media"
-        assert make(Path(d) / "media", "image", "")["type"] == "error"          # an empty prompt is refused, never raises
-        assert make(Path(d) / "media", "nothing", "x")["type"] == "error"
-    print("sham_media_ready OK: ready folder detection, empty prompt and unknown kind refused without raising")
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "media" / "sdxs").mkdir(parents=True)
+        assert ready_root(root) is None
+        sdxs = root / "media" / "sdxs"
+        (sdxs / "model_index.json").write_text("{}", encoding="utf-8")
+        (sdxs / "model.safetensors").write_bytes(b"weights")
+        assert ready_root(root) == root / "media"
+        piper = root / "media" / "piper"
+        piper.mkdir()
+        (piper / "voice.onnx").write_bytes(b"weights")
+        (piper / "voice.onnx.json").write_text("{}", encoding="utf-8")
+        assert ready_root(root) == root / "media"
+        assert make(None, "video", "")["code"] == "empty_prompt"
+        assert make(root / "media", "image", "")["code"] == "empty_prompt"
+        assert make(root / "media", "unknown", "x")["code"] == "unknown_kind"
+        assert make(root / "media", "video", "a cat")["type"] in ("error", "video")
+    print("sham_media_ready: structural checks passed")
