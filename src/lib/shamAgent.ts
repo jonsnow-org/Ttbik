@@ -22,6 +22,7 @@ export type ShamAgentResult =
   | { kind: "ask"; question: string; used: string[]; steps: number }
   | { kind: "reply"; reply: ShamReply; used: string[]; steps: number }       // Sham answered with a picture / sound / clip of its own: the caller sends it
   | { kind: "confirm"; call: CoderToolCall; used: string[]; steps: number }   // a write to the user's repository: the user is asked before it runs
+  | { kind: "more"; messages: CoderMessage[]; used: string[]; steps: number }   // not finished inside this leg: the state goes to the next leg (the shared background runner)
   | { kind: "none"; used: string[]; steps: number };                          // the Studio did not answer in the time left
 
 export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Promise<ShamReply | null>;
@@ -41,6 +42,8 @@ export async function shamAgentRun(opts: {
   media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // Sham's own media models (default: shamGenerateMedia)
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
+  resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
+  continuable?: boolean;                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
 }): Promise<ShamAgentResult> {
   const now = opts.now || Date.now;
   const t0 = now();
@@ -51,9 +54,11 @@ export async function shamAgentRun(opts: {
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];
-  const messages: CoderMessage[] = [];
-  for (const h of (opts.history || []).slice(-4)) { messages.push({ role: "user", content: h.q }, { role: "assistant", content: h.a }); }
-  messages.push({ role: "user", content: opts.text });
+  const messages: CoderMessage[] = opts.resume ? [...opts.resume] : [];
+  if (!opts.resume) {
+    for (const h of (opts.history || []).slice(-4)) { messages.push({ role: "user", content: h.q }, { role: "assistant", content: h.a }); }
+    messages.push({ role: "user", content: opts.text });
+  }
   const lim = { turns: 6, turnChars: 400, maxChars: 3600 };
   let steps = 0;
 
@@ -106,6 +111,8 @@ export async function shamAgentRun(opts: {
     }
   }
 
+  // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
+  if (opts.continuable && used.length) return { kind: "more", messages, used, steps };
   // out of steps or time: ask for the final answer from what was found, with no tools shown
   if (left() > 5000 && used.length) {
     const prompt = shamToolConversation(messages, [], lim).replace(/\nشام:$/, "\n[اكتب الجواب النهائي الآن مما وجدتَه، بلا استدعاء أدوات.]\nشام:");

@@ -84,4 +84,26 @@ describe("Sham's own agent loop", () => {
       ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"قطة"}}</tool_call>')]) });
     expect(r).toMatchObject({ kind: "reply", reply: { type: "image" } });
   });
+  it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
+    const tools = shamToolDefs(false);
+    const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
+    const a = await shamAgentRun({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: true, ask: script([call, call]), exec: async () => "نتيجة" });
+    expect(a.kind).toBe("more");
+    const msgs = (a as any).messages;
+    expect(msgs.filter((m: any) => m.role === "tool")).toHaveLength(2);
+    const seen: string[] = [];
+    const b = await shamAgentRun({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, resume: msgs, ask: script([say("الجواب النهائي.")], seen), exec: async () => "نتيجة" });
+    expect(b).toMatchObject({ kind: "text", text: "الجواب النهائي." });
+    expect(seen[0]).toMatch(/نتيجة الأداة web_search/);                                    // the earlier legs' results are in front of Sham
+    const last = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
+    expect(last).toMatchObject({ kind: "text", text: "خلاصة." });                         // the last leg answers instead of handing over
+  });
+  it("the saved run is kept per chat and taken once", async () => {
+    const { shamSaveRun, shamTakeRun } = await import("@/lib/shamExec");
+    const rows = new Map<number, string>();
+    const db: any = { exec: async (sql: string, ...a: any[]) => { if (/INSERT INTO sham_runs/.test(sql)) rows.set(a[0], a[1]); }, query: async (_s: string, id: number) => { const v = rows.get(id); rows.delete(id); return v ? [{ data: v }] : []; } };
+    await shamSaveRun({ chatId: 5, botId: "b", request: "طلب", messages: [{ role: "user", content: "طلب" }], leg: 1, variant: "v2", mode: {} }, db);
+    expect((await shamTakeRun(5, db))?.leg).toBe(1);
+    expect(await shamTakeRun(5, db)).toBeNull();
+  });
 });
