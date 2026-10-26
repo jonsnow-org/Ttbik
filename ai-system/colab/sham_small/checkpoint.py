@@ -83,6 +83,28 @@ def _lowmem(path: str | Path) -> bool:
         return False
 
 
+def quantize_int8(model: "ShamSmall") -> "ShamSmall":
+    """Dynamic int8 for every Linear, one layer at a time (peak memory stays near the bf16 size). Generation on a CPU is bound by reading the weights for
+    every token, so half the bytes is about twice the speed. The remaining float parts (embedding, norms) go to float32, the dtype the int8 layers take."""
+    from torch.ao.nn.quantized.dynamic import Linear as QLinear
+    qconfig = torch.ao.quantization.default_dynamic_qconfig
+    for parent in list(model.modules()):
+        for name, child in list(parent.named_children()):
+            if isinstance(child, torch.nn.Linear):
+                f = child.float()
+                f.qconfig = qconfig
+                setattr(parent, name, QLinear.from_float(f))
+    return model.float()
+
+
+def _quant(path: str | Path) -> bool:
+    """SHAM_QUANT=int8 forces the int8 load, 0 forbids it; otherwise it follows the low-memory path (big checkpoints on a small CPU box)."""
+    v = os.environ.get("SHAM_QUANT", "").strip().lower()
+    if v in ("0", "off", "none"):
+        return False
+    return v == "int8" or _lowmem(path)
+
+
 def load_checkpoint(
     path: str | Path,
     map_location: str | torch.device = "cpu",
@@ -116,6 +138,8 @@ def load_checkpoint(
     if lowmem:
         payload["model_state_dict"] = None
     model.to(map_location)
+    if lowmem and _quant(path):
+        quantize_int8(model)
 
     if load_optimizer_into is not None:
         if "optimizer_state_dict" not in payload:

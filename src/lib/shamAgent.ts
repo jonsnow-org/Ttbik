@@ -43,6 +43,8 @@ export async function shamAgentRun(opts: {
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
+  onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
+  askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   continuable?: boolean;                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
 }): Promise<ShamAgentResult> {
   const now = opts.now || Date.now;
@@ -65,8 +67,8 @@ export async function shamAgentRun(opts: {
   for (; steps < maxSteps; steps++) {
     if (left() < 6000) break;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, opts.tools, lim)}` : shamToolConversation(messages, opts.tools, lim);
-    let reply = await ask(prompt, maxNew, Math.min(30000, left() - 1000));
-    if (!reply) return { kind: "none", used, steps };
+    let reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+    if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
     if (reply.type !== "text") return { kind: "reply", reply, used, steps };
     let text = String(reply.text || "");
     let p = parseShamToolCalls(text, opts.tools);
@@ -76,7 +78,7 @@ export async function shamAgentRun(opts: {
       if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
       const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : !p.calls.length && memoryNotSaved(opts.text, p.text, opts.tools) ? SHAM_MEMORY_NOTE : "";
       if (!note) break;
-      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(30000, left() - 1000));
+      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
       if (!again || again.type !== "text" || !(again.text || "").trim()) break;
       text = String(again.text);
       p = parseShamToolCalls(text, opts.tools);
@@ -105,8 +107,10 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
     for (const c of valid.slice(0, 3)) {
       used.push(c.function.name);
+      opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
       let result: string;
       try { result = await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
+      opts.onEvent?.("info", clip(String(result), 300));
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), 1800) } as CoderMessage);
     }
   }
