@@ -153,7 +153,7 @@ def coordinate(api, watch: list[str], refs: dict, gpu_slugs: set, state: dict, l
         if slug in gpu_slugs and str(res).startswith("pushed") and not acc.get(_key(slug), {}).get("gpu_fallback_since"):
             e = sham.setdefault(_key(slug), {"gpu_sessions": 0, "used_s": 0.0})
             e["gpu_sessions"] = int(e.get("gpu_sessions", 0)) + 1
-            e["gpu_since"] = time.time()
+            e["gpu_since"] = now                                     # the coordinator's own clock (the self-test passes a fixed one)
         return res
 
     # 2. Nova 1
