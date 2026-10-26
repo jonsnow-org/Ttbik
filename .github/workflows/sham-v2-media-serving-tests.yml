@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "ai-system/colab/sham_small/sham_media_ready.py"
+      - "ai-system/colab/sham_small/serve.py"
       - "ai-system/colab/sham_small/test_sham_media_ready.py"
       - "ai-system/modelscope-sham/app.py"
       - "ai-system/modelscope-sham/requirements.txt"
@@ -32,6 +33,7 @@ jobs:
       - name: Compile serving modules
         run: |
           python -m py_compile ai-system/colab/sham_small/sham_media_ready.py
+          python -m py_compile ai-system/colab/sham_small/serve.py
           python -m py_compile ai-system/modelscope-sham/app.py
           python -m py_compile ai-system/colab/sham_small/web/telegram_bot.py
       - name: Run offline media contract tests
