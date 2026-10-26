@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 L = 512
 PER_SET_BYTES = 36_000
+TRAIN_BYTES = 120_000
 
 
 def arabic_ratio(s: str) -> float:
@@ -24,7 +25,7 @@ def arabic_ratio(s: str) -> float:
     return sum("؀" <= c <= "ۿ" for c in letters) / max(len(letters), 1)
 
 
-def texts() -> dict[str, str]:
+def texts(train: bool = False) -> dict[str, str]:
     ar, en, code = [], [], []
     for p in sorted((ROOT / "docs").rglob("*.md")) + [ROOT / "CLAUDE.md", ROOT / "README.md"]:
         try:
@@ -43,13 +44,23 @@ def texts() -> dict[str, str]:
             continue
     out = {}
     for name, parts in (("arabic", ar), ("english", en), ("code", code)):
-        s, buf = "", []
+        s, buf, n = "", [], 0
         for part in parts:
-            buf.append(part)
-            s = "\n".join(buf)
-            if len(s.encode()) >= PER_SET_BYTES:
-                break
-        out[name] = s
+            n += len(part.encode()) + 1
+            if n <= PER_SET_BYTES:
+                continue                                                  # the first PER_SET_BYTES are the probe; what follows is training text (never measured)
+            if train:
+                buf.append(part)
+                if n >= PER_SET_BYTES + TRAIN_BYTES:
+                    break
+        if not train:
+            buf, n = [], 0
+            for part in parts:
+                buf.append(part)
+                n += len(part.encode()) + 1
+                if n >= PER_SET_BYTES:
+                    break
+        out[name] = "\n".join(buf)
     return out
 
 

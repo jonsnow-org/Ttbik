@@ -88,6 +88,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
+import os
 
 # Owner spec, 2026-09-14: the shared vocabulary contract between this
 # model and image_tokenizer.py (and, later, audio_tokenizer.py) — see
@@ -95,7 +96,10 @@ import torch.utils.checkpoint
 # source of truth rather than each file guessing compatible offsets
 # independently, which is exactly the kind of mismatch that would
 # silently corrupt every generated image without ever raising an error.
-TEXT_VOCAB_SIZE = 32000
+# 32000 is the vocabulary of every Sham checkpoint trained so far. SHAM_TEXT_VOCAB=<n> (set BEFORE any Sham module is imported) makes the text range n ids wide, and the image / audio /
+# special ranges above it move with it, so a model that starts from a published open model's body can keep that model's own tokenizer (Qwen3: 151936) together with Sham's media ranges.
+# One process works with one text vocabulary: a checkpoint of the other size will not load into it.
+TEXT_VOCAB_SIZE = int(os.environ.get("SHAM_TEXT_VOCAB") or 32000)
 IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
 AUDIO_VOCAB_SIZE = 2048  # must equal audio_tokenizer.AudioTokenizerConfig.num_codes
 NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities (e.g. per-frame video markers)
@@ -249,9 +253,21 @@ class ShamSmallConfig:
     # such key saved, so from_dict() below fills in this exact default
     # for them automatically -- loading an old checkpoint is unaffected.
     output_mult: float = 1.0
+    # Optional attention shapes, all off by default (every existing checkpoint keeps its exact meaning). They exist so that the body of a published
+    # open model can be loaded into Sham's own class: its heads may be wider than d_model / n_heads (head_dim), its q/k/v may carry a bias
+    # (qkv_bias), and it may normalise q and k per head before the rotary step (qk_norm). Nothing else about Sham changes.
+    head_dim: int = 0               # 0 = d_model // n_heads
+    qkv_bias: bool = False
+    qk_norm: bool = False
+    chat_format: str = ""           # "" = Sham's own dialogue layout; "qwen3" = the donor's chat template (<|im_start|> ... <|im_end|>), see sham_studio_chat.py
+
+    @property
+    def hd(self) -> int:
+        """The width of one attention head."""
+        return self.head_dim or self.d_model // self.n_heads
 
     def __post_init__(self):
-        if self.d_model % self.n_heads != 0:
+        if not self.head_dim and self.d_model % self.n_heads != 0:
             raise ValueError(f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})")
         if self.n_heads % self.n_kv_heads != 0:
             raise ValueError(f"n_heads ({self.n_heads}) must be divisible by n_kv_heads ({self.n_kv_heads})")
@@ -314,13 +330,15 @@ class Attention(nn.Module):
         super().__init__()
         self.n_heads = cfg.n_heads
         self.n_kv_heads = cfg.n_kv_heads
-        self.head_dim = cfg.d_model // cfg.n_heads
+        self.head_dim = cfg.hd
         self.n_rep = cfg.n_heads // cfg.n_kv_heads  # query heads sharing each KV head
 
-        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
+        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
         self.o_proj = nn.Linear(cfg.n_heads * self.head_dim, cfg.d_model, bias=False)
+        self.q_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
+        self.k_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
 
     def forward(
         self,
@@ -342,6 +360,8 @@ class Attention(nn.Module):
         # keys left off, not restart at 0 (that would rotate the new
         # token as if it were position 0 again, corrupting every
         # attention score against the real earlier positions).
+        if self.q_norm is not None:
+            q, k = self.q_norm(q), self.k_norm(k)
         offset = past_kv[0].shape[2] if past_kv is not None else 0
         cos_pos = cos[offset : offset + seq_len]
         sin_pos = sin[offset : offset + seq_len]
@@ -448,7 +468,7 @@ class ShamSmall(nn.Module):
             # same weight matrix, used in two different directions.
             self.lm_head.weight = self.token_embedding.weight
 
-        head_dim = cfg.d_model // cfg.n_heads
+        head_dim = cfg.hd
         cos, sin = precompute_rope(head_dim, cfg.max_seq_len, cfg.rope_theta)
         self.register_buffer("rope_cos", cos, persistent=False)
         self.register_buffer("rope_sin", sin, persistent=False)

@@ -2,6 +2,10 @@ name: "What the models answer (Sham chat path and the donors, read-only)"
 # Read-only measurement, nothing is published. Decides whether copying a small trained model's weights into Sham (or a stronger relative into Nova) can pay.
 on:
   workflow_dispatch:
+    inputs:
+      models:
+        description: "space-separated Hugging Face ids (chat-tuned unless the id ends with -Base)"
+        default: "Qwen/Qwen3-1.7B Qwen/Qwen3-4B"
 permissions:
   contents: read
 jobs:
@@ -23,5 +27,5 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          DONORS: ${{ inputs.donors }}
-        run: python scripts/transplant/hello.py
+          MODELS: ${{ inputs.models }}
+        run: python scripts/transplant/hello.py --no-sham $MODELS

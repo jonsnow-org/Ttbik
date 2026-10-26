@@ -34,7 +34,7 @@ export const GITHUB_TOOLS: CoderTool[] = [
     obj({ repo: REPO, branch: s("target branch"), message: s("commit message"), files: { type: "array", items: obj({ path: s("file path"), content: s("full new file content") }, ["path", "content"]) } }, ["repo", "branch", "message", "files"])),
   tool("github_delete_files", "Delete files in one commit on a branch.", obj({ repo: REPO, branch: s("branch"), message: s("commit message"), paths: { type: "array", items: s("file path") } }, ["repo", "branch", "message", "paths"])),
   tool("github_delete_branch", "Delete a branch.", obj({ repo: REPO, branch: s("branch") }, ["repo", "branch"])),
-  tool("github_create_pr", "Open a pull request.", obj({ repo: REPO, head: s("source branch"), base: s("target branch, empty = default"), title: s("title"), body: s("description") }, ["repo", "head", "title"])),
+  tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Always name `base` (the branch the user said to merge into); head and base must be different branches, and head must already hold the changes (push them first).", obj({ repo: REPO, head: s("source branch holding the changes"), base: s("target branch the PR merges into (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
   tool("github_list_prs", "List open pull requests.", obj({ repo: REPO }, ["repo"])),
   tool("github_list_issues", "List open issues.", obj({ repo: REPO }, ["repo"])),
@@ -68,6 +68,7 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
   tool("sandbox_write_file", "Write a file in the VM (creates folders).", obj({ path: s("path, relative to cwd or absolute"), content: s("full file content"), cwd: s("base dir") }, ["path", "content"])),
   tool("sandbox_edit_file", "Edit a file in the VM by replacing an exact piece of text (must occur exactly once unless replace_all). Prefer it to rewriting the whole file with sandbox_write_file.", obj({ path: s("file path"), old: s("exact text to replace"), new: s("replacement text"), replace_all: { type: "boolean" }, cwd: s("base dir") }, ["path", "old", "new"])),
+  tool("sandbox_push", "Send the changes you made in the VM back to GitHub: commits everything changed in the cloned folder and pushes it to `branch` (a new fix branch, or the branch you are working on). Edits made in the VM exist ONLY there until you call this. Never forced. Afterwards open the pull request with github_create_pr.", obj({ repo: REPO, branch: s("branch to push to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
   tool("sandbox_search", "Search the VM's files: `pattern` = a regex searched inside files (grep, with line numbers); `glob` = list files by name (e.g. *.ts). Skips node_modules and .git.", obj({ pattern: s("regex to find inside files (optional)"), glob: s("file name pattern, e.g. *.ts (optional)"), path: s("folder to search, default ."), max: n("max results, default 60"), cwd: s("base dir") })),
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
@@ -77,7 +78,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   ...SANDBOX_TOOL_DEFS,
   tool("view_image", "LOOK at a picture: from a public URL or from a file in the VM. You see it in your next step (a few seconds to a minute on this server). Use it for screenshots, photos, charts, scans. Small text in a picture may be misread: say so when it matters.", obj({ url: s("https URL of the picture"), path: s("or a file path in the VM"), cwd: s("base dir for path") })),
   tool("view_video", "LOOK at a video that is a file in the VM: it takes a few frames spread over the video (ffmpeg in the VM) and you see them in your next step, in order. Each frame costs about as much time as one picture.", obj({ path: s("video file path in the VM"), frames: n("how many frames, default 4, max 6"), cwd: s("base dir") }, ["path"])),
-  tool("make_media", "Have Sham (the team's own model) MAKE a picture, a sound or a short video from a description, and send it to the user in the chat. Describe it plainly. Owner only; slow on a free CPU.", obj({ kind: s("image | audio | video"), prompt: s("what to make") }, ["kind", "prompt"])),
+  tool("make_media", "MAKE a picture, Arabic speech or a short video and send it to the user in the chat. image: prompt = a plain English description (the generator reads English best); audio: prompt = the text to speak (Arabic); video: a slideshow of `scenes` (2-6 short English descriptions) with `narration` (Arabic text read over it). Owner only. A picture takes about 10 s, a video about a minute on a free CPU.", obj({ kind: s("image | audio | video"), prompt: s("what to make (image: description; audio: the text to speak; video: a one-line title)"), scenes: { type: "array", items: { type: "string" }, description: "video only: 2-6 short scene descriptions" }, narration: s("video only: the Arabic text to read over the scenes") }, ["kind", "prompt"])),
   tool("http_request", "Call any public HTTP API (GET / POST / PUT / PATCH / DELETE) and read the answer. For your own linked services use connector_api; for a plain page use fetch_page. Writes ask the user first. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers, e.g. Authorization" }, body: s("request body text (JSON as a string)") }, ["url"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first. Workers can send files too.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
@@ -235,6 +236,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "1. PLAN: for any non-trivial task first write a short numbered plan (save it with memory_note).",
     "2. ACT: use the tools one step at a time. Read the relevant files before changing them; never guess file contents or APIs.",
     "READING RULE: never describe a file, folder or project from its name. When asked what files contain or do, read them first (github_read_files takes up to 4 files in one call; github_repo_scan gives a repository's lay in one call) and say only what you read. Answer EVERY part of the request in the form and length asked (\"five lines\" = five lines, \"each file\" = one line per file); before you finish, check each part was answered, and say plainly what you could not check.",
+    "ASK FIRST: if the request does not name what to work on (which repository, project, file, site or document), or only asks \"can you ...?\", do NOT search, clone or pick something yourself: say in one or two sentences what you can do and ask ONE question with ask_user (which repository? which file?). Never report on work done on something the user did not name as if it were theirs.",
     "3. VERIFY: after a change, re-read what you wrote and check CI with github_ci_status (or start a workflow). If something fails, read the error, fix it, verify again.",
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
@@ -243,7 +245,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     ...(agentsEnabled() ? ["DELEGATE: when a task splits into independent parts (up to 5: parts of a repo, several sources, a comparison, separate changes), call delegate once with those tasks. Role reader = read-only investigation; role worker = full tools and the user's permission settings, for parts that CHANGE things (each delete / merge / main-branch write is asked of the user, so keep such parts few and say clearly what each one may touch). Each agent reports only on its own job, in a fixed shape; YOU write the one answer for the user from the reports and say what was not done. More agents than model servers mostly queue: do not delegate small things."] : []),
     "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs (give the time in their own timezone exactly as the tool returns it); never just promise. If what to do or what to cover is unclear ('write me a short summary' of what?), ask ONE question with ask_user BEFORE creating the schedule. The scheduled run starts by itself and reports in this chat.",
     "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
-    "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
+    "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation. What you edit in the VM exists ONLY there: after the tests pass, call sandbox_push (new fix branch) and then github_create_pr with `base` = the branch the user named; report the branch and the files exactly as the tool results show, never as you assume.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
     "Answers may be as long as needed. Use ``` code blocks for code.",
     opts.github ? "You have GitHub tools with the owner's token." : "GitHub tools are not connected in this chat (the user can link their account in the app: /app); you can still write, run (sandbox) and review code and research the web.",
@@ -456,6 +458,7 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
     case "github_write_files": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
     case "http_request": { const m = String(a.method || "GET").toUpperCase(); return m === "GET" || m === "HEAD" ? { risks: [], summary: "" } : { risks: ["external_write"], summary: `${m} ${String(a.url || "").slice(0, 200)}${a.body ? `\n${String(typeof a.body === "string" ? a.body : JSON.stringify(a.body)).slice(0, 300)}` : ""}` }; }
+    case "sandbox_push": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n(from the VM)` };
     case "github_edit_file": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${a.path}` };
     case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
     case "github_merge_pr": {
@@ -820,13 +823,17 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         return r.status < 300 ? `deleted branch ${a.branch}` : clip(`error ${r.status}: ${r.data?.message}`);
       }
       case "github_create_pr": {
-        const base = a.base || (await defaultBranch(gh, a.repo));
+        const base = String(a.base || "").trim();
+        if (!base) return "error: base is required: name the branch this pull request must merge INTO (the one the user told you; ask the user if they did not).";
+        if (String(a.head || "").trim() === base) return "error: head and base are the same branch; push your changes to a new branch first (sandbox_push or github_write_files), then open the pull request from that branch.";
         const r = await gh("POST", `${R}/pulls`, { head: a.head, base, title: a.title, body: a.body || "" });
-        return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
+        return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url} (${a.head} → ${base}; ${r.data.changed_files ?? "?"} files changed, +${r.data.additions ?? "?"} -${r.data.deletions ?? "?"})` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
       }
       case "github_merge_pr": {
+        const pr = await gh("GET", `${R}/pulls/${Number(a.number)}`).catch(() => null);
         const r = await gh("PUT", `${R}/pulls/${Number(a.number)}/merge`, { merge_method: ["merge", "squash", "rebase"].includes(a.method) ? a.method : "merge" });
-        return clip(r.status < 300 ? `merged: ${r.data?.sha}` : `error ${r.status}: ${r.data?.message}`);
+        const where = pr?.data?.base?.ref ? ` into ${pr.data.base.ref} (from ${pr.data.head?.ref})` : "";
+        return clip(r.status < 300 ? `merged PR #${Number(a.number)}${where}: ${r.data?.sha}` : `error ${r.status}: ${r.data?.message}`);
       }
       case "github_list_prs": {
         const r = await gh("GET", `${R}/pulls?state=open&per_page=50`);
@@ -918,7 +925,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-  sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+  sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],

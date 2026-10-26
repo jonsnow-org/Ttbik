@@ -126,7 +126,7 @@ def grow_model(old_model: ShamSmall, new_cfg: ShamSmallConfig) -> ShamSmall:
                     old_layer.post_attention_norm.weight, new_cfg.d_model
                 )
 
-                new_head_dim = new_cfg.d_model // new_cfg.n_heads
+                new_head_dim = new_cfg.hd
                 new_layer.attention.q_proj = _grow_linear(
                     old_layer.attention.q_proj, new_cfg.n_heads * new_head_dim, new_cfg.d_model
                 )

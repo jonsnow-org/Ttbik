@@ -5,6 +5,9 @@ on:
       donor:
         description: "Hugging Face id of the donor (plain dense Qwen3 family)"
         default: "Qwen/Qwen3-1.7B"
+      speed_only:
+        description: "true = only measure the generation speed of Sham's class (bfloat16, 2 cores and all cores); builds in bfloat16 so a 4B donor fits"
+        default: "false"
       publish:
         description: "true = also push the deployable folder to the private ModelScope repo novaai2026/sham-v2 (a NEW repo, never the current Sham's)"
         default: "false"
@@ -23,7 +26,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install transformers tokenizers numpy requests pillow accelerate huggingface_hub kaggle modelscope datasets soundfile beautifulsoup4 imageio-ffmpeg av
+          pip install transformers tokenizers numpy requests pillow accelerate huggingface_hub kaggle modelscope datasets soundfile beautifulsoup4 imageio-ffmpeg av fastapi uvicorn python-multipart
       - name: Build and look
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -32,4 +35,5 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           DONOR: ${{ inputs.donor }}
           PUBLISH: ${{ inputs.publish }}
-        run: python scripts/transplant/build_v2.py "$DONOR" $([ "$PUBLISH" = "true" ] && echo --publish)
+          SPEED_ONLY: ${{ inputs.speed_only }}
+        run: python scripts/transplant/build_v2.py "$DONOR" $([ "$PUBLISH" = "true" ] && echo --publish) $([ "$SPEED_ONLY" = "true" ] && echo --speed-only)
