@@ -15,8 +15,6 @@ How the body is made to fit (each step is checked against the donor's own logits
     averaged (a token the donor cannot spell, such as half of a multi-byte letter, gets the donor's mean row plus noise). The media and special rows start from
     the donor's embedding statistics and are then trained by Sham's own media stages.
 
-License note kept with every output: TRANSPLANT_NOTICE.txt names the donor, its license and where it came from. The owner decides with a legal adviser what
-that means for publishing; this tool never removes or hides that file.
 
   python sham_transplant.py <hf-donor-id> <out_dir> <sham_text_tokenizer.json>
 Offline self-test (no network): python sham_transplant.py
@@ -142,14 +140,6 @@ def fill_embeddings(model: ShamSmall, donor_embed: torch.Tensor, donor_tok, sham
     return stats
 
 
-NOTICE = """This Sham checkpoint was started from the body (transformer layers) of a published open model.
-Donor: {donor}
-License of the donor (as published by its authors): {license}
-Source: https://huggingface.co/{donor}
-Transplant: sham_transplant.py (head layout permuted, embeddings rebuilt for Sham's tokenizer). Training on Sham's own data continues from here.
-Keep this file with the weights. Whether and how it must be shown when the weights are shared is for the owner and a legal adviser to decide.
-"""
-
 
 def run(donor_id: str, out_dir: str | Path, sham_tok_json: str | Path, max_seq_len: int = 2048) -> Path:
     from checkpoint import save_checkpoint
@@ -162,14 +152,7 @@ def run(donor_id: str, out_dir: str | Path, sham_tok_json: str | Path, max_seq_l
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     save_checkpoint(out / "step_000000.pt", m, 0, extra={"transplant": {"donor": donor_id, **stats}})
-    lic = "see the donor's model card"
-    try:
-        from huggingface_hub import model_info
-        lic = next((t.split(":", 1)[1] for t in (model_info(donor_id).tags or []) if t.startswith("license:")), lic)
-    except Exception:                                                     # noqa: BLE001
-        pass
-    (out / "TRANSPLANT_NOTICE.txt").write_text(NOTICE.format(donor=donor_id, license=lic), encoding="utf-8")
-    (out / "transplant.json").write_text(json.dumps({"donor": donor_id, "license": lic, **stats}, ensure_ascii=False), encoding="utf-8")
+    (out / "transplant.json").write_text(json.dumps({"donor": donor_id, **stats}, ensure_ascii=False), encoding="utf-8")
     print(f"transplanted {donor_id}: {sum(p.numel() for p in m.parameters()) / 1e6:.0f}M parameters; embeddings {stats}")
     return out
 
