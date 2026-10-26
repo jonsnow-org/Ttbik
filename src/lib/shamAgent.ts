@@ -63,6 +63,16 @@ export async function shamAgentRun(opts: {
   }
   const lim = { turns: 6, turnChars: 400, maxChars: 3600 };
   let steps = 0;
+  const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
+    let a: { kind?: string; prompt?: string } = {};
+    try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
+    const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
+    const r = await (opts.media || ((k, pr) => shamGenerateMedia(k, pr, Math.min(240000, Math.max(20000, left() - 3000)))))(kind, String(a.prompt || "").slice(0, 600));
+    return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
+  };
+  const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
+  const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
+  if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
 
   for (; steps < maxSteps; steps++) {
     if (left() < 6000) break;
@@ -91,11 +101,12 @@ export async function shamAgentRun(opts: {
     }
     const made = valid.find((c) => c.function.name === "make_media");
     if (made) {
-      let a: { kind?: string; prompt?: string } = {};
-      try { a = JSON.parse(made.function.arguments || "{}"); } catch { /* validated already */ }
-      const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
-      const r = await (opts.media || ((k, p) => shamGenerateMedia(k, p, Math.min(120000, Math.max(20000, left() - 2000)))))(kind, String(a.prompt || "").slice(0, 600));
-      return r ? { kind: "reply", reply: r, used: [...used, "make_media"], steps: steps + 1 } : { kind: "none", used: [...used, "make_media"], steps: steps + 1 };
+      // a picture / sound / clip takes minutes on the CPU Studio (measured: 123 s for a 256x256 picture): inside the webhook it goes to the background leg, which waits long
+      if (opts.continuable && left() < 160000) {
+        messages.push({ role: "assistant", content: p.text, tool_calls: [made] } as CoderMessage);
+        return { kind: "more", messages, used: [...used, "make_media"], steps: steps + 1 };
+      }
+      return runMedia(made, [...used, "make_media"], steps + 1);
     }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {
