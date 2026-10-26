@@ -23,3 +23,5 @@ This change intentionally does not touch training or notebook code.
 ## Standalone FastAPI/Streamlit deployment
 
 For the separate standalone backend used by the Streamlit UI, set `SHAM_MEDIA_ROOT` to the directory containing `sdxs/` and `piper/`. Set `HF_VIDEO_SPACE_ID` and `HF_TOKEN` in that backend's environment for real LTX-Video generation. Its `/generate/image`, `/generate/audio`, and `/generate/video` endpoints now return HTTP 503 with an explicit reason if the real backend is unavailable; they do not emit Sham token-decoder noise or a slideshow as if it were a successful result.
+
+For the Telegram bot/client host, also install the updated `ai-system/colab/sham_small/requirements.txt` and set `HF_VIDEO_SPACE_ID` plus `HF_TOKEN` in that host's environment. The bot calls the LTX Space directly first so video generation does not depend on ModelScope being able to reach Hugging Face.
