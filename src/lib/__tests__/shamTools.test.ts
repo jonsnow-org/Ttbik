@@ -87,3 +87,38 @@ describe("Sham's calls are checked before they run, and wrong ones go back to Sh
     global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_TOOLS;
   });
 });
+
+import { shamKnobs } from "@/lib/shamModes";
+import { shamVariant } from "@/lib/shamStudio";
+
+describe("thinking / accuracy / speed are real for Sham", () => {
+  it("accuracy changes the answer budget, the correction rounds and the sampling; the header goes only to the new Studio (or when SHAM_MODES=on)", () => {
+    delete process.env.SHAM_MODES;
+    const f = shamKnobs({ accuracy: "fast" }), b = shamKnobs({ accuracy: "balanced" }), p = shamKnobs({ accuracy: "precise" });
+    expect([f.maxNewFactor, b.maxNewFactor, p.maxNewFactor]).toEqual([0.6, 1, 1.5]);
+    expect([f.corrections, b.corrections, p.corrections]).toEqual([1, 2, 3]);
+    expect([f.temperature, b.temperature, p.temperature]).toEqual([0.7, 0.6, 0.2]);
+    expect(b.header).toBe("");                                                      // the old Studio is not shown a line it may not understand
+    shamVariant.run("v2", () => {
+      expect(shamKnobs({ accuracy: "precise" }).header).toBe("[[sham temp=0.20]]\n");
+      expect(shamKnobs({ accuracy: "precise", think: true, thinkCap: 3000 }).header).toBe("[[sham temp=0.20 think=1000]]\n");   // thinking: a thought of at most cap/3 tokens
+      expect(shamKnobs({ accuracy: "fast", think: true, thinkCap: 500 }).thinkTokens).toBe(167);
+      expect(shamKnobs({ accuracy: "precise" }).note).toMatch(/أقصى دقة/);
+    });
+    shamVariant.run("v1", () => expect(shamKnobs({ think: true }).thinkTokens).toBe(0));   // the old body cannot think: nothing is sent
+    process.env.SHAM_MODES = "on";
+    shamVariant.run("v1", () => expect(shamKnobs({ accuracy: "fast" }).header).toBe("[[sham temp=0.70]]\n"));
+    delete process.env.SHAM_MODES;
+  });
+  it("shamAsModel sends the header, scales the budget by accuracy, and uses the right number of correction rounds", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+    const sent: any[] = [];
+    global.fetch = (async (url: string, init: any) => { if (/call\/v2\//.test(url)) { sent.push(JSON.parse(String(init.body))); return { ok: true, json: async () => ({ event_id: "e" }) } as any; } return { ok: true, text: async () => body({ type: "text", text: "جواب بلا أداة" }) } as any; }) as any;
+    await shamVariant.run("v2", () => shamAsModel([{ role: "user", content: "سؤال" }], { conversation: true, maxTokens: 100, mode: { accuracy: "precise", think: true, thinkCap: 600 } }));
+    await shamVariant.run("v2", () => shamAsModel([{ role: "user", content: "سؤال" }], { conversation: true, maxTokens: 100, mode: { accuracy: "fast" } }));
+    expect(sent[0].prompt.startsWith("[[sham temp=0.20 think=200]]\n")).toBe(true);
+    expect(sent[0].max_new_tokens).toBeGreaterThan(sent[1].max_new_tokens);          // precise gets a longer budget than fast
+    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN;
+  });
+});

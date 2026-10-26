@@ -476,7 +476,7 @@ describe("Sham (advanced): Sham inside the engine, with the engine's research as
     const calls = studio([{ type: "text", text: "بحسب المصادر: الطوابير وإعادة المحاولة هي الحل الشائع للانقطاع في بوتات تلجرام الذكية." }]);
     const db = fakeDb();
     const { bot, sent } = fakeBot();
-    await saveState(CHAT, { ...st0("x", null), model: "sham_loop", messages: [] } as any, db);
+    await saveState(CHAT, { ...st0("x", null), model: "sham", messages: [] } as any, db);
     await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث عن مشاريع ذكاء اصطناعي تستخدم تلجرام كواجهة وكيف تحل مشكلة التأخر وانقطاع الاتصال" } }, db);
     for (let i = 0; i < 80 && !calls.some((c) => c.url.includes("/call/v2/generate_any")); i++) await new Promise((r) => setTimeout(r, 250));
     await new Promise((r) => setTimeout(r, 1500));

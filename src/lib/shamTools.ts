@@ -11,7 +11,7 @@ import { shamVariant } from "@/lib/shamStudio";
 export function shamToolsEnabled(): boolean {
   const t = (process.env.SHAM_TOOLS || "").trim().toLowerCase();
   if (t === "off" || t === "0") return false;
-  if (shamVariant.getStore() === "v2") return true;             // the new body is made for tools: on whenever it is the model in use
+  if (shamVariant.getStore() === "v2") return true;             // the new body is made for tools: on whenever it is the model in use. The old body: SHAM_TOOLS=on (its untrained format following would otherwise hide the research sources the engine hands it)
   return t === "on" || t === "1" || (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open";
 }
 

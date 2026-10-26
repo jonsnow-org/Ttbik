@@ -291,14 +291,13 @@ export async function anyVisionStudio(capMs = 1500): Promise<boolean> {
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham_loop" || opts.model === "sham_v2") {                         // THE Sham: its body (old / new) is a server setting, not another model
-    const body = (process.env.SHAM_BODY || "").trim().toLowerCase() === "v2" || opts.model === "sham_v2" ? "v2" : "v1";
-    return shamVariant.run(body, () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools }));
+  if (opts.model === "sham" || opts.model === "sham_loop" || opts.model === "sham_v2") {                // the chosen Sham, in the engine: the old one (v1 body) or the new one (v2 body, its own Studio)
+    return shamVariant.run(opts.model === "sham_v2" ? "v2" : "v1", () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools, mode: { accuracy: opts.accuracy, think: opts.think, thinkCap: opts.thinkCap, temperature: opts.temperature } }));
   }
-  if (opts.model === "sham") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham)
+  if (opts.model === "sham_probe") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham): the task as a plain question
   return coderCall(
     "chat",
     {
