@@ -1,0 +1,9 @@
+gradio==6.17.3
+modelscope
+diffusers
+transformers
+accelerate
+safetensors
+pillow
+piper-tts
+imageio-ffmpeg
