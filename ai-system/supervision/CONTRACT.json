@@ -701,6 +701,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "media_studio_probe": {
+      "file": ".github/workflows/media-studio-probe.yml",
+      "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
