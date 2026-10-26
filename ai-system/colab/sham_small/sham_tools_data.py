@@ -95,10 +95,13 @@ CATALOG = [
     ("ابحث عن آخر إصدار من Python.", "web_search", {"query": "latest Python release"}, "Python 3.14 released ...", "آخر إصدار وجدته هو Python 3.14."),
     ("اقرأ هذه الصفحة: {url}", "fetch_page", {"url": "{url}"}, "Example Domain. This domain is for use in examples.", "الصفحة مخصصة لأمثلة التوثيق."),
     ("تذكّر أنني أفضّل الردود القصيرة.", "memory_save", {"text": "المستخدم يفضّل الردود القصيرة"}, "saved", "حفظتُ ذلك، سأجعل ردودي قصيرة."),
-    ("ذكّرني كل صباح بمراجعة الطلبات.", "schedule_create", {"title": "مراجعة الطلبات", "when": "كل يوم 9:00"}, "scheduled", "تم، سأذكّرك كل صباح الساعة 9."),
-    ("نفّذ هذه الأعمال المستقلة معاً: قراءة ملفين.", "delegate", {"tasks": [{"title": "قراءة أ", "task": "اقرأ a"}, {"title": "قراءة ب", "task": "اقرأ b"}]}, "2 agents finished", "انتهى الوكيلان من قراءة الملفين."),
+    ("ذكّرني كل صباح بمراجعة الطلبات.", "schedule_create", {"title": "مراجعة الطلبات", "prompt": "راجع طلبات الدمج الجديدة في المستودع الرئيسي ولخّصها", "kind": "cron"}, "scheduled", "تم، سأذكّرك كل صباح الساعة 9."),
+    ("ارسم لي قطة تلعب في الحديقة.", "make_media", {"kind": "image", "prompt": "قطة تلعب في الحديقة"}, "sent to the user as a picture", "أرسلتُ لك الصورة."),
+    ("ماذا تتذكر عن تفضيلاتي؟", "memory_search", {"query": "تفضيلات المستخدم"}, "المستخدم يفضّل الردود القصيرة", "أتذكر أنك تفضّل الردود القصيرة."),
+    ("ما المهام المجدولة عندي؟", "schedule_list", {}, "s1 | مراجعة الطلبات | كل يوم 9:00", "عندك مهمة واحدة: مراجعة الطلبات كل يوم 9:00."),
+    ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
+    ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
     ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
-    ("أحتاج أدوات الجهاز الافتراضي.", "load_tools", {"groups": ["computer"]}, "loaded: computer", "تم تحميل أدوات الجهاز."),
 ]
 # the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
 FLOW_REQUESTS = [
@@ -245,11 +248,17 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "sandbox_push": ("repo, branch, message, dir?", "Send the edits made in the VM to a GitHub branch"),
     "web_search": ("query", "Search the web"),
     "fetch_page": ("url", "Read a web page"),
-    "memory_save": ("text", "Save a note to remember"),
-    "schedule_create": ("title, when", "Schedule a task that runs by itself later"),
-    "delegate": ("tasks", "Run independent sub-tasks with helper agents"),
+    "github_merge_pr": ("repo, number, method?", "Merge a pull request (the user is asked first)"),
+    "sandbox_wait": ("id", "Keep waiting for a long command"),
+    "sandbox_search": ("pattern?, glob?, path?", "Search the VM's files"),
+    "sandbox_read_file": ("path, start_line?, max_lines?", "Read a file from the VM"),
+    "deep_research": ("question", "Research a question: many sources, numbered [n]"),
+    "make_media": ("kind, prompt", "Make a picture, a sound or a short video yourself and send it"),
+    "memory_save": ("text, kind?, repo?", "Remember a lasting fact about this user"),
+    "memory_search": ("query, repo?", "Search what is remembered about this user"),
+    "schedule_create": ("title, prompt, kind?, recurrence?", "Schedule a task that runs by itself later"),
+    "schedule_list": ("", "List the scheduled tasks"),
     "ask_user": ("question, options?", "Ask the user ONE short question and wait for the answer"),
-    "load_tools": ("groups", "Load a group of tools"),
 }
 
 
