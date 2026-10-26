@@ -869,7 +869,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => void taskEvent(runId, k, t).catch(() => null);
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 52000, askMs: 46000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId);
 }
 

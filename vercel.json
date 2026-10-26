@@ -10,5 +10,11 @@
       "claude/nova-fixes": false
     }
   },
-  "ignoreCommand": "sh scripts/vercel-ignore.sh"
+  "ignoreCommand": "sh scripts/vercel-ignore.sh",
+  "crons": [
+    {
+      "path": "/api/media-cleanup",
+      "schedule": "17 3 * * *"
+    }
+  ]
 }

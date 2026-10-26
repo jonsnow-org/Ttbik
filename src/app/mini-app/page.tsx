@@ -135,9 +135,7 @@ function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: num
   if (item.thumbnail && !failed) {
     return (
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
-        {/* blurred copy fills the frame behind a vertical/odd-sized image */}
-        <img src={item.thumbnail} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
-        <img src={item.thumbnail} alt="" loading="lazy" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
+        <img src={item.thumbnail} alt="" loading="lazy" decoding="async" fetchPriority="low" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
       </div>
     );
   }
@@ -230,9 +228,22 @@ export default function MiniAppPage() {
   const itemsRef = useRef<FeedItem[]>([]);
   itemsRef.current = items;
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
+  const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
-    if (!viaVercel[id]) { setViaVercel((v) => ({ ...v, [id]: true })); return; }
-    setPlayingId(null); setPlayError(id);
+    const attempts = playErrorAttempts.current[id] || 0;
+    if (attempts === 0 && !viaVercel[id]) {
+      playErrorAttempts.current[id] = 1;
+      setViaVercel((v) => ({ ...v, [id]: true }));
+      return;
+    }
+    if (attempts < 2 && viaVercel[id]) {
+      playErrorAttempts.current[id] = 2;
+      setViaVercel((v) => ({ ...v, [id]: false }));
+      return;
+    }
+    setPlayingId(null);
+    setPlayError(id);
+    showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
   };
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1091,18 +1102,21 @@ export default function MiniAppPage() {
     const t = tg();
     haptic();
     const fallback = () => {
+      track("share", { post_id: item.id, method: "share-sheet" });
       const url = `https://t.me/share/url?url=${encodeURIComponent(shareLink(item.id))}&text=${encodeURIComponent(displayTitle(item))}`;
       if (t?.openTelegramLink) t.openTelegramLink(url); else window.open(url, "_blank");
     };
     if (!t?.shareMessage || !t?.isVersionAtLeast?.("8.0")) return fallback();
     try {
       const j = await social("prepare_share", { post_id: item.id });
-      t.shareMessage(j.prepared_id, (sent: boolean) => { if (sent) showToast("تم الإرسال ✅"); });
+      t.shareMessage(j.prepared_id, (sent: boolean) => {
+        if (sent) { track("share", { post_id: item.id, method: "telegram" }); showToast("تم الإرسال ✅"); }
+      });
     } catch { fallback(); }
   }
   async function copyExternalLink(item: FeedItem) {
     const link = shareLink(item.id);
-    try { await navigator.clipboard.writeText(link); showToast("تم نسخ الرابط — يظهر مع معاينة عند إرساله 🔗"); }
+    try { await navigator.clipboard.writeText(link); track("share", { post_id: item.id, method: "copy-link" }); showToast("تم نسخ الرابط — يظهر مع معاينة عند إرساله 🔗"); }
     catch { tg()?.showPopup?.({ title: "رابط المنشور", message: link, buttons: [{ type: "close" }] }) ?? window.prompt("انسخ الرابط", link); }
   }
   async function submitReport() {
@@ -1146,7 +1160,7 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-100 via-slate-50 to-indigo-50 pb-24 text-slate-800 selection:bg-sky-200">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] pb-24 text-slate-800 selection:bg-violet-200">
       
       {showTopBtn && (
         <button
@@ -1509,7 +1523,7 @@ export default function MiniAppPage() {
             const mine = !!userId && item.sharer_id === userId;
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200">
                 <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
@@ -1530,7 +1544,13 @@ export default function MiniAppPage() {
                   <span className={`absolute left-2 top-2 rounded-full ${isAudio ? "bg-indigo-500" : p.badge} px-2.5 py-0.5 text-[10px] font-black text-white shadow`}>{isAudio ? "صوت" : p.label}</span>
                   <button type="button" aria-label="المزيد" onClick={() => { haptic(); setMenuItem(item); }} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-lg font-black leading-none text-white backdrop-blur">⋮</button>
                 </div>
-                {playError === item.id && <p className="bg-rose-50 px-3.5 py-2 text-[11px] font-bold text-rose-600">تعذّر التشغيل هنا (قد يكون الملف أكبر من 20MB) — استخدم «⚡ فوري» لاستلامه في البوت.</p>}
+                {playError === item.id && (
+                  <div role="status" className="flex items-center gap-2 border-t border-rose-100 bg-gradient-to-l from-rose-50 to-orange-50 px-3.5 py-2.5">
+                    <span className="text-lg" aria-hidden>⚠️</span>
+                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المقطع. قد يكون الرابط منتهيًا أو الملف غير متاح أو هناك مشكلة في البث.</p>
+                    <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
+                  </div>
+                )}
                 <div className="p-3.5">
                   <h3 className="line-clamp-2 text-[15px] font-extrabold text-slate-800">{displayTitle(item)}</h3>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
@@ -1541,7 +1561,7 @@ export default function MiniAppPage() {
                     <span>❤ {item.likes || 0}</span>
                   </div>
                   <div className="mt-3 grid grid-cols-5 gap-1.5">
-                    <a href={cloneHref(item.id)} onClick={() => haptic()} className="col-span-1 transition active:scale-90 rounded-xl bg-gradient-to-l from-sky-500 to-blue-600 py-2.5 text-center text-[11px] font-black text-white shadow-sm">⚡ فوري</a>
+                    <a href={cloneHref(item.id)} onClick={() => { haptic(); track("download_intent", { post_id: item.id, method: "telegram-bot" }); }} aria-label="استلام الوسائط عبر البوت" className="col-span-1 rounded-xl bg-gradient-to-l from-sky-500 via-blue-600 to-indigo-600 py-2.5 text-center text-[11px] font-black text-white shadow-md shadow-blue-100 transition hover:brightness-105 active:scale-95">⚡ فوري</a>
                     <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[13px] font-black transition active:scale-90 ${isLiked ? "heart-pop" : ""} ${isLiked ? "bg-rose-500 text-white shadow-sm" : "bg-rose-50 text-rose-500 ring-1 ring-rose-100"}`}>{isLiked ? "❤️" : "🤍"}</button>
                     <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} className="rounded-xl transition active:scale-90 bg-amber-50 py-2.5 text-[13px] font-black text-amber-600 ring-1 ring-amber-100">💬</button>
                     <a href={item.url || "#"} target="_blank" rel="noreferrer" title="المصدر الأصلي" className="rounded-xl transition active:scale-90 bg-emerald-50 py-2.5 text-center text-[13px] font-black text-emerald-600 ring-1 ring-emerald-100">🌐</a>
