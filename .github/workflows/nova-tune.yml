@@ -186,7 +186,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: qwen2.5-coder-3b, url: "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf" }
+          - { id: qwen3-1.7b-q4km, url: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf" }
+          - { id: qwen3-4b-q4km, url: "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf" }
+          - { id: qwen3-4b-instruct-2507-q4km, url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf" }
+          - { id: qwen3-8b-q4km, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf" }
+          - { id: qwen3-8b-q3ks, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q3_K_S.gguf" }
     steps:
       - uses: actions/checkout@v4
         with:
