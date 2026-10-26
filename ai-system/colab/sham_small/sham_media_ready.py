@@ -51,6 +51,16 @@ def ready_root(model_dir: str | Path | None) -> Path | None:
     return None
 
 
+def media_status(model_dir: str | Path | None) -> dict[str, str | bool]:
+    """Report image and speech readiness separately; one model being present does not imply the other is usable."""
+    root = ready_root(model_dir)
+    return {
+        "root": str(root) if root else "",
+        "image_ready": bool(root and _has_image_model(root / "sdxs")),
+        "speech_ready": bool(root and _voice_path(root) is not None),
+    }
+
+
 def video_backend_status() -> dict[str, str | bool]:
     space = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
     token_configured = bool(os.environ.get("HF_TOKEN", "").strip())
