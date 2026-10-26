@@ -168,20 +168,27 @@ export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promi
 // Each call has its own short timeout; the outcome says WHY when there is no answer, so the bot can tell the user the truth.
 export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
 
+/** The last failed Studio call (api, which Studio, why): shown to the owner under a failure message, so a failure is read, not guessed. */
+let lastFailure = "";
+export const shamLastFailure = (): string => lastFailure;
+const note = (base: string, api: string, why: string) => { lastFailure = `${api} @ ${base.replace(/^https?:\/\/(studio-novaai2026-)?/, "").slice(0, 40)}: ${why}`; };
+
 async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   const deadline = Date.now() + timeoutMs;
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
-    if (!sub.ok) return { reply: null, failure: "http" };
+    if (!sub.ok) { note(base, api, `HTTP ${sub.status} on submit`); return { reply: null, failure: "http" }; }
     const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return { reply: null, failure: "http" };
+    if (!event_id) { note(base, api, "no event id"); return { reply: null, failure: "http" }; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
-    if (!res.ok) return { reply: null, failure: "http" };
+    if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
     const reply = parseShamReply(await res.text());
+    if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
     const name = (e as { name?: string })?.name || "";
+    note(base, api, `${name || "error"} after ${Math.round((timeoutMs) / 1000)} s limit: ${String((e as Error)?.message || "").slice(0, 80)}`);
     return { reply: null, failure: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
   }
 }

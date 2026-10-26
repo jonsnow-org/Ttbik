@@ -11,7 +11,8 @@ import { shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun
 import { later } from "@/lib/coderRuntime";
 import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
-import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { shamLastFailure, shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { tierFor } from "@/lib/coderAuth";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -765,7 +766,8 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
   if (!reply) {
     // REVIEW (2026-10-14): was always "⏳ شام يتهيأ الآن…" for ANY missing answer (timeout, error, old Studio). Now an honest status line.
-    await bot.api.sendMessage(chatId, "تعذّر الحصول على رد من شام الآن (انتهى الوقت أو تعذّر الاتصال). أعد المحاولة بعد قليل.").catch(() => null);
+    const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
+    await bot.api.sendMessage(chatId, `تعذّر الحصول على رد من شام الآن (انتهى الوقت أو تعذّر الاتصال). أعد المحاولة بعد قليل.${why}`).catch(() => null);
     return;
   }
   if (reply.type === "loading" || reply.type === "busy" || reply.type === "gone") {
@@ -852,7 +854,8 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId))) {
       await shamDropRun(chatId);
-      await bot.api.sendMessage(chatId, "تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.").catch(() => null);
+      const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
+      await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
     }
   }));
 }
