@@ -5,7 +5,8 @@
 //   - its own Studio (shamGenerateAny: the old or the new body, whichever the chat chose; its thinking / accuracy / speed settings ride with every call).
 // What it shares with Nova is only the plain executor functions that actually fetch a web page, read a GitHub file or write a memory (runTool in coderAgent.ts):
 // library code, like `fetch`; no Nova model, no Nova prompt, no Nova Studio and no Nova run state is touched.
-// Phase 1 (here): web, GitHub reading, memory, schedules and "ask the user". The virtual computer (sandbox) tools are the next phase.
+// Phase 1: web, GitHub reading, memory, schedules and "ask the user". Phase 2 (here): Sham's own virtual computer (its own VM per chat, named `sham:…`, never Nova's):
+// clone, run, write, edit, search, read. Pushing / opening PRs needs the user's approval flow and comes with the continuation phase.
 import { GITHUB_TOOLS, ASK_USER_TOOL, githubClient, runTool, toolGroups, type ToolCtx } from "@/lib/coderAgent";
 import { prismaDb, resolveConnections, tierFor, coderChatKey, type Db } from "@/lib/coderAuth";
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
@@ -19,6 +20,7 @@ export const SHAM_TOOL_NAMES = [
   "github_read_file", "github_list_files", "github_repo_scan", "github_search_code",
   "memory_save", "memory_search", "memory_note",
   "schedule_create", "schedule_list", "schedule_delete",
+  "sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file",
   "ask_user",
 ] as const;
 
@@ -133,7 +135,7 @@ export function shamAgentOn(): boolean {
 export async function shamToolCtx(chatId: number, botId?: string, db: Db = prismaDb): Promise<ToolCtx> {
   const conn = await resolveConnections(chatId, db);
   return {
-    tier: tierFor(chatId), runId: `sham-${chatId}`, chatKey: coderChatKey(chatId), userId: chatId, botId, db,
+    tier: tierFor(chatId), runId: `sham-${chatId}`, chatKey: `sham:${coderChatKey(chatId)}`, userId: chatId, botId, db,
     githubToken: conn.github?.token || null, gh: conn.github ? githubClient(conn.github.token) : null, addNote: () => undefined,
   } as ToolCtx;
 }
