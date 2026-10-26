@@ -89,6 +89,20 @@ jobs:
           git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
+      - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          pip install -q modelscope
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          api.login(os.environ["MODELSCOPE_TOKEN"])
+          api.update_studio_secret("novaai2026/nova-media-server", "MODELSCOPE_API_TOKEN", os.environ["MODELSCOPE_TOKEN"])
+          print("studio secret set")
+          PY
+
       - name: Deploy and show status
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}

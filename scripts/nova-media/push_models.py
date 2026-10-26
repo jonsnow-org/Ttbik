@@ -1,4 +1,4 @@
-"""Copy the media models into a public ModelScope (a Studio cannot read a private one; these are open models) model repo (the media Studio can reach modelscope.cn only).
+"""Copy the media models into a private ModelScope model repo (the media Studio can reach modelscope.cn only).
   sdxs/   IDKiro/sdxs-512-dreamshaper  (diffusers layout; OpenRAIL++ as published by its author)
   piper/  rhasspy/piper-voices  ar/ar_JO/kareem/medium  (MIT repository; the voice dataset's own terms are the owner's to check)
 Never prints the token."""
@@ -28,7 +28,7 @@ api = HubApi()
 api.login(os.environ["MODELSCOPE_TOKEN"])
 for lic in ("openrail", "apache-2.0"):
     try:
-        api.push_model(model_id=MODEL_ID, model_dir=str(work), visibility=Visibility.PUBLIC, license=lic, commit_message="nova media models (sdxs, piper ar)")
+        api.push_model(model_id=MODEL_ID, model_dir=str(work), visibility=Visibility.PRIVATE, license=lic, commit_message="nova media models (sdxs, piper ar)")
         print(f"pushed {MODEL_ID} (license tag {lic})")
         break
     except Exception as e:                                               # noqa: BLE001
