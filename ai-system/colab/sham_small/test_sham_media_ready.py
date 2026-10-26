@@ -49,7 +49,7 @@ class MediaServingContractTests(unittest.TestCase):
             subprocess.run([ffmpeg, '-y', '-loop', '1', '-i', str(still), '-t', '2', '-r', '24',
                             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)],
                            check=True, capture_output=True, timeout=30)
-            with self.assertRaisesRegex(RuntimeError, 'إطارات لا تُظهر حركة'):
+            with self.assertRaisesRegex(RuntimeError, 'الإطارات لا تُظهر حركة'):
                 media._validate_mp4(video)
 
     def test_temporally_changing_mp4_passes_validation(self):
