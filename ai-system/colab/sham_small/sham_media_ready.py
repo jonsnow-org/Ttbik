@@ -22,14 +22,54 @@ from pathlib import Path
 _CACHE: dict = {"pipe": None, "voice": None}
 
 
-def ready_root(model_dir: str | Path | None) -> Path | None:
-    """The folder with the ready weights, when they are part of the model repo (media/sdxs and media/piper)."""
+def inspect_ready_assets(model_dir: str | Path | None) -> dict:
+    """Inspect local donor weights without downloading anything or loading them into RAM."""
     if not model_dir:
-        return None
-    for cand in (Path(model_dir) / "media", *Path(model_dir).rglob("media")):
-        if (cand / "sdxs").is_dir() and any((cand / "piper").glob("*.onnx")):
-            return cand
-    return None
+        return {"ready": False, "root": "", "image_bytes": 0, "audio_bytes": 0, "reason": "model directory missing"}
+    base = Path(model_dir)
+    for cand in (base / "media", *base.rglob("media")):
+        sdxs = cand / "sdxs"
+        piper = cand / "piper"
+        if not sdxs.is_dir() or not piper.is_dir():
+            continue
+        # A directory name alone is not proof of a usable model: require a Diffusers
+        # model index + actual checkpoint tensors, and a Piper ONNX model + config.
+        index_ok = (sdxs / "model_index.json").is_file()
+        image_weights = [p for p in sdxs.rglob("*") if p.is_file() and p.suffix.lower() in {".safetensors", ".bin", ".ckpt"}]
+        voices = [p for p in piper.glob("*.onnx") if Path(str(p) + ".json").is_file() or p.with_suffix(".onnx.json").is_file()]
+        if not index_ok or not image_weights or not voices:
+            continue
+        return {
+            "ready": True,
+            "root": str(cand),
+            "image_bytes": sum(p.stat().st_size for p in image_weights),
+            "audio_bytes": sum(p.stat().st_size for p in voices) + sum(
+                q.stat().st_size for p in voices for q in (Path(str(p) + ".json"), p.with_suffix(".onnx.json")) if q.is_file()
+            ),
+            "image_weight_files": len(image_weights),
+            "voice_models": len(voices),
+            "reason": "",
+        }
+    return {"ready": False, "root": "", "image_bytes": 0, "audio_bytes": 0,
+            "reason": "valid local Diffusers image weights or Piper ONNX+JSON voice weights not found"}
+
+
+def ready_root(model_dir: str | Path | None) -> Path | None:
+    """Return only a complete local image+speech model bundle; never infer readiness from empty folders."""
+    info = inspect_ready_assets(model_dir)
+    return Path(info["root"]) if info["ready"] else None
+
+
+def _scene_prompts(prompt: str, count: int = 4) -> list[str]:
+    """Turn one idea into a small, explicit multi-shot storyboard for the local image model."""
+    prompt = prompt.strip()
+    shots = [
+        "wide establishing shot",
+        "medium shot showing the main subject clearly",
+        "close-up detail shot",
+        "wide closing shot with a changed composition",
+    ]
+    return [f"{prompt}. Cinematic storyboard, {shots[i]}." for i in range(count)]
 
 
 def _pipe(root: Path):
