@@ -6,6 +6,7 @@
 // CODER_AGENTS=off removes the tool.
 
 import { reportsHardChars } from "@/lib/coderContext";
+import { shamToolsEnabled } from "@/lib/shamTools";
 
 /** CODER_TOOL_GROUPS=lazy brings back the earlier lazy loading (load_tools); the default is ONE fixed tool list on every step (coderAgent.ts coderToolsFor). */
 export const toolGroupsLazy = (): boolean => (process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "lazy";
@@ -16,8 +17,8 @@ export const AGENT_MAX_DEPTH = 2;    // run (0) → agents (1) → sub-agents (2
 export const AGENT_MAX_STEPS = 6;
 export const TESTER_MAX_STEPS = 10;
 export const WORKER_MAX_STEPS = 12;
-export type AgentRole = "reader" | "tester" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does
-export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : AGENT_MAX_STEPS);
+export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does; sham = the owner's own model, raw answer, owner only
+export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? (shamToolsEnabled() ? WORKER_MAX_STEPS : 1) : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 /** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
 export const agentReportsHard = (): number => reportsHardChars();
@@ -34,6 +35,9 @@ export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 export const TESTER_TOOL_NAMES: ReadonlySet<string> = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_read_file", "sandbox_search"]);
 /** A worker may use every tool the parent has (each consequential call still goes through the user's permission settings and asks), except asking the user a free question, and starting agents at the deepest level. */
 export const agentToolAllowed = (name: string, role?: AgentRole, depth = 1, args?: Record<string, unknown>): boolean => {
+  // Sham as an agent: a raw answer without tools until the owner switches the tool bridge on (SHAM_TOOLS / SHAM_LIMITS=open); then it has the worker's tools, through the same permission settings
+  if (role === "sham" && !shamToolsEnabled()) return false;
+  if (role === "sham") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);
   // http_request: a reader / tester may only read (GET / HEAD); a write is the worker's, through the user's permission settings
   if (name === "http_request" && role !== "worker" && args && !/^(GET|HEAD)$/i.test(String(args.method || "GET"))) return false;
   if (role === "worker") return name !== "ask_user" && (name !== "delegate" || depth < AGENT_MAX_DEPTH);
@@ -86,10 +90,10 @@ export function normalizeTasks(a: Record<string, unknown>, owner = false, depth 
     }
     if (!task) continue;
     const want = String(o?.role || "").toLowerCase();
-    const role: AgentRole = preset ? preset.role : sub ? "reader" : want === "worker" ? "worker" : want === "tester" && testers < 1 ? "tester" : "reader";   // one tester per call (its VM is the costly part); helpers of an agent only read
+    const role: AgentRole = preset ? preset.role : sub ? "reader" : want === "worker" ? "worker" : want === "tester" && testers < 1 ? "tester" : want === "sham" && owner ? "sham" : "reader";   // one tester per call (its VM is the costly part); Sham is the owner's only; helpers of an agent only read
     if (role === "tester") testers++;
     const title = preset ? `${preset.title}: ${String(o?.arg ?? o?.task ?? "")}`.trim().replace(/\s+/g, " ").slice(0, 80) : String(o?.title || task).trim().replace(/\s+/g, " ").slice(0, 80);
-    out.push({ title, task, role });
+    out.push({ title: role === "sham" ? `Sham: ${title}`.slice(0, 80) : title, task, role });
     if (out.length >= (sub ? SUB_AGENT_MAX : AGENT_MAX)) break;
   }
   return out;
