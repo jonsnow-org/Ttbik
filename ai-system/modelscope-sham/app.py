@@ -88,6 +88,14 @@ def _load(model_dir: Path) -> None:
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
+    try:
+        from sham_media_ready import ready_root
+        mr = ready_root(model_dir)                          # ready, trained media weights packaged inside Sham's own repo (media/sdxs, media/piper)
+        STATE["media_root"] = str(mr) if mr else ""
+        _say(f"media: {'ready weights in ' + str(mr) if mr else 'no ready weights in the repo (own decoder)'}")
+    except Exception as exc:                                # noqa: BLE001
+        STATE["media_root"] = ""
+        _say(f"media check failed: {type(exc).__name__}")
     _say("ready: the model is loaded")
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
     if manifest:
@@ -234,6 +242,9 @@ def generate_media(kind: str, prompt: str) -> str:
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
+        if STATE.get("media_root"):                         # the ready weights inside Sham's repo: real pictures / speech / slideshow clips
+            from sham_media_ready import make
+            return json.dumps(make(Path(STATE["media_root"]), kind, prompt), ensure_ascii=False)
         res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
                                               serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
         return json.dumps(res, ensure_ascii=False)
