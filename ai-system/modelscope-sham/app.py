@@ -89,12 +89,14 @@ def _load(model_dir: Path) -> None:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
     try:
-        from sham_media_ready import ready_root
-        mr = ready_root(model_dir)                          # ready, trained media weights packaged inside Sham's own repo (media/sdxs, media/piper)
-        STATE["media_root"] = str(mr) if mr else ""
-        _say(f"media: {'ready weights in ' + str(mr) if mr else 'no ready weights in the repo (own decoder)'}")
+        from sham_media_ready import media_status
+        ms = media_status(model_dir)
+        STATE["media_root"] = str(ms["root"])
+        STATE["media_status"] = {"image_ready": ms["image_ready"], "speech_ready": ms["speech_ready"]}
+        _say(f"media readiness: image={ms['image_ready']} speech={ms['speech_ready']} root={ms['root'] or 'missing'}")
     except Exception as exc:                                # noqa: BLE001
         STATE["media_root"] = ""
+        STATE["media_status"] = {"image_ready": False, "speech_ready": False}
         _say(f"media check failed: {type(exc).__name__}")
     _say("ready: the model is loaded")
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
@@ -176,7 +178,7 @@ def status() -> str:
     try:
         from sham_media_ready import video_backend_status
         msg["video_backend"] = video_backend_status()
-        msg["media_root_available"] = bool(STATE.get("media_root"))
+        msg["media"] = STATE.get("media_status", {"image_ready": False, "speech_ready": False})
     except Exception:
         msg["video_backend"] = {"configured": False, "backend": "Lightricks/LTX-Video via Hugging Face ZeroGPU"}
     return json.dumps(msg, ensure_ascii=False)
