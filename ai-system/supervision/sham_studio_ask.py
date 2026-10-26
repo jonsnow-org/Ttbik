@@ -53,6 +53,8 @@ def main() -> int:
     st = studio_client.studio_status()
     print("حالة الاستوديو:", json.dumps(st, ensure_ascii=False)[:1800] if st else "لا يردّ")
     raw = os.environ.get("ASK", "")
+    if raw.startswith("@"):                                  # @file: the questions are a JSON list kept in a repo file (ai-system/supervision/<name>)
+        raw = (Path(__file__).resolve().parent / raw[1:].strip()).read_text(encoding="utf-8")
     qs = [str(q).strip() for q in json.loads(raw)] if raw.lstrip().startswith("[") else [q.strip() for q in raw.split("|") if q.strip()]     # a JSON list lets a question hold "|" (a whole tool prompt)
     qs = qs or DEFAULT
     api = os.environ.get("API", "text")           # text (the old call) | any (the model decides: words / picture / sound) | image | audio | video (the user chose the kind)
