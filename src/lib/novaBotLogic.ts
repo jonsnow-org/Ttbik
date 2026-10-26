@@ -7,8 +7,10 @@ import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
-import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending } from "@/lib/shamExec";
-import { shamModeCtx } from "@/lib/shamStudio";
+import { shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
+import { later } from "@/lib/coderRuntime";
+import { selfUrl, signContinue } from "@/lib/coderSections";
+import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -803,12 +805,18 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
   await edit(`${out.startsWith("error") ? "⚠️" : "✅"} ${out}`);
 }
 
-async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
-  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-  const ctx = await shamToolCtx(chatId, botId);
-  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore() });
+const SHAM_LEGS = 6;                                   // a long task may use up to this many legs (each up to ~4 minutes in the background)
+
+/** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
+async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number): Promise<boolean> {
   if (r.kind === "none") return false;
-  if (r.kind === "confirm") {                         // a write to the user's repository: ask first, run only on the tap
+  if (r.kind === "more") {                              // the work goes on in the background: the shared runner calls the next leg (its own signed route)
+    if (leg === 0) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null);
+    await shamSaveRun({ chatId, botId: botId || "", request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
+    later(() => shamKickNextLeg(botId || "", chatId, leg + 1));
+    return true;
+  }
+  if (r.kind === "confirm") {                           // a write to the user's repository: ask first, run only on the tap
     const id = await shamSavePending(chatId, r.call);
     await bot.api.sendMessage(chatId, shamConfirmText(r.call), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${id}`).text("❌ ألغِ", `shamno|${id}`) }).catch(() => null);
     return true;
@@ -816,8 +824,43 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   if (r.kind === "reply") { await sendShamReply(bot, chatId, r.reply); return true; }
   const out = r.kind === "ask" ? r.question : r.text;
   await sendShamReply(bot, chatId, { type: "text", text: out });
-  await saveTurn(chatId, text, out);
+  await saveTurn(chatId, request, out);
   return true;
+}
+
+async function shamKickNextLeg(botId: string, chatId: number, leg: number): Promise<void> {
+  const { prisma } = await import("@/lib/prisma");
+  const row = await prisma.bot.findUnique({ where: { id: botId } }).catch(() => null);
+  if (!row) return;
+  const chain = `sham${leg}`;
+  const body = JSON.stringify({ botId, chatId: String(chatId), chain, sig: signContinue(row.webhookSecret || "", botId, String(chatId), chain) });
+  await fetch(`${selfUrl()}/api/sham/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" }).catch(() => null);
+}
+
+/** The next leg of a long Sham task (called by /api/sham/continue, up to 300 s): the saved conversation goes on from where it stopped. */
+export async function continueShamRun(bot: TelegramBot, chatId: number, botId: string): Promise<void> {
+  const run = await shamTakeRun(chatId);
+  if (!run) return;
+  await shamVariant.run(run.variant, () => shamModeCtx.run(run.mode as never, async () => {
+    const ctx = await shamToolCtx(chatId, botId);
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    const last = run.leg >= SHAM_LEGS;
+    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
+    if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg))) {
+      await shamDropRun(chatId);
+      await bot.api.sendMessage(chatId, "تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.").catch(() => null);
+    }
+  }));
+}
+
+// Sham's own agent round (src/lib/shamAgent.ts): the model may call its own tools (web, GitHub, memory, schedules, its own computer), each call checked before it runs.
+// true = handled. false = nothing usable came back in time: the caller continues with the one-step `think` path below.
+async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  const ctx = await shamToolCtx(chatId, botId);
+  await shamDropRun(chatId).catch(() => null);          // a new message replaces an unfinished earlier task
+  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: true });
+  return shamDeliver(bot, chatId, r, text, botId, 0);
 }
 
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
