@@ -1,6 +1,7 @@
 // Sham (the owner's own model) inside Nova's engine: the Studio's answer is returned in the same shape as a finished job, so the agent loop treats it like any other reply.
 import type { CoderMessage, CoderOutcome, CoderReply, CoderTool } from "@/lib/openCoderStudio";
 import { shamGenerateAny, shamStudioEnabled, shamVariant } from "@/lib/shamStudio";
+import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, shamToolsEnabled, validateShamCall } from "@/lib/shamTools";
 
 export const PROVIDER_JOB_PREFIX = "p~";
@@ -21,12 +22,15 @@ export const SHAM_LIM = {
   get promptChars() { return Number(process.env.SHAM_PROMPT_CHARS) || (this.open ? 12000 : 3200); },
 };
 
-export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean; tools?: CoderTool[] } = {}): Promise<CoderOutcome> {
+export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean; tools?: CoderTool[]; mode?: ShamMode } = {}): Promise<CoderOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  const k = shamKnobs(opts.mode);                                                              // the user's thinking / accuracy / speed settings, applied (shamModes.ts)
+  const maxNew = Math.max(20, Math.min(Math.round(SHAM_LIM.maxNew * k.maxNewFactor), Math.round((opts.maxTokens || 160) * k.maxNewFactor)));
   const withTools = Boolean(opts.conversation && opts.tools?.length && shamToolsEnabled());       // Nova's loaded tools, as text (shamTools.ts)
-  const prompt = withTools ? shamToolConversation(messages, opts.tools!, { turns: SHAM_LIM.turns, turnChars: SHAM_LIM.turnChars, maxChars: SHAM_LIM.promptChars }) : opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
-  if (!prompt) return { reply: null, failure: "unreadable" };
-  const r = await shamGenerateAny(prompt, Math.min(SHAM_LIM.maxNew, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
+  const body = withTools ? shamToolConversation(messages, opts.tools!, { turns: SHAM_LIM.turns, turnChars: SHAM_LIM.turnChars, maxChars: SHAM_LIM.promptChars }) : opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);
+  if (!body) return { reply: null, failure: "unreadable" };
+  const prompt = k.header + (k.note ? `${k.note}\n` : "") + body;
+  const r = await shamGenerateAny(prompt, maxNew, opts.timeoutMs ?? 55000);
   if (!r) return { reply: null, failure: "network" };
   const job = `${PROVIDER_JOB_PREFIX}sham${Date.now().toString(36)}`;
   if (r.type === "text" && (r.text || "").trim()) {
@@ -34,12 +38,12 @@ export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: 
       // The engine checks the call before it runs; a wrong or incomplete one goes back to Sham with the reason (up to two corrections), no training needed.
       let text = String(r.text);
       let p = parseShamToolCalls(text, opts.tools!);
-      for (let fix = 0; fix < 2; fix++) {
+      for (let fix = 0; fix < k.corrections; fix++) {
         const problems = p.calls.map((c) => validateShamCall(c, opts.tools!)).filter((e): e is string => Boolean(e));
         if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
         const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools!) ? SHAM_CODE_NOTE : "";
         if (!note) break;
-        const again = await shamGenerateAny(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, Math.min(SHAM_LIM.maxNew, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
+        const again = await shamGenerateAny(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, opts.timeoutMs ?? 55000);
         if (!again || again.type !== "text" || !(again.text || "").trim()) break;
         text = String(again.text); p = parseShamToolCalls(text, opts.tools!);
       }

@@ -18,10 +18,10 @@ export type CoderModel = {
 };
 
 export const DEFAULT_MODELS: CoderModel[] = [
-  // The order here is the order in the picker. Sham (the engine one) gets every new ability and its body (old / new) changes behind it (SHAM_BODY), never as another entry; the old direct Sham stays as its own entry only to measure its training. Each description says what the model is FOR and where it stands today (kept true to what was measured).
+  // The order here is the order in the picker: Nova AI (one, with everything added to it), Sham (the old one, every fix and tool added to its own code) and Sham v2 (the new body, tried beside it).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية. يتحسّن بتدريب خاص بنا على الكود والأدوات (Nova 1) يُستبدَل به حين يجهز.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode. Improved by our own training on code and tools (Nova 1), which replaces its weights when ready." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
-  { id: "sham_loop", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذجنا الذي بنيناه بأنفسنا، يعمل داخل محرّك Nova: يبحث ويستعمل الأدوات ويتتبّع المهام الطويلة ويصبر عند الانقطاع. لم يكتمل تدريبه بعد، فردوده ما زالت أضعف من Nova AI.", en: "Our own model, built from scratch, running inside Nova's engine: searches, uses tools, tracks long tasks and is patient on outages. Training is not finished, so its replies are still weaker than Nova AI." }, price_stars: null, visible: false, ownerOnly: true, sort: 1 },
-  { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "شام القديم بالطريقة المباشرة القديمة، نتركه لقياس مدى تقدّم تدريبه كل فترة. بلا أدوات Nova وبمهلة قصيرة، وردوده ما زالت ضعيفة.", en: "The old Sham on the old direct path, kept to measure how far its training has come from time to time. No Nova tools, a short time limit, replies still weak." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 2 },
+  { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي الذي بنيناه من الصفر، وكل الإصلاحات والأدوات تُضاف إلى كوده هو: يبحث ويستعمل الأدوات (مع تدقيق كل استدعاء) ويتتبّع المهام الطويلة. ما زال تدريبه غير مكتمل فردوده أضعف من Nova AI. أوضاع الدقة والسرعة تؤثر فيه فعلاً (طول جوابه وعدد محاولات تصحيح استدعاءاته)، أما التفكير فلا يدعمه جسمه.", en: "Our original model, built from scratch; every fix and tool is added to its own code: it searches and uses tools (every call checked) and tracks long tasks. Training is not finished, so its replies are weaker than Nova AI. Accuracy and speed modes really change it (answer length, rounds of call correction); thinking is not supported by its body." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
+  { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد (نموذج مفتوح المصدر مدرَّب داخل صنف شام) على استوديو منفصل، نجربه جنب القديم. التفكير (مقدار فقرة تفكير قصيرة قبل الجواب) والدقة والسرعة تغيّر سلوكه فعلاً، ويستعمل الأدوات كلها. قيد التجربة.", en: "Sham with a new body (a trained open model inside Sham's class) on its own Studio, tried next to the old one. Really supports thinking, accuracy and speed, and uses all tools. Under test." }, price_stars: null, visible: false, ownerOnly: true, sort: 2 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -79,12 +79,12 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 }
 
 /** Can this model answer right now (its Studio / key is set)? A model that is switched on for everyone but is not ready is still hidden from users. */
-/** Older chats may hold the id of the former separate "Sham v2" entry: that is the one Sham (engine) now. The old direct Sham keeps its own entry on purpose: it is how its training progress is measured. */
-export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_v2" ? "sham_loop" : id);
+/** Older chats may hold the id of the former "Sham (advanced)" entry: it was merged into the old Sham (which now has everything it had). */
+export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
 
 export function modelReady(m: CoderModel): boolean {
-  if (m.isDefault || m.id === "sham") return true;
-  if (m.id === "sham_loop") return shamStudioEnabled();
+  if (m.isDefault) return true;
+  if (m.id === "sham" || m.id === "sham_v2") return shamStudioEnabled();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
@@ -113,8 +113,8 @@ export function ownerModels(models: CoderModel[], picked: string | undefined) {
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
-  if (m.id === "sham_loop" && !shamStudioEnabled()) return false;                // needs Sham's Studio token
+  if ((m.id === "sham" || m.id === "sham_v2") && !shamStudioEnabled()) return false;                // they need the Studio token                // needs Sham's Studio token
   st.model = m.id;
-  st.mode = m.id === "sham" ? "sham" : "coder";               // the old direct Sham path keeps its own section
+  st.mode = "coder";                                          // every model runs in the engine
   return true;
 }

@@ -57,15 +57,15 @@ describe("lessons: the owner's successful runs as training examples", () => {
 
 describe("Sham inside Nova's engine (owner only)", () => {
   it("the picker offers 'Sham (advanced)' to the owner only and only when Sham's Studio token exists", () => {
-    const m = DEFAULT_MODELS.find((x) => x.id === "sham_loop")!;
+    const m = DEFAULT_MODELS.find((x) => x.id === "sham")!;
     expect(m).toMatchObject({ ownerOnly: true, visible: false });
     const st: any = { mode: "coder" };
     delete process.env.MODELSCOPE_API_TOKEN;
-    expect(chooseModel(st, DEFAULT_MODELS, "sham_loop", true)).toBe(false);          // no token: cannot be chosen
+    expect(chooseModel(st, DEFAULT_MODELS, "sham", true)).toBe(false);          // no token: cannot be chosen
     process.env.MODELSCOPE_API_TOKEN = "ms";
-    expect(chooseModel(st, DEFAULT_MODELS, "sham_loop", false)).toBe(false);         // a user: never
-    expect(chooseModel(st, DEFAULT_MODELS, "sham_loop", true)).toBe(true);
-    expect([st.model, st.mode]).toEqual(["sham_loop", "coder"]);                      // stays in the engine (the legacy 'sham' still goes to the old path)
+    expect(chooseModel(st, DEFAULT_MODELS, "sham", false)).toBe(false);         // a user: never
+    expect(chooseModel(st, DEFAULT_MODELS, "sham", true)).toBe(true);
+    expect([st.model, st.mode]).toEqual(["sham", "coder"]);                      // stays in the engine (the legacy 'sham' still goes to the old path)
   });
   it("Sham gets no system prompt or tool schemas: the last turns, and an excerpt of the engine's research as SOURCES", () => {
     const p = shamConversationPrompt(research as any);
