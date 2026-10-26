@@ -298,6 +298,11 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
 
 async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
     url = normalize_url(url)
+    # Facebook share links and fb.watch links are redirectors, not stable
+    # extractor URLs. Resolve only these short forms; avoid a second page
+    # fetch for normal /reel/ and /watch/ URLs.
+    if is_facebook(url) and re.search(r"(fb\\.watch|fb\\.com/|facebook\\.com/share/)", url, re.I):
+        url = normalize_url(await resolve_redirects(url))
     last_err = ""
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
@@ -361,11 +366,20 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             return MediaInfo(title=info.get("title") or "media", duration=int(info["duration"]) if info.get("duration") is not None else None, thumbnail=info.get("thumbnail"), webpage_url=info.get("webpage_url") or url, extractor=info.get("extractor") or "generic"), ""
     except Exception as e:
         last_err = f"{type(e).__name__}: {e}"
+    # Do not let Facebook's frequently changing metadata page block the
+    # download workflow entirely. Present quality choices and let the actual
+    # downloader perform its bounded format fallbacks; private/login-gated
+    # posts will still fail with the real extraction error at download time.
+    if is_facebook(url):
+        logger.warning("Facebook metadata extraction failed; deferring to download fallbacks: %s", last_err[:240])
+        return MediaInfo("فيديو من Facebook", None, None, url, "facebook-fallback"), ""
     return None, last_err or "extract failed"
 
 
 async def download_media(url: str, quality: str = "720", media_type: str = "video") -> tuple[DownloadResult | None, str]:
     url = normalize_url(url)
+    if is_facebook(url) and re.search(r"(fb\\.watch|fb\\.com/|facebook\\.com/share/)", url, re.I):
+        url = normalize_url(await resolve_redirects(url))
     audio_only = media_type in ("audio", "voice")
     errors: list[str] = []
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
