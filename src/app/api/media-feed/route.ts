@@ -465,6 +465,12 @@ export async function PATCH(req: NextRequest) {
   const action = String(body.action || "clone");
   const spec = PATCH_DELTAS[action];
   if (!spec) return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  // Only the trusted bot may report a completed clone/download. Keeping this
+  // counter public let anyone inflate trending by repeatedly PATCHing clone.
+  // The bot already sends x-feed-secret from services/feed.py.
+  if (action === "clone" && !secretOk(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const { col, delta } = spec;
   const db = await mediaDb();
 
