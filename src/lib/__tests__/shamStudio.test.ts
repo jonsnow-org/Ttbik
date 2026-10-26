@@ -103,6 +103,20 @@ describe("shamStudio think", () => {
   });
 });
 
+describe("Sham limits are settings, not code", () => {
+  it("today's numbers by default; SHAM_LIMITS=open lifts them all at once; each can be set alone", () => {
+    const { SHAM_LIM } = require("@/lib/coderProvider");
+    const { shamReplyTokens } = require("@/lib/shamStudio");
+    const keys = ["SHAM_LIMITS", "SHAM_MAX_NEW_TOKENS", "SHAM_REPLY_TOKENS", "SHAM_PROMPT_CHARS"];
+    const saved = keys.map((k) => process.env[k]); keys.forEach((k) => delete process.env[k]);
+    expect([SHAM_LIM.maxNew, SHAM_LIM.turns, SHAM_LIM.sources, SHAM_LIM.promptChars, shamReplyTokens()]).toEqual([200, 6, 1800, 3200, 80]);
+    process.env.SHAM_LIMITS = "open";
+    expect(SHAM_LIM.maxNew).toBeGreaterThan(200); expect(SHAM_LIM.promptChars).toBeGreaterThan(3200); expect(shamReplyTokens()).toBeGreaterThan(80);
+    process.env.SHAM_PROMPT_CHARS = "5000";
+    expect(SHAM_LIM.promptChars).toBe(5000);
+    keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
+  });
+});
 
 import { shamBases, shamVariant } from "@/lib/shamStudio";
 
