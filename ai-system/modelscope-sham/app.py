@@ -233,27 +233,51 @@ def _busy_wait() -> float:
         return 25.0
 
 
-def generate_media(kind: str, prompt: str) -> str:
-    """JSON like generate_any, but the USER chose the kind (image | audio | video), e.g. the bot's /image command.
-    Media is slow on this CPU: if another request holds the model for more than SHAM_STUDIO_BUSY_WAIT seconds, {"type": "busy"} comes back."""
+def _generate_media_with_backend(kind: str, prompt: str, backend: str) -> str:
+    """Run media generation through the selected local path. 'internal' is Sham's own tokenizer/decoder; 'ready' is the optional packaged-weight alternative."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
+    selected = (backend or "internal").strip().lower()
+    if selected not in ("internal", "ready"):
+        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
+    if selected == "ready" and not STATE.get("media_root"):
+        return json.dumps({
+            "type": "error",
+            "text": "المسار البديل غير جاهز: لم تُعثر أوزان الصورة والصوت المحلية المطلوبة داخل مستودع شام. اختر «شام الداخلي» أو جهّز الأوزان محلياً."
+        }, ensure_ascii=False)
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        if STATE.get("media_root"):                         # the ready weights inside Sham's repo: real pictures / speech / slideshow clips
+        if selected == "ready":
             from sham_media_ready import make
-            return json.dumps(make(Path(STATE["media_root"]), kind, prompt), ensure_ascii=False)
-        res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                              serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
-        return json.dumps(res, ensure_ascii=False)
+            result = make(Path(STATE["media_root"]), kind, prompt)
+        else:
+            result = _studio_modules()[1].make_media(
+                serve._state["model"], serve._state["text_tokenizer"],
+                serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
+                kind.strip().lower(), prompt
+            )
+        if isinstance(result, dict):
+            result.setdefault("backend", selected)
+        return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
-        print(f"generate_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
-        return _json_notice("تعذّر التوليد الآن.")
+        print(f"generate_media[{selected}] failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return json.dumps({"type": "error", "text": "تعذّر التوليد عبر المسار المحدد؛ لم يتم التحويل تلقائياً إلى مسار آخر.", "backend": selected}, ensure_ascii=False)
     finally:
         _LOCK.release()
 
+
+def generate_media(kind: str, prompt: str) -> str:
+    """Stable API for bots and callers: defaults to Sham's internal generator. Optional local ready weights are selected explicitly in the Studio UI."""
+    backend = os.environ.get("SHAM_MEDIA_BACKEND", "internal")
+    return _generate_media_with_backend(kind, prompt, backend)
+
+
+def generate_media_from_panel(kind: str, prompt: str, backend_label: str) -> str:
+    """Studio control-panel handler; selection applies to this request only and never silently changes another client's path."""
+    backend = "ready" if (backend_label or "").strip() == "المسار البديل (أوزان محلية جاهزة)" else "internal"
+    return _generate_media_with_backend(kind, prompt, backend)
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
     """Sham reads a picture / sound / video (base64 of the file, any format) and answers `question` about it — the same function as serve.py's
@@ -362,8 +386,22 @@ def build_ui():
                         gr.Textbox(label="text"), api_name="generate_text", flagging_mode="never")
     anyk = gr.Interface(generate_any, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
                         api_name="generate_any", flagging_mode="never")
-    media = gr.Interface(generate_media, [gr.Textbox(label="kind"), gr.Textbox(label="prompt")], gr.Textbox(label="json"),
-                         api_name="generate_media", flagging_mode="never")
+    media = gr.Interface(
+        generate_media_from_panel,
+        [
+            gr.Textbox(label="نوع الوسائط (image / audio / video)", value="image"),
+            gr.Textbox(label="الوصف أو النص المطلوب"),
+            gr.Radio(
+                choices=["شام الداخلي (الأساسي)", "المسار البديل (أوزان محلية جاهزة)"],
+                value="شام الداخلي (الأساسي)",
+                label="مسار وسائط شام — اختر المسار لكل طلب",
+                info="الأساسي يستخدم مفكك شام نفسه. البديل يعمل فقط إذا كانت أوزانه المحلية موجودة."
+            ),
+        ],
+        gr.Textbox(label="النتيجة (JSON)"),
+        api_name="generate_media_from_panel",
+        flagging_mode="never",
+    )
     read = gr.Interface(understand_media, [gr.Textbox(label="kind"), gr.Textbox(label="b64"), gr.Textbox(label="question"),
                                           gr.Textbox(label="teach"), gr.Number(label="num_frames", value=2)],
                         gr.Textbox(label="json"), api_name="understand_media", flagging_mode="never")
