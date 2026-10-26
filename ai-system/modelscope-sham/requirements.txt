@@ -1,5 +1,6 @@
 # Studio platform pin (the Gradio version this Studio's proxy speaks — seen in the Studio's own settings)
 gradio==6.17.3
+gradio_client
 modelscope
 # Sham's own load path (serve.py imports all of these)
 torch
