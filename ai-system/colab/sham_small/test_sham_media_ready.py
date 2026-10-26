@@ -1,9 +1,11 @@
 """Offline contract tests for Sham v2 media serving; no model weights are downloaded."""
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+import imageio_ffmpeg
 import sham_media_ready as media
 
 
@@ -35,6 +37,31 @@ class MediaServingContractTests(unittest.TestCase):
     def test_invalid_requests_fail_explicitly(self):
         self.assertEqual(media.make(None, 'image', '')['code'], 'empty_prompt')
         self.assertEqual(media.make(None, 'unknown', 'x')['code'], 'unknown_kind')
+
+    def test_static_mp4_is_rejected(self):
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            still = tmp / 'still.png'
+            video = tmp / 'still.mp4'
+            subprocess.run([ffmpeg, '-y', '-f', 'lavfi', '-i', 'testsrc=size=512x512:rate=1',
+                            '-frames:v', '1', str(still)], check=True, capture_output=True, timeout=30)
+            subprocess.run([ffmpeg, '-y', '-loop', '1', '-i', str(still), '-t', '2', '-r', '24',
+                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)],
+                           check=True, capture_output=True, timeout=30)
+            with self.assertRaisesRegex(RuntimeError, 'إطارات لا تُظهر حركة'):
+                media._validate_mp4(video)
+
+    def test_temporally_changing_mp4_passes_validation(self):
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / 'moving.mp4'
+            subprocess.run([ffmpeg, '-y', '-f', 'lavfi', '-i', 'testsrc2=size=512x512:rate=12:duration=2',
+                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)],
+                           check=True, capture_output=True, timeout=30)
+            raw, duration = media._validate_mp4(video)
+            self.assertGreater(len(raw), 4096)
+            self.assertGreaterEqual(duration, 1.5)
 
     def test_video_never_falls_back_to_a_slideshow(self):
         old_space = os.environ.pop('HF_VIDEO_SPACE_ID', None)
