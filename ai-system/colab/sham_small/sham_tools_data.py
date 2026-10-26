@@ -100,6 +100,29 @@ CATALOG = [
     ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
     ("أحتاج أدوات الجهاز الافتراضي.", "load_tools", {"groups": ["computer"]}, "loaded: computer", "تم تحميل أدوات الجهاز."),
 ]
+# the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
+FLOW_REQUESTS = [
+    "اذهب إلى المستودع {repo} على الفرع {base}، شغّل الاختبارات وأصلح الأخطاء وافتح طلب دمج إلى {base}.",
+    "أصلح الأخطاء في {repo} (الفرع {base}) وادفع الإصلاح في فرع جديد ثم افتح PR إلى {base}.",
+]
+BRANCHES = ["dev", "test/mini", "staging"]
+
+
+def fix_flow_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    repo, base = rng.choice(REPOS), rng.choice(BRANCHES)
+    fix = rng.choice(["fix/cart-bugs", "fix/tests", "fix/errors"])
+    steps = [
+        ("sandbox_clone", {"repo": repo, "branch": base}, "cloned into /work/repo"),
+        ("sandbox_exec", {"command": "cd repo && python3 -m pytest -q"}, "exit code 1\nFAILED test_cart.py::test_discount - assert 190.0 == 180"),
+        ("sandbox_edit_file", {"path": "repo/cart.py", "old": "percent / 10", "new": "percent / 100"}, "edited /work/repo/cart.py (1 replacement)"),
+        ("sandbox_exec", {"command": "cd repo && python3 -m pytest -q"}, "exit code 0\n5 passed"),
+        ("sandbox_push", {"repo": repo, "branch": fix, "message": "fix the discount"}, f"commit abc fix the discount\n cart.py | 2 +-\nPUSHED to {repo} branch {fix}"),
+        ("github_create_pr", {"repo": repo, "head": fix, "base": base, "title": "Fix the discount"}, f"PR #7 https://github.com/{repo}/pull/7 ({fix} → {base}; 1 files changed, +1 -1)"),
+    ]
+    ans = f"أصلحت الخطأ في الحاسوب ونجحت الاختبارات الخمسة، ثم دفعت التعديل إلى الفرع {fix} وفتحت الطلب #7 من {fix} إلى {base}."
+    return build_tool_example(text_ids_fn, rng.choice(FLOW_REQUESTS).format(repo=repo, base=base), steps, ans, **kw)
+
+
 REPOS = ["jonsnow-org/Ttbik", "octocat/hello-world", "user/project"]
 URLS = ["https://example.com", "https://docs.python.org/3/"]
 
@@ -107,6 +130,9 @@ URLS = ["https://example.com", "https://docs.python.org/3/"]
 def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
     out = []
     for _ in range(n):
+        if rng.random() < 0.15:                                               # the fix flow with the push back to GitHub
+            out.append(fix_flow_example(text_ids_fn, rng, **kw))
+            continue
         req, name, args, res, ans = rng.choice(CATALOG)
         sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
         fill = lambda v: v.format(**sub) if isinstance(v, str) else v        # noqa: E731
@@ -124,6 +150,9 @@ if __name__ == "__main__":
     fake = lambda s: [ord(c) % 4000 + 10 for c in s]          # noqa: E731  a stand-in tokenizer: the layout and the masking are what is checked
     ex = synthetic_examples(fake, random.Random(1), 40)
     assert len(ex) == 40
+    flow = fix_flow_example(fake, random.Random(2))
+    assert any(l != IGNORE for l in flow[1]) and len(flow[0]) == len(flow[1])
+    assert any(fake(tool_call_text("sandbox_push", {"repo": r, "branch": b, "message": "fix the discount"}))[0] for r in REPOS for b in ["fix/tests"])
     for ids, labels in ex:
         assert len(ids) == len(labels) and ids[-1] == SpecialTokens.EOS and labels[-1] == SpecialTokens.EOS
         assert labels[0] == IGNORE and any(l != IGNORE for l in labels)

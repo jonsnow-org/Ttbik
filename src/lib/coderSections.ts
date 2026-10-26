@@ -462,7 +462,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
-  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   if (!st.inbox.length) { const rid = st.run!.id; later(() => frontAck(bot, chatId, rid, content, "telegram", db)); }
   return true;
@@ -876,6 +876,12 @@ export function progressNote(run: { step: number; startedAt?: number; agent?: bo
 export const pollTransient = (o: { failure?: string; status?: number }): boolean =>
   o.failure === "timeout" || o.failure === "network" || (o.failure === "http" && (o.status === 429 || Number(o.status) >= 500 || o.status === undefined));
 
+/** The "typing…" indicator. Off by default: in the owner's chat the client reserved a blank area under her message while it was on (the message jumped to the top of the screen until the reply came). CODER_TYPING=on brings it back. */
+async function typing(bot: TelegramBot, chatId: number): Promise<void> {
+  if ((process.env.CODER_TYPING || "").toLowerCase() !== "on") return;
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+}
+
 /** The clock on the progress card: the user's local time (CODER_DEFAULT_TZ, Syria / Türkiye UTC+3 by default), never the server's UTC. */
 export function localClock(now: Date = new Date(), tz: string = defaultTz()): string {
   return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
@@ -1115,7 +1121,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await taskEvent(run.id, "info", `⏳ بانتظار الوكلاء: ${finished.filter(Boolean).length}/${d.slots.length} أنهوا.`, db);
         await saveState(chatId, st, db, slot);
       }
-      await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await typing(ioBot, chatId);
       await new Promise((res) => setTimeout(res, Math.max(200, Math.min(pollMs() * 2, 3000, left() - 7000))));
       continue;
     }
@@ -1356,7 +1362,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await new Promise((res) => setTimeout(res, Math.max(0, left() - 7000)));
         continue;
       }
-      await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await typing(ioBot, chatId);
       await new Promise((res) => setTimeout(res, ms));
       continue;
     }
@@ -1504,7 +1510,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
-        await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+        await typing(ioBot, chatId);
         // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
         await new Promise((res) => setTimeout(res, r.total ? pollMs() : Math.max(pollMs(), Number(process.env.CODER_PREFILL_POLL_MS ?? (process.env.NODE_ENV === "test" ? 0 : 4000)))));
         continue;
