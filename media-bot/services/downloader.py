@@ -301,7 +301,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
     # Facebook share links and fb.watch links are redirectors, not stable
     # extractor URLs. Resolve only these short forms; avoid a second page
     # fetch for normal /reel/ and /watch/ URLs.
-    if is_facebook(url) and re.search(r"(fb\\.watch|fb\\.com/|facebook\\.com/share/)", url, re.I):
+    if is_facebook(url) and re.search(r"(fb\.watch|fb\.com/|facebook\.com/share/)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
     last_err = ""
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
@@ -378,7 +378,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
 
 async def download_media(url: str, quality: str = "720", media_type: str = "video") -> tuple[DownloadResult | None, str]:
     url = normalize_url(url)
-    if is_facebook(url) and re.search(r"(fb\\.watch|fb\\.com/|facebook\\.com/share/)", url, re.I):
+    if is_facebook(url) and re.search(r"(fb\.watch|fb\.com/|facebook\.com/share/)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
     audio_only = media_type in ("audio", "voice")
     errors: list[str] = []
