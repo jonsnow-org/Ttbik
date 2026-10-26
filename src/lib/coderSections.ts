@@ -876,11 +876,16 @@ export function progressNote(run: { step: number; startedAt?: number; agent?: bo
 export const pollTransient = (o: { failure?: string; status?: number }): boolean =>
   o.failure === "timeout" || o.failure === "network" || (o.failure === "http" && (o.status === 429 || Number(o.status) >= 500 || o.status === undefined));
 
+/** The clock on the progress card: the user's local time (CODER_DEFAULT_TZ, Syria / Türkiye UTC+3 by default), never the server's UTC. */
+export function localClock(now: Date = new Date(), tz: string = defaultTz()): string {
+  return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
+}
+
 /** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
 function cardText(run: Run): string {
   const p = run.progress || { lines: [] as string[] };
   const shown = p.lines.slice(-12);
-  const clock = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const clock = localClock();
   return `📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
 }
 /** Live refresh of the same card message while the model works (every few seconds): the chat shows each phase from start to end, like the app's log. Never sends a second card when an edit fails. */
@@ -956,7 +961,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
     const msgId = run.progress?.msgId;
     if (!msgId) return;
     const dots = ".".repeat((beat % 3) + 1);
-    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${localClock()}`;
     void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
   }, 8000);
   try {
@@ -1425,7 +1430,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.progressAt = Date.now();
           const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
           const readDone = Boolean(r.prefill && Number(r.prefill.total) > 0 && Number(r.prefill.processed) >= Number(r.prefill.total));
-          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "النموذج يفكّر قبل أن يكتب…" : readDone ? "النموذج يكتب الردّ…" : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
+          const phase = r.phase && r.phase !== "ready" ? `جارٍ التحضير (${r.phase})` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "جارٍ التفكير…" : readDone ? "جارٍ الكتابة…" : pf >= 0 ? `جارٍ قراءة المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, phase);
         }
