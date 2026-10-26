@@ -1,0 +1,51 @@
+name: Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)
+
+# ينسخ أوزان الوسائط الجاهزة والمدرَّبة (sdxs للصور وpiper للصوت العربي) من مستودع الوسائط إلى مستودع أوزان شام نفسه (novaai2026/sham-v2، مجلد media/)
+# ليولّد استوديو شام v2 الوسائط بأوزانه هو. لا يحذف شيئاً. المفتاح من سرّ MODELSCOPE_TOKEN ولا يُطبع.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: sham-v2-media-weights
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install modelscope
+      - name: Copy media/ into the Sham v2 model repo
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          from modelscope import snapshot_download
+          from modelscope.hub.api import HubApi
+          from modelscope.hub.constants import Visibility
+          api = HubApi()
+          api.login(os.environ["MODELSCOPE_TOKEN"])
+          src = Path(snapshot_download("novaai2026/nova-media-models", cache_dir="src"))
+          stage = Path("stage") / "media"
+          shutil.rmtree("stage", ignore_errors=True)
+          stage.mkdir(parents=True)
+          for d in ("sdxs", "piper"):
+              shutil.copytree(src / d, stage / d)
+          total = 0
+          for p in sorted(stage.rglob("*")):
+              if p.is_file():
+                  total += p.stat().st_size
+                  print(f"media/{p.relative_to(stage)}  {p.stat().st_size / 1e6:.1f} MB")
+          print(f"total {total / 1e9:.2f} GB")
+          api.push_model(model_id="novaai2026/sham-v2", model_dir="stage", visibility=Visibility.PRIVATE, license="apache-2.0", commit_message="ready media weights inside Sham v2 (media/sdxs, media/piper)")
+          print("pushed media/ into novaai2026/sham-v2")
+          PY
