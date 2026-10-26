@@ -1523,7 +1523,7 @@ export default function MiniAppPage() {
             const mine = !!userId && item.sharer_id === userId;
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200">
                 <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
@@ -1547,8 +1547,8 @@ export default function MiniAppPage() {
                 {playError === item.id && (
                   <div role="status" className="flex items-center gap-2 border-t border-rose-100 bg-gradient-to-l from-rose-50 to-orange-50 px-3.5 py-2.5">
                     <span className="text-lg" aria-hidden>⚠️</span>
-                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المعاينة. قد يكون الملف كبيراً أو أن خدمة البث غير متاحة.</p>
-                    <button type="button" onClick={() => { setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
+                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المقطع. قد يكون الرابط منتهيًا أو الملف غير متاح أو هناك مشكلة في البث.</p>
+                    <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
                   </div>
                 )}
                 <div className="p-3.5">
