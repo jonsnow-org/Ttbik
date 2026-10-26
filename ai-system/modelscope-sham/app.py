@@ -47,17 +47,33 @@ HOT = HERE / "_hot"            # signed code synced from the model repo (studio_
 _PROC = {"p": None, "sig": ""}
 
 
+def _say(msg: str) -> None:
+    """One clear line per phase in the run log (the download progress bars are switched off: they filled the 10,000-line log by themselves)."""
+    try:
+        mem = {l.split(":")[0]: int(l.split()[1]) // 1024 for l in open("/proc/meminfo") if l.split(":")[0] in ("MemTotal", "MemAvailable")}
+        extra = f" | RAM free {mem.get('MemAvailable', 0)} of {mem.get('MemTotal', 0)} MB"
+    except Exception:
+        extra = ""
+    print(f"[sham] {time.strftime('%H:%M:%S')} {msg}{extra}", flush=True)
+
+
 def _token() -> str:
     return os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
 
 
 def _download() -> Path:
+    import contextlib
+    os.environ["TQDM_DISABLE"] = "1"                         # no progress bars in the log
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
     tok = _token()
     if tok:
         HubApi().login(tok)
-    return Path(snapshot_download(MODEL_ID, cache_dir=str(HERE / "_models")))
+    _say(f"downloading {MODEL_ID}")
+    with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
+        path = Path(snapshot_download(MODEL_ID, cache_dir=str(HERE / "_models")))
+    _say("download finished")
+    return path
 
 
 def _load(model_dir: Path) -> None:
@@ -66,9 +82,13 @@ def _load(model_dir: Path) -> None:
     tok = next(iter(sorted(model_dir.rglob("sham_small_tokenizer.json"))), None)
     if ckpt is None or tok is None:
         raise RuntimeError("المستودع لا يحوي نقطة الحفظ أو مقطّع النص بعد")
+    if STATE["phase"] != "ready":
+        STATE.update(phase="loading")                              # a hot swap of a newer checkpoint keeps serving the old one meanwhile
+    _say(f"loading the model into memory ({ckpt.stat().st_size // 2**20} MB file)")
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
+    _say("ready: the model is loaded")
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
     if manifest:
         try:
@@ -133,6 +153,7 @@ def _worker() -> None:
         except Exception as exc:
             STATE.update(phase="waiting" if STATE["phase"] != "ready" else "ready",
                          error=f"{type(exc).__name__}: {str(exc)[:200]}")
+            _say(f"failed: {type(exc).__name__}: {str(exc)[:200]}")
             print(traceback.format_exc()[-600:])
         time.sleep(300 if STATE["phase"] != "ready" else REFRESH_SECONDS)
 

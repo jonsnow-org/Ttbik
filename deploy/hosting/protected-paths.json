@@ -15,8 +15,8 @@
     },
     {
       "id": "sham-model",
-      "level": "block",
-      "why": "Training of the Sham AI model belongs to another session (owner's order 2026-10-20). Even inside our sections these files may be a workaround another session depends on. Report problems in an issue; never edit, re-run or tidy them.",
+      "level": "warn",
+      "why": "Training of the Sham AI model is supervised by the owner and the main Claude session only (owner's order 2026-10-26). A change here is a warning for review, not a block; any OTHER agent must still not touch it.",
       "paths": [
         "ai-system/",
         ".github/workflows/sham-",

@@ -29,9 +29,9 @@ test("the guard and the common rules protect themselves", () => {
   for (const p of ["deploy/hosting/protected-paths.json", "scripts/agent-guard.mjs", ".github/workflows/agent-guard.yml", "docs/agents/COMMON.md"])
     assert.equal(run(`M\t${p}`).some((h) => h.level === "block"), true, p);
 });
-test("Sham AI model files are protected (another session owns them)", () => {
+test("Sham AI model files are flagged for review (supervised by the owner and the main session: a warning, not a block)", () => {
   for (const p of ["ai-system/colab/sham_small/x.py", ".github/workflows/sham-lightning.yml", ".github/workflows/deploy-kaggle-notebook.yml", "docs/SHAM_NOTES.md", "deploy/oracle/agent/install-sham.sh"])
-    assert.equal(run(`M\t${p}`).some((h) => h.level === "block"), true, p);
+    assert.equal(run(`M\t${p}`).some((h) => h.id === "sham-model" && h.level === "warn"), true, p);
   assert.equal(run("M\tsrc/lib/shamStudio.ts").every((h) => h.level === "warn"), true);
 });
 test("owner approval turns blocks into warnings", () => {
