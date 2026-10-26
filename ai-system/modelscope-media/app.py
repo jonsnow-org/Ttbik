@@ -42,10 +42,13 @@ def _root() -> Path:
         return _MODELS["root"]
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
-    tok = _token()
-    if tok:
-        HubApi().login(tok)
-    _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(HERE / "_models")))
+    try:                                                    # the repo is public: anonymous first (a login can poison the download)
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(HERE / "_models")))
+    except Exception:                                       # noqa: BLE001
+        tok = _token()
+        if tok:
+            HubApi().login(tok)
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(HERE / "_models")))
     return _MODELS["root"]
 
 
