@@ -972,7 +972,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           return;
         }
         // the Studio did not answer in time (asleep or still loading): say so instead of Nova's pause notice
-        await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
+        // the "getting ready" line belongs to the OLD Sham only (its Studio sleeps); the new Sham gets the honest status line instead (owner's order, 2026-10-26)
+        if (shamVariant.getStore() === "v2") await sendShamReply(bot, update.message.chat.id, null);
+        else await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
         return;
       }
       await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
