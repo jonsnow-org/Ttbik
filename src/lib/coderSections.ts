@@ -374,6 +374,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       await saveState(chatId, st, db);
     }
   }
+  if ((st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") && st.mode !== "sham") {            // Sham always runs on its own path
+    if (st.model === "sham_loop") st.model = "sham";
+    st.mode = "sham";
+    await saveState(chatId, st, db);
+  }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
   // every other command (old habits, menus) answers with the button that opens the app on the right tab.
   const ROUTED: Record<string, string> = {
@@ -1785,7 +1790,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham" : "sham_probe") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham_loop" : "sham_probe") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -1977,4 +1982,14 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
     await endRun(st, "stopped", db, "stopped (parent finished or stopped)", coderChatKey(chatId));
     await saveState(chatId, st, db, slot);
   }
+}
+
+
+/** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
+export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number } } | null> {
+  const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
+  if (!chatId) return null;
+  const st = await loadState(chatId, db);
+  const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
+  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy, think: Boolean(st.think), thinkCap: thinkCapFor(accuracy) } };
 }

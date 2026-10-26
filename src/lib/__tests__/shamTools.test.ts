@@ -99,15 +99,13 @@ describe("thinking / accuracy / speed are real for Sham", () => {
     expect([f.corrections, b.corrections, p.corrections]).toEqual([1, 2, 3]);
     expect([f.temperature, b.temperature, p.temperature]).toEqual([0.7, 0.6, 0.2]);
     expect(b.header).toBe("");                                                      // the old Studio is not shown a line it may not understand
-    shamVariant.run("v2", () => {
-      expect(shamKnobs({ accuracy: "precise" }).header).toBe("[[sham temp=0.20]]\n");
-      expect(shamKnobs({ accuracy: "precise", think: true, thinkCap: 3000 }).header).toBe("[[sham temp=0.20 think=1000]]\n");   // thinking: a thought of at most cap/3 tokens
-      expect(shamKnobs({ accuracy: "fast", think: true, thinkCap: 500 }).thinkTokens).toBe(167);
-      expect(shamKnobs({ accuracy: "precise" }).note).toMatch(/أقصى دقة/);
-    });
-    shamVariant.run("v1", () => expect(shamKnobs({ think: true }).thinkTokens).toBe(0));   // the old body cannot think: nothing is sent
+    expect(shamKnobs({ accuracy: "precise" }, "v2").header).toBe("[[sham temp=0.20]]\n");
+    expect(shamKnobs({ accuracy: "precise", think: true, thinkCap: 3000 }, "v2").header).toBe("[[sham temp=0.20 think=1000]]\n");   // thinking: a thought of at most cap/3 tokens
+    expect(shamKnobs({ accuracy: "fast", think: true, thinkCap: 500 }, "v2").thinkTokens).toBe(167);
+    expect(shamKnobs({ accuracy: "precise" }, "v2").note).toMatch(/أقصى دقة/);
+    expect(shamKnobs({ think: true }, "v1").thinkTokens).toBe(0);                    // the old body cannot think: nothing is sent
     process.env.SHAM_MODES = "on";
-    shamVariant.run("v1", () => expect(shamKnobs({ accuracy: "fast" }).header).toBe("[[sham temp=0.70]]\n"));
+    expect(shamKnobs({ accuracy: "fast" }, "v1").header).toBe("[[sham temp=0.70]]\n");
     delete process.env.SHAM_MODES;
   });
   it("shamAsModel sends the header, scales the budget by accuracy, and uses the right number of correction rounds", async () => {
@@ -119,6 +117,25 @@ describe("thinking / accuracy / speed are real for Sham", () => {
     await shamVariant.run("v2", () => shamAsModel([{ role: "user", content: "سؤال" }], { conversation: true, maxTokens: 100, mode: { accuracy: "fast" } }));
     expect(sent[0].prompt.startsWith("[[sham temp=0.20 think=200]]\n")).toBe(true);
     expect(sent[0].max_new_tokens).toBeGreaterThan(sent[1].max_new_tokens);          // precise gets a longer budget than fast
+    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN;
+  });
+});
+
+
+import { shamModeCtx, shamThink } from "@/lib/shamStudio";
+
+describe("Sham's own path applies the chat's settings to every call", () => {
+  it("the new Studio gets the header and a scaled answer budget; the old one gets only the scaled budget (until SHAM_MODES=on)", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t"; delete process.env.SHAM_MODES;
+    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+    const sent: any[] = [];
+    global.fetch = (async (url: string, init: any) => { if (/call\/v2\//.test(url)) { sent.push(JSON.parse(String(init.body))); return { ok: true, json: async () => ({ event_id: "e" }) } as any; } return { ok: true, text: async () => body({ type: "text", text: "ok" }) } as any; }) as any;
+    await shamVariant.run("v2", () => shamModeCtx.run({ accuracy: "precise", think: true, thinkCap: 600 }, () => shamThink("سؤال", "u", null, 80, 20000)));
+    await shamVariant.run("v1", () => shamModeCtx.run({ accuracy: "fast" }, () => shamThink("سؤال", "u", null, 80, 20000)));
+    expect(sent[0].prompt.startsWith("[[sham temp=0.20 think=200]]\n")).toBe(true);
+    expect(sent[0].max_new_tokens).toBe(120);                                         // 80 x 1.5
+    expect(sent[1].prompt).toBe("سؤال");                                              // the old Studio is not shown a line it may not read
+    expect(sent[1].max_new_tokens).toBe(48);                                          // 80 x 0.6
     global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN;
   });
 });

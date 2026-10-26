@@ -156,14 +156,15 @@ describe("sections and the loop", () => {
     expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "hi" } }, memDb())).toBe(false);
   });
 
-  it("/mode switches to Sham (it runs in the engine like every model) and back to Nova AI", async () => {
+  it("/mode switches to Sham (its own path: every message goes to the Sham handler) and back to Nova AI", async () => {
     const db = memDb();
     const { bot, sent } = fakeBot();
     expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "/mode" } }, db)).toBe(true);
     expect(sent[0].extra.reply_markup).toBeTruthy();
     expect(await handleCoderSections(bot, botRow, { callback_query: { id: "q", data: "cmode|sham", message: { chat: { id: CHAT }, message_id: 1 } } }, db)).toBe(true);
     const st = await loadState(CHAT, db);
-    expect([st.mode, st.model]).toEqual(["coder", "sham"]);
+    expect([st.mode, st.model]).toEqual(["sham", "sham"]);
+    expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "مرحبا" } }, db)).toBe(false);
     expect(await handleCoderSections(bot, botRow, { callback_query: { id: "q", data: "cmode|coder", message: { chat: { id: CHAT }, message_id: 1 } } }, db)).toBe(true);
     expect((await loadState(CHAT, db)).mode).toBe("coder");
   });

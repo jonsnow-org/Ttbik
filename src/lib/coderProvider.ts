@@ -24,7 +24,7 @@ export const SHAM_LIM = {
 
 export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: number; timeoutMs?: number; conversation?: boolean; tools?: CoderTool[]; mode?: ShamMode } = {}): Promise<CoderOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
-  const k = shamKnobs(opts.mode);                                                              // the user's thinking / accuracy / speed settings, applied (shamModes.ts)
+  const k = shamKnobs(opts.mode, shamVariant.getStore());                                                              // the user's thinking / accuracy / speed settings, applied (shamModes.ts)
   const maxNew = Math.max(20, Math.min(Math.round(SHAM_LIM.maxNew * k.maxNewFactor), Math.round((opts.maxTokens || 160) * k.maxNewFactor)));
   const withTools = Boolean(opts.conversation && opts.tools?.length && shamToolsEnabled());       // Nova's loaded tools, as text (shamTools.ts)
   const body = withTools ? shamToolConversation(messages, opts.tools!, { turns: SHAM_LIM.turns, turnChars: SHAM_LIM.turnChars, maxChars: SHAM_LIM.promptChars }) : opts.conversation ? shamConversationPrompt(messages) : String([...messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "").trim().slice(0, 2000);

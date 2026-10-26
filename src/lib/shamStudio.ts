@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -8,6 +9,20 @@ const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.m
 
 /** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
 export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
+
+/** The chat's thinking / accuracy / speed settings for the calls made inside it (set by the bot route around Sham's own handler). */
+export const shamModeCtx = new AsyncLocalStorage<ShamMode>();
+
+/** Applies the settings to one call: the answer budget scales with accuracy, and the sampling / thought header goes at the start of the prompt (src/lib/shamModes.ts). */
+function withMode(payload: Record<string, unknown>): Record<string, unknown> {
+  const mode = shamModeCtx.getStore();
+  if (!mode) return payload;
+  const k = shamKnobs(mode, shamVariant.getStore());
+  const out = { ...payload };
+  if (typeof out.max_new_tokens === "number") out.max_new_tokens = Math.max(20, Math.round(out.max_new_tokens * k.maxNewFactor));
+  if (typeof out.prompt === "string" && k.header) out.prompt = k.header + out.prompt;
+  return out;
+}
 
 let rotate = 0;
 /** The Studio addresses for this call, best first. Each variant may name several Studios (comma-separated SHAM_MODELSCOPE_URL / SHAM_V2_URL): calls start at a rotating
@@ -97,8 +112,9 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
 /** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
 export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
 
-async function shamCall(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
+async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) return null;
+  const payload = withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
   for (let i = 0; i < bases.length; i++) {
@@ -170,8 +186,9 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
   }
 }
 
-async function shamCallOnce(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  const payload = withMode(payload0);
   const bases = shamBases();
   const t0 = Date.now();
   let out: ShamOutcome = { reply: null, failure: "network" };
