@@ -7,12 +7,12 @@ import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
-import { shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
+import { shamClaimUpdate, shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
 import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
 import { shamLastFailure, shamModeCtx, shamVariant } from "@/lib/shamStudio";
-import { tierFor } from "@/lib/coderAuth";
+import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -866,10 +866,11 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
   await shamDropRun(chatId).catch(() => null);          // a new message replaces an unfinished earlier task
+  await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting')`, coderChatKey(chatId)).catch(() => null);      // its terminal rows are closed, not left "running"
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => void taskEvent(runId, k, t).catch(() => null);
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 52000, askMs: 46000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 40000, askMs: 28000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId);
 }
 
@@ -964,7 +965,10 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
         // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
         // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
-        if (shamAgentOn() && (await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id))) return;
+        if (shamAgentOn()) {
+          if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram resent a slow webhook: this update is already being handled
+          if (await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id)) return;
+        }
         if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
         let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000) : null;
         if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)));

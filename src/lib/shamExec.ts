@@ -245,3 +245,19 @@ export async function shamDropRun(chatId: number, db: Db = prismaDb): Promise<vo
   await runsTable(db);
   await db.exec(`DELETE FROM sham_runs WHERE chat_id = $1`, chatId);
 }
+
+// ---------------------------------------------------------------- Telegram resends a webhook that is slow to answer: the same update must not start a second task
+let seenReady = false;
+/** true = first time this update is seen (go on); false = a Telegram retry of an update already taken (skip it). */
+export async function shamClaimUpdate(chatId: number, updateId: number | undefined, db: Db = prismaDb): Promise<boolean> {
+  if (!updateId) return true;
+  try {
+    if (!(db === prismaDb && seenReady)) {
+      await db.exec(`CREATE TABLE IF NOT EXISTS sham_seen (chat_id BIGINT NOT NULL, update_id BIGINT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_id, update_id))`);
+      if (db === prismaDb) seenReady = true;
+    }
+    await db.exec(`DELETE FROM sham_seen WHERE at < now() - interval '1 day'`);
+    const rows = await db.query<{ update_id: string }>(`INSERT INTO sham_seen (chat_id, update_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING update_id`, chatId, updateId);
+    return rows.length > 0;
+  } catch { return true; }
+}
