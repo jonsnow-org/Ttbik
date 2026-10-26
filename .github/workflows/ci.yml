@@ -18,6 +18,7 @@ jobs:
           PYTHONPATH: ai-system/colab/sham_small
         run: |
           python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py' -v
+          python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
           python -m py_compile ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_media_ready.py ai-system/colab/sham_small/sham_toolcall.py
           python ai-system/colab/sham_small/sham_media_ready.py
           python ai-system/colab/sham_small/sham_intent.py
