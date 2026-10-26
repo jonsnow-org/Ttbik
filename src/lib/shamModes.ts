@@ -8,7 +8,6 @@
 // The sampling and thinking settings travel to the Studio as ONE header line at the start of the prompt ("[[sham temp=0.20 think=300]]"), read and removed by
 // ai-system/colab/sham_small/sham_studio_chat.py (hot code). A Studio that does not have that code yet would show the line to the model, so the header is sent only to the new
 // Studio, or to the old one once SHAM_MODES=on says its hot code has the reader.
-import { shamVariant } from "@/lib/shamStudio";
 
 export type ShamMode = { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; temperature?: number };
 
@@ -16,9 +15,9 @@ export type ShamKnobs = { maxNewFactor: number; corrections: number; temperature
 
 const TEMP = { fast: 0.7, balanced: 0.6, precise: 0.2 } as const;
 
-export function shamKnobs(mode?: ShamMode): ShamKnobs {
+export function shamKnobs(mode?: ShamMode, variant?: "v1" | "v2"): ShamKnobs {
   const acc = mode?.accuracy === "fast" || mode?.accuracy === "precise" ? mode.accuracy : "balanced";
-  const v2 = shamVariant.getStore() === "v2";
+  const v2 = variant === "v2";
   const temperature = typeof mode?.temperature === "number" ? mode.temperature : TEMP[acc];
   const thinkTokens = v2 && mode?.think ? Math.max(32, Math.round((mode.thinkCap || (acc === "fast" ? 500 : acc === "precise" ? 3000 : 1200)) / 3)) : 0;
   const send = v2 || (process.env.SHAM_MODES || "").trim().toLowerCase() === "on";

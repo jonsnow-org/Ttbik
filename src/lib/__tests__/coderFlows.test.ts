@@ -471,25 +471,17 @@ describe("research fast path: one deep research first, then the report", () => {
   });
 });
 
-describe("Sham (advanced): Sham inside the engine, with the engine's research as its sources", () => {
-  it("the owner's research request runs deep research first, hands Sham the sources, and Sham's answer is delivered", async () => {
-    const calls = studio([{ type: "text", text: "بحسب المصادر: الطوابير وإعادة المحاولة هي الحل الشائع للانقطاع في بوتات تلجرام الذكية." }]);
+describe("Sham runs on its own path, separate from Nova's engine", () => {
+  it("a chat whose model is Sham is never handled by Nova's engine (it goes to Sham's own handler), and a stale state is put right", async () => {
+    const calls = studio([{ type: "done", job: "j0", text: "must not be used", tool_calls: [] }]);
     const db = fakeDb();
-    const { bot, sent } = fakeBot();
-    await saveState(CHAT, { ...st0("x", null), model: "sham", messages: [] } as any, db);
-    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث عن مشاريع ذكاء اصطناعي تستخدم تلجرام كواجهة وكيف تحل مشكلة التأخر وانقطاع الاتصال" } }, db);
-    for (let i = 0; i < 80 && !calls.some((c) => c.url.includes("/call/v2/generate_any")); i++) await new Promise((r) => setTimeout(r, 250));
-    await new Promise((r) => setTimeout(r, 1500));
-    const sham = calls.find((c) => c.url.includes("/call/v2/generate_any"))!;
-    expect(sham).toBeTruthy();
-    expect(String(sham.body.prompt)).toMatch(/السؤال: اذهب وابحث عن مشاريع/);
-    expect(String(sham.body.prompt)).not.toMatch(/Nova AI|IDENTITY|load_tools/);              // no Nova system prompt or tool schemas for Sham
-    const chatCalls = calls.filter((c) => c.url.includes("/call/v2/chat"));
-    expect(chatCalls).toHaveLength(1);                                                         // only the query draft used the coder Studio; the ANSWER is Sham's
-    expect(JSON.stringify(chatCalls[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
-    expect(sent.some((s) => /الطوابير وإعادة المحاولة هي الحل الشائع/.test(s.text))).toBe(true);
-    expect((await loadState(CHAT, db)).run).toBeNull();
-  }, 40000);
+    const { bot } = fakeBot();
+    await saveState(CHAT, { ...st0("x", null), model: "sham", mode: "coder", messages: [] } as any, db);        // an older state: Sham chosen but the mode still coder
+    expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث عن مشاريع ذكاء اصطناعي" } }, db)).toBe(false);   // not Nova's: falls to Sham's own handler
+    const st = await loadState(CHAT, db);
+    expect([st.mode, st.model]).toEqual(["sham", "sham"]);
+    expect(calls.some((c) => c.url.includes("/call/v2/chat"))).toBe(false);                                      // Nova's Studios were not asked anything
+  });
 });
 
 describe("research fast path for GitHub requests", () => {

@@ -11,7 +11,8 @@ import { handleMarriageBotUpdate } from "@/lib/matchBotLogic";
 import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
-import { handleCoderSections } from "@/lib/coderSections";
+import { handleCoderSections, shamContextFor } from "@/lib/coderSections";
+import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 import { NOVA_PAUSED } from "@/lib/novaPause";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
@@ -173,7 +174,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         // 2026-10-21: two sections while this bot speaks with Sham (Nova paused): the coder (default, src/lib/coderSections.ts) and Sham.
         // In the Sham section — and whenever OPEN_CODER_STUDIO_URL is unset — every update goes to the existing handler exactly as before.
         const coderHandled = NOVA_PAUSED ? await handleCoderSections(bot, botRow, body).catch((e) => { void reportError("bot:coder", e, { botId: botRow?.id }); return false; }) : false;
-        if (!coderHandled) await handleNovaBotUpdate(bot, botRow, body);
+        if (!coderHandled) {
+          // Sham (old or new) answers on its OWN path: which Sham and the chat's thinking / accuracy / speed settings travel with the call, nothing of Nova's engine is used
+          const ctx = await shamContextFor(body).catch(() => null);
+          await shamVariant.run(ctx?.variant || "v1", () => shamModeCtx.run(ctx?.mode || {}, () => handleNovaBotUpdate(bot, botRow, body)));
+        }
       } else if (botRow.template === "CONFESSION_BOT") {
         await handleConfessionBotUpdate(bot, botRow, body);
       } else if (botRow.template === "NAME_COMPAT_BOT") {
