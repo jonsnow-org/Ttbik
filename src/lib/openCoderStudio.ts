@@ -7,7 +7,7 @@
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
 import { noteStudioCtx } from "@/lib/coderContext";
-import { providerConfig, providerChat, shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
+import { shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 import { shamVariant } from "@/lib/shamStudio";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
@@ -299,9 +299,6 @@ export function coderChat(
     return shamVariant.run(body, () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools }));
   }
   if (opts.model === "sham") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham)
-  const prov = providerConfig(opts.model);                       // a hand-picked API model (Nova Pro); everything else is our Studio
-  if (opts.model === "nova_pro" && !prov) return Promise.resolve({ reply: null, failure: "off" });   // chosen by hand but not set up: say so, never answer from another model
-  if (prov) return providerChat(prov, messages, { tools: opts.tools, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0, 240000) });
   return coderCall(
     "chat",
     {
