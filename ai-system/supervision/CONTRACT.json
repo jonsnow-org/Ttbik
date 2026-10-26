@@ -693,6 +693,14 @@
       "writes": [
         "sham-media-refined"
       ]
+    },
+    "sham_v2_ask": {
+      "file": ".github/workflows/sham-v2-ask.yml",
+      "title": "سؤال شام v2 على استوديوه للقراءة فقط: الحالة والإجابات",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
