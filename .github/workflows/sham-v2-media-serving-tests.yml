@@ -39,6 +39,8 @@ jobs:
           python -m py_compile ai-system/modelscope-sham/app.py
           python -m py_compile ai-system/colab/sham_small/web/studio_client.py
           python -m py_compile ai-system/colab/sham_small/web/telegram_bot.py
+      - name: Install FFmpeg wrapper for video validation tests
+        run: pip install imageio-ffmpeg
       - name: Run offline media contract tests
         working-directory: ai-system/colab/sham_small
         run: python -m unittest -v test_sham_media_ready.py
