@@ -173,6 +173,12 @@ def status() -> str:
         msg["worker"] = w
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
+    try:
+        from sham_media_ready import video_backend_status
+        msg["video_backend"] = video_backend_status()
+        msg["media_root_available"] = bool(STATE.get("media_root"))
+    except Exception:
+        msg["video_backend"] = {"configured": False, "backend": "Lightricks/LTX-Video via Hugging Face ZeroGPU"}
     return json.dumps(msg, ensure_ascii=False)
 
 
@@ -242,12 +248,11 @@ def generate_media(kind: str, prompt: str) -> str:
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        if STATE.get("media_root"):                         # the ready weights inside Sham's repo: real pictures / speech / slideshow clips
-            from sham_media_ready import make
-            return json.dumps(make(Path(STATE["media_root"]), kind, prompt), ensure_ascii=False)
-        res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                              serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
-        return json.dumps(res, ensure_ascii=False)
+        # Never label token-decoder noise or a repeated still as a real media result.
+        # Image/speech require validated pretrained models; motion video uses LTX-Video.
+        from sham_media_ready import make
+        root = Path(STATE["media_root"]) if STATE.get("media_root") else None
+        return json.dumps(make(root, kind, prompt), ensure_ascii=False)
     except Exception as exc:
         print(f"generate_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر التوليد الآن.")
