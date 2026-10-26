@@ -11,7 +11,7 @@ on:
         required: false
         default: "any"
       ask:
-        description: "الأسئلة مفصولة بـ |"
+        description: "الأسئلة مفصولة بـ | ، أو قائمة JSON إن احتوى السؤال على |"
         required: false
         default: "مرحبا|ما عاصمة فرنسا؟|ابحث في الويب عن آخر إصدار من Python"
 
