@@ -6,10 +6,12 @@
 // Nothing is decided here by rule: if Sham writes no call, its words are the answer. Off until SHAM_TOOLS=on or SHAM_LIMITS=open (an untrained Sham should not be
 // shown a format it cannot follow); SHAM_TOOLS=off always wins. The training side is ai-system/colab/sham_small/sham_tools_data.py (same text format).
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import { shamVariant } from "@/lib/shamStudio";
 
 export function shamToolsEnabled(): boolean {
   const t = (process.env.SHAM_TOOLS || "").trim().toLowerCase();
   if (t === "off" || t === "0") return false;
+  if (shamVariant.getStore() === "v2") return true;             // the new body is made for tools: on whenever it is the model in use
   return t === "on" || t === "1" || (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open";
 }
 
