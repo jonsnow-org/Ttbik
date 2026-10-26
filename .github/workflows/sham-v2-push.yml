@@ -1,0 +1,27 @@
+name: "Sham v2 (push the separate training notebook to Kaggle)"
+
+# 2026-10-26 (owner: everything ready to test; training notebooks adapted): pushes ONLY the new, separate notebook jonsnowjonsnow/sham-v2-train (GPU first, the
+# restarter falls back to CPU when the quota is out). It never touches the other notebooks or their checkpoint datasets; it publishes to its own dataset
+# sham-v2-checkpoint. After this first push the restarter (EXTRA_KERNELS) keeps it running.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade kaggle
+      - name: Push and start the kernel
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          D=ai-system/colab/sham_small/kaggle_notebooks/sham_v2
+          mkdir -p /tmp/k && cp $D/sham_v2_train.ipynb $D/kernel-metadata.json /tmp/k/
+          kaggle kernels push -p /tmp/k
+          sleep 90
+          kaggle kernels status jonsnowjonsnow/sham-v2-train || true
