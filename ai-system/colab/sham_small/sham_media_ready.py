@@ -81,7 +81,7 @@ def _pipe(root: Path):
         import torch
         from diffusers import AutoPipelineForText2Image
         torch.set_num_threads(os.cpu_count() or 2)
-        p = AutoPipelineForText2Image.from_pretrained(str(root / "sdxs"), torch_dtype=torch.bfloat16, safety_checker=None)
+        p = AutoPipelineForText2Image.from_pretrained(str(root / "sdxs"), torch_dtype=torch.bfloat16, safety_checker=None, local_files_only=True)
         p.set_progress_bar_config(disable=True)
         _CACHE["pipe"] = p
     return _CACHE["pipe"]
@@ -90,7 +90,12 @@ def _pipe(root: Path):
 def _voice(root: Path):
     if _CACHE["voice"] is None:
         from piper import PiperVoice
-        _CACHE["voice"] = PiperVoice.load(str(sorted((root / "piper").glob("*.onnx"))[0]))
+        voices = sorted((root / "piper").glob("*.onnx"))
+        preferred = root / "piper" / "ar_JO-kareem-medium.onnx"
+        voice_path = preferred if preferred in voices else (voices[0] if voices else None)
+        if voice_path is None:
+            raise FileNotFoundError("No local Piper ONNX voice model was found")
+        _CACHE["voice"] = PiperVoice.load(str(voice_path))
     return _CACHE["voice"]
 
 
