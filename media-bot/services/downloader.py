@@ -338,10 +338,16 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
                 continue
-        return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
+        return None, last_err or "YouTube extraction failed"
     try:
         def _run_g() -> dict | None:
-            opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 25}
+            opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 25, "retries": 2, "extractor_retries": 2}
+            if is_facebook(url):
+                opts["http_headers"] = {
+                    "User-Agent": _UA,
+                    "Referer": "https://www.facebook.com/",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
             ck = _write_cookies_file()
             if ck:
                 opts["cookiefile"] = ck
