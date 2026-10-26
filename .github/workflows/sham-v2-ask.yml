@@ -1,0 +1,41 @@
+name: Sham v2 Ask (read-only)
+
+# اسأل شام v2 على استوديوه الخاص (sham-v2-server) واطبع حالته وإجاباته: الاستدعاء نفسه الذي يستعمله البوت. للقراءة فقط، لا يغيّر شيئاً.
+# api: text | think | any (النموذج يقرر) | image | audio | video
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: "text | think | any | image | audio | video"
+        required: false
+        default: "any"
+      ask:
+        description: "الأسئلة مفصولة بـ |"
+        required: false
+        default: "مرحبا|ما عاصمة فرنسا؟|ابحث في الويب عن آخر إصدار من Python"
+
+concurrency:
+  group: sham-v2-ask
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests pillow numpy
+      - name: Ask the v2 Studio
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+          ASK: ${{ inputs.ask }}
+          API: ${{ inputs.api }}
+        run: python ai-system/supervision/sham_studio_ask.py
