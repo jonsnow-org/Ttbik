@@ -1,0 +1,53 @@
+name: Media Studio Probe (read-only)
+
+# اطلب صورة من استوديو الوسائط (nova-media-server: نماذج جاهزة مدرَّبة) واحفظها كملف قابل للتنزيل لأنظر إليها. للقراءة فقط.
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "وصف الصورة"
+        required: false
+        default: "a rabbit playing in a green garden, cartoon style"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Ask the media Studio for a picture
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PROMPT: ${{ inputs.prompt }}
+        run: |
+          python - <<'PY'
+          import base64, json, os, time, requests
+          base = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net"
+          h = {"Authorization": "Bearer " + os.environ["MODELSCOPE_TOKEN"], "Content-Type": "application/json"}
+          t0 = time.time()
+          r = requests.post(f"{base}/gradio_api/call/v2/image", headers=h, json={"body": json.dumps({"prompt": os.environ["PROMPT"]})}, timeout=30)
+          print("submit", r.status_code, r.text[:200])
+          eid = r.json().get("event_id")
+          res = requests.get(f"{base}/gradio_api/call/image/{eid}", headers=h, timeout=600)
+          print("result", res.status_code, f"{time.time()-t0:.0f}s", len(res.text))
+          for line in res.text.splitlines():
+              if line.startswith("data:"):
+                  d = json.loads(json.loads(line[5:])[0])
+                  print("type", d.get("type"), (d.get("text") or "")[:200])
+                  if d.get("b64"):
+                      open("probe.png", "wb").write(base64.b64decode(d["b64"]))
+                      print("saved probe.png", os.path.getsize("probe.png"))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-probe
+          path: probe.png
+          if-no-files-found: ignore
