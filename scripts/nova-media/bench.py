@@ -25,6 +25,10 @@ def image(model_id: str, steps: int, size: int = 512, guidance: float = 0.0) -> 
         img = pipe(prompt, num_inference_steps=steps, guidance_scale=guidance, height=size, width=size).images[0]
         dt = time.time() - t0
     img.save(f"/tmp/{model_id.replace('/', '_')}.png")
+    import base64, io
+    buf = io.BytesIO()
+    img.resize((256, 256)).save(buf, "JPEG", quality=70)
+    print("THUMB " + model_id + " " + base64.b64encode(buf.getvalue()).decode(), flush=True)
     print(f"IMAGE {model_id}: {size}x{size}, {steps} step(s): {dt:.1f}s (load {load:.0f}s), saved", flush=True)
 
 
@@ -46,7 +50,7 @@ def speech() -> None:
     print(f"SPEECH piper ar_JO-kareem: {sec:.1f}s of audio in {dt:.1f}s (real-time factor {dt / sec:.2f})", flush=True)
 
 
-for fn in (lambda: image("IDKiro/sdxs-512-dreamshaper", 1), lambda: image("stabilityai/sd-turbo", 1), speech):
+for fn in (lambda: image("IDKiro/sdxs-512-dreamshaper", 1), speech):
     try:
         fn()
     except Exception as e:                                       # noqa: BLE001
