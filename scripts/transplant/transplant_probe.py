@@ -38,7 +38,7 @@ def measure(model, tok, T) -> dict[str, float]:
     return out
 
 
-def warmup(model, tok, train_text: dict[str, str], steps: int, L: int = 128, batch: int = 4, lr: float = 2e-3) -> list[float]:
+def warmup(model, tok, train_text: dict[str, str], steps: int, L: int = 128, batch: int = 4, lr: float = float(os.environ.get("WARM_LR") or 2e-4)) -> list[float]:
     """embedding-only training; returns the loss every 10 steps"""
     import random
     for p in model.parameters():
@@ -57,10 +57,11 @@ def warmup(model, tok, train_text: dict[str, str], steps: int, L: int = 128, bat
         loss = model(x, labels=x)[1]
         opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_([model.token_embedding.weight], 1.0)
         opt.step()
         if s % 10 == 0 or s == steps - 1:
-            losses.append(float(loss))
-            print(f"    step {s + 1}/{steps} loss {float(loss):.3f} ({time.time() - t0:.0f}s)", flush=True)
+            losses.append(float(loss.detach()))
+            print(f"    step {s + 1}/{steps} loss {float(loss.detach()):.3f} ({time.time() - t0:.0f}s)", flush=True)
     model.train(False)
     return losses
 

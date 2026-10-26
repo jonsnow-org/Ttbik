@@ -7,7 +7,10 @@ on:
         default: "40"
       donors:
         description: "space-separated Hugging Face ids"
-        default: "Qwen/Qwen3-0.6B-Base Qwen/Qwen2.5-0.5B"
+        default: "Qwen/Qwen3-0.6B-Base"
+      lr:
+        description: "embedding warm-up learning rate"
+        default: "2e-4"
 permissions:
   contents: read
 jobs:
@@ -30,5 +33,6 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           STEPS: ${{ inputs.steps }}
+          WARM_LR: ${{ inputs.lr }}
           DONORS: ${{ inputs.donors }}
         run: python scripts/transplant/transplant_probe.py $STEPS $DONORS
