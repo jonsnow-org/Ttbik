@@ -88,9 +88,21 @@ def _load(model_dir: Path) -> None:
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
+    _refresh_media_assets(model_dir)
+    _say("ready: the model is loaded")
+    manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
+    if manifest:
+        try:
+            STATE["revision"] = json.loads(manifest.read_text(encoding="utf-8")).get("sha", "")[:12]
+        except Exception:
+            pass
+
+
+def _refresh_media_assets(model_dir: Path) -> None:
+    """Refresh media readiness independently from the large text checkpoint."""
     try:
         from sham_media_ready import inspect_ready_assets
-        assets = inspect_ready_assets(model_dir)             # validate real local tensors/configs; never download media at request time
+        assets = inspect_ready_assets(model_dir)
         STATE["media_assets"] = assets
         STATE["media_root"] = assets["root"] if assets["ready"] else ""
         image_mb = assets.get("image_bytes", 0) / 2**20
@@ -100,13 +112,17 @@ def _load(model_dir: Path) -> None:
         STATE["media_root"] = ""
         STATE["media_assets"] = {"ready": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
         _say(f"media check failed: {type(exc).__name__}")
-    _say("ready: the model is loaded")
-    manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
-    if manifest:
-        try:
-            STATE["revision"] = json.loads(manifest.read_text(encoding="utf-8")).get("sha", "")[:12]
-        except Exception:
-            pass
+
+
+def _media_signature(model_dir: Path) -> tuple:
+    """Cheap metadata-only signature so new media weights are detected without hashing gigabytes."""
+    root = model_dir / "media"
+    if not root.is_dir():
+        return ()
+    return tuple(
+        (str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(root.rglob("*")) if p.is_file()
+    )
 
 
 def _hot_sync(model_dir: Path) -> None:
@@ -152,15 +168,23 @@ def _worker_status() -> dict:
 
 def _worker() -> None:
     last_sha = None
+    last_media_sig = None
     while True:
         try:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
             model_dir = _download()
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
             sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
+            media_sig = _media_signature(model_dir)
             if sha is None or sha != last_sha or STATE["phase"] != "ready":
                 _load(model_dir)
                 last_sha = sha
+                last_media_sig = _media_signature(model_dir)
+            elif media_sig != last_media_sig:
+                # Media weights are published in a separate workflow and intentionally
+                # do not change the text checkpoint manifest. Refresh only media state.
+                _refresh_media_assets(model_dir)
+                last_media_sig = media_sig
             _hot_sync(model_dir)
         except Exception as exc:
             STATE.update(phase="waiting" if STATE["phase"] != "ready" else "ready",
