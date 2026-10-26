@@ -38,6 +38,9 @@ def deployable(out: Path, base_dir: Path) -> Path:
     payload = torch.load(out / "step_000000.pt", map_location="cpu", weights_only=False)
     payload["model_state_dict"] = {k: (v.to(torch.bfloat16) if v.is_floating_point() else v) for k, v in payload["model_state_dict"].items()}
     torch.save(payload, dst / "final_merged.pt")
+    del payload
+    import gc
+    gc.collect()
     shutil.copy2(out / "sham_small_tokenizer.json", dst / "sham_small_tokenizer.json")
     for name in ("image_tokenizer.pt", "audio_tokenizer.pt"):
         src = next(iter(sorted(base_dir.rglob(name))), None)
@@ -113,6 +116,9 @@ def main() -> None:
             row[k] = P.bpb(fn, tok.encode, text)[0]
     print(f"bits/byte on our text: ar {row['arabic']:.3f} en {row['english']:.3f} code {row['code']:.3f}", flush=True)
     if do_publish:
+        import gc
+        del model                                                                  # 16 GB runner: the float32 model, the float32 payload and the bf16 copy together did not fit (the job was killed)
+        gc.collect()
         from sham_ci_merge import pick_base
         from sham_inputs import fetch_dataset
         _c, base_dir, label, _p = pick_base(fetch_dataset, probe=None)
