@@ -1,5 +1,5 @@
-name: Donor probe (bits per byte on our text: candidate donor models vs Sham's best checkpoint)
-# Read-only measurement: nothing is published. Decides whether copying a small trained model's weights into Sham (or a stronger relative into Nova) can pay.
+name: "Donor probe (bits per byte on our text, candidate donors vs the Sham checkpoint)"
+# Read-only measurement, nothing is published. Decides whether copying a small trained model's weights into Sham (or a stronger relative into Nova) can pay.
 on:
   workflow_dispatch:
     inputs:
