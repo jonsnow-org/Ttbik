@@ -123,3 +123,18 @@ describe("measured weaknesses of the new body", () => {
     expect(r).toMatchObject({ kind: "text", text: "حفظتُ." });
   });
 });
+
+describe("a picture goes to the background leg, which waits long", () => {
+  it("inside the webhook budget make_media hands over; the next leg runs it without asking the model again", async () => {
+    const tools = shamToolDefs(false);
+    const call = say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"أرنب يلعب"}}</tool_call>');
+    const a = await shamAgentRun({ text: "ارسم أرنباً", ctx, tools, budgetMs: 50000, continuable: true, ask: script([call]), media: async () => { throw new Error("must not run in the short leg"); } });
+    expect(a.kind).toBe("more");
+    const got: string[] = [];
+    const asks: string[] = [];
+    const b = await shamAgentRun({ text: "ارسم أرنباً", ctx, tools, budgetMs: 230000, resume: (a as any).messages, ask: script([], asks), media: async (k, p) => { got.push(`${k}:${p}`); return { type: "image", b64: "AAAA" } as any; } });
+    expect(b).toMatchObject({ kind: "reply", reply: { type: "image" } });
+    expect(got).toEqual(["image:أرنب يلعب"]);
+    expect(asks).toEqual([]);                                                   // the model is not asked again
+  });
+});
