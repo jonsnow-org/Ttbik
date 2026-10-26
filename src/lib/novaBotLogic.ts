@@ -6,6 +6,8 @@ import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
+import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
+import { shamModeCtx } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -782,6 +784,20 @@ async function sendShamLater(bot: TelegramBot, chatId: number, later?: ShamReply
   for (const r of later || []) if (r && r.type !== "pending") await sendShamReply(bot, chatId, r);
 }
 
+// Sham's own agent round (src/lib/shamAgent.ts): the model may call its own tools (web, GitHub reading, memory, schedules), each call checked before it runs.
+// true = handled. false = nothing usable came back in time: the caller continues with the one-step `think` path below.
+async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  const ctx = await shamToolCtx(chatId, botId);
+  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.gh)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore() });
+  if (r.kind === "none") return false;
+  if (r.kind === "reply") { await sendShamReply(bot, chatId, r.reply); return true; }
+  const out = r.kind === "ask" ? r.question : r.text;
+  await sendShamReply(bot, chatId, { type: "text", text: out });
+  await saveTurn(chatId, text, out);
+  return true;
+}
+
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
 // The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
 async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
@@ -871,6 +887,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
         // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
         // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
+        if (shamAgentOn() && (await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id))) return;
         if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
         let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000) : null;
         if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)));
