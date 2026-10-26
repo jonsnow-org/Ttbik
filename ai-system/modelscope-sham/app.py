@@ -215,6 +215,11 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     """JSON {"type": text|image|audio|notice, ...}: the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any)."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    # Route unambiguous user requests to the actual image/speech/video backends before the text model samples media tokens.
+    from sham_intent import route_text
+    route, media_prompt = route_text(prompt)
+    if route in ("image", "audio", "video"):
+        return generate_media(route, media_prompt)
     import serve
     n = int(max(1, min(MAX_NEW_TOKENS, max_new_tokens)))
     try:
