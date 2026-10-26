@@ -99,7 +99,12 @@ jobs:
           from modelscope.hub.api import HubApi
           api = HubApi()
           api.login(os.environ["MODELSCOPE_TOKEN"])
-          api.update_studio_secret("novaai2026/nova-media-server", "MODELSCOPE_API_TOKEN", os.environ["MODELSCOPE_TOKEN"])
+          sid, tok = "novaai2026/nova-media-server", os.environ["MODELSCOPE_TOKEN"]
+          try:
+              api.add_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
+          except Exception as e:                       # already there: replace it
+              print("add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
+              api.update_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
           print("studio secret set")
           PY
 
