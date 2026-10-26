@@ -1,17 +1,17 @@
 import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
-import type { ToolCtx } from "@/lib/coderAgent";
+import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
 
-const ctx = { gh: null, addNote: () => undefined } as unknown as ToolCtx;
+const ctx = { chatId: 1, db: { exec: async () => undefined, query: async () => [] }, githubToken: null, chatKey: "sham:1", runId: "sham-1", owner: true } as unknown as ShamCtx;
 const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say> | { type: "image"; b64: string } | null>, seen: string[] = []): ShamAsk => async (prompt) => { seen.push(prompt); return (answers.shift() ?? null) as any; };
 
 describe("Sham's own agent loop", () => {
-  it("its own tool list: web, GitHub reading (only when the chat can read it), memory, schedules, ask_user; no sandbox yet", () => {
+  it("its own tool list: web, GitHub reading (only when the chat can read it), memory, schedules, ask_user; the VM tools", () => {
     const withGh = shamToolDefs(true).map((t) => t.function.name), without = shamToolDefs(false).map((t) => t.function.name);
     expect(withGh).toEqual(expect.arrayContaining(["web_search", "github_read_file", "memory_save", "schedule_create", "ask_user"]));
     expect(without).not.toContain("github_read_file");
     expect(withGh.every((n) => (SHAM_TOOL_NAMES as readonly string[]).includes(n))).toBe(true);
-    expect(withGh.includes("sandbox_push")).toBe(false);
+    expect(without).not.toContain("sandbox_push");                                       // pushing needs a linked GitHub
   });
   it("calls a tool, reads its result, and answers from it", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: string[] = [];
@@ -51,10 +51,37 @@ describe("Sham's own agent loop", () => {
   it("Sham has its own virtual computer tools, and its VM is never Nova's (own chat key)", async () => {
     const names = shamToolDefs(false).map((t) => t.function.name);
     for (const n of ["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"]) expect(names).toContain(n);
-    expect(names).not.toContain("sandbox_push");                                          // writing to the user's repos waits for the approval flow
+    expect(names).not.toContain("sandbox_push");
     const { shamToolCtx } = await import("@/lib/shamAgent");
     const c = await shamToolCtx(42, "b", { exec: async () => undefined, query: async () => [] } as any);
     expect(c.chatKey).toMatch(/^sham:/);
     expect(c.runId).toBe("sham-42");
+  });
+  it("a push / PR / merge never runs on Sham's word: the round ends with 'confirm', and the tool refuses without the tap", async () => {
+    const tools = shamToolDefs(true);
+    const ran: string[] = [];
+    const r = await shamAgentRun({ text: "ارفع التعديلات", ctx, tools, budgetMs: 60000, exec: async (c) => { ran.push(c.function.name); return "ok"; },
+      ask: script([say('<tool_call>{"name":"sandbox_push","arguments":{"repo":"o/r","branch":"fix/x","message":"fix"}}</tool_call>')]) });
+    expect(r).toMatchObject({ kind: "confirm" });
+    expect(ran).toEqual([]);
+    expect((r as any).call.function.name).toBe("sandbox_push");
+    expect(shamConfirmText((r as any).call)).toMatch(/fix\/x[\s\S]*هل أسمح/);
+    const call = { id: "1", type: "function", function: { name: "github_merge_pr", arguments: '{"repo":"o/r","number":3}' } } as any;
+    expect(await shamRunTool(call, ctx)).toMatch(/only after the user taps/);
+  });
+  it("the pending write is kept for the asking chat only, taken once", async () => {
+    const rows: any[] = [];
+    const db: any = { exec: async (sql: string, ...a: any[]) => { if (/INSERT/.test(sql)) rows.push({ id: a[0], chat: a[1], call: a[2] }); }, query: async (sql: string, ...a: any[]) => { const i = rows.findIndex((x) => x.id === a[0] && x.chat === a[1]); return i < 0 ? [] : rows.splice(i, 1); } };
+    const call = { id: "1", type: "function", function: { name: "github_create_pr", arguments: "{}" } } as any;
+    const id = await shamSavePending(7, call, db);
+    expect(await shamTakePending(8, id, db)).toBeNull();                                 // another chat cannot approve it
+    expect((await shamTakePending(7, id, db))?.function.name).toBe("github_create_pr");
+    expect(await shamTakePending(7, id, db)).toBeNull();                                 // once only
+  });
+  it("make_media is Sham's own: the picture comes back as a reply, no Nova media Studio", async () => {
+    const tools = shamToolDefs(false);
+    const r = await shamAgentRun({ text: "ارسم قطة", ctx, tools, budgetMs: 60000, media: async (k, p) => ({ type: "image", b64: "AAAA", text: `${k}:${p}` }) as any,
+      ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"قطة"}}</tool_call>')]) });
+    expect(r).toMatchObject({ kind: "reply", reply: { type: "image" } });
   });
 });
