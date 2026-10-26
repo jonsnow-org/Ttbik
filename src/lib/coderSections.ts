@@ -365,9 +365,9 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop")) {
+  if (tierFor(chatId) !== "owner" && (st.mode === "sham" || st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop" || st.model === "sham_v2")) {
     st.mode = "coder";                                        // Sham and Nova Pro are the owner's only
-    if (st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop") st.model = undefined;
+    if (st.model === "sham" || st.model === "nova_pro" || st.model === "sham_loop" || st.model === "sham_v2") st.model = undefined;
     await saveState(chatId, st, db);
   }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
@@ -508,7 +508,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   if (Date.now() - (warmedAt.get(chatId) || 0) < 8 * 60000) return;
   warmedAt.set(chatId, Date.now());
   const st = await loadState(chatId, db);
-  if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "nova_pro") return;
+  if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2" || st.model === "nova_pro") return;
   const ctx = await toolCtx(chatId, st, db, null);
   const github = Boolean(ctx.gh);
   const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
@@ -1759,7 +1759,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
-    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop";      // Sham gets the bare words, no context block
+    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2";      // Sham gets the bare words, no context block
     const histOf = (): CoderMessage[] => {
       if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
       const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);

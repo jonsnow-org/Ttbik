@@ -23,6 +23,7 @@ export const DEFAULT_MODELS: CoderModel[] = [
   { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نموذج برمجة عربي مُدرَّب خصيصاً (قيد التحضير).", en: "Our Arabic-tuned coding model (in preparation)." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 1 },
   { id: "sham", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذج شام.", en: "The Sham model." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 2 },
   { id: "nova_pro", name: { ar: "نوفا برو", en: "Nova Pro" }, desc: { ar: "نموذج أقوى للمهام الصعبة (للمالك فقط).", en: "A stronger model for hard tasks (owner only)." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "NOVA_PRO_MODEL", sort: 3 },
+  { id: "sham_v2", name: { ar: "شام v2 (متقدم)", en: "Sham v2 (advanced)" }, desc: { ar: "شام بجسم المانح الجديد داخل محرّك Nova: أدواته كلها (مدقّق ومحاولة ثانية وقيد صيغة)، مهام طويلة، تتبّع في الطرفية، صبر عند الانقطاع، ويتوزّع على أكثر من استوديو عند الازدحام (للمالك فقط).", en: "Sham with the new donor body inside Nova's engine: all tools (validator, retry, call-shape guard), long tasks, terminal tracking, patience on outages, spread over several Studios under load (owner only)." }, price_stars: null, visible: false, ownerOnly: true, sort: 5 },
   { id: "sham_loop", name: { ar: "شام (متقدم)", en: "Sham (advanced)" }, desc: { ar: "شام داخل محرّك Nova: بحث معمّق تُعطى مصادره لشام، مهام طويلة، تتبّع في الطرفية، صبر عند الانقطاع (للمالك فقط).", en: "Sham inside Nova's engine: deep research handed to Sham as sources, long tasks, terminal tracking, patience on outages (owner only)." }, price_stars: null, visible: false, ownerOnly: true, sort: 4 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
@@ -96,7 +97,7 @@ export function publicModels(models: CoderModel[], picked: string | undefined): 
 /** Owner view: every model, its switch, its price, and whether its serving address is set (never the address itself). */
 export function ownerModels(models: CoderModel[], picked: string | undefined) {
   const sel = effectiveModel(models, picked, true).id;
-  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: m.isDefault || m.id === "sham" ? true : m.id === "sham_loop" ? shamStudioEnabled() : m.id === "nova_pro" ? providerReady("nova_pro") : Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim()) }));
+  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: m.isDefault || m.id === "sham" ? true : m.id === "sham_loop" || m.id === "sham_v2" ? shamStudioEnabled() : m.id === "nova_pro" ? providerReady("nova_pro") : Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim()) }));
 }
 
 /** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of
@@ -104,7 +105,7 @@ export function ownerModels(models: CoderModel[], picked: string | undefined) {
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === id);
   if (!m || !(owner || (m.visible && !m.ownerOnly))) return false;
-  if (m.id === "sham_loop" && !shamStudioEnabled()) return false;                // needs Sham's Studio token
+  if ((m.id === "sham_loop" || m.id === "sham_v2") && !shamStudioEnabled()) return false;                // needs Sham's Studio token
   if (m.id === "nova_pro" && !providerReady("nova_pro")) return false;     // not set up yet: it cannot be chosen
   st.model = m.id;
   st.mode = m.id === "sham" ? "sham" : "coder";
