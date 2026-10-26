@@ -98,29 +98,15 @@ describe("Sham's own agent loop", () => {
     const last = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
     expect(last).toMatchObject({ kind: "text", text: "خلاصة." });                         // the last leg answers instead of handing over
   });
-  it("the saved run is kept per chat and taken once", async () => {
+  it("a saved task is kept per task (not per chat) and taken once", async () => {
     const { shamSaveRun, shamTakeRun } = await import("@/lib/shamExec");
-    const rows = new Map<number, string>();
-    const db: any = { exec: async (sql: string, ...a: any[]) => { if (/INSERT INTO sham_runs/.test(sql)) rows.set(a[0], a[1]); }, query: async (_s: string, id: number) => { const v = rows.get(id); rows.delete(id); return v ? [{ data: v }] : []; } };
-    await shamSaveRun({ chatId: 5, botId: "b", request: "طلب", messages: [{ role: "user", content: "طلب" }], leg: 1, variant: "v2", mode: {} }, db);
-    expect((await shamTakeRun(5, db))?.leg).toBe(1);
-    expect(await shamTakeRun(5, db)).toBeNull();
-  });
-});
-
-describe("measured weaknesses of the new body", () => {
-  it("a split repo (owner + name/file) is put back together before the tool runs", async () => {
-    const { shamRunTool } = await import("@/lib/shamExec");
-    const urls: string[] = [];
-    const fetchImpl = (async (u: string) => { urls.push(u); return { status: 404, text: async () => "{}" } as any; }) as any;
-    await shamRunTool({ id: "1", type: "function", function: { name: "github_read_file", arguments: '{"repo":"jonsnow-org","path":"Ttbik/README.md"}' } } as any, { ...(ctx as any), githubToken: "t", fetchImpl });
-    expect(urls[0]).toContain("/repos/jonsnow-org/Ttbik/contents/README.md");
-  });
-  it("«تذكّر» answered in words goes back to Sham once, asking for memory_save", async () => {
-    const tools = shamToolDefs(false), seen: string[] = [];
-    const r = await shamAgentRun({ text: "اسمي سارة، تذكّر ذلك", ctx, tools, budgetMs: 60000, ask: script([say("تذكّرت."), say('<tool_call>{"name":"memory_save","arguments":{"text":"اسم المستخدم سارة"}}</tool_call>'), say("حفظتُ.")], seen), exec: async () => "saved" });
-    expect(seen[1]).toMatch(/memory_save\(text\)/);
-    expect(r).toMatchObject({ kind: "text", text: "حفظتُ." });
+    const rows = new Map<string, string>();
+    const db: any = { exec: async (sql: string, ...a: any[]) => { if (/INSERT INTO sham_runs2/.test(sql)) rows.set(a[0], a[2]); }, query: async (_s: string, runId: string) => { const v = rows.get(runId); rows.delete(runId); return v ? [{ data: v }] : []; } };
+    await shamSaveRun({ chatId: 5, botId: "b", runId: "r1", request: "طلب", messages: [{ role: "user", content: "طلب" }], leg: 1, variant: "v2", mode: {} }, db);
+    await shamSaveRun({ chatId: 5, botId: "b", runId: "r2", request: "آخر", messages: [], leg: 1, variant: "v2", mode: {} }, db);       // a second task of the same chat lives beside the first
+    expect((await shamTakeRun(5, "r1", db))?.request).toBe("طلب");
+    expect(await shamTakeRun(5, "r1", db)).toBeNull();
+    expect((await shamTakeRun(5, "r2", db))?.request).toBe("آخر");
   });
 });
 

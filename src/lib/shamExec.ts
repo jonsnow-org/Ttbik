@@ -137,10 +137,6 @@ const parse = (call: CoderToolCall): Record<string, any> => { try { const v = JS
 export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const name = call.function.name;
   const a = parse(call);
-  if (typeof a.repo === "string" && !a.repo.includes("/") && typeof a.path === "string" && a.path.includes("/")) {      // measured on the new body: repo "owner", path "name/file" → repo "owner/name", path "file"
-    const [seg, ...rest] = a.path.split("/");
-    a.repo = `${a.repo}/${seg}`; a.path = rest.join("/");
-  }
   try {
     if (SHAM_NEEDS_OK.has(name) && !approved) return "error: this changes the user's repository: it runs only after the user taps «نفّذ».";
     if (name === "web_search") {
@@ -224,26 +220,22 @@ export function shamConfirmText(call: CoderToolCall): string {
 }
 
 // ---------------------------------------------------------------- a long task between legs (the shared background runner: coderRuntime later() + the signed continue route)
-export type ShamRun = { chatId: number; botId: string; runId?: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown> };
+export type ShamRun = { chatId: number; botId: string; runId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown> };
 let runsReady = false;
 async function runsTable(db: Db): Promise<void> {
   if (db === prismaDb && runsReady) return;
-  await db.exec(`CREATE TABLE IF NOT EXISTS sham_runs (chat_id BIGINT PRIMARY KEY, data TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await db.exec(`CREATE TABLE IF NOT EXISTS sham_runs2 (run_id TEXT PRIMARY KEY, chat_id BIGINT NOT NULL, data TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   if (db === prismaDb) runsReady = true;
 }
 export async function shamSaveRun(run: ShamRun, db: Db = prismaDb): Promise<void> {
   await runsTable(db);
-  await db.exec(`INSERT INTO sham_runs (chat_id, data, updated_at) VALUES ($1, $2, now()) ON CONFLICT (chat_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`, run.chatId, JSON.stringify(run));
+  await db.exec(`INSERT INTO sham_runs2 (run_id, chat_id, data, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (run_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`, run.runId, run.chatId, JSON.stringify(run));
 }
-/** Takes the saved run out (once). A run older than 2 hours is dropped. */
-export async function shamTakeRun(chatId: number, db: Db = prismaDb): Promise<ShamRun | null> {
+/** Takes one task's saved state out (once). Another task of the same chat is untouched. A state older than 2 hours is dropped. */
+export async function shamTakeRun(chatId: number, runId: string, db: Db = prismaDb): Promise<ShamRun | null> {
   await runsTable(db);
-  const rows = await db.query<{ data: string }>(`DELETE FROM sham_runs WHERE chat_id = $1 AND updated_at > now() - interval '2 hours' RETURNING data`, chatId);
+  const rows = await db.query<{ data: string }>(`DELETE FROM sham_runs2 WHERE run_id = $1 AND chat_id = $2 AND updated_at > now() - interval '2 hours' RETURNING data`, runId, chatId);
   try { return rows[0] ? (JSON.parse(rows[0].data) as ShamRun) : null; } catch { return null; }
-}
-export async function shamDropRun(chatId: number, db: Db = prismaDb): Promise<void> {
-  await runsTable(db);
-  await db.exec(`DELETE FROM sham_runs WHERE chat_id = $1`, chatId);
 }
 
 // ---------------------------------------------------------------- Telegram resends a webhook that is slow to answer: the same update must not start a second task

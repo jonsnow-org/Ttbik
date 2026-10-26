@@ -7,7 +7,7 @@ import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
-import { shamClaimUpdate, shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
+import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
 import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
@@ -815,8 +815,9 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   if (r.kind === "none") { if (runId) { await taskEvent(runId, "failed", "no answer from Sham in time").catch(() => null); await taskStatus(runId, "failed").catch(() => null); } return false; }
   if (r.kind === "more") {                              // the work goes on in the background: the shared runner calls the next leg (its own signed route)
     if (leg === 0) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null);
-    await shamSaveRun({ chatId, botId: botId || "", runId, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
-    later(() => shamKickNextLeg(botId || "", chatId, leg + 1));
+    await shamSaveRun({ chatId, botId: botId || "", runId: runId || `sham-${chatId}-${Date.now().toString(36)}`, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
+    const rid = runId || "";
+    later(() => shamKickNextLeg(botId || "", chatId, rid, leg + 1));
     return true;
   }
   if (r.kind === "confirm") {                           // a write to the user's repository: ask first, run only on the tap
@@ -833,18 +834,19 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   return true;
 }
 
-async function shamKickNextLeg(botId: string, chatId: number, leg: number): Promise<void> {
+async function shamKickNextLeg(botId: string, chatId: number, runId: string, leg: number): Promise<void> {
   const { prisma } = await import("@/lib/prisma");
   const row = await prisma.bot.findUnique({ where: { id: botId } }).catch(() => null);
   if (!row) return;
   const chain = `sham${leg}`;
-  const body = JSON.stringify({ botId, chatId: String(chatId), chain, sig: signContinue(row.webhookSecret || "", botId, String(chatId), chain) });
+  const who = `${chatId}#${runId}`;                      // the signed address names the chat AND the task: tasks of one chat run side by side
+  const body = JSON.stringify({ botId, chatId: who, chain, sig: signContinue(row.webhookSecret || "", botId, who, chain) });
   await fetch(`${selfUrl()}/api/sham/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" }).catch(() => null);
 }
 
 /** The next leg of a long Sham task (called by /api/sham/continue, up to 300 s): the saved conversation goes on from where it stopped. */
-export async function continueShamRun(bot: TelegramBot, chatId: number, botId: string): Promise<void> {
-  const run = await shamTakeRun(chatId);
+export async function continueShamRun(bot: TelegramBot, chatId: number, botId: string, runId: string): Promise<void> {
+  const run = await shamTakeRun(chatId, runId);
   if (!run) return;
   await shamVariant.run(run.variant, () => shamModeCtx.run(run.mode as never, async () => {
     const ctx = await shamToolCtx(chatId, botId);
@@ -853,7 +855,6 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => void taskEvent(run.runId!, k, t).catch(() => null) : undefined;
     const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId))) {
-      await shamDropRun(chatId);
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
       await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
     }
@@ -865,12 +866,11 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
-  await shamDropRun(chatId).catch(() => null);          // a new message replaces an unfinished earlier task
-  await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting')`, coderChatKey(chatId)).catch(() => null);      // its terminal rows are closed, not left "running"
+  await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => void taskEvent(runId, k, t).catch(() => null);
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 40000, askMs: 28000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId);
 }
 
@@ -966,8 +966,13 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
         // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
         if (shamAgentOn()) {
-          if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram resent a slow webhook: this update is already being handled
-          if (await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id)) return;
+          if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram re-delivered this very message (same update id): it is already being handled
+          // Telegram gets its answer at once and the work goes on in the background (as the coder does): a slow Studio can no longer make Telegram resend
+          const variant = shamVariant.getStore() || "v1", mode = shamModeCtx.getStore() || {};
+          later(() => shamVariant.run(variant, () => shamModeCtx.run(mode, async () => {
+            if (!(await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id))) await sendShamReply(bot, chatId, null);
+          })));
+          return;
         }
         if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
         let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000) : null;
