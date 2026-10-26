@@ -37,6 +37,11 @@ def _content_stats(r: dict) -> str:
         return f"تعذّر الفحص: {type(e).__name__}: {e}"
 
 
+def _lbl(q: str) -> str:
+    """A long prompt (the tool block + the conversation) is shown by its last lines only."""
+    return q if len(q) < 200 else "…" + " / ".join(q.strip().splitlines()[-2:])[:200]
+
+
 def main() -> int:
     token = os.environ.get("MODELSCOPE_TOKEN", "").strip()
     if not token:
@@ -47,13 +52,15 @@ def main() -> int:
     os.environ["MODELSCOPE_API_TOKEN"] = token
     st = studio_client.studio_status()
     print("حالة الاستوديو:", json.dumps(st, ensure_ascii=False)[:1800] if st else "لا يردّ")
-    qs = [q.strip() for q in os.environ.get("ASK", "").split("|") if q.strip()] or DEFAULT
+    raw = os.environ.get("ASK", "")
+    qs = [str(q).strip() for q in json.loads(raw)] if raw.lstrip().startswith("[") else [q.strip() for q in raw.split("|") if q.strip()]     # a JSON list lets a question hold "|" (a whole tool prompt)
+    qs = qs or DEFAULT
     api = os.environ.get("API", "text")           # text (the old call) | any (the model decides: words / picture / sound) | image | audio | video (the user chose the kind)
     for q in qs:
         t0 = time.time()
         if api == "text":
             a = studio_client.generate_text(q, 60, timeout=170)
-            print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): {(a or '— لا جواب')[:600]}")
+            print(f"\nس: {_lbl(q)}\nج ({time.time() - t0:.0f} ث): {(a or '— لا جواب')[:600]}")
             continue
         if api == "think":         # 2026-10-14: the bot's new one-step path (app.py think + job_result), timed end to end
             try:
@@ -64,17 +71,17 @@ def main() -> int:
                     time.sleep(3)
                     r = json.loads(studio_client._call("job_result", {"job_id": r["job"], "detach": ""}, timeout=20))
             except Exception as exc:
-                print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): — فشل think ({type(exc).__name__}: {str(exc)[:200]})")
+                print(f"\nس: {_lbl(q)}\nج ({time.time() - t0:.0f} ث): — فشل think ({type(exc).__name__}: {str(exc)[:200]})")
                 continue
-            print(f"\nس: {q}\nج (أول رد {first:.1f} ث، نهائي {time.time() - t0:.1f} ث): النوع={r.get('type')} القرار={r.get('decision')} "
+            print(f"\nس: {_lbl(q)}\nج (أول رد {first:.1f} ث، نهائي {time.time() - t0:.1f} ث): النوع={r.get('type')} القرار={r.get('decision')} "
                   f"{(r.get('text') or '')[:400]}")
             continue
         r = studio_client.generate_any(q, 60, timeout=170) if api == "any" else studio_client.generate_media(api, q, timeout=300)
         if r is None:
-            print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): — لا جواب (الاستوديو ما زال على النسخة القديمة؟)")
+            print(f"\nس: {_lbl(q)}\nج ({time.time() - t0:.0f} ث): — لا جواب (الاستوديو ما زال على النسخة القديمة؟)")
             continue
         size = f" | {len(r.get('b64') or '') * 3 // 4:,} بايت {r.get('mime', '')}" if r.get("b64") else ""
-        print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): النوع={r.get('type')}{size} {(r.get('text') or '')[:500]}")
+        print(f"\nس: {_lbl(q)}\nج ({time.time() - t0:.0f} ث): النوع={r.get('type')}{size} {(r.get('text') or '')[:500]}")
         if r.get("b64"):
             print("   فحص المحتوى:", _content_stats(r))
     return 0
