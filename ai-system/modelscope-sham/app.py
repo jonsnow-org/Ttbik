@@ -87,7 +87,7 @@ def _download() -> Path:
         HubApi().login(tok)
     _say(f"downloading {MODEL_ID}")
     with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
-        path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache))
+        path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache)))
     _say("download finished")
     return path
 
