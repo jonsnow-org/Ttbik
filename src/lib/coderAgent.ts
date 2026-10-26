@@ -108,8 +108,8 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. role worker = your full tools and permission settings (deletes / merges / main-branch writes are asked of the user), may start 2 read-only helpers; reader = read-only (default); tester (max 1) = runs tests in its own VM; sham (owner) = asks Sham. Each task must be a complete standalone instruction. An agent starting its own helpers gives helper + arg instead of free text.",
-  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester", "sham"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. role worker = your full tools and permission settings (deletes / merges / main-branch writes are asked of the user), may start 2 read-only helpers; reader = read-only (default); tester (max 1) = runs tests in its own VM. Each task must be a complete standalone instruction. An agent starting its own helpers gives helper + arg instead of free text.",
+  obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
   const all = [...(github ? GITHUB_TOOLS : []), ...WEB_TOOLS, ...COMMON_TOOLS, ...(role === "tester" ? SANDBOX_TOOL_DEFS : [])];
@@ -130,7 +130,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
   computer: "computer (a private Linux VM: clone a repo, run any command and tests, read / write / edit / search files, make documents or archives and send them to the user)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
-  media: "media (look at a picture or a few frames of a video; have Sham make a picture, sound or video and send it)",
+  media: "media (look at a picture or a few frames of a video; have the media Studio make a picture, sound or video and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
   schedule: "schedule (create, list and delete tasks that run by themselves at a time or on a GitHub event)",
   connectors: "connectors (services the user linked in the app, MCP servers)",

@@ -7,7 +7,6 @@
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
 import { noteStudioCtx } from "@/lib/coderContext";
-import { shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
 import { shamVariant } from "@/lib/shamStudio";
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
@@ -294,8 +293,6 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools });   // Sham as Nova's helper agent (role sham, with tools). Sham as a CHOSEN model never comes here: it runs on its own path (novaBotLogic)
-  if (opts.model === "sham_probe") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham): the task as a plain question
   return coderCall(
     "chat",
     {
@@ -316,7 +313,6 @@ export function coderChat(
 }
 
 export function coderJobResult(job: string, offset = 0, timeoutMs = 10000): Promise<CoderOutcome> {
-  if (job.startsWith(PROVIDER_JOB_PREFIX)) return Promise.resolve({ reply: { type: "gone", job } });   // an API answer is never polled; it was consumed inline
   return coderCall("job_result", { job_id: job, offset }, timeoutMs);
 }
 export function coderCancel(job: string, timeoutMs = 8000): Promise<CoderOutcome> {

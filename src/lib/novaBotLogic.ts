@@ -7,6 +7,7 @@ import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
+import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending } from "@/lib/shamExec";
 import { shamModeCtx } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
@@ -786,11 +787,31 @@ async function sendShamLater(bot: TelegramBot, chatId: number, later?: ShamReply
 
 // Sham's own agent round (src/lib/shamAgent.ts): the model may call its own tools (web, GitHub reading, memory, schedules), each call checked before it runs.
 // true = handled. false = nothing usable came back in time: the caller continues with the one-step `think` path below.
+/** The user's tap on a write Sham asked about: «نفّذ» runs it once (and only for the chat that was asked), «ألغِ» drops it. */
+async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
+  const [kind, id] = String(cq.data || "").split("|");
+  const chatId = Number(cq.message?.chat?.id);
+  const done = (text: string) => bot.api.answerCallbackQuery(cq.id, { text }).catch(() => null);
+  const edit = (text: string) => bot.api.editMessageText(chatId, cq.message.message_id, text.slice(0, 3500)).catch(() => null);
+  const call = chatId ? await shamTakePending(chatId, id || "") : null;
+  if (!call) { await done("انتهت صلاحية هذا الطلب."); return; }
+  if (kind === "shamno") { await done("أُلغي."); await edit("❌ ألغيتَ هذا الإجراء."); return; }
+  await done("جارٍ التنفيذ…");
+  const ctx = await shamToolCtx(chatId);
+  const out = await shamRunTool(call, ctx, true);
+  await edit(`${out.startsWith("error") ? "⚠️" : "✅"} ${out}`);
+}
+
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
   const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.gh)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore() });
   if (r.kind === "none") return false;
+  if (r.kind === "confirm") {                         // a write to the user's repository: ask first, run only on the tap
+    const id = await shamSavePending(chatId, r.call);
+    await bot.api.sendMessage(chatId, shamConfirmText(r.call), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${id}`).text("❌ ألغِ", `shamno|${id}`) }).catch(() => null);
+    return true;
+  }
   if (r.kind === "reply") { await sendShamReply(bot, chatId, r.reply); return true; }
   const out = r.kind === "ask" ? r.question : r.text;
   await sendShamReply(bot, chatId, { type: "text", text: out });
@@ -847,7 +868,9 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (NOVA_PAUSED) {
-    if (update.callback_query?.id) {
+    if (update.callback_query?.id && /^sham(ok|no)\|/.test(String(update.callback_query.data || ""))) {
+      await handleShamCallback(bot, update.callback_query);                  // the user's tap on a write Sham asked about
+    } else if (update.callback_query?.id) {
       await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
     } else if (update.message?.chat?.id) {
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
@@ -914,7 +937,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   }
   if (update.callback_query) {
     const cqData = String(update.callback_query.data || "");
-    if (cqData.startsWith("nova_plan|")) {
+    if (cqData.startsWith("shamok|") || cqData.startsWith("shamno|")) {
+      await handleShamCallback(bot, update.callback_query);
+    } else if (cqData.startsWith("nova_plan|")) {
       await handleNovaPlanCallback(bot, update.callback_query);
     } else {
       await handleNovaAdminCallback(bot, update.callback_query);
