@@ -249,9 +249,20 @@ class ShamSmallConfig:
     # such key saved, so from_dict() below fills in this exact default
     # for them automatically -- loading an old checkpoint is unaffected.
     output_mult: float = 1.0
+    # Optional attention shapes, all off by default (every existing checkpoint keeps its exact meaning). They exist so that the body of a published
+    # open model can be loaded into Sham's own class: its heads may be wider than d_model / n_heads (head_dim), its q/k/v may carry a bias
+    # (qkv_bias), and it may normalise q and k per head before the rotary step (qk_norm). Nothing else about Sham changes.
+    head_dim: int = 0               # 0 = d_model // n_heads
+    qkv_bias: bool = False
+    qk_norm: bool = False
+
+    @property
+    def hd(self) -> int:
+        """The width of one attention head."""
+        return self.head_dim or self.d_model // self.n_heads
 
     def __post_init__(self):
-        if self.d_model % self.n_heads != 0:
+        if not self.head_dim and self.d_model % self.n_heads != 0:
             raise ValueError(f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})")
         if self.n_heads % self.n_kv_heads != 0:
             raise ValueError(f"n_heads ({self.n_heads}) must be divisible by n_kv_heads ({self.n_kv_heads})")
@@ -314,13 +325,15 @@ class Attention(nn.Module):
         super().__init__()
         self.n_heads = cfg.n_heads
         self.n_kv_heads = cfg.n_kv_heads
-        self.head_dim = cfg.d_model // cfg.n_heads
+        self.head_dim = cfg.hd
         self.n_rep = cfg.n_heads // cfg.n_kv_heads  # query heads sharing each KV head
 
-        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
+        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
         self.o_proj = nn.Linear(cfg.n_heads * self.head_dim, cfg.d_model, bias=False)
+        self.q_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
+        self.k_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
 
     def forward(
         self,
@@ -342,6 +355,8 @@ class Attention(nn.Module):
         # keys left off, not restart at 0 (that would rotate the new
         # token as if it were position 0 again, corrupting every
         # attention score against the real earlier positions).
+        if self.q_norm is not None:
+            q, k = self.q_norm(q), self.k_norm(k)
         offset = past_kv[0].shape[2] if past_kv is not None else 0
         cos_pos = cos[offset : offset + seq_len]
         sin_pos = sin[offset : offset + seq_len]
@@ -448,7 +463,7 @@ class ShamSmall(nn.Module):
             # same weight matrix, used in two different directions.
             self.lm_head.weight = self.token_embedding.weight
 
-        head_dim = cfg.d_model // cfg.n_heads
+        head_dim = cfg.hd
         cos, sin = precompute_rope(head_dim, cfg.max_seq_len, cfg.rope_theta)
         self.register_buffer("rope_cos", cos, persistent=False)
         self.register_buffer("rope_sin", sin, persistent=False)
