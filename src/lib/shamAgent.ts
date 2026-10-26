@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAny, shamGenerateMedia, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAny, shamGenerateMedia, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { SHAM_CODE_NOTE, SHAM_MEMORY_NOTE, brokenCallAttempt, codeNotTried, memoryNotSaved, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
@@ -86,6 +86,7 @@ export async function shamAgentRun(opts: {
     const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
     if (!valid.length) {
       const final = (p.text || text).trim();
+      if (!final) shamNoteFailure(`the Studio answered with empty text (raw: ${JSON.stringify(text).slice(0, 80)})`);
       return final ? { kind: "text", text: final, used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
     }
     const made = valid.find((c) => c.function.name === "make_media");
