@@ -177,7 +177,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         if (!coderHandled) {
           // Sham (old or new) answers on its OWN path: which Sham and the chat's thinking / accuracy / speed settings travel with the call, nothing of Nova's engine is used
           const ctx = await shamContextFor(body).catch(() => null);
-          await shamVariant.run(ctx?.variant || "v1", () => shamModeCtx.run(ctx?.mode || {}, () => handleNovaBotUpdate(bot, botRow, body)));
+          const novaRow = botRow;                                  // narrowed here: the closures below would lose the null check
+          await shamVariant.run(ctx?.variant || "v1", () => shamModeCtx.run(ctx?.mode || {}, () => handleNovaBotUpdate(bot, novaRow, body)));
         }
       } else if (botRow.template === "CONFESSION_BOT") {
         await handleConfessionBotUpdate(bot, botRow, body);
