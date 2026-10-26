@@ -147,40 +147,25 @@ _SERVE_MEDIA = {"image": ("/generate/image", {}, "upload_photo", 120), "audio": 
 
 
 async def _media_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, prompt: str, studio_first: bool = True) -> None:
-    """Studio first (generate_media); when it is busy, off, or cannot make this kind, the same serve.py call as before."""
-    path, extra, action, timeout = _SERVE_MEDIA[kind]
+    """Use only the validated media backends hosted by Sham Studio; never return the legacy token-decoder image/slideshow as a real result."""
+    _, _, action, _ = _SERVE_MEDIA[kind]
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=action)
-    if studio_first and studio_client.enabled():
-        hosted = await asyncio.to_thread(studio_client.generate_media, kind, prompt, timeout=300.0)
-        if studio_client.usable(hosted, kind):
-            await _send_reply(update, hosted, prompt)
-            return
-        # Real motion video must never silently fall back to the legacy frame/slideshow endpoint.
-        if kind == "video":
-            message = hosted.get("text") if isinstance(hosted, dict) else None
-            await update.message.reply_text(
-                message or "❌ تعذّر الوصول إلى مولّد الفيديو الحركي. تحقّق من إعداد HF_VIDEO_SPACE_ID وحالة استوديو LTX-Video."
-            )
-            return
-    elif kind == "video":
+    if not studio_client.enabled():
         await update.message.reply_text(
-            "❌ توليد الفيديو الحركي غير مهيأ. اربط استوديو Hugging Face ZeroGPU الخاص بـ LTX-Video واضبط MODELSCOPE_API_TOKEN."
+            "❌ مولّد الوسائط الحقيقي غير متصل. اضبط MODELSCOPE_API_TOKEN، ثم تأكد من نشر استوديو شام v2 وأوزان SDXS/Piper؛ للفيديو يلزم أيضاً HF_VIDEO_SPACE_ID وHF_TOKEN."
         )
         return
-    try:
-        r = await _post(path, {"prompt": prompt, **extra}, timeout=timeout)
-        if r.status_code >= 400:
-            await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.text[:200]}")
-            return
-        if kind == "image":
-            await update.message.reply_photo(photo=io.BytesIO(r.content), caption=f"🎨 شام: {prompt}")
-        elif kind == "audio":
-            await update.message.reply_audio(audio=io.BytesIO(r.content), filename="sham.wav")
-        else:
-            await update.message.reply_video(video=io.BytesIO(r.content), caption=f"🎬 شام: {prompt}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
-
+    if not studio_first:
+        await update.message.reply_text("❌ لم يُرجع استوديو شام نتيجة وسائط صالحة. تحقّق من /health وحالة الاستوديو ثم أعد المحاولة.")
+        return
+    hosted = await asyncio.to_thread(studio_client.generate_media, kind, prompt, timeout=300.0)
+    if studio_client.usable(hosted, kind):
+        await _send_reply(update, hosted, prompt)
+        return
+    message = hosted.get("text") if isinstance(hosted, dict) else None
+    await update.message.reply_text(
+        ("❌ تعذّر توليد الوسيط المطلوب دون نتيجة صالحة؛ لم أستخدم مفكّك رموز تجريبياً أو عرض شرائح بديلاً. " + (message or "تحقّق من إعدادات مولّد الوسائط وأعد المحاولة."))[:3500]
+    )
 
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
