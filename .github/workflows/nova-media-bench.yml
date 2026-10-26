@@ -1,0 +1,23 @@
+name: "Nova media bench (image and Arabic speech on a free CPU, read-only)"
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install diffusers transformers accelerate safetensors pillow huggingface_hub piper-tts
+      - name: Bench
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: taskset -c 0,1 python scripts/nova-media/bench.py
