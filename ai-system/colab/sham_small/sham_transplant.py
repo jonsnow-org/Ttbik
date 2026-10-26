@@ -195,9 +195,12 @@ def run_native(donor_id: str, out_dir: str | Path, media_init: str = "mean", cod
     m = native_model(hf, max_seq_len, media_init, codebooks, chat_format="qwen3" if "qwen3" in str(donor_id).lower() and not str(donor_id).endswith("-Base") else "")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    save_checkpoint(out / "step_000000.pt", m, 0, extra={"native_tokenizer": True})
+    from sham_tok_id import stamp
+    from text_tokenizer import ShamTextTokenizer
     tok_json = Path(snapshot_download(donor_id, allow_patterns=["tokenizer.json", "tokenizer_config.json"])) / "tokenizer.json"
-    (out / "sham_small_tokenizer.json").write_bytes(tok_json.read_bytes())
+    tok = ShamTextTokenizer.load(str(tok_json))
+    tok.save(str(out / "sham_small_tokenizer.json"))                       # saved by our own class, so the file beside the checkpoint is exactly what the stamp below describes
+    save_checkpoint(out / "step_000000.pt", m, 0, extra={"native_tokenizer": True, **stamp(tok)})
     print(f"native Sham from {donor_id}: {sum(p.numel() for p in m.parameters()) / 1e6:.0f}M parameters, text vocabulary {m.cfg.vocab_size}")
     return out
 

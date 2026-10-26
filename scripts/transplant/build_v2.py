@@ -26,8 +26,45 @@ from text_tokenizer import ShamTextTokenizer                                    
 PROMPTS = ["مرحبا", "كيف حالك؟", "من أنت؟", "اكتب دالة بايثون تجمع رقمين.", "اشرح لي بجملتين ما هو الذكاء الاصطناعي.", "ما عاصمة سوريا؟"]
 
 
+def deployable(out: Path, base_dir: Path) -> Path:
+    """The folder the Studio loads: final_merged.pt (the name its loader prefers), the tokenizer, Sham's own image / audio tokenizers (the media side stays ours),
+    configuration.json (the hub requires it) and the manifest the Studio uses to notice a new version. The checkpoint is stored in bfloat16 (half the size)."""
+    import hashlib
+    import json
+    import shutil
+    dst = Path("/tmp/sham_v2_deploy")
+    shutil.rmtree(dst, ignore_errors=True)
+    dst.mkdir(parents=True)
+    payload = torch.load(out / "step_000000.pt", map_location="cpu", weights_only=False)
+    payload["model_state_dict"] = {k: (v.to(torch.bfloat16) if v.is_floating_point() else v) for k, v in payload["model_state_dict"].items()}
+    torch.save(payload, dst / "final_merged.pt")
+    shutil.copy2(out / "sham_small_tokenizer.json", dst / "sham_small_tokenizer.json")
+    for name in ("image_tokenizer.pt", "audio_tokenizer.pt"):
+        src = next(iter(sorted(base_dir.rglob(name))), None)
+        if src is None:
+            raise RuntimeError(f"{name} not found in the base lineage: Sham's media tokenizers must travel with the checkpoint")
+        shutil.copy2(src, dst / name)
+    (dst / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
+    h = hashlib.sha256()
+    with open(dst / "final_merged.pt", "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 22), b""):
+            h.update(chunk)
+    (dst / "bridge_manifest.json").write_text(json.dumps({"sha": h.hexdigest(), "source": "sham-v2 (donor body in Sham's class)"}), encoding="utf-8")
+    return dst
+
+
+def publish(folder: Path, repo: str) -> None:
+    from modelscope.hub.api import HubApi
+    from modelscope.hub.constants import Visibility
+    api = HubApi()
+    api.login(os.environ["MODELSCOPE_TOKEN"])
+    api.push_model(model_id=repo, model_dir=str(folder), visibility=Visibility.PRIVATE, license="apache-2.0", commit_message="sham v2")
+    print(f"pushed {repo}", flush=True)
+
+
 def main() -> None:
-    donor = sys.argv[1]
+    donor = [a for a in sys.argv[1:] if not a.startswith("--")][0]
+    do_publish = "--publish" in sys.argv
     torch.set_num_threads(os.cpu_count() or 4)
     out = run_native(donor, "/tmp/sham_v2")
     model, step, _ = load_checkpoint(out / "step_000000.pt", map_location="cpu")
@@ -48,6 +85,17 @@ def main() -> None:
             fn = lambda w: float(model(torch.tensor([w]), labels=torch.tensor([w]))[1])   # noqa: E731
             row[k] = P.bpb(fn, tok.encode, text)[0]
     print(f"bits/byte on our text: ar {row['arabic']:.3f} en {row['english']:.3f} code {row['code']:.3f}", flush=True)
+    if do_publish:
+        from sham_ci_merge import pick_base
+        from sham_inputs import fetch_dataset
+        _c, base_dir, label, _p = pick_base(fetch_dataset, probe=None)
+        folder = deployable(out, base_dir)
+        print(f"deployable folder: {[(p.name, round(p.stat().st_size / 1e6)) for p in sorted(folder.iterdir())]}", flush=True)
+        # the folder must load exactly as the Studio will load it
+        import serve
+        serve.load_model(checkpoint_path=str(folder / "final_merged.pt"), tokenizer_path=str(folder / "sham_small_tokenizer.json"))
+        print(f"loaded like the Studio: {serve._state.get('source')} | tokenizer check: {serve._state.get('tokenizer_check')}", flush=True)
+        publish(folder, os.environ.get("SHAM_V2_REPO", "novaai2026/sham-v2"))
 
 
 main()
