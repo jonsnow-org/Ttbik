@@ -23,3 +23,5 @@ media-bot/**/*.pyc
 # a real SQLite file holding hashed keys must never be committed, same
 # as any other credentials store.
 ai-system/colab/sham_small/*.db
+
+__pycache__/
