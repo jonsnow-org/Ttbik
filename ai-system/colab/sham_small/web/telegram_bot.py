@@ -150,19 +150,30 @@ async def _media_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, kind:
     """Use only the validated media backends hosted by Sham Studio; never return the legacy token-decoder image/slideshow as a real result."""
     _, _, action, _ = _SERVE_MEDIA[kind]
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=action)
+    direct_video = None
+    if kind == "video":
+        # Prefer the dedicated LTX Space from the bot host, which can reach Hugging Face even if ModelScope cannot.
+        direct_video = await asyncio.to_thread(studio_client.generate_real_video, prompt, timeout=300.0)
+        if studio_client.usable(direct_video, "video"):
+            await _send_reply(update, direct_video, prompt)
+            return
     if not studio_client.enabled():
+        message = direct_video.get("text") if isinstance(direct_video, dict) else None
         await update.message.reply_text(
-            "❌ مولّد الوسائط الحقيقي غير متصل. اضبط MODELSCOPE_API_TOKEN، ثم تأكد من نشر استوديو شام v2 وأوزان SDXS/Piper؛ للفيديو يلزم أيضاً HF_VIDEO_SPACE_ID وHF_TOKEN."
+            message or "❌ مولّد الوسائط الحقيقي غير متصل. اضبط MODELSCOPE_API_TOKEN، ثم تأكد من نشر استوديو شام v2 وأوزان SDXS/Piper؛ للفيديو يلزم أيضاً HF_VIDEO_SPACE_ID وHF_TOKEN على خادم البوت."
         )
         return
     if not studio_first:
-        await update.message.reply_text("❌ لم يُرجع استوديو شام نتيجة وسائط صالحة. تحقّق من /health وحالة الاستوديو ثم أعد المحاولة.")
+        message = direct_video.get("text") if isinstance(direct_video, dict) else None
+        await update.message.reply_text(message or "❌ لم يُرجع استوديو شام نتيجة وسائط صالحة. تحقّق من /health وحالة الاستوديو ثم أعد المحاولة.")
         return
     hosted = await asyncio.to_thread(studio_client.generate_media, kind, prompt, timeout=300.0)
     if studio_client.usable(hosted, kind):
         await _send_reply(update, hosted, prompt)
         return
     message = hosted.get("text") if isinstance(hosted, dict) else None
+    if not message and isinstance(direct_video, dict):
+        message = direct_video.get("text")
     await update.message.reply_text(
         ("❌ تعذّر توليد الوسيط المطلوب دون نتيجة صالحة؛ لم أستخدم مفكّك رموز تجريبياً أو عرض شرائح بديلاً. " + (message or "تحقّق من إعدادات مولّد الوسائط وأعد المحاولة."))[:3500]
     )
