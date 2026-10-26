@@ -218,3 +218,26 @@ export function shamConfirmText(call: CoderToolCall): string {
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;
   return `🔐 شام يريد أن ينفّذ:\n${what}\n\nهل أسمح له؟`;
 }
+
+// ---------------------------------------------------------------- a long task between legs (the shared background runner: coderRuntime later() + the signed continue route)
+export type ShamRun = { chatId: number; botId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown> };
+let runsReady = false;
+async function runsTable(db: Db): Promise<void> {
+  if (db === prismaDb && runsReady) return;
+  await db.exec(`CREATE TABLE IF NOT EXISTS sham_runs (chat_id BIGINT PRIMARY KEY, data TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  if (db === prismaDb) runsReady = true;
+}
+export async function shamSaveRun(run: ShamRun, db: Db = prismaDb): Promise<void> {
+  await runsTable(db);
+  await db.exec(`INSERT INTO sham_runs (chat_id, data, updated_at) VALUES ($1, $2, now()) ON CONFLICT (chat_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`, run.chatId, JSON.stringify(run));
+}
+/** Takes the saved run out (once). A run older than 2 hours is dropped. */
+export async function shamTakeRun(chatId: number, db: Db = prismaDb): Promise<ShamRun | null> {
+  await runsTable(db);
+  const rows = await db.query<{ data: string }>(`DELETE FROM sham_runs WHERE chat_id = $1 AND updated_at > now() - interval '2 hours' RETURNING data`, chatId);
+  try { return rows[0] ? (JSON.parse(rows[0].data) as ShamRun) : null; } catch { return null; }
+}
+export async function shamDropRun(chatId: number, db: Db = prismaDb): Promise<void> {
+  await runsTable(db);
+  await db.exec(`DELETE FROM sham_runs WHERE chat_id = $1`, chatId);
+}
