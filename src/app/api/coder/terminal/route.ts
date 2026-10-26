@@ -4,6 +4,7 @@ import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
 import { loadState } from "@/lib/coderSections";
 import { prismaDb } from "@/lib/coderAuth";
+import { terminalAllowed } from "@/lib/coderPlans";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   const user = verifyTmaInitData(req.headers.get("x-telegram-init-data") || "", botRow.token);
   if (!user) return NextResponse.json({ error: "open this from Telegram" }, { status: 401, headers: { "Cache-Control": "no-store" } });
 
+  if (!(await terminalAllowed(user.id))) return NextResponse.json({ error: "not available on this plan", hidden: true }, { status: 403, headers: { "Cache-Control": "no-store" } });   // free plan: no terminal (owner and paid plans only)
   const q = req.nextUrl.searchParams;
   const runId = String(q.get("runId") || "").slice(0, 64);
   const after = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));

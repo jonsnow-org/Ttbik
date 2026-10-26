@@ -32,6 +32,15 @@ export const DEFAULT_PLANS: Plan[] = [
 ];
 
 /** Later: a payment integration implements this (checkout link for a plan, webhook that activates the subscription). None is wired now. */
+/** The terminal (live task logs, Mini App tab) is for the owner always and for paid plans only; the free plan does not see it (owner's order, 2026-10-26). */
+export async function terminalAllowed(chatId: number | string, db: Db = prismaDb): Promise<boolean> {
+  if (tierFor(Number(chatId)) === "owner") return true;
+  const sub = await getSubscription(chatId, db);
+  if (sub.plan_id === "free") return false;
+  const plan = (await listPlans(db)).find((p) => p.id === sub.plan_id);
+  return Boolean(plan && plan.sort > 0 && plan.active);
+}
+
 export interface PaymentProvider {
   id: string;
   checkoutUrl(userId: number, plan: Plan, returnUrl: string): Promise<string>;
