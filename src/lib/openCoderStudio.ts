@@ -294,9 +294,7 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham" || opts.model === "sham_loop" || opts.model === "sham_v2") {                // the chosen Sham, in the engine: the old one (v1 body) or the new one (v2 body, its own Studio)
-    return shamVariant.run(opts.model === "sham_v2" ? "v2" : "v1", () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools, mode: { accuracy: opts.accuracy, think: opts.think, thinkCap: opts.thinkCap, temperature: opts.temperature } }));
-  }
+  if (opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools });   // Sham as Nova's helper agent (role sham, with tools). Sham as a CHOSEN model never comes here: it runs on its own path (novaBotLogic)
   if (opts.model === "sham_probe") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham): the task as a plain question
   return coderCall(
     "chat",

@@ -47,7 +47,7 @@ describe("mini app api", () => {
     expect([st.mode, st.tz, st.repo]).toEqual(["coder", "Europe/Istanbul", "o/r"]);
     // the owner's pick is the single switch: choosing Sham moves the section with it, choosing Nova AI moves it back
     await appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "sham" }, { db, bot, botRow });
-    expect([(await loadState(OWNER, db)).mode, (await loadState(OWNER, db)).model]).toEqual(["coder", "sham"]);
+    expect([(await loadState(OWNER, db)).mode, (await loadState(OWNER, db)).model]).toEqual(["sham", "sham"]);
     await appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "coder" }, { db, bot, botRow });
     expect([(await loadState(OWNER, db)).mode, (await loadState(OWNER, db)).model]).toEqual(["coder", "coder"]);
     await expect(appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "nova_pro" }, { db, bot, botRow })).rejects.toBeInstanceOf(AppError);     // removed: not even the owner can pick it
