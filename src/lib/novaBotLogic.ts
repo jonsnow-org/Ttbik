@@ -777,7 +777,8 @@ async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply 
     // a short clip from the model's own image tokens (sham_studio_media, video/mp4); the caption is the Studio's own line
     await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"), reply.text ? { caption: reply.text.slice(0, 1000) } : {}).catch(() => null);
   } else if (reply.text) {
-    await bot.api.sendMessage(chatId, reply.text.slice(0, 3500)).catch(() => null);
+    // a long answer arrives in several messages (Telegram allows ~4096 characters each) instead of being cut
+    for (let i = 0; i < Math.min(reply.text.length, 12000); i += 3500) await bot.api.sendMessage(chatId, reply.text.slice(i, i + 3500)).catch(() => null);
   }
 }
 
