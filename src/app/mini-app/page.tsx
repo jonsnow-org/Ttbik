@@ -1146,7 +1146,7 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="min-h-screen bg-[#eaf6ff] pb-24 text-slate-800">
+    <div className="min-h-screen bg-gradient-to-b from-sky-100 via-slate-50 to-indigo-50 pb-24 text-slate-800 selection:bg-sky-200">
       
       {showTopBtn && (
         <button
@@ -1170,7 +1170,7 @@ export default function MiniAppPage() {
             </button>); })}
         </div>
       </nav>
-      <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/75 px-4 pb-1.5 pt-1.5 backdrop-blur-2xl">
+      <header className="sticky top-0 z-20 border-b border-white/70 bg-white/75 px-4 pb-1.5 pt-1.5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] backdrop-blur-2xl">
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
