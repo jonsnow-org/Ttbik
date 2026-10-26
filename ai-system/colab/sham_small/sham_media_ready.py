@@ -27,7 +27,8 @@ def inspect_ready_assets(model_dir: str | Path | None) -> dict:
     if not model_dir:
         return {"ready": False, "root": "", "image_bytes": 0, "audio_bytes": 0, "reason": "model directory missing"}
     base = Path(model_dir)
-    for cand in (base / "media", *base.rglob("media")):
+    # The publishing workflow guarantees a single root-level media/ folder; avoid a full recursive walk of the 8 GiB snapshot.
+    for cand in (base / "media",):
         sdxs = cand / "sdxs"
         piper = cand / "piper"
         if not sdxs.is_dir() or not piper.is_dir():
