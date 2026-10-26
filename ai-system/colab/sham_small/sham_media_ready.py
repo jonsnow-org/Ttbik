@@ -166,7 +166,7 @@ def _validate_mp4(path: Path) -> tuple[bytes, float]:
     metadata = probe.stderr or ""
     if probe.returncode != 0 or "Video:" not in metadata:
         raise RuntimeError("ملف MP4 الناتج غير قابل للفك أو لا يحتوي مسار فيديو.")
-    match = re.search(r"Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)", metadata)
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", metadata)
     duration = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + float(match.group(3)) if match else 0.0
     if duration < 0.5:
         raise RuntimeError("الفيديو الناتج لا يحتوي مدة تشغيل صالحة.")
