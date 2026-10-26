@@ -151,7 +151,7 @@ def run(donor_id: str, out_dir: str | Path, sham_tok_json: str | Path, max_seq_l
     stats = fill_embeddings(m, hf.get_input_embeddings().weight.detach().float(), dtok, sham_tok_json)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    save_checkpoint(out / "step_000000.pt", m, 0, extra={"transplant": {"donor": donor_id, **stats}})
+    save_checkpoint(out / "step_000000.pt", m, 0, extra={"transplant": stats})
     print(f"transplanted {donor_id}: {sum(p.numel() for p in m.parameters()) / 1e6:.0f}M parameters; embeddings {stats}")
     return out
 
