@@ -102,10 +102,15 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
     text = f"<|im_start|>system\n{QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
     end = tokenizer.encode("<|im_end|>")[-1]
+    from sham_toolcall import ToolCallGuard, repair_call, tool_names_from_prompt
+    guard = ToolCallGuard(tokenizer, tool_names_from_prompt(prompt)) if _on("SHAM_TOOLCALL_GUARD") else None      # tools in the prompt: a call is held to a valid shape (sham_toolcall.py)
+    use = bool(guard and guard.usable)
     out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9,
-                          eos_id=end, repetition_penalty=1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens)
+                          eos_id=end, repetition_penalty=1.0 if use else 1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
+                          stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None)
     new = [i for i in out[0, ids.shape[1]:].tolist() if i != end and i < tokenizer.vocab_size]
-    return tokenizer.decode(new).strip()
+    text = tokenizer.decode(new).strip()
+    return repair_call(text) if use else text
 
 
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:

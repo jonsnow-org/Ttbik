@@ -48,3 +48,42 @@ describe("Sham gets Nova's tools as text", () => {
     global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_TOOLS;
   });
 });
+
+import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, shamCorrectionNote, validateShamCall } from "@/lib/shamTools";
+
+describe("Sham's calls are checked before they run, and wrong ones go back to Sham", () => {
+  const call = (name: string, args: unknown) => ({ id: "1", type: "function" as const, function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) } });
+  it("accepts a sound call and names every problem of a bad one", () => {
+    expect(validateShamCall(call("github_read_file", { repo: "o/r", path: "a.ts" }), tools)).toBeNull();
+    expect(validateShamCall(call("github_read_file", { repo: "o/r" }), tools)).toMatch(/«path» ناقص/);
+    expect(validateShamCall(call("github_read_file", { repo: "", path: "a" }), tools)).toMatch(/«repo» ناقص/);
+    expect(validateShamCall(call("github_read_file", { repo: 5, path: "a" }), tools)).toMatch(/«repo» يجب أن يكون من نوع string/);
+    expect(validateShamCall(call("github_read_file", { repo: "o/r", path: "a", bogus: 1 }), tools)).toMatch(/«bogus» غير موجود/);
+    expect(validateShamCall(call("github_read_file", "{oops"), tools)).toMatch(/ليست JSON/);
+    expect(validateShamCall(call("nope", {}), tools)).toMatch(/غير محمّلة/);
+  });
+  it("tells a broken call attempt from plain words, and the correction note carries the reason and the ask_user rule", () => {
+    expect(brokenCallAttempt('<tool_call>{"name": "x"</tool_call>')).toBe(true);
+    expect(brokenCallAttempt("جواب عادي")).toBe(false);
+    expect(shamCorrectionNote(["github_read_file: «path» ناقص."])).toMatch(/«path» ناقص[\s\S]*ask_user/);
+  });
+  it("notices code that was written but not tried in the computer", () => {
+    const code = "هذا الحل:\n```python\ndef add(a, b):\n    return a + b\n```";
+    const user: any[] = [{ role: "user", content: "اكتب دالة جمع" }];
+    expect(codeNotTried(code, user, tools)).toBe(true);
+    expect(codeNotTried("جواب بلا كود", user, tools)).toBe(false);
+    expect(codeNotTried(code, [...user, { role: "tool", name: "sandbox_exec", content: "ok" }], tools)).toBe(false);
+    expect(codeNotTried(code, user, tools.filter((t) => !t.function.name.startsWith("sandbox_")))).toBe(false);
+    expect(SHAM_CODE_NOTE).toMatch(/sandbox_exec/);
+  });
+  it("shamAsModel sends a wrong call back once and uses the corrected one", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_TOOLS = "on";
+    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+    const prompts: string[] = []; const answers = ['<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r"}}</tool_call>', '<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"a.ts"}}</tool_call>'];
+    global.fetch = (async (url: string, init: any) => { if (/call\/v2\//.test(url)) { prompts.push(String(init?.body)); return { ok: true, json: async () => ({ event_id: "e" }) } as any; } return { ok: true, text: async () => body({ type: "text", text: answers[Math.min(prompts.length - 1, 1)] }) } as any; }) as any;
+    const o = await shamAsModel([{ role: "user", content: "اقرأ a.ts في o/r" }], { conversation: true, tools });
+    expect(prompts).toHaveLength(2); expect(prompts[1]).toMatch(/تصحيح من المحرك/);
+    expect(JSON.parse(o.reply!.tool_calls![0].function.arguments)).toEqual({ repo: "o/r", path: "a.ts" });
+    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_TOOLS;
+  });
+});

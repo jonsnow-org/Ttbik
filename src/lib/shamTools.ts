@@ -13,7 +13,7 @@ export function shamToolsEnabled(): boolean {
   return t === "on" || t === "1" || (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open";
 }
 
-const FORMAT_LINE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.';
+const FORMAT_LINE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن. وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.';
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
 export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
@@ -71,3 +71,64 @@ export function shamToolConversation(messages: CoderMessage[], tools: CoderTool[
   const room = Math.max(400, opts.maxChars - head.length - 6);
   return `${head}${body.length > room ? body.slice(-room) : body}\nشام:`;
 }
+
+
+type Schema = { type?: string; enum?: unknown[] };
+const typeOk = (v: unknown, t?: string): boolean => {
+  if (!t) return true;
+  if (t === "string") return typeof v === "string";
+  if (t === "number" || t === "integer") return typeof v === "number" && (t === "number" || Number.isInteger(v));
+  if (t === "boolean") return typeof v === "boolean";
+  if (t === "array") return Array.isArray(v);
+  if (t === "object") return typeof v === "object" && v !== null && !Array.isArray(v);
+  return true;
+};
+
+/** Checks a call BEFORE it runs: a loaded tool, a JSON object of arguments, every required argument present and non-empty, types and enums right, no unknown names.
+ *  Returns the error to hand back to Sham (it corrects itself) or null when the call is sound. */
+export function validateShamCall(call: CoderToolCall, tools: CoderTool[]): string | null {
+  const tool = tools.find((t) => t.function.name === call.function.name);
+  if (!tool) return `الأداة ${call.function.name} غير محمّلة.`;
+  let args: unknown;
+  try { args = JSON.parse(call.function.arguments || "{}"); } catch { return `معاملات ${call.function.name} ليست JSON صحيحاً.`; }
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return `معاملات ${call.function.name} يجب أن تكون كائناً {…}.`;
+  const a = args as Record<string, unknown>;
+  const params = tool.function.parameters as { properties?: Record<string, Schema>; required?: string[] } | undefined;
+  const props = params?.properties || {};
+  const problems: string[] = [];
+  for (const k of params?.required || []) {
+    const v = a[k];
+    if (v === undefined || v === null || (typeof v === "string" && !v.trim())) problems.push(`المعامل المطلوب «${k}» ناقص`);
+  }
+  for (const [k, v] of Object.entries(a)) {
+    const sch = props[k];
+    if (!sch) { if (Object.keys(props).length) problems.push(`المعامل «${k}» غير موجود في ${call.function.name}`); continue; }
+    if (!typeOk(v, sch.type)) problems.push(`المعامل «${k}» يجب أن يكون من نوع ${sch.type}`);
+    else if (sch.enum && !sch.enum.includes(v)) problems.push(`المعامل «${k}» يقبل فقط: ${sch.enum.join(" | ")}`);
+  }
+  return problems.length ? `${call.function.name}: ${problems.join("؛ ")}.` : null;
+}
+
+/** A `<tool_call>` that is still in the words after parsing is a call Sham tried to write and did not get right (bad JSON, unknown tool). */
+export function brokenCallAttempt(leftover: string): boolean {
+  return /<tool_call>/.test(leftover);
+}
+
+/** What the engine tells Sham when its call cannot run. Not an answer to the user: only the reason, so the model rewrites the call (or asks the user for what is missing). */
+export function shamCorrectionNote(problems: string[]): string {
+  return `[تصحيح من المحرك] لم يُنفَّذ الاستدعاء: ${problems.join(" ")} أعد كتابته صحيحاً بالصيغة <tool_call>{"name": "...", "arguments": {...}}</tool_call>. وإن كانت المعلومة الناقصة عند المستخدم فاسأله بـ ask_user بدل التخمين.`;
+}
+
+const CODE_FENCE = /```(?:python|py|js|javascript|ts|typescript|bash|sh|java|c|cpp|go|rust)\b[\s\S]{20,}?```/i;
+
+/** Sham wrote code in its answer but never ran it in the computer during this request, although the computer's tools are loaded. */
+export function codeNotTried(text: string, messages: CoderMessage[], tools: CoderTool[]): boolean {
+  if (!CODE_FENCE.test(text)) return false;
+  const names = new Set(tools.map((t) => t.function.name));
+  if (!names.has("sandbox_exec") || !names.has("sandbox_write_file")) return false;
+  let i = messages.length - 1;
+  while (i >= 0 && !(messages[i].role === "user" && !String((messages[i] as { content?: string }).content || "").startsWith("[harness]"))) i--;
+  return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "sandbox_exec");
+}
+
+export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه. اكتبه في ملف بـ sandbox_write_file ثم شغّله بـ sandbox_exec، وأصلح ما يفشل، وبعدها أجب.";

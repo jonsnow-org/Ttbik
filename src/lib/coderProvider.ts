@@ -5,7 +5,7 @@
 //   NOVA_PRO_API_URL (default https://api-inference.modelscope.cn/v1).
 import type { CoderMessage, CoderOutcome, CoderReply, CoderTool } from "@/lib/openCoderStudio";
 import { shamGenerateAny, shamStudioEnabled } from "@/lib/shamStudio";
-import { parseShamToolCalls, shamToolConversation, shamToolsEnabled } from "@/lib/shamTools";
+import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, shamToolsEnabled, validateShamCall } from "@/lib/shamTools";
 
 export const PROVIDER_JOB_PREFIX = "p~";
 
@@ -81,8 +81,21 @@ export async function shamAsModel(messages: CoderMessage[], opts: { maxTokens?: 
   const job = `${PROVIDER_JOB_PREFIX}sham${Date.now().toString(36)}`;
   if (r.type === "text" && (r.text || "").trim()) {
     if (withTools) {
-      const p = parseShamToolCalls(String(r.text), opts.tools!);
-      return { reply: { type: "done", job, text: p.text, tool_calls: p.calls } };
+      // The engine checks the call before it runs; a wrong or incomplete one goes back to Sham with the reason (up to two corrections), no training needed.
+      let text = String(r.text);
+      let p = parseShamToolCalls(text, opts.tools!);
+      for (let fix = 0; fix < 2; fix++) {
+        const problems = p.calls.map((c) => validateShamCall(c, opts.tools!)).filter((e): e is string => Boolean(e));
+        if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
+        const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools!) ? SHAM_CODE_NOTE : "";
+        if (!note) break;
+        const again = await shamGenerateAny(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, Math.min(SHAM_LIM.maxNew, Math.max(20, opts.maxTokens || 160)), opts.timeoutMs ?? 55000);
+        if (!again || again.type !== "text" || !(again.text || "").trim()) break;
+        text = String(again.text); p = parseShamToolCalls(text, opts.tools!);
+      }
+      const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools!));
+      if (!valid.length && !p.text.trim()) return { reply: null, failure: "unreadable" };         // still no usable call after the corrections: the engine's own fallback decides
+      return { reply: { type: "done", job, text: p.text, tool_calls: valid } };
     }
     return { reply: { type: "done", job, text: String(r.text).trim(), tool_calls: [] } };
   }
