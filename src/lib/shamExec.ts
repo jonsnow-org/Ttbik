@@ -253,3 +253,24 @@ export async function shamClaimUpdate(chatId: number, updateId: number | undefin
     return rows.length > 0;
   } catch { return true; }
 }
+
+// ---------------------------------------------------------------- which media path comes first (the owner's switch in the Mini App panel)
+export type ShamMediaOrder = "reserve_first" | "own_first";
+let settingsReady = false;
+async function settingsTable(db: Db): Promise<void> {
+  if (db === prismaDb && settingsReady) return;
+  await db.exec(`CREATE TABLE IF NOT EXISTS sham_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  if (db === prismaDb) settingsReady = true;
+}
+/** reserve_first (default): the shared media Studio first, Sham's own weights as the second path. own_first: Sham's own weights first, the media Studio on failure. */
+export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder> {
+  try {
+    await settingsTable(db);
+    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_order'`);
+    return r[0]?.value === "own_first" ? "own_first" : "reserve_first";
+  } catch { return "reserve_first"; }
+}
+export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb): Promise<void> {
+  await settingsTable(db);
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_order', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
+}

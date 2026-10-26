@@ -8,6 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
+import { shamMediaOrder } from "@/lib/shamExec";
 import { shamGenerateAny, shamGenerateMedia, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
@@ -71,18 +72,21 @@ export async function shamAgentRun(opts: {
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
     return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
   };
-  // Sham makes pictures / speech / clips with ITS OWN weights (its Studio) first. Only when that fails (no answer, error, busy, loading) is the shared media Studio
-  // (nova-media-server) tried as the reserve path (owner's order, 2026-10-26).
+  // Two media paths, in the order the owner chose in the Mini App panel (shamMediaOrder): the shared media Studio (nova-media-server, ready trained models) and
+  // Sham's own weights (its Studio). The first is tried; only a technical failure (no answer, error, busy, loading) moves on to the second.
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> => {
     const total = Math.min(240000, Math.max(20000, left() - 3000));
     const nm = await import("@/lib/novaMedia");
     const reserve = nm.novaMediaEnabled();
-    const own = await shamGenerateMedia(k, pr, reserve ? Math.max(20000, Math.min(150000, total - 60000)) : total);
-    if (own && (own.type === "image" || own.type === "audio" || own.type === "video") && own.b64) return own;
-    if (!reserve) return own;
-    const r = await nm.novaMakeMedia(k, pr, { timeoutMs: Math.max(20000, total - 20000) });
-    if (r && r.type !== "error") return r as ShamReply;
-    return own || (r ? ({ type: "text", text: `تعذّر توليد ${k === "image" ? "الصورة" : k === "audio" ? "الصوت" : "المقطع"}: ${r.text || ""}` } as ShamReply) : null);
+    const order = reserve ? await shamMediaOrder() : "own_first";
+    const good = (r: ShamReply | null): r is ShamReply => Boolean(r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64);
+    const viaStudio = async (ms: number): Promise<ShamReply | null> => { const r = await nm.novaMakeMedia(k, pr, { timeoutMs: ms }); return r && r.type !== "error" ? (r as ShamReply) : null; };
+    const first = order === "reserve_first" ? "studio" : "own";
+    const a = first === "studio" ? await viaStudio(Math.max(20000, Math.min(150000, total - 60000))) : await shamGenerateMedia(k, pr, reserve ? Math.max(20000, Math.min(150000, total - 60000)) : total);
+    if (good(a)) return a;
+    if (!reserve) return a;
+    const b = first === "studio" ? await shamGenerateMedia(k, pr, Math.max(20000, total - 20000)) : await viaStudio(Math.max(20000, total - 20000));
+    return good(b) ? b : (a || b);
   };
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
