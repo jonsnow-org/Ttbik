@@ -75,8 +75,14 @@ export async function GET(req: NextRequest) {
     const headers: Record<string, string> = {
       "content-type": mediaResp.headers.get("content-type") || fallbackType,
       "cache-control": "public, max-age=3600, immutable",
-      "accept-ranges": "bytes",
     };
+    // Only advertise byte-range support when the upstream actually provides
+    // it. Some Telegram/CDN responses ignore Range and return the full file
+    // with 200; claiming accept-ranges in that case confuses mobile WebViews.
+    const upstreamRanges = mediaResp.headers.get("accept-ranges");
+    if (mediaResp.status === 206 || upstreamRanges?.toLowerCase() === "bytes") {
+      headers["accept-ranges"] = "bytes";
+    }
     const len = mediaResp.headers.get("content-length");
     if (len) headers["content-length"] = len;
     const contentRange = mediaResp.headers.get("content-range");
