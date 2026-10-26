@@ -32,6 +32,7 @@ COPY (held-out check, then the usual publish + merge gate): the served weights
 never change. /ask/audio (sham_media_ask.py) is the sound counterpart.
 """
 
+import base64
 import io
 import os
 import subprocess
@@ -40,7 +41,7 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 from pydantic import BaseModel
@@ -204,6 +205,38 @@ class VideoRequest(BaseModel):
     num_frames: int = 2
 
 
+def _ready_media_root() -> Path | None:
+    """Resolve the actual pretrained SDXS/Piper bundle, not Sham token-decoder weights."""
+    from sham_media_ready import ready_root
+
+    configured = os.environ.get("SHAM_MEDIA_ROOT", "").strip()
+    if configured:
+        root = Path(configured)
+        if (root / "sdxs").is_dir() or (root / "piper").is_dir():
+            return root
+        found = ready_root(root)
+        if found is not None:
+            return found
+        return None
+    checkpoint = _state.get("checkpoint_path")
+    return ready_root(Path(checkpoint).parent) if checkpoint else None
+
+
+def _real_media_response(kind: str, prompt: str) -> Response:
+    """Return only a verified real-media backend result; never fall back to noisy token decoding or a slideshow."""
+    from sham_media_ready import make
+
+    result = make(_ready_media_root(), kind, prompt)
+    if result.get("type") != kind or not result.get("b64"):
+        raise HTTPException(status_code=503, detail=result.get("text") or "مولّد الوسائط الحقيقي غير متاح أو لم يُرجع ملفاً صالحاً.")
+    try:
+        raw = base64.b64decode(result["b64"], validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="مولّد الوسائط أرجع بيانات ملف غير صالحة.") from exc
+    mime = {"image": "image/png", "audio": "audio/wav", "video": "video/mp4"}[kind]
+    return Response(content=raw, media_type=mime)
+
+
 class MedicalGenerationRequest(BaseModel):
     """Free-form medical image generation: no fixed category gate."""
     prompt: str
@@ -247,78 +280,18 @@ def generate_text_endpoint(req: TextRequest) -> dict:
 
 @app.post("/generate/image")
 def generate_image_endpoint(req: MediaRequest) -> Response:
-    model: ShamSmall = _state["model"]
-    tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
-    image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
-
-    prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
-    tokens_per_image = image_tokenizer.cfg.tokens_per_image
-    sequence = generate_image(model, prompt_ids, tokens_per_image=tokens_per_image, top_k=40)
-    raw_tokens = extract_image_tokens(sequence, tokens_per_image)
-    grid_size = image_tokenizer.cfg.latent_grid_size
-    grid = raw_tokens.view(1, grid_size, grid_size)
-
-    with torch.no_grad():
-        decoded = image_tokenizer.decode(grid)[0]  # (3, H, W) in [-1, 1]
-    pixels = ((decoded.clamp(-1, 1) + 1) * 127.5).byte().permute(1, 2, 0).numpy()
-    image = Image.fromarray(pixels, mode="RGB")
-
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return Response(content=buffer.getvalue(), media_type="image/png")
+    return _real_media_response("image", req.prompt)
 
 
 @app.post("/generate/audio")
 def generate_audio_endpoint(req: MediaRequest) -> Response:
-    model: ShamSmall = _state["model"]
-    tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
-    audio_tokenizer: AudioTokenizer = _state["audio_tokenizer"]
-
-    prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
-    tokens_per_segment = audio_tokenizer.cfg.tokens_per_segment
-    sequence = generate_audio(model, prompt_ids, tokens_per_segment=tokens_per_segment, top_k=40)
-    raw_tokens = extract_audio_tokens(sequence, tokens_per_segment)
-    grid = raw_tokens.view(1, audio_tokenizer.cfg.latent_mel_bins, audio_tokenizer.cfg.latent_time_steps)
-
-    with torch.no_grad():
-        mel = audio_tokenizer.decode(grid)[0]  # (1, n_mels, segment_frames) in [-1, 1]
-    waveform = mel_spectrogram_to_waveform(mel, _SAMPLE_RATE, n_fft=256, hop_length=64, griffin_lim_iters=16)
-
-    buffer = io.BytesIO()
-    sf.write(buffer, waveform.numpy(), _SAMPLE_RATE, format="WAV")
-    return Response(content=buffer.getvalue(), media_type="audio/wav")
+    return _real_media_response("audio", req.prompt)
 
 
 @app.post("/generate/video")
 def generate_video_endpoint(req: VideoRequest) -> Response:
-    model: ShamSmall = _state["model"]
-    tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
-    image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
-
-    prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
-    tokens_per_image = image_tokenizer.cfg.tokens_per_image
-    sequence = generate_video(model, prompt_ids, num_frames=req.num_frames, tokens_per_image=tokens_per_image, top_k=40)
-
-    video_span = sequence[:, prompt_ids.shape[1]:]
-    with torch.no_grad():
-        frames = decode_video(image_tokenizer, video_span, num_frames=req.num_frames)[0]  # (num_frames, 3, H, W)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        for i, frame in enumerate(frames):
-            pixels = ((frame.clamp(-1, 1) + 1) * 127.5).byte().permute(1, 2, 0).numpy()
-            Image.fromarray(pixels, mode="RGB").save(tmp / f"frame_{i:04d}.png")
-
-        output_path = tmp / "out.mp4"
-        subprocess.run(
-            [_FFMPEG, "-y", "-framerate", "2", "-i", str(tmp / "frame_%04d.png"),
-             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(output_path)],
-            check=True, capture_output=True,
-        )
-        video_bytes = output_path.read_bytes()
-
-    return Response(content=video_bytes, media_type="video/mp4")
-
+    # The external LTX-Video backend generates temporal motion; num_frames belongs to the retired token-decoder path.
+    return _real_media_response("video", req.prompt)
 
 @app.post("/generate/medical/image")
 def generate_medical_image_endpoint(req: MedicalGenerationRequest) -> Response:
