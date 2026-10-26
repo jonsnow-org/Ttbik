@@ -16,11 +16,12 @@ describe("coder models", () => {
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham_loop"]);                       // Nova Pro is gone; Nova 1 is Nova AI's own improvement, not an entry
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham_loop", "sham"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "sham_loop", false).id).toBe("coder");                    // a user cannot use a hidden one
     expect(effectiveModel(all, "sham_loop", true).id).toBe("sham_loop");                 // the owner can try it
-    expect(effectiveModel(all, "sham", true).id).toBe("sham_loop");                      // an old id means the one Sham
+    expect(effectiveModel(all, "sham", true).id).toBe("sham");                           // the old direct Sham is its own entry
+    expect(effectiveModel(all, "sham_v2", true).id).toBe("sham_loop");                   // the former "Sham v2" id means the engine Sham
     await updateModel("coder", { visible: false }, db);                                  // the default cannot be hidden
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(true);
     await expect(updateModel("nope", { visible: true }, db)).rejects.toThrow();

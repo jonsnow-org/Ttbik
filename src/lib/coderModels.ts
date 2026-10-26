@@ -18,9 +18,10 @@ export type CoderModel = {
 };
 
 export const DEFAULT_MODELS: CoderModel[] = [
-  // The order here is the order in the picker. ONE Sham only: its abilities and its body (old / new) change behind this entry (SHAM_BODY), never as another entry. Each description says what the model is FOR and where it stands today (kept true to what was measured).
+  // The order here is the order in the picker. Sham (the engine one) gets every new ability and its body (old / new) changes behind it (SHAM_BODY), never as another entry; the old direct Sham stays as its own entry only to measure its training. Each description says what the model is FOR and where it stands today (kept true to what was measured).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية. يتحسّن بتدريب خاص بنا على الكود والأدوات (Nova 1) يُستبدَل به حين يجهز.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode. Improved by our own training on code and tools (Nova 1), which replaces its weights when ready." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
   { id: "sham_loop", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذجنا الذي بنيناه بأنفسنا، يعمل داخل محرّك Nova: يبحث ويستعمل الأدوات ويتتبّع المهام الطويلة ويصبر عند الانقطاع. لم يكتمل تدريبه بعد، فردوده ما زالت أضعف من Nova AI.", en: "Our own model, built from scratch, running inside Nova's engine: searches, uses tools, tracks long tasks and is patient on outages. Training is not finished, so its replies are still weaker than Nova AI." }, price_stars: null, visible: false, ownerOnly: true, sort: 1 },
+  { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "شام القديم بالطريقة المباشرة القديمة، نتركه لقياس مدى تقدّم تدريبه كل فترة. بلا أدوات Nova وبمهلة قصيرة، وردوده ما زالت ضعيفة.", en: "The old Sham on the old direct path, kept to measure how far its training has come from time to time. No Nova tools, a short time limit, replies still weak." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 2 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -78,11 +79,11 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 }
 
 /** Can this model answer right now (its Studio / key is set)? A model that is switched on for everyone but is not ready is still hidden from users. */
-/** Older chats may hold the ids of the former separate Sham entries: they are the one Sham now. */
-export const canonModelId = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" ? "sham_loop" : id);
+/** Older chats may hold the id of the former separate "Sham v2" entry: that is the one Sham (engine) now. The old direct Sham keeps its own entry on purpose: it is how its training progress is measured. */
+export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_v2" ? "sham_loop" : id);
 
 export function modelReady(m: CoderModel): boolean {
-  if (m.isDefault) return true;
+  if (m.isDefault || m.id === "sham") return true;
   if (m.id === "sham_loop") return shamStudioEnabled();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
@@ -114,6 +115,6 @@ export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, mode
   if (!m || !(owner || openToUsers(m))) return false;
   if (m.id === "sham_loop" && !shamStudioEnabled()) return false;                // needs Sham's Studio token
   st.model = m.id;
-  st.mode = "coder";                                          // the old direct Sham path is no longer offered: every model runs in the engine
+  st.mode = m.id === "sham" ? "sham" : "coder";               // the old direct Sham path keeps its own section
   return true;
 }
