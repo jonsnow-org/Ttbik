@@ -3,43 +3,25 @@
 //   - its own tool selection (SHAM_TOOL_NAMES below: what Sham may use, chosen here, not by Nova's tool-group loader),
 //   - its own correction rounds (a wrong call goes back to Sham with the reason: validateShamCall), its own time budget and step limit,
 //   - its own Studio (shamGenerateAny: the old or the new body, whichever the chat chose; its thinking / accuracy / speed settings ride with every call).
-// What it shares with Nova is only the plain executor functions that actually fetch a web page, read a GitHub file or write a memory (runTool in coderAgent.ts):
-// library code, like `fetch`; no Nova model, no Nova prompt, no Nova Studio and no Nova run state is touched.
-// Phase 1: web, GitHub reading, memory, schedules and "ask the user". Phase 2 (here): Sham's own virtual computer (its own VM per chat, named `sham:…`, never Nova's):
-// clone, run, write, edit, search, read. Pushing / opening PRs needs the user's approval flow and comes with the continuation phase.
-import { GITHUB_TOOLS, ASK_USER_TOOL, githubClient, runTool, toolGroups, type ToolCtx } from "@/lib/coderAgent";
-import { prismaDb, resolveConnections, tierFor, coderChatKey, type Db } from "@/lib/coderAuth";
+// Its tools and their executors are Sham's own too (shamExec.ts): the guarded web fetch, the VM driver, memory and schedules are called as plain libraries,
+// GitHub is spoken to directly; the VM, memory scope and run id are Sham's (`sham:<chat>` / `sham-<chat>`), never Nova's. No Nova engine, prompt, Studio or run state is touched.
+// A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
-import { shamGenerateAny, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
+import { shamGenerateAny, shamGenerateMedia, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
-/** What Sham may use in this phase. */
-export const SHAM_TOOL_NAMES = [
-  "web_search", "fetch_page", "web_fetch", "deep_research",
-  "github_read_file", "github_list_files", "github_repo_scan", "github_search_code",
-  "memory_save", "memory_search", "memory_note",
-  "schedule_create", "schedule_list", "schedule_delete",
-  "sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file",
-  "ask_user",
-] as const;
-
-/** The tool definitions Sham is shown: the names above that exist, GitHub only when this chat can read it. */
-export function shamToolDefs(github: boolean): CoderTool[] {
-  const all = [...Object.values(toolGroups(github, false)).flat(), ...(github ? GITHUB_TOOLS : []), ASK_USER_TOOL];
-  const seen = new Set<string>();
-  const out: CoderTool[] = [];
-  for (const n of SHAM_TOOL_NAMES) {
-    const t = all.find((x) => x.function.name === n);
-    if (t && !seen.has(n)) { seen.add(n); out.push(t); }
-  }
-  return out;
-}
+/** What Sham may use: its own tools (shamExec.ts). */
+export const SHAM_TOOL_NAMES = SHAM_TOOLS.map((t) => t.function.name);
+/** The tool definitions Sham is shown: GitHub ones only when this chat can use it. */
+export const shamToolDefs = shamTools;
 
 export type ShamAgentResult =
   | { kind: "text"; text: string; used: string[]; steps: number }
   | { kind: "ask"; question: string; used: string[]; steps: number }
   | { kind: "reply"; reply: ShamReply; used: string[]; steps: number }       // Sham answered with a picture / sound / clip of its own: the caller sends it
+  | { kind: "confirm"; call: CoderToolCall; used: string[]; steps: number }   // a write to the user's repository: the user is asked before it runs
   | { kind: "none"; used: string[]; steps: number };                          // the Studio did not answer in the time left
 
 export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Promise<ShamReply | null>;
@@ -49,14 +31,15 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s
 export async function shamAgentRun(opts: {
   text: string;
   history?: { q: string; a: string }[];
-  ctx: ToolCtx;
+  ctx: ShamCtx;
   tools: CoderTool[];
   budgetMs: number;
   maxSteps?: number;
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
-  exec?: (call: CoderToolCall, ctx: ToolCtx) => Promise<string>;
+  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // Sham's own media models (default: shamGenerateMedia)
+  exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
 }): Promise<ShamAgentResult> {
   const now = opts.now || Date.now;
@@ -65,7 +48,7 @@ export async function shamAgentRun(opts: {
   const k = shamKnobs(opts.mode, shamVariant.getStore());
   const maxNew = Math.max(20, opts.maxNew || 160);
   const ask: ShamAsk = opts.ask || ((p, n, t) => shamGenerateAny(p, n, t));
-  const exec = opts.exec || runTool;
+  const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];
   const messages: CoderMessage[] = [];
@@ -98,12 +81,22 @@ export async function shamAgentRun(opts: {
       const final = (p.text || text).trim();
       return final ? { kind: "text", text: final, used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
     }
+    const made = valid.find((c) => c.function.name === "make_media");
+    if (made) {
+      let a: { kind?: string; prompt?: string } = {};
+      try { a = JSON.parse(made.function.arguments || "{}"); } catch { /* validated already */ }
+      const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
+      const r = await (opts.media || ((k, p) => shamGenerateMedia(k, p, Math.min(120000, Math.max(20000, left() - 2000)))))(kind, String(a.prompt || "").slice(0, 600));
+      return r ? { kind: "reply", reply: r, used: [...used, "make_media"], steps: steps + 1 } : { kind: "none", used: [...used, "make_media"], steps: steps + 1 };
+    }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {
       let q = "";
       try { q = String((JSON.parse(asked.function.arguments || "{}") as { question?: string }).question || ""); } catch { /* the validator already checked it */ }
       return { kind: "ask", question: q, used, steps: steps + 1 };
     }
+    const write = valid.find((c) => SHAM_NEEDS_OK.has(c.function.name));
+    if (write) return { kind: "confirm", call: write, used, steps: steps + 1 };
     messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
     for (const c of valid.slice(0, 3)) {
       used.push(c.function.name);
@@ -131,11 +124,5 @@ export function shamAgentOn(): boolean {
   return shamVariant.getStore() === "v2";
 }
 
-/** The executor context for this chat: its own linked GitHub token (the owner's for the owner), its memory, its time zone. */
-export async function shamToolCtx(chatId: number, botId?: string, db: Db = prismaDb): Promise<ToolCtx> {
-  const conn = await resolveConnections(chatId, db);
-  return {
-    tier: tierFor(chatId), runId: `sham-${chatId}`, chatKey: `sham:${coderChatKey(chatId)}`, userId: chatId, botId, db,
-    githubToken: conn.github?.token || null, gh: conn.github ? githubClient(conn.github.token) : null, addNote: () => undefined,
-  } as ToolCtx;
-}
+/** The executor context for this chat: its own linked GitHub token (the owner's for the owner), its own VM and memory scope. */
+export const shamToolCtx = shamContext;

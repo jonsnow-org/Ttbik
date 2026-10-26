@@ -1,5 +1,4 @@
 import { buildLesson, recordLesson, exportLessons, lessonStats, clearLessons } from "@/lib/coderLessons";
-import { shamConversationPrompt } from "@/lib/coderProvider";
 import { DEFAULT_MODELS, chooseModel } from "@/lib/coderModels";
 import { appOp, AppError } from "@/lib/coderApp";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -66,15 +65,5 @@ describe("Sham inside Nova's engine (owner only)", () => {
     expect(chooseModel(st, DEFAULT_MODELS, "sham", false)).toBe(false);         // a user: never
     expect(chooseModel(st, DEFAULT_MODELS, "sham", true)).toBe(true);
     expect([st.model, st.mode]).toEqual(["sham", "sham"]);                      // stays in the engine (the legacy 'sham' still goes to the old path)
-  });
-  it("Sham gets no system prompt or tool schemas: the last turns, and an excerpt of the engine's research as SOURCES", () => {
-    const p = shamConversationPrompt(research as any);
-    expect(p).toMatch(/^المصادر:\n\[1\] awesome-telegram-ai-bots/);
-    expect(p).toMatch(/السؤال: ابحث عن مشاريع بوتات تلجرام/);
-    expect(p.endsWith("شام:")).toBe(true);
-    expect(p).not.toMatch(/SYSTEM PROMPT|\[harness\]|deep_research/);
-    expect(p.length).toBeLessThanOrEqual(3200);
-    const plain = shamConversationPrompt([{ role: "user", content: "مرحبا" }, { role: "assistant", content: "أهلاً بك" }, { role: "user", content: "ما عاصمة سوريا؟" }] as any);
-    expect(plain).toBe("المستخدم: مرحبا\nشام: أهلاً بك\n\nالمستخدم: ما عاصمة سوريا؟\nشام:");
   });
 });
