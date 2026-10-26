@@ -1,4 +1,4 @@
-import { addUsage, checkLimit, DEFAULT_PLANS, estimateTokens, limitMessage, listPlans, setSubscription, upsertPlan, usageSummary, WINDOW_MS } from "@/lib/coderPlans";
+import { terminalAllowed, addUsage, checkLimit, DEFAULT_PLANS, estimateTokens, limitMessage, listPlans, setSubscription, upsertPlan, usageSummary, WINDOW_MS } from "@/lib/coderPlans";
 import type { Db } from "@/lib/coderAuth";
 
 function plansDb(): Db & { usage: any[] } {
@@ -86,5 +86,17 @@ describe("plans and usage", () => {
   it("estimates tokens for Arabic and code", () => {
     expect(estimateTokens("abcd".repeat(10))).toBe(10);
     expect(estimateTokens("مرحبا")).toBe(2);
+  });
+  it("the terminal is hidden on the free plan and shown to paid plans and to the owner", async () => {
+    const db = plansDb();
+    const saved = process.env.SUPER_ADMIN_TELEGRAM_ID;
+    process.env.SUPER_ADMIN_TELEGRAM_ID = "1";
+    expect(await terminalAllowed(1, db)).toBe(true);              // the owner: always
+    expect(await terminalAllowed(7, db)).toBe(false);             // free by default
+    await setSubscription(7, "plus", 30, "manual", db);
+    expect(await terminalAllowed(7, db)).toBe(true);              // a paid plan
+    await setSubscription(7, "free", null, "manual", db);
+    expect(await terminalAllowed(7, db)).toBe(false);
+    saved === undefined ? delete process.env.SUPER_ADMIN_TELEGRAM_ID : (process.env.SUPER_ADMIN_TELEGRAM_ID = saved);
   });
 });

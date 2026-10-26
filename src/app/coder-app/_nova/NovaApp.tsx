@@ -619,9 +619,11 @@ function Chats({ c }: { c: Ctx }) {
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
       {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
-      <div style={{ margin: "0 0 16px", minHeight: 180 }}>
-        <TerminalScreen lang={lang} compact />
-      </div>
+      {me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
+        <div style={{ margin: "0 0 16px", minHeight: 180 }}>
+          <TerminalScreen lang={lang} compact />
+        </div>
+      )}
       {note && (
         <div className="n-note" role="status">
           {t.newChatStarted}

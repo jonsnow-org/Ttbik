@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { taskEvents } from "@/lib/coderTasks";
+import { terminalAllowed } from "@/lib/coderPlans";
 
 export const dynamic = "force-dynamic";
 // Reconnect with the last event id before this ceiling; the stream never owns or runs the task.
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   const user = verifyTmaInitData(req.headers.get("x-telegram-init-data") || "", botRow.token);
   if (!user) return NextResponse.json({ error: "open this from Telegram" }, { status: 401 });
 
+  if (!(await terminalAllowed(user.id))) return NextResponse.json({ error: "not available on this plan", hidden: true }, { status: 403 });   // free plan: no terminal (owner and paid plans only)
   const q = req.nextUrl.searchParams;
   const runId = String(q.get("runId") || "").slice(0, 64);
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
