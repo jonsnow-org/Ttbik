@@ -186,12 +186,45 @@ def native_model(hf_model, max_seq_len: int = 2048, media_init: str = "mean", co
     return m
 
 
+class LazyDonor:
+    """A donor read straight from its safetensors files, one tensor at a time: Sham's model is the only full copy in memory (a 4B donor does not fit twice in 16 GB).
+    Offers what transplant_body / native_model read from a Hugging Face model: .config, .state_dict() and .get_input_embeddings().weight."""
+
+    def __init__(self, donor_id: str):
+        import types
+        from huggingface_hub import snapshot_download
+        from safetensors import safe_open
+        from transformers import AutoConfig
+        d = Path(snapshot_download(donor_id, allow_patterns=["*.safetensors", "*.json"]))
+        self.config = AutoConfig.from_pretrained(str(d))
+        self._where = {}
+        for f in sorted(d.glob("*.safetensors")):
+            h = safe_open(str(f), "pt", device="cpu")
+            for k in h.keys():
+                self._where[k] = h
+        outer = self
+
+        class _SD:
+            def __contains__(self, k):
+                return k in outer._where
+
+            def __getitem__(self, k):
+                return outer._where[k].get_tensor(k)
+        self._sdv = _SD()
+        self._emb = types.SimpleNamespace(weight=self._sdv["model.embed_tokens.weight"])
+
+    def state_dict(self):
+        return self._sdv
+
+    def get_input_embeddings(self):
+        return self._emb
+
+
 def run_native(donor_id: str, out_dir: str | Path, media_init: str = "mean", codebooks: dict | None = None, max_seq_len: int = 2048) -> Path:
     from checkpoint import save_checkpoint
     from huggingface_hub import snapshot_download
-    from transformers import AutoModelForCausalLM
 
-    hf = AutoModelForCausalLM.from_pretrained(donor_id, dtype=torch.bfloat16).eval()
+    hf = LazyDonor(donor_id)
     m = native_model(hf, max_seq_len, media_init, codebooks, chat_format="qwen3" if "qwen3" in str(donor_id).lower() and not str(donor_id).endswith("-Base") else "")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

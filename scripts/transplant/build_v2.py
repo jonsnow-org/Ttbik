@@ -62,9 +62,36 @@ def publish(folder: Path, repo: str) -> None:
     print(f"pushed {repo}", flush=True)
 
 
+def speed_probe(model, tok, threads: int) -> None:
+    """How fast does Sham's own class generate on `threads` cores (bfloat16)? Image generation is 256 tokens, a sound segment 80: the time for those is what matters for media."""
+    import subprocess
+    from generate import generate_tokens
+    flags = subprocess.run("lscpu | grep -o -E 'amx[a-z_0-9]*|avx512_bf16' | sort -u | tr '\\n' ' '", shell=True, capture_output=True, text=True).stdout.strip()
+    model.to(torch.bfloat16)
+    torch.set_num_threads(threads)
+    ids = torch.tensor([tok.encode("<|im_start|>user\nمرحبا<|im_end|>\n<|im_start|>assistant\n")])
+    with torch.no_grad():
+        generate_tokens(model, ids, max_new_tokens=4, temperature=1.0, top_k=1)          # warm-up
+        t0 = time.time()
+        generate_tokens(model, ids, max_new_tokens=48, temperature=1.0, top_k=1, allowed_ranges=[(0, tok.vocab_size)] * 48)
+        dt = time.time() - t0
+    print(f"SPEED bf16, {threads} threads, cpu flags [{flags}]: {48 / dt:.2f} tokens/s -> 256 tokens (one image) ~{256 * dt / 48:.0f} s, 80 tokens (one sound segment) ~{80 * dt / 48:.0f} s", flush=True)
+
+
 def main() -> None:
     donor = [a for a in sys.argv[1:] if not a.startswith("--")][0]
     do_publish = "--publish" in sys.argv
+    if "--speed-only" in sys.argv:
+        torch.set_default_dtype(torch.bfloat16)                                    # a 4B donor does not fit in 16 GB as float32
+        from huggingface_hub import snapshot_download
+        from sham_transplant import LazyDonor, native_model
+        model = native_model(LazyDonor(donor), chat_format="qwen3")                # built in memory only (no checkpoint written and read back: a 4B one would not fit twice)
+        model.train(False)
+        tok = ShamTextTokenizer.load(str(Path(snapshot_download(donor, allow_patterns=["tokenizer.json"])) / "tokenizer.json"))
+        print(f"parameters: {sum(p.numel() for p in model.parameters()) / 1e9:.2f} B", flush=True)
+        speed_probe(model, tok, 2)
+        speed_probe(model, tok, os.cpu_count() or 4)
+        return
     torch.set_num_threads(os.cpu_count() or 4)
     out = run_native(donor, "/tmp/sham_v2")
     model, step, _ = load_checkpoint(out / "step_000000.pt", map_location="cpu")
