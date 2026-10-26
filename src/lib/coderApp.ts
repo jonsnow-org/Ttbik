@@ -113,7 +113,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (typeof body.think === "boolean") st.think = body.think;
       if (isAccuracy(body.accuracy)) st.accuracy = body.accuracy;
       if (typeof body.model === "string") {
-        // the one place a model is chosen: a user may pick only what the owner made visible; Sham and Nova Pro are the owner's only
+        // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
       }
