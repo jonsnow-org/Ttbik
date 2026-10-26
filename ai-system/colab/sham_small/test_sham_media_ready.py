@@ -24,6 +24,8 @@ class MediaServingContractTests(unittest.TestCase):
             self.assertIsNone(media.ready_root(tmp))
             (model / 'model_index.json').write_text('{}', encoding='utf-8')
             self.assertEqual(media.ready_root(tmp), root)
+            self.assertTrue(media.media_status(tmp)['image_ready'])
+            self.assertFalse(media.media_status(tmp)['speech_ready'])
 
     def test_piper_requires_model_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -33,6 +35,8 @@ class MediaServingContractTests(unittest.TestCase):
             self.assertIsNone(media.ready_root(tmp))
             (root / 'voice.onnx.json').write_text('{}', encoding='utf-8')
             self.assertEqual(media.ready_root(tmp), root.parent)
+            self.assertFalse(media.media_status(tmp)['image_ready'])
+            self.assertTrue(media.media_status(tmp)['speech_ready'])
 
     def test_invalid_requests_fail_explicitly(self):
         self.assertEqual(media.make(None, 'image', '')['code'], 'empty_prompt')
