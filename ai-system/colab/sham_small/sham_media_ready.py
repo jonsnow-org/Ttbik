@@ -182,14 +182,14 @@ def _validate_mp4(path: Path) -> tuple[bytes, float]:
     duration = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + float(match.group(3)) if match else 0.0
     if duration < 0.5:
         raise RuntimeError("الفيديو الناتج لا يحتوي مدة تشغيل صالحة.")
-    # A valid MP4 can still be a repeated still. Sample frames and require visible temporal change.
+    # A valid MP4 can still be a repeated still. mpdecimate removes duplicate/nearly-identical frames before counting.
     frames = subprocess.run(
-        [ffmpeg, "-v", "error", "-i", str(path), "-vf", "fps=2", "-f", "framemd5", "-"],
+        [ffmpeg, "-v", "error", "-i", str(path), "-vf", "mpdecimate", "-vsync", "0", "-f", "framemd5", "-"],
         capture_output=True, text=True, timeout=90,
     )
     hashes = [line.rsplit(",", 1)[-1].strip() for line in (frames.stdout or "").splitlines()
               if line.strip() and not line.lstrip().startswith("#") and "," in line]
-    if frames.returncode != 0 or len(set(hashes)) < 2:
+    if frames.returncode != 0 or len(hashes) < 2:
         raise RuntimeError("رفضت شام الفيديو: الإطارات لا تُظهر حركة قابلة للتحقق؛ لن أرسل صورة ثابتة على أنها فيديو.")
     return raw, duration
 
