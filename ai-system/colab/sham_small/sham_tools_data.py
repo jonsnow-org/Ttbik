@@ -108,7 +108,7 @@ FLOW_REQUESTS = [
 BRANCHES = ["dev", "test/mini", "staging"]
 
 
-def fix_flow_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+def fix_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     repo, base = rng.choice(REPOS), rng.choice(BRANCHES)
     fix = rng.choice(["fix/cart-bugs", "fix/tests", "fix/errors"])
     steps = [
@@ -120,7 +120,16 @@ def fix_flow_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], 
         ("github_create_pr", {"repo": repo, "head": fix, "base": base, "title": "Fix the discount"}, f"PR #7 https://github.com/{repo}/pull/7 ({fix} → {base}; 1 files changed, +1 -1)"),
     ]
     ans = f"أصلحت الخطأ في الحاسوب ونجحت الاختبارات الخمسة، ثم دفعت التعديل إلى الفرع {fix} وفتحت الطلب #7 من {fix} إلى {base}."
-    return build_tool_example(text_ids_fn, rng.choice(FLOW_REQUESTS).format(repo=repo, base=base), steps, ans, **kw)
+    return rng.choice(FLOW_REQUESTS).format(repo=repo, base=base), steps, ans
+
+
+def fix_flow_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *_spec_args(fix_flow_spec(rng)), **kw)
+
+
+def _spec_args(spec):
+    user, steps, ans = spec
+    return user, steps, ans
 
 
 # the request does not name what to work on: the learned behaviour is ONE question with ask_user (which repository / branch / file), never a guess
@@ -132,9 +141,13 @@ MISSING_REQUESTS = [
 ]
 
 
-def ask_missing_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+def ask_missing_spec(rng: random.Random) -> tuple[str, list, str]:
     req, question, reply, ans = rng.choice(MISSING_REQUESTS)
-    return build_tool_example(text_ids_fn, req, [("ask_user", {"question": question}, reply)], ans, **kw)
+    return req, [("ask_user", {"question": question}, reply)], ans
+
+
+def ask_missing_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *ask_missing_spec(rng), **kw)
 
 
 # code: write it, RUN it in the computer, fix what fails, answer only after it passes (the way Nova works)
@@ -145,7 +158,7 @@ CODE_TASKS = [
 ]
 
 
-def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+def code_run_spec(rng: random.Random) -> tuple[str, list, str]:
     req, path, bad, old, new, check, ans = rng.choice(CODE_TASKS)
     mod = path[:-3]
     run = f"python3 -c \"from {mod} import *; {check}\""
@@ -155,7 +168,11 @@ def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], 
         ("sandbox_edit_file", {"path": path, "old": old, "new": new}, f"edited {path} (1 replacement)"),
         ("sandbox_exec", {"command": run}, "exit code 0"),
     ]
-    return build_tool_example(text_ids_fn, req, steps, ans, **kw)
+    return req, steps, ans
+
+
+def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *code_run_spec(rng), **kw)
 
 
 REPOS = ["jonsnow-org/Ttbik", "octocat/hello-world", "user/project"]
@@ -188,6 +205,92 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
     return out
 
 
+def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
+    req, name, args, res, ans = rng.choice(CATALOG)
+    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
+    fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
+    args = {k: fill(v) for k, v in args.items()}
+    if ans is None:
+        return fill(req), [(name, args, res), ("sandbox_exec", {"command": "npm test"}, "Tests: 12 passed")], "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
+    return fill(req), [(name, args, res)], ans
+
+
+def any_spec(rng: random.Random) -> tuple[str, list, str]:
+    """One teaching case: the fix flow, code written-run-fixed, a missing detail asked once, or a single catalog call (same shares as synthetic_examples)."""
+    r = rng.random()
+    if r < 0.15:
+        return fix_flow_spec(rng)
+    if r < 0.27:
+        return code_run_spec(rng)
+    if r < 0.37:
+        return ask_missing_spec(rng)
+    return catalog_spec(rng)
+
+
+# ---- the SAME conversation layout Nova's engine shows Sham (src/lib/shamTools.ts: shamToolBlock + shamToolConversation), for a donor body that chats in the Qwen3 layout ----
+FORMAT_LINE = ('لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. '
+               'إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن. '
+               'وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.')
+# name -> (arguments, "?" = optional ; first words of the description as the engine shows them)
+TOOL_SPECS: dict[str, tuple[str, str]] = {
+    "github_read_file": ("repo, path, ref?", "Read one file from a GitHub repository"),
+    "github_repo_scan": ("repo", "Overview of a repository: default branch, folders, root files"),
+    "github_list_files": ("repo, path?, ref?", "List the files of a repository"),
+    "github_search_code": ("repo, query", "Search the code of a repository"),
+    "github_create_pr": ("repo, head, base, title, body?", "Open a pull request from head INTO base"),
+    "sandbox_clone": ("repo, branch?", "Copy a repository into this task's private computer"),
+    "sandbox_exec": ("command, cwd?", "Run a shell command in this task's VM"),
+    "sandbox_write_file": ("path, content, cwd?", "Write a file in the VM (creates folders)"),
+    "sandbox_edit_file": ("path, old, new, replace_all?, cwd?", "Edit a file in the VM by replacing an exact piece of text"),
+    "sandbox_push": ("repo, branch, message, dir?", "Send the edits made in the VM to a GitHub branch"),
+    "web_search": ("query", "Search the web"),
+    "fetch_page": ("url", "Read a web page"),
+    "memory_save": ("text", "Save a note to remember"),
+    "schedule_create": ("title, when", "Schedule a task that runs by itself later"),
+    "delegate": ("tasks", "Run independent sub-tasks with helper agents"),
+    "ask_user": ("question, options?", "Ask the user ONE short question and wait for the answer"),
+    "load_tools": ("groups", "Load a group of tools"),
+}
+
+
+def tool_block(names: list[str]) -> str:
+    lines = [f"- {n}({TOOL_SPECS[n][0]}) — {TOOL_SPECS[n][1][:70]}" for n in names if n in TOOL_SPECS]
+    return "الأدوات المتاحة لك:\n" + "\n".join(lines) + "\n" + FORMAT_LINE
+
+
+def qwen3_prompt(system: str, user_text: str) -> str:
+    return f"<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user_text}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+
+def qwen3_tool_examples(tokenizer, rng: random.Random, n: int, system: str, max_len: int = 1100, max_result_chars: int = 700) -> list[tuple[list[int], list[int]]]:
+    """n examples in the layout the engine really sends: ONE user turn = the loaded-tools block + the conversation so far (user line, earlier calls and results), ending «شام:»;
+    the learned reply is the NEXT call (or the final answer). One example per decision point of a case. Loss only on the reply."""
+    out: list[tuple[list[int], list[int]]] = []
+    end = tokenizer.encode("<|im_end|>")[-1]
+    while len(out) < n:
+        user, steps, ans = any_spec(rng)
+        used = [st[0] for st in steps]
+        others = [t for t in TOOL_SPECS if t not in used]
+        rng.shuffle(others)
+        names = list(dict.fromkeys(used + others[: rng.randint(2, 6)]))
+        rng.shuffle(names)
+        lines = [f"المستخدم: {user}"]
+        for i in range(len(steps) + 1):
+            if i < len(steps):
+                name, args, res = steps[i]
+                target = tool_call_text(name, args)
+            else:
+                target = ans
+            prompt = qwen3_prompt(system, f"{tool_block(names)}\n\n" + "\n".join(lines) + "\nشام:")
+            p_ids, t_ids = tokenizer.encode(prompt), tokenizer.encode(target) + [end]
+            if len(p_ids) + len(t_ids) <= max_len:
+                out.append((p_ids + t_ids, [IGNORE] * len(p_ids) + t_ids))
+            if i < len(steps):
+                lines.append(f"شام: {tool_call_text(name, args)}")
+                lines.append(f"نتيجة الأداة {name}:\n{str(res)[:max_result_chars]}")
+    return out[:n]
+
+
 if __name__ == "__main__":
     fake = lambda s: [ord(c) % 4000 + 10 for c in s]          # noqa: E731  a stand-in tokenizer: the layout and the masking are what is checked
     ex = synthetic_examples(fake, random.Random(1), 40)
@@ -215,4 +318,15 @@ if __name__ == "__main__":
                                                 {"role": "tool", "tool_call_id": "1", "content": "1| hello"}, {"role": "assistant", "content": "الملف فيه كلمة hello فقط."}]}) + "\n", encoding="utf-8")
         got = examples_from_lessons(f, fake)
         assert len(got) == 1 and any(l != IGNORE for l in got[0][1])
+    class _T:                                                                 # the Qwen3-layout builder: the prompt is masked, the reply (and <|im_end|>) learned
+        def encode(self, t):
+            return [9999] if t == "<|im_end|>" else fake(t)
+    qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS")
+    assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
+    assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
+    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # the line shown to the model must not drift from the engine's
+    if ts.is_file():
+        import re
+        m = re.search(r"const FORMAT_LINE = '(.*)';", ts.read_text(encoding="utf-8"))
+        assert m and m.group(1) == FORMAT_LINE, "FORMAT_LINE differs from src/lib/shamTools.ts"
     print("sham_tools_data OK: calls learned, results masked, answers learned, lessons of any kind, every tool family seen.")
