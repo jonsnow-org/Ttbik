@@ -155,6 +155,18 @@ async def _media_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, kind:
         if studio_client.usable(hosted, kind):
             await _send_reply(update, hosted, prompt)
             return
+        # Real motion video must never silently fall back to the legacy frame/slideshow endpoint.
+        if kind == "video":
+            message = hosted.get("text") if isinstance(hosted, dict) else None
+            await update.message.reply_text(
+                message or "❌ تعذّر الوصول إلى مولّد الفيديو الحركي. تحقّق من إعداد HF_VIDEO_SPACE_ID وحالة استوديو LTX-Video."
+            )
+            return
+    elif kind == "video":
+        await update.message.reply_text(
+            "❌ توليد الفيديو الحركي غير مهيأ. اربط استوديو Hugging Face ZeroGPU الخاص بـ LTX-Video واضبط MODELSCOPE_API_TOKEN."
+        )
+        return
     try:
         r = await _post(path, {"prompt": prompt, **extra}, timeout=timeout)
         if r.status_code >= 400:
