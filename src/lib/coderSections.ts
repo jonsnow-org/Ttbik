@@ -1178,15 +1178,18 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
               const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
               const prompt = String(a.prompt || "").trim().slice(0, 600);
               const { shamGenerateMedia, shamStudioEnabled } = await import("@/lib/shamStudio");
+              const nm = await import("@/lib/novaMedia");
+              const viaStudio = nm.novaMediaEnabled();                       // Nova's own media Studio first; Sham's Studio only when there is none
+              const who = viaStudio ? "the media Studio" : "Sham";
               if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-              else if (!shamStudioEnabled()) out = "error: Sham's Studio is not connected here";
+              else if (!viaStudio && !shamStudioEnabled()) out = "error: no media Studio is connected here";
               else {
-                const r = await withHeartbeat(ioBot, chatId, run, `شام يصنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوتاً" : "مقطعاً"}`, () => shamGenerateMedia(kind, prompt, 120000));
+                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => viaStudio ? nm.novaMakeMedia(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }) : shamGenerateMedia(kind, prompt, 120000));
                 const rb = realBot(bot);
-                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = "made by Sham and sent to the user as a picture"; }
-                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.wav"), { caption: prompt.slice(0, 200) }); out = "made by Sham and sent to the user as a sound file"; }
-                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = "made by Sham and sent to the user as a short video"; }
-                else out = `error: Sham made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
+                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
+                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
+                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = `made by ${who} and sent to the user as a short video`; }
+                else out = `error: ${who} made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
               }
             }
           } else {

@@ -145,7 +145,7 @@ def api_video(body: str) -> str:
     return json.dumps(_run("video", json.loads(body or "{}")))
 
 
-def api_status(_: str = "") -> str:
+def api_status() -> str:
     return json.dumps({**STATE, "repo": REPO, "cpus": os.cpu_count()})
 
 
@@ -169,6 +169,7 @@ if __name__ == "__main__":
         gr.Markdown("Nova Media Studio — image / speech / video for Nova's make_media tool.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
-        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video), ("status", api_status)):
+        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video)):
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
+        gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
