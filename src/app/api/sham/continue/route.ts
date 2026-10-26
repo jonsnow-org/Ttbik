@@ -15,9 +15,11 @@ export async function POST(req: NextRequest) {
   const botRow = await prisma.bot.findUnique({ where: { id: body.botId } }).catch(() => null);
   if (!botRow || !botRow.isActive) return NextResponse.json({ status: "ignored" });
   if (!verifyContinue(botRow.webhookSecret || "", botRow.id, body.chatId, body.chain, body.sig)) return NextResponse.json({ error: "bad signature" }, { status: 401 });
-  const chatId = Number(body.chatId);
-  if (!Number.isFinite(chatId)) return NextResponse.json({ error: "bad chat" }, { status: 400 });
+  const [who, ...rest] = body.chatId.split("#");                    // "<chat>#<task>", signed as a whole
+  const chatId = Number(who);
+  const runId = rest.join("#");
+  if (!Number.isFinite(chatId) || !runId) return NextResponse.json({ error: "bad chat" }, { status: 400 });
   const bot = new TelegramBot(botRow.token);
-  later(() => continueShamRun(bot, chatId, botRow.id));
+  later(() => continueShamRun(bot, chatId, botRow.id, runId));
   return NextResponse.json({ status: "accepted" }, { status: 202 });
 }

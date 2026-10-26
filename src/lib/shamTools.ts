@@ -145,11 +145,4 @@ export function codeNotTried(text: string, messages: CoderMessage[], tools: Code
   return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "sandbox_exec");
 }
 
-/** The user asked Sham to remember something, the memory tool is loaded, and Sham answered in words without saving it. */
-export function memoryNotSaved(userText: string, text: string, tools: CoderTool[]): boolean {
-  if (!tools.some((t) => t.function.name === "memory_save")) return false;
-  return /(^|\s)(تذكّر|تذكر|احفظ|لا تنسَ|لا تنس)(\s|$)/.test(userText) && !/memory_save/.test(text);
-}
-export const SHAM_MEMORY_NOTE = "[تصحيح من المحرك] طلب منك المستخدم أن تتذكّر شيئاً. احفظه بـ memory_save(text) ثم أجبه بجملة قصيرة.";
-
 export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه. اكتبه في ملف بـ sandbox_write_file ثم شغّله بـ sandbox_exec، وأصلح ما يفشل، وبعدها أجب.";
