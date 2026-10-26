@@ -107,3 +107,19 @@ describe("Sham's own agent loop", () => {
     expect(await shamTakeRun(5, db)).toBeNull();
   });
 });
+
+describe("measured weaknesses of the new body", () => {
+  it("a split repo (owner + name/file) is put back together before the tool runs", async () => {
+    const { shamRunTool } = await import("@/lib/shamExec");
+    const urls: string[] = [];
+    const fetchImpl = (async (u: string) => { urls.push(u); return { status: 404, text: async () => "{}" } as any; }) as any;
+    await shamRunTool({ id: "1", type: "function", function: { name: "github_read_file", arguments: '{"repo":"jonsnow-org","path":"Ttbik/README.md"}' } } as any, { ...(ctx as any), githubToken: "t", fetchImpl });
+    expect(urls[0]).toContain("/repos/jonsnow-org/Ttbik/contents/README.md");
+  });
+  it("«تذكّر» answered in words goes back to Sham once, asking for memory_save", async () => {
+    const tools = shamToolDefs(false), seen: string[] = [];
+    const r = await shamAgentRun({ text: "اسمي سارة، تذكّر ذلك", ctx, tools, budgetMs: 60000, ask: script([say("تذكّرت."), say('<tool_call>{"name":"memory_save","arguments":{"text":"اسم المستخدم سارة"}}</tool_call>'), say("حفظتُ.")], seen), exec: async () => "saved" });
+    expect(seen[1]).toMatch(/memory_save\(text\)/);
+    expect(r).toMatchObject({ kind: "text", text: "حفظتُ." });
+  });
+});
