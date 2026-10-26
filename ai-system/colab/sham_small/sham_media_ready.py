@@ -39,13 +39,16 @@ def inspect_ready_assets(model_dir: str | Path | None) -> dict:
         voices = [p for p in piper.glob("*.onnx") if Path(str(p) + ".json").is_file() or p.with_suffix(".onnx.json").is_file()]
         if not index_ok or not image_weights or not voices:
             continue
+        voice_files = set(voices)
+        for voice in voices:
+            for cfg in (Path(str(voice) + ".json"), voice.with_suffix(".onnx.json")):
+                if cfg.is_file():
+                    voice_files.add(cfg)  # the two Piper config spellings can resolve to the same file
         return {
             "ready": True,
             "root": str(cand),
             "image_bytes": sum(p.stat().st_size for p in image_weights),
-            "audio_bytes": sum(p.stat().st_size for p in voices) + sum(
-                q.stat().st_size for p in voices for q in (Path(str(p) + ".json"), p.with_suffix(".onnx.json")) if q.is_file()
-            ),
+            "audio_bytes": sum(p.stat().st_size for p in voice_files),
             "image_weight_files": len(image_weights),
             "voice_models": len(voices),
             "reason": "",
