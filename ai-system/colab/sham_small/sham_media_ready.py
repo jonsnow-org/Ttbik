@@ -216,6 +216,8 @@ def make(root: Path | None, kind: str, prompt: str) -> dict:
     prompt = (prompt or "").strip()
     if not prompt:
         return {"type": "error", "code": "empty_prompt", "text": "اكتب وصفاً أو نصاً أولاً."}
+    if kind not in ("image", "audio", "speech", "video"):
+        return {"type": "error", "code": "unknown_kind", "text": f"نوع وسيط غير معروف: {kind}"}
     try:
         if kind == "video":
             return _real_video(prompt)
