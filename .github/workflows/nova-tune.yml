@@ -186,11 +186,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: qwen3.5-9b-iq2m, url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-IQ2_M.gguf" }
-          - { id: qwen3.5-9b-iq3xxs, url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-IQ3_XXS.gguf" }
-          - { id: qwen3.5-9b-q3ks, url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q3_K_S.gguf" }
-          - { id: qwen3.5-2b-q4km, url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" }
-          - { id: qwen3.5-4b-q4km-ref, url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf" }
+          - { id: qwen3-1.7b-q4km, url: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf" }
+          - { id: qwen3-4b-q4km, url: "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf" }
+          - { id: qwen3-4b-instruct-2507-q4km, url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf" }
+          - { id: qwen3-8b-q4km, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf" }
+          - { id: qwen3-8b-q3ks, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q3_K_S.gguf" }
     steps:
       - uses: actions/checkout@v4
         with:
