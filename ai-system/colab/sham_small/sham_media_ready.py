@@ -160,12 +160,23 @@ if __name__ == "__main__":
     import tempfile as _t
     assert ready_root(None) is None
     with _t.TemporaryDirectory() as d:
-        assert ready_root(d) is None                                            # no media folder: not ready
-        (Path(d) / "media" / "sdxs").mkdir(parents=True)
-        assert ready_root(d) is None                                            # no voice yet: still not ready
-        (Path(d) / "media" / "piper").mkdir()
-        (Path(d) / "media" / "piper" / "v.onnx").write_bytes(b"x")
-        assert ready_root(d) == Path(d) / "media"
-        assert make(Path(d) / "media", "image", "")["type"] == "error"          # an empty prompt is refused, never raises
-        assert make(Path(d) / "media", "nothing", "x")["type"] == "error"
-    print("sham_media_ready OK: ready folder detection, empty prompt and unknown kind refused without raising")
+        assert ready_root(d) is None
+        media = Path(d) / "media"
+        sdxs, piper = media / "sdxs", media / "piper"
+        sdxs.mkdir(parents=True)
+        piper.mkdir()
+        assert ready_root(d) is None                                # empty folders are not models
+        (sdxs / "model_index.json").write_text("{}", encoding="utf-8")
+        (sdxs / "model.safetensors").write_bytes(b"weights")
+        voice = piper / "ar_voice.onnx"
+        voice.write_bytes(b"voice")
+        assert ready_root(d) is None                                # ONNX without its Piper config is not ready
+        Path(str(voice) + ".json").write_text("{}", encoding="utf-8")
+        assert ready_root(d) == media
+        info = inspect_ready_assets(d)
+        assert info["ready"] and info["image_bytes"] == 7 and info["audio_bytes"] == 7
+        assert len(_scene_prompts("a cat")) == 4
+        assert len(set(_scene_prompts("a cat"))) == 4
+        assert make(media, "image", "")["type"] == "error"
+        assert make(media, "nothing", "x")["type"] == "error"
+    print("sham_media_ready OK: validates actual local weight files, asset sizes, storyboard prompts, and invalid requests")
