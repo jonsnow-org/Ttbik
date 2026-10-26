@@ -9,7 +9,7 @@
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
 import { shamGenerateAny, shamGenerateMedia, shamVariant, type ShamReply } from "@/lib/shamStudio";
-import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
+import { SHAM_CODE_NOTE, SHAM_MEMORY_NOTE, brokenCallAttempt, codeNotTried, memoryNotSaved, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
 /** What Sham may use: its own tools (shamExec.ts). */
@@ -74,7 +74,7 @@ export async function shamAgentRun(opts: {
     for (let fix = 0; fix < k.corrections && left() > 8000; fix++) {
       const problems = p.calls.map((c) => validateShamCall(c, opts.tools)).filter((e): e is string => Boolean(e));
       if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
-      const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : "";
+      const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : !p.calls.length && memoryNotSaved(opts.text, p.text, opts.tools) ? SHAM_MEMORY_NOTE : "";
       if (!note) break;
       const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(30000, left() - 1000));
       if (!again || again.type !== "text" || !(again.text || "").trim()) break;

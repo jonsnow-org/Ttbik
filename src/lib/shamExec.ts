@@ -137,6 +137,10 @@ const parse = (call: CoderToolCall): Record<string, any> => { try { const v = JS
 export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const name = call.function.name;
   const a = parse(call);
+  if (typeof a.repo === "string" && !a.repo.includes("/") && typeof a.path === "string" && a.path.includes("/")) {      // measured on the new body: repo "owner", path "name/file" → repo "owner/name", path "file"
+    const [seg, ...rest] = a.path.split("/");
+    a.repo = `${a.repo}/${seg}`; a.path = rest.join("/");
+  }
   try {
     if (SHAM_NEEDS_OK.has(name) && !approved) return "error: this changes the user's repository: it runs only after the user taps «نفّذ».";
     if (name === "web_search") {
