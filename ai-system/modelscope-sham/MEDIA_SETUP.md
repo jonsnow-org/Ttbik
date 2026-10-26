@@ -10,7 +10,7 @@ This change intentionally does not touch training or notebook code.
    - `HF_VIDEO_SPACE_ID`: exact Hugging Face Space ID, `owner/space-name`.
    - `HF_TOKEN`: a Hugging Face token that can access the Space.
    - Keep `MODELSCOPE_API_TOKEN` configured for the private Sham v2 model repository.
-4. Deploy the updated ModelScope app and restart/redeploy the Studio. Then inspect its `status` API: `video_backend.configured` should be `true`, and `media_root_available` should be `true` once the image/voice weights are present.
+4. Deploy the updated ModelScope app and restart/redeploy the Studio. Then inspect its `status` API: `video_backend.configured` should be `true`, and `media.image_ready` and `media.speech_ready` should both be `true` once the respective model weights are present.
 
 ## Honest capability boundaries
 
