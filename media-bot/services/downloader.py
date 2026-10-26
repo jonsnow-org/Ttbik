@@ -71,6 +71,11 @@ def is_tiktok(url: str) -> bool:
     return bool(re.search(r"(tiktok\.com|vm\.tiktok|vt\.tiktok)", url or "", re.I))
 
 
+def is_facebook(url: str) -> bool:
+    """Recognize Facebook video, reel, watch, and short-link URLs."""
+    return bool(re.search(r"(facebook\.com|fb\.watch|fb\.com)", url or "", re.I))
+
+
 def normalize_url(url: str) -> str:
     u = (url or "").strip()
     u = re.sub(r"([?&])(fbclid|si|feature|utm_[^=]+|pp)=[^&]*", r"\1", u, flags=re.I)
@@ -333,10 +338,16 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
                 continue
-        return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
+        return None, last_err or "YouTube extraction failed"
     try:
         def _run_g() -> dict | None:
-            opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 25}
+            opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 25, "retries": 2, "extractor_retries": 2}
+            if is_facebook(url):
+                opts["http_headers"] = {
+                    "User-Agent": _UA,
+                    "Referer": "https://www.facebook.com/",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
             ck = _write_cookies_file()
             if ck:
                 opts["cookiefile"] = ck
@@ -406,7 +417,25 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                 )
             return o
         attempts: list[dict[str, Any]] = []
-        if is_youtube(url):
+        if is_facebook(url):
+            # Facebook often serves different formats depending on request
+            # headers and format selection. Retry a small bounded set.
+            for fmt in (
+                "best[ext=mp4]/best",
+                "bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best",
+                "best",
+            ):
+                o = _opts(tmp)
+                o["format"] = fmt if not audio_only else "bestaudio/best"
+                o["http_headers"] = {
+                    "User-Agent": _UA,
+                    "Referer": "https://www.facebook.com/",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
+                o["extractor_retries"] = 2
+                o["fragment_retries"] = 2
+                attempts.append(o)
+        elif is_youtube(url):
             for clients in _YT_CLIENT_GROUPS:
                 o = _opts(tmp)
                 o["extractor_args"] = {"youtube": {"player_client": clients}}
@@ -441,13 +470,13 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                             path = ydl.prepare_filename(info)
                         return path, title, thumb
                 path_s, dl_title, dl_thumb = await asyncio.wait_for(asyncio.to_thread(_run_dl), timeout=DOWNLOAD_TIMEOUT)
-                if path_s and Path(path_s).exists():
-                    p = Path(path_s)
-                    if audio_only and not p.exists():
-                        for alt in p.parent.glob(p.stem + ".*"):
-                            p = alt
-                            break
-                    if p.exists() and p.stat().st_size > 1000:
+                # FFmpeg post-processors may change the extension after
+                # yt-dlp reports filepath. Resolve the actual output first.
+                p = Path(path_s) if path_s else None
+                if p is None or not p.exists():
+                    candidates = [x for x in Path(tmp).glob("*") if x.is_file() and x.stat().st_size > 1000]
+                    p = max(candidates, key=lambda x: x.stat().st_mtime, default=None)
+                if p is not None and p.exists() and p.stat().st_size > 1000:
                         size = p.stat().st_size
                         if size > MAX_FILE_BYTES:
                             try:

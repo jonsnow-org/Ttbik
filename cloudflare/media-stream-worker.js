@@ -48,7 +48,11 @@ export default {
     const fallbackType = media_type === "audio" || media_type === "voice" ? "audio/mpeg" : "video/mp4";
     const headers = new Headers(cors);
     headers.set("content-type", media.headers.get("content-type") && media.headers.get("content-type") !== "application/octet-stream" ? media.headers.get("content-type") : fallbackType);
-    headers.set("accept-ranges", "bytes");
+    // Do not advertise seeking unless Telegram actually honors Range.
+    // Some upstream responses fall back to a full 200 response.
+    if (media.status === 206 || media.headers.get("accept-ranges")?.toLowerCase() === "bytes") {
+      headers.set("accept-ranges", "bytes");
+    }
     headers.set("cache-control", "public, max-age=86400");
     for (const h of ["content-length", "content-range"]) {
       const v = media.headers.get(h);
