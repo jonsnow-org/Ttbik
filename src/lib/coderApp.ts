@@ -383,6 +383,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panel } = await import("@/lib/coderPanel");
       return await panel(db, deps.fetchImpl || globalThis.fetch);
     }
+    case "sham_media": {                       // the owner's switch: which media path Sham tries first
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { shamMediaOrder, setShamMediaOrder } = await import("@/lib/shamExec");
+      if (body.order === "own_first" || body.order === "reserve_first") await setShamMediaOrder(body.order, db);
+      return { order: await shamMediaOrder(db) };
+    }
     case "panel_action": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { panelAction } = await import("@/lib/coderPanel");

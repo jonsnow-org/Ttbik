@@ -866,6 +866,7 @@ function PanelPage({ lang }: { lang: Lang }) {
   const [models, setModels] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
+  const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("reserve_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -876,6 +877,7 @@ function PanelPage({ lang }: { lang: Lang }) {
       setD(p);
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
+      void api<{ order: "reserve_first" | "own_first" }>("sham_media").then((x) => setMediaOrder(x.order)).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -927,6 +929,12 @@ function PanelPage({ lang }: { lang: Lang }) {
             <Input header={`${name(m)} ⭐`} type="number" dir="ltr" defaultValue={m.price_stars ?? ""} onBlur={async (e) => { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); }} />
           </div>
         ))}
+      </Section>
+      <Section header={ar ? "مسار وسائط شام" : "Sham media path"} footer={ar ? "مفعّل: استوديو الوسائط (نماذج جاهزة) أولاً ثم أوزان شام عند الفشل. مطفأ: أوزان شام أولاً ثم استوديو الوسائط عند الفشل." : "On: the media Studio (ready models) first, Sham's own weights on failure. Off: Sham's own weights first, the media Studio on failure."}>
+        <Cell Component="label" multiline subtitle={mediaOrder === "reserve_first" ? (ar ? "استوديو الوسائط أولاً" : "Media Studio first") : (ar ? "أوزان شام أولاً" : "Sham's own weights first")}
+          after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; setMediaOrder(order); const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); }} />}>
+          {ar ? "الاحتياط أولاً" : "Reserve first"}
+        </Cell>
       </Section>
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
