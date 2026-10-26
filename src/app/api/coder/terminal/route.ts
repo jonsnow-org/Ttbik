@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
         listTasks(user.id, { limit }),
         loadState(user.id, prismaDb).catch(() => null),
       ]);
+      const shamMode = state?.mode === "sham";                    // the terminal follows the chosen model: Sham's tasks on Sham, Nova's on Nova
+      const shown = (tasks as { run_id: string }[]).filter((t) => t.run_id.startsWith("sham-") === shamMode);
       const run = state?.run;
       const p = run?.pending;
       const pending = run && p ? [{
@@ -47,7 +49,7 @@ export async function GET(req: NextRequest) {
         title: run.title || "", slot: run.slot || "", at: p.at || null,
       }] : [];
       const asking = run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;   // the agent waits for the user's answer
-      return NextResponse.json({ tasks, pending, asking }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ tasks: shown, pending, asking }, { headers: { "Cache-Control": "no-store" } });
     }
     const events = await taskEvents(user.id, runId, after);
     return NextResponse.json({ events: events.slice(0, 200) }, { headers: { "Cache-Control": "no-store" } });

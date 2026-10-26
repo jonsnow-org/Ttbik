@@ -224,7 +224,7 @@ export function shamConfirmText(call: CoderToolCall): string {
 }
 
 // ---------------------------------------------------------------- a long task between legs (the shared background runner: coderRuntime later() + the signed continue route)
-export type ShamRun = { chatId: number; botId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown> };
+export type ShamRun = { chatId: number; botId: string; runId?: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown> };
 let runsReady = false;
 async function runsTable(db: Db): Promise<void> {
   if (db === prismaDb && runsReady) return;
