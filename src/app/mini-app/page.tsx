@@ -135,9 +135,7 @@ function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: num
   if (item.thumbnail && !failed) {
     return (
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
-        {/* blurred copy fills the frame behind a vertical/odd-sized image */}
-        <img src={item.thumbnail} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
-        <img src={item.thumbnail} alt="" loading="lazy" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
+        <img src={item.thumbnail} alt="" loading="lazy" decoding="async" fetchPriority="low" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
       </div>
     );
   }
@@ -230,9 +228,22 @@ export default function MiniAppPage() {
   const itemsRef = useRef<FeedItem[]>([]);
   itemsRef.current = items;
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
+  const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
-    if (!viaVercel[id]) { setViaVercel((v) => ({ ...v, [id]: true })); return; }
-    setPlayingId(null); setPlayError(id);
+    const attempts = playErrorAttempts.current[id] || 0;
+    if (attempts === 0 && !viaVercel[id]) {
+      playErrorAttempts.current[id] = 1;
+      setViaVercel((v) => ({ ...v, [id]: true }));
+      return;
+    }
+    if (attempts < 2 && viaVercel[id]) {
+      playErrorAttempts.current[id] = 2;
+      setViaVercel((v) => ({ ...v, [id]: false }));
+      return;
+    }
+    setPlayingId(null);
+    setPlayError(id);
+    showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
   };
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1149,7 +1160,7 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-100 via-slate-50 to-indigo-50 pb-24 text-slate-800 selection:bg-sky-200">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] pb-24 text-slate-800 selection:bg-violet-200">
       
       {showTopBtn && (
         <button
@@ -1512,7 +1523,7 @@ export default function MiniAppPage() {
             const mine = !!userId && item.sharer_id === userId;
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200">
                 <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
@@ -1536,8 +1547,8 @@ export default function MiniAppPage() {
                 {playError === item.id && (
                   <div role="status" className="flex items-center gap-2 border-t border-rose-100 bg-gradient-to-l from-rose-50 to-orange-50 px-3.5 py-2.5">
                     <span className="text-lg" aria-hidden>⚠️</span>
-                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المعاينة. قد يكون الملف كبيراً أو أن خدمة البث غير متاحة.</p>
-                    <button type="button" onClick={() => { setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
+                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المقطع. قد يكون الرابط منتهيًا أو الملف غير متاح أو هناك مشكلة في البث.</p>
+                    <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
                   </div>
                 )}
                 <div className="p-3.5">
