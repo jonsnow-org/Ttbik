@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SHAM = ROOT / "ai-system" / "colab" / "sham_small"
 sys.path.insert(0, str(SHAM))
 os.chdir(SHAM)
-PROMPTS = ["مرحبا", "كيف حالك؟", "من أنت؟", "اكتب دالة بايثون تجمع رقمين."]
+PROMPTS = ["مرحبا", "كيف حالك؟", "من أنت؟", "اكتب دالة بايثون تجمع رقمين.", "اشرح لي بجملتين ما هو الذكاء الاصطناعي.", "ما عاصمة سوريا؟"]
 
 
 def sham() -> None:
@@ -55,11 +55,13 @@ def hf(name: str, chat: bool) -> None:
 
 
 if __name__ == "__main__":
-    try:
-        sham()
-    except Exception as e:                                                  # noqa: BLE001
-        print(f"SHAM failed: {type(e).__name__}: {str(e)[:300]}", flush=True)
-    for name, chat in (("Qwen/Qwen3-0.6B-Base", False), ("Qwen/Qwen3-0.6B", True), ("Qwen/Qwen2.5-0.5B-Instruct", True)):
+    if "--no-sham" not in sys.argv:
+        try:
+            sham()
+        except Exception as e:                                              # noqa: BLE001
+            print(f"SHAM failed: {type(e).__name__}: {str(e)[:300]}", flush=True)
+    names = [a for a in sys.argv[1:] if not a.startswith("--")] or ["Qwen/Qwen3-0.6B-Base", "Qwen/Qwen3-0.6B", "Qwen/Qwen2.5-0.5B-Instruct"]
+    for name, chat in ((n, not n.endswith("-Base")) for n in names):
         try:
             hf(name, chat)
         except Exception as e:                                              # noqa: BLE001
