@@ -17,8 +17,9 @@ jobs:
         env:
           PYTHONPATH: ai-system/colab/sham_small
         run: |
-          python -m unittest ai-system/colab/sham_small/test_sham_media_ready.py -v
+          python -m unittest ai-system/colab/sham_small/test_sham_media_ready.py ai-system/colab/sham_small/test_sham_toolcall.py -v
           python ai-system/colab/sham_small/sham_media_ready.py
+          python ai-system/colab/sham_small/sham_intent.py
 
   build:
     runs-on: ubuntu-latest
