@@ -4,7 +4,7 @@
 //   NOVA_PRO_MODEL (required, e.g. "Qwen/Qwen3.5-397B-A17B"), NOVA_PRO_API_KEY (falls back to MODELSCOPE_API_TOKEN),
 //   NOVA_PRO_API_URL (default https://api-inference.modelscope.cn/v1).
 import type { CoderMessage, CoderOutcome, CoderReply, CoderTool } from "@/lib/openCoderStudio";
-import { shamGenerateAny, shamStudioEnabled } from "@/lib/shamStudio";
+import { shamGenerateAny, shamStudioEnabled, shamVariant } from "@/lib/shamStudio";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, shamToolsEnabled, validateShamCall } from "@/lib/shamTools";
 
 export const PROVIDER_JOB_PREFIX = "p~";
@@ -63,7 +63,7 @@ export async function providerChat(
 /** What Sham is given inside Nova's engine. Today's numbers fit a small, still-training model; SHAM_LIMITS=open (or each SHAM_* alone) lifts them
  *  without a code change when the trained Sham can take more. Read per call so a changed environment value applies at once. */
 export const SHAM_LIM = {
-  get open() { return (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open"; },
+  get open() { return shamVariant.getStore() === "v2" || (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open"; },
   get maxNew() { return Number(process.env.SHAM_MAX_NEW_TOKENS) || (this.open ? 768 : 200); },
   get turns() { return Number(process.env.SHAM_HISTORY_TURNS) || (this.open ? 20 : 6); },
   get turnChars() { return Number(process.env.SHAM_TURN_CHARS) || (this.open ? 1200 : 300); },

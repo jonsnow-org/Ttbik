@@ -1,0 +1,17 @@
+{
+  "id": "jonsnowjonsnow/sham-v2-train",
+  "title": "sham-v2-train",
+  "code_file": "sham_v2_train.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "jonsnowjonsnow/sham-runtime-creds",
+    "jonsnowjonsnow/sham-image-tokenizer-checkpoint",
+    "jonsnowjonsnow/sham-audio-tokenizer-checkpoint"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

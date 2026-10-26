@@ -1,8 +1,23 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
 
 const DEFAULT_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
+
+/** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
+export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
+
+let rotate = 0;
+/** The Studio addresses for this call, best first. Each variant may name several Studios (comma-separated SHAM_MODELSCOPE_URL / SHAM_V2_URL): calls start at a rotating
+ *  one, so users spread over the Studios, and a busy or unreachable one is skipped for the next (see shamBusyHop). */
+export function shamBases(): string[] {
+  const v2 = shamVariant.getStore() === "v2";
+  const raw = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
+  const k = rotate++ % Math.max(1, raw.length);
+  return [...raw.slice(k), ...raw.slice(0, k)];
+}
 
 export function shamStudioEnabled(): boolean {
   return Boolean((process.env.MODELSCOPE_API_TOKEN || "").trim());
@@ -23,7 +38,7 @@ export function parseShamSse(body: string): string | null {
 
 export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs = 25000): Promise<string | null> {
   if (!shamStudioEnabled()) return null;
-  const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
+  const base = shamBases()[0];
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/generate_text`, {
@@ -65,9 +80,7 @@ export function parseShamReply(body: string): ShamReply | null {
   return null;
 }
 
-async function shamCall(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
-  if (!shamStudioEnabled()) return null;
-  const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
+async function shamCallAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
@@ -79,6 +92,21 @@ async function shamCall(api: string, payload: Record<string, unknown>, timeoutMs
   } catch {
     return null;
   }
+}
+
+/** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
+export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
+
+async function shamCall(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
+  if (!shamStudioEnabled()) return null;
+  const bases = shamBases();
+  let last: string | null = null;
+  for (let i = 0; i < bases.length; i++) {
+    const body = await shamCallAt(bases[i], api, payload, timeoutMs);
+    if (body && !(i < bases.length - 1 && shamBusyHop(parseShamReply(body)))) return body;
+    last = body ?? last;
+  }
+  return last;
 }
 
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
@@ -124,9 +152,7 @@ export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promi
 // Each call has its own short timeout; the outcome says WHY when there is no answer, so the bot can tell the user the truth.
 export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
 
-async function shamCallOnce(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
-  if (!shamStudioEnabled()) return { reply: null, failure: "off" };
-  const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
+async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   const deadline = Date.now() + timeoutMs;
   try {
@@ -142,6 +168,19 @@ async function shamCallOnce(api: string, payload: Record<string, unknown>, timeo
     const name = (e as { name?: string })?.name || "";
     return { reply: null, failure: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
   }
+}
+
+async function shamCallOnce(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+  if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  const bases = shamBases();
+  const t0 = Date.now();
+  let out: ShamOutcome = { reply: null, failure: "network" };
+  for (let i = 0; i < bases.length; i++) {
+    out = await shamCallOnceAt(bases[i], api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)));
+    const hop = shamBusyHop(out.reply) || out.failure === "network" || out.failure === "http";        // busy, down or refusing: the next Studio (a timeout is not repeated: it may be working on it)
+    if (!hop || i === bases.length - 1 || Date.now() - t0 > timeoutMs - 4000) return out;
+  }
+  return out;
 }
 
 export function shamThink(
@@ -163,8 +202,16 @@ export function shamThinkUnavailable(o: ShamOutcome): boolean {
   return !o.reply && (o.failure === "http" || o.failure === "unreadable");
 }
 
-export function shamJobResult(job: string, detach = false, timeoutMs = 8000): Promise<ShamOutcome> {
-  return shamCallOutcome("job_result", { job_id: job, detach: detach ? "1" : "" }, timeoutMs);
+export async function shamJobResult(job: string, detach = false, timeoutMs = 8000): Promise<ShamOutcome> {
+  const payload = { job_id: job, detach: detach ? "1" : "" };
+  const bases = shamStudioEnabled() ? shamBases() : [];
+  if (bases.length <= 1) return shamCallOutcome("job_result", payload, timeoutMs);
+  let out: ShamOutcome = { reply: null, failure: "http" };            // a job lives on the Studio that started it: ask each one until it is found
+  for (const b of bases) {
+    out = await shamCallOnceAt(b, "job_result", payload, timeoutMs);
+    if (out.reply && out.reply.type !== "gone") return out;
+  }
+  return out;
 }
 
 // what the user is told when there is no answer (never "loading" unless the Studio itself says it is loading)

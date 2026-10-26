@@ -78,28 +78,48 @@ def decide(status: str, entry: dict, now: float, grace_s: float = GRACE_MINUTES 
     return "push"
 
 
-def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print, grace_s: float | None = None) -> list[str]:
+MAX_RUNNING = int(os.environ.get("SHAM_MAX_RUNNING", "5"))      # 2026-10-26 (owner): Kaggle allows 5 notebooks running at once; a 6th push would fail
+
+
+def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print, grace_s: float | None = None,
+        max_running: int | None = None, first: set | None = None) -> list[str]:
+    """`first`: slugs that get the free slots first (the important notebooks); `max_running`: never push a notebook while that many of the watched ones are already running."""
     now = now or time.time()
+    cap = MAX_RUNNING if max_running is None else max_running
+    order = sorted(range(len(slugs)), key=lambda i: (0 if slugs[i] in (first or ()) else 1, i))
+    slugs = [slugs[i] for i in order]
     notes = []
     accel = HashedState(state.setdefault("accelerator", {}))
     state["accelerator"] = accel
     nbs = state.setdefault("notebooks", {})
+    statuses: dict[str, str] = {}
+    for slug in slugs:
+        try:
+            st = api.kernels_status(slug).status
+            statuses[slug] = getattr(st, "name", str(st)).split(".")[-1].upper()
+        except Exception as exc:
+            statuses[slug] = ""
+            log(f"تعذّرت قراءة حالة دفتر ({type(exc).__name__}) — لا إجراء")
+    running = sum(1 for v in statuses.values() if v in RUNNING)
     for i, slug in enumerate(slugs, 1):
         label = f"دفتر {i}"
         entry = nbs.setdefault(_key(slug), {})
-        try:
-            status = api.kernels_status(slug).status
-            status = getattr(status, "name", str(status)).split(".")[-1].upper()
-        except Exception as exc:
-            log(f"{label}: تعذّرت قراءة حالته ({type(exc).__name__}) — لا إجراء")
+        status = statuses[slug]
+        if not status:
             continue
         action = decide(status, entry, now, GRACE_MINUTES * 60 if grace_s is None else grace_s)
+        if action == "push" and running >= cap:
+            line = f"{label}: {status} — ينتظر: {running} دفاتر تعمل الآن (الحد {cap} في كاكل)"
+            log(line)
+            notes.append(line)
+            continue
         if action == "push":
             try:
                 result = resume(slug, accel)
             except Exception as exc:
                 result = f"failed: {type(exc).__name__}"
             if result == "pushed" or str(result).startswith("pushed"):   # a dry run records nothing
+                running += 1
                 entry.update(last_push=now, idle_since=None, counted_fail=False, pushes_today=int(entry.get("pushes_today", 0)) + 1)
             line = f"{label}: كان {status} — " + ("كانت ستُدفع نسخة جديدة (وضع تجريبي)" if result == "dry-run" else f"دُفعت نسخة جديدة ({result})")
         elif action == "blocked":
@@ -137,6 +157,8 @@ EXTRA_KERNELS = {
     "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
     # 5th notebook (2026-10-16, additive): the separate repair + re-merge tool (own dataset sham-repair-remerge-checkpoint)
     "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
+    # 6th notebook (2026-10-26, owner): Sham v2 training (donor body + Sham's media rows). GPU first (its kernel-metadata says enable_gpu), CPU when the quota is out.
+    "jonsnowjonsnow/sham-v2-train": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "sham_v2",
 }
 
 
@@ -187,9 +209,10 @@ def main() -> int:
     print(f"عدد الدفاتر المراقَبة: {len(watch)} | الوضع: {'حي' if live else 'تجريبي (لا دفع)'}")
 
     # 2026-10-17 (owner): every main notebook was on CPU for weeks (~1,000 steps per 5 h), so the model did not move. The tracks named in SHAM_GPU_TRACKS
-    # (default: all_in_one, the one that trains the published head) spend Kaggle's free weekly GPU quota; they fall back to CPU when it is out and try the
-    # GPU again after a day (kaggle_auto_resume.prefer_gpu). SHAM_GPU_TRACKS="" turns this off.
-    gpu_tracks = [t.strip() for t in os.environ.get("SHAM_GPU_TRACKS", "all_in_one").split(",") if t.strip()]
+    # (default since 2026-10-26, owner: the IMPORTANT notebooks only start on GPU: all_in_one = the one that trains the published head, chat_image_in_one = chat + media
+    # tokenizers) spend Kaggle's free weekly GPU quota; they fall back to CPU when it is out and try the GPU again after a day (kaggle_auto_resume.prefer_gpu).
+    # Every other notebook stays on CPU. SHAM_GPU_TRACKS="" turns this off; SHAM_GPU_TRACKS="all_in_one,ab_in_one,..." changes the set.
+    gpu_tracks = [t.strip() for t in os.environ.get("SHAM_GPU_TRACKS", "all_in_one,chat_image_in_one").split(",") if t.strip()]
     gpu_slugs = {resolved.get("refs", {}).get(t) for t in gpu_tracks} - {None}
 
     def resume(slug, accel):
@@ -200,7 +223,7 @@ def main() -> int:
             return resume_kernel(slug, str(src / json.loads((src / "kernel-metadata.json").read_text(encoding="utf-8"))["code_file"]), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
                                  sync_from_repo=True, auto_accelerator=True, state=accel, runtime_fixes=True)
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
-                             runtime_fixes=True, prefer_gpu=slug in gpu_slugs)  # SHAM_SECRETS_FALLBACK (2026-10-15)
+                             runtime_fixes=True, prefer_gpu=slug in gpu_slugs, force_cpu=bool(gpu_slugs) and slug not in gpu_slugs)  # SHAM_SECRETS_FALLBACK (2026-10-15); GPU only for the important ones (2026-10-26)
 
     # One-time breaker reset after a deliberate fix of the failure that tripped it (2026-10-15: the
     # first-cell HTTP 400 on Kaggle Secrets). Bump FIX_EPOCH only together with such a fix.
@@ -210,7 +233,16 @@ def main() -> int:
                 _entry.update(blocked=False, quick_fails=0, counted_fail=False, idle_since=None)
         state["fix_epoch"] = FIX_EPOCH
         print(f"إعادة ضبط قاطع الحماية مرة واحدة بعد الإصلاح: {FIX_EPOCH}")
-    notes = run(watch, api, state, resume)
+    # NOVA1_SLOT (2026-10-21, owner-approved additive hook): Sham and Nova 1 share the Kaggle account (one Sham GPU session a week, Nova 1 the rest;
+    # one finished Sham notebook held while Nova 1 runs). Inert unless training/nova1/kaggle/run_request.json enables it -- see nova1_slot.py.
+    _nova_notes: list = []
+    try:
+        import nova1_slot
+        watch, resume, _nova_notes = nova1_slot.coordinate(api, watch, resolved.get("refs", {}), gpu_slugs, state, live, resume, work)
+    except Exception as _exc:
+        print(f"Nova 1: تخطّي التنسيق ({type(_exc).__name__})")
+    notes = run(watch, api, state, resume, first=gpu_slugs | {"jonsnowjonsnow/sham-v2-train"})
+    notes = _nova_notes + notes
     if live or not files:
         up = work / "upload"
         up.mkdir(exist_ok=True)
@@ -279,6 +311,18 @@ def _self_test() -> None:
     run(["e/f"], Api({"e/f": "COMPLETE"}), st3, resume, now=t0, log=lambda *_: None, grace_s=0)
     assert pushed == ["e/f"]
     assert decide("RUNNING", {}, t0, 0) == "skip"
+    # Kaggle runs at most 5 notebooks at once: six stopped notebooks -> five pushed (the important ones first), the sixth waits for a free slot
+    six = [f"n/{c}" for c in "abcdef"]
+    st6: dict = {}
+    pushed.clear()
+    api6 = Api({k: "COMPLETE" for k in six})
+    notes6 = run(six, api6, st6, resume, now=t0, log=lambda *_: None, grace_s=0, first={"n/f"})
+    assert len(pushed) == 5 and pushed[0] == "n/f" and "n/e" not in pushed and any("الحد 5" in n for n in notes6), (pushed, notes6)
+    # already running ones count: 4 running + 2 stopped -> only one push
+    pushed.clear()
+    api7 = Api({**{k: "RUNNING" for k in six[:4]}, six[4]: "COMPLETE", six[5]: "COMPLETE"})
+    run(six, api7, {}, resume, now=t0, log=lambda *_: None, grace_s=0)
+    assert len(pushed) == 1, pushed
     print("sham_restarter self-test OK")
 
 

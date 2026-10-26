@@ -117,3 +117,42 @@ describe("Sham limits are settings, not code", () => {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   });
 });
+
+import { shamBases, shamVariant } from "@/lib/shamStudio";
+
+describe("shamStudio: more than one Studio, and the new body's own Studio", () => {
+  const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+  const mock = (answers: Record<string, object>, seen: string[]) => (async (url: string) => {
+    const host = String(url).replace(/^(https:\/\/[^/]+).*$/, "$1");
+    if (/call\/v2\//.test(url)) { seen.push(host); return { ok: true, json: async () => ({ event_id: host.replace("https://", "") }) } as any; }
+    const ev = String(url).split("/").pop() as string;
+    return { ok: true, text: async () => body(answers[ev] || { type: "text", text: "?" }) } as any;
+  }) as any;
+  it("the new body uses SHAM_V2_URL (default: its own Studio), the old one SHAM_MODELSCOPE_URL", () => {
+    process.env.SHAM_MODELSCOPE_URL = "https://old.example"; delete process.env.SHAM_V2_URL;
+    expect(shamBases()).toEqual(["https://old.example"]);
+    expect(shamVariant.run("v2", () => shamBases())[0]).toMatch(/sham-v2-server/);
+    process.env.SHAM_V2_URL = "https://v2a.example, https://v2b.example/";
+    expect(shamVariant.run("v2", () => shamBases()).sort()).toEqual(["https://v2a.example", "https://v2b.example"]);
+    delete process.env.SHAM_MODELSCOPE_URL; delete process.env.SHAM_V2_URL;
+  });
+  it("a busy Studio hands the call to the next one at once", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_MODELSCOPE_URL = "https://a.example,https://b.example";
+    const real = global.fetch; const seen: string[] = [];
+    global.fetch = mock({ "a.example": { type: "busy" }, "b.example": { type: "text", text: "من الثاني" } }, seen);
+    for (let i = 0; i < 2; i++) {                                  // the start rotates, so one of the two calls starts at the busy Studio and must hop
+      const o = await shamThink("سؤال", "u1", null, 40, 20000);
+      expect(o.reply).toEqual({ type: "text", text: "من الثاني" });
+    }
+    expect(new Set(seen)).toEqual(new Set(["https://a.example", "https://b.example"]));
+    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_MODELSCOPE_URL;
+  });
+  it("a job is looked up on every Studio until the one that has it answers", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_MODELSCOPE_URL = "https://a.example,https://b.example";
+    const real = global.fetch; const seen: string[] = [];
+    global.fetch = mock({ "a.example": { type: "gone" }, "b.example": { type: "text", text: "جاهز" } }, seen);
+    const o = await shamJobResult("j1");
+    expect(o.reply?.text).toBe("جاهز");
+    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_MODELSCOPE_URL;
+  });
+});
