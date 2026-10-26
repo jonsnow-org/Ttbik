@@ -73,7 +73,7 @@ def is_tiktok(url: str) -> bool:
 
 def is_facebook(url: str) -> bool:
     """Recognize Facebook video, reel, watch, and short-link URLs."""
-    return bool(re.search(r"(facebook\\.com|fb\\.watch|fb\\.com)", url or "", re.I))
+    return bool(re.search(r"(facebook\.com|fb\.watch|fb\.com)", url or "", re.I))
 
 
 def normalize_url(url: str) -> str:
