@@ -9,6 +9,7 @@ import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamConfirmText, shamDropRun, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
+import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 
@@ -808,21 +809,23 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
 const SHAM_LEGS = 6;                                   // a long task may use up to this many legs (each up to ~4 minutes in the background)
 
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
-async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number): Promise<boolean> {
-  if (r.kind === "none") return false;
+async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string): Promise<boolean> {
+  if (r.kind === "none") { if (runId) { await taskEvent(runId, "failed", "no answer from Sham in time").catch(() => null); await taskStatus(runId, "failed").catch(() => null); } return false; }
   if (r.kind === "more") {                              // the work goes on in the background: the shared runner calls the next leg (its own signed route)
     if (leg === 0) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null);
-    await shamSaveRun({ chatId, botId: botId || "", request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
+    await shamSaveRun({ chatId, botId: botId || "", runId, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
     later(() => shamKickNextLeg(botId || "", chatId, leg + 1));
     return true;
   }
   if (r.kind === "confirm") {                           // a write to the user's repository: ask first, run only on the tap
+    if (runId) { await taskEvent(runId, "confirm", shamConfirmText(r.call)).catch(() => null); await taskStatus(runId, "waiting").catch(() => null); }
     const id = await shamSavePending(chatId, r.call);
     await bot.api.sendMessage(chatId, shamConfirmText(r.call), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${id}`).text("❌ ألغِ", `shamno|${id}`) }).catch(() => null);
     return true;
   }
   if (r.kind === "reply") { await sendShamReply(bot, chatId, r.reply); return true; }
   const out = r.kind === "ask" ? r.question : r.text;
+  if (runId) { await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
   await sendShamReply(bot, chatId, { type: "text", text: out });
   await saveTurn(chatId, request, out);
   return true;
@@ -845,8 +848,9 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     const ctx = await shamToolCtx(chatId, botId);
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= SHAM_LEGS;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
-    if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg))) {
+    const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => void taskEvent(run.runId!, k, t).catch(() => null) : undefined;
+    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
+    if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId))) {
       await shamDropRun(chatId);
       await bot.api.sendMessage(chatId, "تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.").catch(() => null);
     }
@@ -859,8 +863,11 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
   await shamDropRun(chatId).catch(() => null);          // a new message replaces an unfinished earlier task
-  const r = await shamAgentRun({ text, history: mem?.history, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: true });
-  return shamDeliver(bot, chatId, r, text, botId, 0);
+  const runId = `sham-${chatId}-${Date.now().toString(36)}`;
+  await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
+  const onEvent = (k: "tool" | "info" | "text", t: string) => void taskEvent(runId, k, t).catch(() => null);
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 48000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  return shamDeliver(bot, chatId, r, text, botId, 0, runId);
 }
 
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
