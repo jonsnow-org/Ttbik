@@ -53,8 +53,10 @@ def ready_root(model_dir: str | Path | None) -> Path | None:
 
 def video_backend_status() -> dict[str, str | bool]:
     space = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
+    token_configured = bool(os.environ.get("HF_TOKEN", "").strip())
     return {
-        "configured": bool(space),
+        "configured": bool(space and token_configured),
+        "token_configured": token_configured,
         "backend": "Lightricks/LTX-Video via Hugging Face ZeroGPU",
         "space_id": space or "",
     }
@@ -170,6 +172,15 @@ def _validate_mp4(path: Path) -> tuple[bytes, float]:
     duration = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + float(match.group(3)) if match else 0.0
     if duration < 0.5:
         raise RuntimeError("الفيديو الناتج لا يحتوي مدة تشغيل صالحة.")
+    # A valid MP4 can still be a repeated still. Sample frames and require visible temporal change.
+    frames = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(path), "-vf", "fps=2", "-f", "framemd5", "-"],
+        capture_output=True, text=True, timeout=90,
+    )
+    hashes = [line.rsplit(",", 1)[-1].strip() for line in (frames.stdout or "").splitlines()
+              if line.strip() and not line.lstrip().startswith("#") and "," in line]
+    if frames.returncode != 0 or len(set(hashes)) < 2:
+        raise RuntimeError("رفضت شام الفيديو: الإطارات لا تُظهر حركة قابلة للتحقق؛ لن أرسل صورة ثابتة على أنها فيديو.")
     return raw, duration
 
 
@@ -177,10 +188,11 @@ def _real_video(prompt: str, seconds: float = 4.0) -> dict:
     """Call the dedicated LTX-Video-2B Space; never replace a failed call with a slideshow."""
     space_id = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
     token = os.environ.get("HF_TOKEN", "").strip()
-    if not space_id:
+    if not space_id or not token:
+        missing = "HF_VIDEO_SPACE_ID" if not space_id else "HF_TOKEN"
         return {
             "type": "error",
-            "text": "توليد الفيديو الحركي غير مهيأ: اضبط HF_VIDEO_SPACE_ID على مساحة Hugging Face ZeroGPU المنشورة لـ LTX-Video. لم يُنشأ فيديو شرائح بديلاً.",
+            "text": f"توليد الفيديو الحركي غير مهيأ: اضبط {missing} في إعدادات الاستوديو. لم يُنشأ فيديو شرائح بديلاً.",
             "code": "video_backend_not_configured",
         }
     prompt = (prompt or "").strip()
