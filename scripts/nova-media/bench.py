@@ -19,20 +19,25 @@ def image(model_id: str, steps: int, size: int = 512, guidance: float = 0.0) -> 
     pipe = AutoPipelineForText2Image.from_pretrained(model_id, torch_dtype=torch.float32, token=os.environ.get("HF_TOKEN") or None)
     pipe.set_progress_bar_config(disable=True)
     load = time.time() - t0
-    prompt = "a clean flat illustration of a small green robot reading a book, white background"
-    for i in range(2):                                           # the second run is the steady speed
+    prompts = [
+        "a clean flat illustration of a small green robot reading a book, white background",
+        "a calm desert at sunset with one camel, flat vector art, warm colors",
+        "a modern mobile app screen mockup with a chat conversation, clean UI design",
+        "a professional logo of a golden palm tree inside a circle, minimal, vector",
+    ]
+    os.makedirs("/tmp/media", exist_ok=True)
+    pipe(prompts[0], num_inference_steps=steps, guidance_scale=guidance, height=size, width=size)            # warm-up run
+    for i, prompt in enumerate(prompts):
         t0 = time.time()
         img = pipe(prompt, num_inference_steps=steps, guidance_scale=guidance, height=size, width=size).images[0]
         dt = time.time() - t0
-    img.save(f"/tmp/{model_id.replace('/', '_')}.png")
-    import base64, io
-    buf = io.BytesIO()
-    img.resize((256, 256)).save(buf, "JPEG", quality=70)
-    print("THUMB " + model_id + " " + base64.b64encode(buf.getvalue()).decode(), flush=True)
+        img.save(f"/tmp/media/image{i}.png")
+        print(f"  image{i}: {dt:.1f}s  {prompt[:60]}", flush=True)
     print(f"IMAGE {model_id}: {size}x{size}, {steps} step(s): {dt:.1f}s (load {load:.0f}s), saved", flush=True)
 
 
 def speech() -> None:
+    os.makedirs("/tmp/media", exist_ok=True)
     from huggingface_hub import hf_hub_download
     import wave
     from piper import PiperVoice
@@ -42,10 +47,10 @@ def speech() -> None:
     voice = PiperVoice.load(onnx)
     text = "مرحباً، أنا نوفا، مساعدك في كتابة الأكواد وتشغيلها واختبارها."
     t0 = time.time()
-    with wave.open("/tmp/ar.wav", "wb") as w:
+    with wave.open("/tmp/media/ar.wav", "wb") as w:
         voice.synthesize_wav(text, w)
     dt = time.time() - t0
-    with wave.open("/tmp/ar.wav", "rb") as w:
+    with wave.open("/tmp/media/ar.wav", "rb") as w:
         sec = w.getnframes() / w.getframerate()
     print(f"SPEECH piper ar_JO-kareem: {sec:.1f}s of audio in {dt:.1f}s (real-time factor {dt / sec:.2f})", flush=True)
 

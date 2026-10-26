@@ -2,7 +2,7 @@ name: "Nova media bench (image and Arabic speech on a free CPU, read-only)"
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   bench:
     runs-on: ubuntu-latest
@@ -21,3 +21,8 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: taskset -c 0,1 python scripts/nova-media/bench.py
+      - name: Keep the samples on a side branch so they can be looked at
+        run: |
+          cd /tmp/media && git init -q -b nova-test/media-samples && git config user.name "bench" && git config user.email "bench@users.noreply.github.com"
+          git add -A && git commit -q -m "media bench samples [skip ci]"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" nova-test/media-samples
