@@ -89,12 +89,16 @@ def _load(model_dir: Path) -> None:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="")
     try:
-        from sham_media_ready import ready_root
-        mr = ready_root(model_dir)                          # ready, trained media weights packaged inside Sham's own repo (media/sdxs, media/piper)
-        STATE["media_root"] = str(mr) if mr else ""
-        _say(f"media: {'ready weights in ' + str(mr) if mr else 'no ready weights in the repo (own decoder)'}")
+        from sham_media_ready import inspect_ready_assets
+        assets = inspect_ready_assets(model_dir)             # validate real local tensors/configs; never download media at request time
+        STATE["media_assets"] = assets
+        STATE["media_root"] = assets["root"] if assets["ready"] else ""
+        image_mb = assets.get("image_bytes", 0) / 2**20
+        audio_mb = assets.get("audio_bytes", 0) / 2**20
+        _say(f"media assets: ready={assets['ready']} image={image_mb:.1f} MiB audio={audio_mb:.1f} MiB reason={assets.get('reason', '')[:100]}")
     except Exception as exc:                                # noqa: BLE001
         STATE["media_root"] = ""
+        STATE["media_assets"] = {"ready": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
         _say(f"media check failed: {type(exc).__name__}")
     _say("ready: the model is loaded")
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
@@ -168,11 +172,24 @@ def _worker() -> None:
 
 def status() -> str:
     msg = dict(STATE)
+    try:
+        disk = shutil.disk_usage(HERE)
+        msg["disk"] = {
+            "total_bytes": disk.total,
+            "used_bytes": disk.used,
+            "free_bytes": disk.free,
+            "free_mib": round(disk.free / 2**20, 1),
+            "warning": "المساحة الحرة أقل من 1 GiB" if disk.free < 2**30 else "",
+        }
+    except OSError as exc:
+        msg["disk"] = {"error": type(exc).__name__}
     w = _worker_status()
     if w:
         msg["worker"] = w
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
+    if not msg.get("media_assets", {}).get("ready"):
+        msg["media_hint"] = "لم تُثبت جاهزية الأوزان المحلية للصورة والصوت؛ لن يُستخدم أي مولّد خارجي. افحص media_assets.reason."
     return json.dumps(msg, ensure_ascii=False)
 
 
