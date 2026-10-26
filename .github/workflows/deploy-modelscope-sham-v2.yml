@@ -78,6 +78,8 @@ jobs:
       - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_VIDEO_SPACE_ID: ${{ secrets.HF_VIDEO_SPACE_ID }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
           pip install -q modelscope
@@ -92,7 +94,19 @@ jobs:
           except Exception as e:                       # already there: replace it
               print("add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
               api.update_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
-          print("studio secret set")
+          print("MODELSCOPE_API_TOKEN set in Studio")
+          # Optional video secrets: keep runtime configuration in sync with GitHub secrets.
+          for name in ("HF_TOKEN", "HF_VIDEO_SPACE_ID"):
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  print(f"{name} GitHub secret is unset; video generation remains disabled")
+                  continue
+              try:
+                  api.add_studio_secret(sid, name, value)
+              except Exception as e:
+                  print(f"update {name}:", type(e).__name__, str(e)[:120].replace(value, "***"))
+                  api.update_studio_secret(sid, name, value)
+              print(f"{name} set in Studio")
           PY
 
       - name: Deploy and show status
