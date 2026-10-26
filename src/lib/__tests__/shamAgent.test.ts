@@ -11,7 +11,7 @@ describe("Sham's own agent loop", () => {
     expect(withGh).toEqual(expect.arrayContaining(["web_search", "github_read_file", "memory_save", "schedule_create", "ask_user"]));
     expect(without).not.toContain("github_read_file");
     expect(withGh.every((n) => (SHAM_TOOL_NAMES as readonly string[]).includes(n))).toBe(true);
-    expect(withGh.some((n) => n.startsWith("sandbox_"))).toBe(false);
+    expect(withGh.includes("sandbox_push")).toBe(false);
   });
   it("calls a tool, reads its result, and answers from it", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: string[] = [];
@@ -47,5 +47,14 @@ describe("Sham's own agent loop", () => {
     expect(r).toMatchObject({ kind: "text", text: "الجواب النهائي من النتائج." });
     expect(seen[2]).toMatch(/اكتب الجواب النهائي الآن/);
     expect(seen[2]).not.toMatch(/الأدوات المتاحة لك/);                                    // no tools shown for the last answer
+  });
+  it("Sham has its own virtual computer tools, and its VM is never Nova's (own chat key)", async () => {
+    const names = shamToolDefs(false).map((t) => t.function.name);
+    for (const n of ["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"]) expect(names).toContain(n);
+    expect(names).not.toContain("sandbox_push");                                          // writing to the user's repos waits for the approval flow
+    const { shamToolCtx } = await import("@/lib/shamAgent");
+    const c = await shamToolCtx(42, "b", { exec: async () => undefined, query: async () => [] } as any);
+    expect(c.chatKey).toMatch(/^sham:/);
+    expect(c.runId).toBe("sham-42");
   });
 });
