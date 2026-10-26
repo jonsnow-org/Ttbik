@@ -24,7 +24,7 @@ type Pending = { runId: string; nonce: string; reason: string; summary: string; 
 type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 type Accuracy = "fast" | "balanced" | "precise";
-type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
+type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
 type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link" };
@@ -1105,7 +1105,7 @@ export default function NativeApp() {
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
           : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
-          : tab === "terminal" ? <TerminalTab lang={lang} />
+          : tab === "terminal" ? (me.features?.terminal ? <TerminalTab lang={lang} /> : <ThreadsTab t={t} me={me} lang={lang} />)
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
@@ -1113,7 +1113,7 @@ export default function NativeApp() {
       </main>
       {!page && (
         <Tabbar style={{ paddingBottom: "var(--safe-bottom)" }}>
-          {TABS.map((id) => (
+          {TABS.filter((id) => id !== "terminal" || me?.features?.terminal).map((id) => (
             <Tabbar.Item key={id} text={TAB_KEY[id] ? (t[TAB_KEY[id]!] as string) : TAB_LABEL[id][lang]} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={TAB_ICON[id]} /></svg>
             </Tabbar.Item>

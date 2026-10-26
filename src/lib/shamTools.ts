@@ -18,6 +18,16 @@ export function shamToolsEnabled(): boolean {
 const FORMAT_LINE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن. وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.';
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
+/** Which tool fits which request (measured on the new body: it read a GitHub file with the VM tool, did not save a memory, and opened a PR instead of pushing). Shown only for tools that are loaded. */
+const EXAMPLES: [string, string][] = [
+  ["github_read_file", "قراءة ملف من مستودع GitHub ← github_read_file(repo, path)"],
+  ["memory_save", "«تذكّر أن…» ← memory_save(text)"],
+  ["sandbox_push", "رفع التعديلات إلى GitHub ← sandbox_push(repo, branch, message)"],
+  ["web_search", "معلومة حديثة ← web_search(query)"],
+  ["sandbox_write_file", "كود يُكتب ويُجرَّب ← sandbox_write_file ثم sandbox_exec"],
+  ["make_media", "صورة أو صوت أو فيديو ← make_media(kind, prompt)"],
+];
+
 export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
   const lines: string[] = [];
   let used = 0;
@@ -31,7 +41,9 @@ export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
     lines.push(line);
     used += line.length;
   }
-  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_LINE}`;
+  const has = new Set(tools.map((t) => t.function.name));
+  const ex = EXAMPLES.filter(([n]) => has.has(n)).map(([, text]) => text);
+  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_LINE}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
 }
 
 /** Sham's text → a tool call, only for a tool that is really loaded. Returns the words around the call too. */

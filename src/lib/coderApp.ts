@@ -4,6 +4,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
+import { terminalAllowed } from "@/lib/coderPlans";
 import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
 import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
@@ -102,7 +103,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         tier: user.tier,
         settings: { model: st.model || "coder", think: st.think, accuracy: isAccuracy(st.accuracy) ? st.accuracy : "balanced", lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
         // sections this user may see — decided here from the verified Telegram id, not by the client
-        features: { sham: owner, ownerTools: owner },
+        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
