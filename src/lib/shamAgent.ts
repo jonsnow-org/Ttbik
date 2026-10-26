@@ -67,6 +67,7 @@ export async function shamAgentRun(opts: {
     let a: { kind?: string; prompt?: string } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
+    opts.onEvent?.("tool", `make_media ${kind}: ${String(a.prompt || "").slice(0, 80)}`);
     const r = await (opts.media || ((k, pr) => shamGenerateMedia(k, pr, Math.min(240000, Math.max(20000, left() - 3000)))))(kind, String(a.prompt || "").slice(0, 600));
     return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
   };
