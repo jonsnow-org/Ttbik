@@ -38,6 +38,7 @@ class MediaServingContractTests(unittest.TestCase):
 
     def test_video_never_falls_back_to_a_slideshow(self):
         old_space = os.environ.pop('HF_VIDEO_SPACE_ID', None)
+        old_token = os.environ.pop('HF_TOKEN', None)
         try:
             result = media.make(None, 'video', 'A horse running across a field')
             self.assertEqual(result['type'], 'error')
@@ -46,6 +47,8 @@ class MediaServingContractTests(unittest.TestCase):
         finally:
             if old_space is not None:
                 os.environ['HF_VIDEO_SPACE_ID'] = old_space
+            if old_token is not None:
+                os.environ['HF_TOKEN'] = old_token
 
 
 if __name__ == '__main__':
