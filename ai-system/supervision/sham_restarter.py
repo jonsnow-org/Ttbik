@@ -137,6 +137,8 @@ EXTRA_KERNELS = {
     "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
     # 5th notebook (2026-10-16, additive): the separate repair + re-merge tool (own dataset sham-repair-remerge-checkpoint)
     "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
+    # 6th notebook (2026-10-26, owner): Sham v2 training (donor body + Sham's media rows). GPU first (its kernel-metadata says enable_gpu), CPU when the quota is out.
+    "jonsnowjonsnow/sham-v2-train": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "sham_v2",
 }
 
 
