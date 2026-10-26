@@ -69,9 +69,9 @@ def _pipe(root: Path):
         if not _has_image_model(model_dir):
             raise RuntimeError("أوزان SDXS غير مكتملة: يلزم model_index.json وملفات الأوزان داخل media/sdxs.")
         torch.set_num_threads(max(1, min(os.cpu_count() or 2, 4)))
-        # SDXS is distilled for one-step inference. BF16 keeps its memory
-        # footprint modest on the CPU Studio; fail clearly if it cannot load.
-        dtype = torch.bfloat16 if not torch.cuda.is_available() else torch.float16
+        # ModelScope Studio is CPU-only. Float32 is the broadly supported CPU
+        # dtype; BF16 is not available on every CPU instruction set.
+        dtype = torch.float16 if torch.cuda.is_available() else torch.float32
         pipe = AutoPipelineForText2Image.from_pretrained(
             str(model_dir), torch_dtype=dtype, safety_checker=None, local_files_only=True
         )
