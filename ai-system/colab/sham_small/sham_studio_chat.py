@@ -92,34 +92,71 @@ def _chat_try(model, tokenizer, prompt: str, max_new_tokens: int, today, temp: f
         return ""
 
 
+_MODES = None
+
+
+def split_modes(prompt: str) -> tuple[str, dict]:
+    """The engine's thinking / accuracy / speed settings arrive as ONE header line at the start of the prompt (src/lib/shamModes.ts):
+    "[[sham temp=0.20 think=300]]". Returns (the prompt without it, {"temp": float, "think": int}); no header = no settings (the Studio's own defaults)."""
+    import re
+    global _MODES
+    if _MODES is None:
+        _MODES = re.compile(r"^\s*\[\[sham ([^\]]*)\]\]\n?")
+    m = _MODES.match(prompt)
+    if not m:
+        return prompt, {}
+    out: dict = {}
+    for kv in m.group(1).split():
+        k, _, v = kv.partition("=")
+        try:
+            if k == "temp":
+                out["temp"] = min(1.5, max(0.0, float(v)))
+            elif k == "think":
+                out["think"] = max(0, min(2048, int(float(v))))
+        except ValueError:
+            pass
+    return prompt[m.end():], out
+
+
 QWEN3_SYSTEM = os.environ.get("SHAM_QWEN3_SYSTEM", "أنت شام، مساعد ذكي صنعه فريقنا. أجب بلغة المستخدم بوضوح ودقة.")
 
 
-def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0) -> str:
-    """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on), in non-thinking mode.
-    No canned text: whatever the model writes is the answer. temperature 0 = greedy."""
+def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
+    """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on). No canned text: whatever the model writes is the answer.
+    temperature 0 = greedy. think_tokens > 0 = the body may write a thought first (at most that many tokens; cut and closed if it runs on), which is then removed:
+    the user's "thinking" switch is real here. A tokenizer that cannot spell the close tag as one token gets no thought (never a half-working one)."""
     from generate import generate_tokens
-    text = f"<|im_start|>system\n{QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
     end = tokenizer.encode("<|im_end|>")[-1]
+    close = tokenizer.encode("</think>")
+    think = think_tokens if (think_tokens > 0 and len(close) == 1) else 0
+    system = f"<|im_start|>system\n{QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    text = system + ("" if think else "<think>\n\n</think>\n\n")
+    ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
+    sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
+    if think:
+        out = generate_tokens(model, ids, max_new_tokens=think, eos_id=end, stop_ids={close[0]}, repetition_penalty=1.0, allowed_ranges=[(0, tokenizer.vocab_size)] * think, **sample)
+        got = out[0, ids.shape[1]:].tolist()
+        if close[0] not in got:                                          # the thought ran past its cap (or the model ended): close it ourselves, then answer
+            out = torch.cat([out, torch.tensor([close + tokenizer.encode("\n\n")], dtype=torch.long)], dim=1)
+        ids = out
     from sham_toolcall import ToolCallGuard, repair_call, tool_names_from_prompt
     guard = ToolCallGuard(tokenizer, tool_names_from_prompt(prompt)) if _on("SHAM_TOOLCALL_GUARD") else None      # tools in the prompt: a call is held to a valid shape (sham_toolcall.py)
     use = bool(guard and guard.usable)
-    out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9,
-                          eos_id=end, repetition_penalty=1.0 if use else 1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
-                          stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None)
+    out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, eos_id=end, repetition_penalty=1.0 if use else 1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
+                          stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None, **sample)
     new = [i for i in out[0, ids.shape[1]:].tolist() if i != end and i < tokenizer.vocab_size]
-    text = tokenizer.decode(new).strip()
-    return repair_call(text) if use else text
+    answer = tokenizer.decode(new).strip()
+    return repair_call(answer) if use else answer
 
 
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
     """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
     Two diagnostic prompts for the owner: «#info» reports which path is active; «#raw <text>» answers <text> with the old raw continuation, so the two
     ways can be compared on the same question."""
+    prompt, modes = split_modes(prompt)
     stripped = prompt.strip()
     if getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3" and not stripped.startswith("#"):
-        return qwen3_chat(model, tokenizer, prompt, max_new_tokens)
+        return qwen3_chat(model, tokenizer, prompt, max_new_tokens, temperature=modes.get("temp", 0.0), think_tokens=modes.get("think", 0))
     if stripped == "#info":
         return (f"sham_studio_chat فعّال | حوار={_on('SHAM_STUDIO_CHAT')} بحث={_on('SHAM_STUDIO_SEARCH')} تاريخ={_on('SHAM_STUDIO_DATE')} | "
                 f"التاريخ في السياق الآن: {build_user_text('', today).splitlines()[0] if _on('SHAM_STUDIO_DATE') else '—'}")
@@ -135,7 +172,7 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
     ids = tokenizer.encode(build_user_text(prompt, today))[-MAX_PROMPT_TOKENS:]
     wrapped = torch.tensor([chat_prompt_ids(ids)], dtype=torch.long)
     answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer, search_fn=search_fn,
-                                                temperature=0.6, top_k=40, top_p=0.9)
+                                                temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9)
     text = tokenizer.decode(answer).strip()
     if not text:                                    # the model answered nothing: fall back to the raw path rather than return an empty reply
         if _raw_fallback():                         # 2026-10-16: old behaviour only with SHAM_STUDIO_RAW_FALLBACK=1 (line above kept)
@@ -191,4 +228,28 @@ if __name__ == "__main__":
     os.environ.pop("SHAM_STUDIO_RAW_FALLBACK")
     globals()["_chat_retry"], globals()["raw_continuation"], _sd.chat_generate_with_search = _keep, _orig_raw, _orig
     assert len(_chat_retry(model, Tok(), "سؤال", 8, today=d)) >= 1
+    # the engine's thinking / accuracy / speed header: read, removed, clamped; no header = nothing
+    assert split_modes("[[sham temp=0.20 think=300]]\nسؤال") == ("سؤال", {"temp": 0.2, "think": 300})
+    assert split_modes("[[sham temp=9 think=99999]]\nx")[1] == {"temp": 1.5, "think": 2048}
+    assert split_modes("سؤال عادي") == ("سؤال عادي", {}) and split_modes("[[sham temp=abc]]\nx") == ("x", {})
+    class Tok2:                      # specials as single ids: <|im_end|> 398, </think> 399
+        vocab_size = 398
+
+        def encode(self, t):
+            return [398] if t == "<|im_end|>" else [399] if t == "</think>" else [3 + (ord(c) % 380) for c in t]
+
+        def decode(self, ids):
+            return "".join(chr(0x0621 + (i % 40)) for i in ids)
+
+    cfgq = ShamSmallConfig(vocab_size=402, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=1024)
+    mq = ShamSmall(cfgq).train(False)
+    calls = []
+    import generate as _g
+    _real = _g.generate_tokens
+    _g.generate_tokens = lambda *a, **k: (calls.append(k.get("max_new_tokens")), _real(*a, **k))[1]
+    a1 = qwen3_chat(mq, Tok2(), "سؤال", 10, temperature=0.2, think_tokens=6)       # a thought of at most 6 tokens, then the answer
+    a0 = qwen3_chat(mq, Tok2(), "سؤال", 10, temperature=0.0, think_tokens=0)       # no thought
+    _g.generate_tokens = _real
+    assert calls == [6, 10, 10], calls
+    assert isinstance(a1, str) and isinstance(a0, str)
     print("sham_studio_chat self-test OK")
