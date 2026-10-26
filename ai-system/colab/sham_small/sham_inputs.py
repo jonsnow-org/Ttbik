@@ -551,7 +551,8 @@ def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     # 2026-10-17: the media factory's batches (sham-media-*), the keeper/orchestrator state, the creds, the token shards and the video data hold no model: they used to be
     # downloaded one by one (60+ datasets, GBs) every merge run only to answer "no checkpoint", and they crowded the real sources out of the per-run budget.
     skip = ("tokenizer", "corpus", "reports", "sham-media-", "keeper", "orchestrator", "runtime-creds", "text-shards", "video", "sham-merged")
-    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in skip)]
+    # 2026-10-26: the Sham v2 lineage (donor tokenizer, its own text vocabulary) is a DIFFERENT lineage: its checkpoints must never be offered to the old lineage's merge
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not n.startswith("sham-v2") and not any(x in n for x in skip)]
 
 
 def repo_dataset_names() -> set[str]:
