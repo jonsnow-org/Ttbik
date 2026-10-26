@@ -82,6 +82,36 @@ def generate_media(kind: str, prompt: str, **kw) -> dict | None:
     except Exception:
         return None
 
+def generate_real_video(prompt: str, seconds: int = 4, **kw) -> dict:
+    """Call LTX-Video directly from this client host, outside ModelScope Studio network restrictions."""
+    space_id = os.environ.get("HF_VIDEO_SPACE_ID", "").strip()
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if not space_id or not token:
+        missing = "HF_VIDEO_SPACE_ID" if not space_id else "HF_TOKEN"
+        return {"type": "error", "code": "video_backend_not_configured",
+                "text": f"مولّد الفيديو الحركي غير مهيأ على خادم البوت: اضبط {missing} في بيئة تشغيل البوت."}
+    try:
+        import base64
+        from gradio_client import Client
+        from pathlib import Path
+
+        import sys
+        sham_root = str(Path(__file__).resolve().parents[1])
+        if sham_root not in sys.path:
+            sys.path.insert(0, sham_root)
+        from sham_media_ready import _extract_video_path, _validate_mp4
+
+        client = Client(space_id, hf_token=token)
+        clip_seconds = max(1, min(6, int(seconds or 4)))
+        result = client.predict((prompt or "").strip()[:800], clip_seconds, api_name="/generate")
+        path = _extract_video_path(result)
+        raw, duration = _validate_mp4(path)
+        return {"type": "video", "mime": "video/mp4", "b64": base64.b64encode(raw).decode("ascii"),
+                "duration_seconds": round(duration, 2), "backend": "Lightricks/LTX-Video-2B"}
+    except Exception as exc:
+        return {"type": "error", "code": "video_generation_failed",
+                "text": f"تعذّر توليد فيديو حركي عبر LTX-Video: {type(exc).__name__}: {str(exc)[:180]}"}
+
 
 def chat_auto(prompt: str, max_new_tokens: int = 60, **kw) -> dict | None:
     """A plain message, routed on the Studio (sham_intent + generate_any): {"type": text|image|audio|video|notice|busy, "route", ...} or None."""
