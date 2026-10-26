@@ -16,7 +16,7 @@ describe("coder models", () => {
   it("the current model is the default and visible; Nova 1 and Sham are hidden until the owner turns them on", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham_v2", "sham_loop", "sham", "nova_pro", "nova1"]);
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham_loop", "nova_pro", "nova1"]);
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "nova1", false).id).toBe("coder");          // a user cannot use a hidden one
     expect(effectiveModel(all, "nova1", true).id).toBe("nova1");           // the owner can try it
@@ -29,16 +29,17 @@ describe("coder models", () => {
     await updateModel("coder", { visible: false }, db);                    // the default cannot be hidden
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(true);
     await expect(updateModel("nope", { visible: true }, db)).rejects.toThrow();
-    expect(ownerModels(after, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: false, ready: true });
+    expect(ownerModels(after, undefined).find((m) => m.id === "sham_loop")).toMatchObject({ visible: false });
     // the owner's models become public with ONE switch, but a model that is not ready (no key / Studio) is never shown to users
     delete process.env.NOVA_PRO_MODEL;
-    await updateModel("sham", { visible: true }, db);
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    await updateModel("sham_loop", { visible: true }, db);
     await updateModel("nova_pro", { visible: true }, db);
     const again = await listModels(db);
-    expect(publicModels(again, "sham").map((m) => m.id)).toEqual(["coder", "sham", "nova1"]);     // sham is open to users now; nova_pro is switched on but not ready
+    expect(publicModels(again, "sham").map((m) => m.id)).toEqual(["coder", "sham_loop", "nova1"]);   // Sham is open to users now (an old "sham" id means the same); nova_pro is switched on but not ready
     expect(effectiveModel(again, "nova_pro", false).id).toBe("coder");
     expect(effectiveModel(again, "nova_pro", true).id).toBe("nova_pro");
-    process.env.NOVA_PRO_MODEL = "Qwen/Qwen3.5-397B-A17B"; process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.NOVA_PRO_MODEL = "Qwen/Qwen3.5-397B-A17B";
     expect(effectiveModel(again, "nova_pro", false).id).toBe("nova_pro");                         // ready + switched on: a user may use it
     delete process.env.NOVA_PRO_MODEL; delete process.env.NOVA1_STUDIO_URL; delete process.env.MODELSCOPE_API_TOKEN;
   });

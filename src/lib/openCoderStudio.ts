@@ -294,8 +294,11 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham_v2") return shamVariant.run("v2", () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools }));       // the new body's Studio(s)
-  if (opts.model === "sham" || opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: opts.model === "sham_loop", tools: opts.tools });   // Sham as a sub-agent probe (role sham) or as the chosen model (owner only)
+  if (opts.model === "sham_loop" || opts.model === "sham_v2") {                         // THE Sham: its body (old / new) is a server setting, not another model
+    const body = (process.env.SHAM_BODY || "").trim().toLowerCase() === "v2" || opts.model === "sham_v2" ? "v2" : "v1";
+    return shamVariant.run(body, () => shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools }));
+  }
+  if (opts.model === "sham") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham)
   const prov = providerConfig(opts.model);                       // a hand-picked API model (Nova Pro); everything else is our Studio
   if (opts.model === "nova_pro" && !prov) return Promise.resolve({ reply: null, failure: "off" });   // chosen by hand but not set up: say so, never answer from another model
   if (prov) return providerChat(prov, messages, { tools: opts.tools, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0, 240000) });
