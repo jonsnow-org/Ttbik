@@ -82,7 +82,7 @@ MAX_RUNNING = int(os.environ.get("SHAM_MAX_RUNNING", "5"))      # 2026-10-26 (ow
 
 
 def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print, grace_s: float | None = None,
-        max_running: int | None = None, first: set | None = None) -> list[str]:
+        max_running: int | None = None, first: set | None = None, outside_running: int = 0) -> list[str]:
     """`first`: slugs that get the free slots first (the important notebooks); `max_running`: never push a notebook while that many of the watched ones are already running."""
     now = now or time.time()
     cap = MAX_RUNNING if max_running is None else max_running
@@ -100,7 +100,7 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
         except Exception as exc:
             statuses[slug] = ""
             log(f"تعذّرت قراءة حالة دفتر ({type(exc).__name__}) — لا إجراء")
-    running = sum(1 for v in statuses.values() if v in RUNNING)
+    running = sum(1 for v in statuses.values() if v in RUNNING) + outside_running            # notebooks of the same account that this watcher does not push (Nova 1) take slots too
     for i, slug in enumerate(slugs, 1):
         label = f"دفتر {i}"
         entry = nbs.setdefault(_key(slug), {})
@@ -241,7 +241,13 @@ def main() -> int:
         watch, resume, _nova_notes = nova1_slot.coordinate(api, watch, resolved.get("refs", {}), gpu_slugs, state, live, resume, work)
     except Exception as _exc:
         print(f"Nova 1: تخطّي التنسيق ({type(_exc).__name__})")
-    notes = run(watch, api, state, resume, first=gpu_slugs | {"jonsnowjonsnow/sham-v2-train"})
+    outside = 0
+    try:                                                    # Nova 1's notebook shares the account (nova1_slot.py): while it runs it holds one of the five slots
+        from nova1_slot import NOVA, RUNNING as _R, _status
+        outside = 1 if NOVA not in watch and _status(api, NOVA) in _R else 0
+    except Exception:
+        pass
+    notes = run(watch, api, state, resume, first=gpu_slugs | {"jonsnowjonsnow/sham-v2-train"}, outside_running=outside)
     notes = _nova_notes + notes
     if live or not files:
         up = work / "upload"
@@ -323,6 +329,9 @@ def _self_test() -> None:
     api7 = Api({**{k: "RUNNING" for k in six[:4]}, six[4]: "COMPLETE", six[5]: "COMPLETE"})
     run(six, api7, {}, resume, now=t0, log=lambda *_: None, grace_s=0)
     assert len(pushed) == 1, pushed
+    pushed.clear()                                                  # one outside notebook (Nova 1) running: it takes a slot, so only four Sham pushes
+    run(six, Api({k: "COMPLETE" for k in six}), {}, resume, now=t0, log=lambda *_: None, grace_s=0, outside_running=1)
+    assert len(pushed) == 4, pushed
     print("sham_restarter self-test OK")
 
 
