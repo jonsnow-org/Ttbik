@@ -71,17 +71,18 @@ export async function shamAgentRun(opts: {
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
     return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
   };
-  // Pictures, speech and clips come from the READY, trained media models on the shared media Studio (execution backend, like the terminal); the transplanted
-  // body brings text and tools, not a trained image decoder (its own decoder gave meaningless blobs). Without that Studio, Sham's own Studio is tried.
+  // Sham makes pictures / speech / clips with ITS OWN weights (its Studio) first. Only when that fails (no answer, error, busy, loading) is the shared media Studio
+  // (nova-media-server) tried as the reserve path (owner's order, 2026-10-26).
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> => {
-    const ms = Math.min(240000, Math.max(20000, left() - 3000));
+    const total = Math.min(240000, Math.max(20000, left() - 3000));
     const nm = await import("@/lib/novaMedia");
-    if (nm.novaMediaEnabled()) {
-      const r = await nm.novaMakeMedia(k, pr, { timeoutMs: ms });
-      if (r && r.type !== "error") return r as ShamReply;
-      return r ? ({ type: "text", text: `تعذّر توليد ${k === "image" ? "الصورة" : k === "audio" ? "الصوت" : "المقطع"}: ${r.text || ""}` } as ShamReply) : null;
-    }
-    return shamGenerateMedia(k, pr, ms);
+    const reserve = nm.novaMediaEnabled();
+    const own = await shamGenerateMedia(k, pr, reserve ? Math.max(20000, Math.min(150000, total - 60000)) : total);
+    if (own && (own.type === "image" || own.type === "audio" || own.type === "video") && own.b64) return own;
+    if (!reserve) return own;
+    const r = await nm.novaMakeMedia(k, pr, { timeoutMs: Math.max(20000, total - 20000) });
+    if (r && r.type !== "error") return r as ShamReply;
+    return own || (r ? ({ type: "text", text: `تعذّر توليد ${k === "image" ? "الصورة" : k === "audio" ? "الصوت" : "المقطع"}: ${r.text || ""}` } as ShamReply) : null);
   };
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
