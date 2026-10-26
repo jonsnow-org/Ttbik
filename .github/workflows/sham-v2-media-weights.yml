@@ -66,9 +66,19 @@ jobs:
           shutil.copytree(sdxs, stage / "sdxs")
           shutil.copytree(piper, stage / "piper")
           media_bytes = tree_bytes(stage)
-          projected = current - old_media_bytes + media_bytes
+          # push_model is additive: only files with the same relative path are
+          # replaced. Stale old files remain, so do not subtract the whole media/ tree.
+          replaced_bytes = 0
+          if old_media.is_dir():
+              for new_file in stage.rglob("*"):
+                  if new_file.is_file():
+                      old_file = old_media / new_file.relative_to(stage)
+                      if old_file.is_file():
+                          replaced_bytes += old_file.stat().st_size
+          projected = current - replaced_bytes + media_bytes
           print(f"current model snapshot: {current / 2**30:.2f} GiB")
-          print(f"current media being replaced: {old_media_bytes / 2**30:.2f} GiB")
+          print(f"current media tree: {old_media_bytes / 2**30:.2f} GiB")
+          print(f"existing bytes replaced by same-path files: {replaced_bytes / 2**30:.2f} GiB")
           print(f"new local media bundle: {media_bytes / 2**30:.2f} GiB")
           print(f"projected model snapshot: {projected / 2**30:.2f} GiB (limit {max_total / 2**30:.2f} GiB)")
           for p in sorted(stage.rglob("*")):
