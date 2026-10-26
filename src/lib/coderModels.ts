@@ -1,9 +1,8 @@
 // The coder's selectable models. Each entry has its own Stars price (null = included in the plan) and an owner switch that decides
-// whether users can see it. The current model is the default and always visible; "Nova 1" (the coder model being prepared on
-// branch training/nova1) and "Sham" are listed but hidden until the owner turns them on.
+// whether users can see it. Nova AI is the default and always visible (its own improvement, "Nova 1", is trained on branch training/nova1 and
+// replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { prismaDb, type Db } from "@/lib/coderAuth";
-import { providerReady } from "@/lib/coderProvider";
 import { shamStudioEnabled } from "@/lib/shamStudio";
 
 export type CoderModel = {
@@ -20,10 +19,8 @@ export type CoderModel = {
 
 export const DEFAULT_MODELS: CoderModel[] = [
   // The order here is the order in the picker. ONE Sham only: its abilities and its body (old / new) change behind this entry (SHAM_BODY), never as another entry. Each description says what the model is FOR and where it stands today (kept true to what was measured).
-  { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
+  { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية. يتحسّن بتدريب خاص بنا على الكود والأدوات (Nova 1) يُستبدَل به حين يجهز.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode. Improved by our own training on code and tools (Nova 1), which replaces its weights when ready." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
   { id: "sham_loop", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذجنا الذي بنيناه بأنفسنا، يعمل داخل محرّك Nova: يبحث ويستعمل الأدوات ويتتبّع المهام الطويلة ويصبر عند الانقطاع. لم يكتمل تدريبه بعد، فردوده ما زالت أضعف من Nova AI.", en: "Our own model, built from scratch, running inside Nova's engine: searches, uses tools, tracks long tasks and is patient on outages. Training is not finished, so its replies are still weaker than Nova AI." }, price_stars: null, visible: false, ownerOnly: true, sort: 1 },
-  { id: "nova_pro", name: { ar: "نوفا برو", en: "Nova Pro" }, desc: { ar: "نموذج أكبر تستضيفه خدمة ModelScope الجاهزة (ليس على استوديوهاتنا) للمهام الأصعب. يعمل حين يُضبط اسم النموذج NOVA_PRO_MODEL، وحصته المجانية محدودة.", en: "A bigger model hosted by ModelScope's ready-made API (not on our Studios) for harder tasks. Works once NOVA_PRO_MODEL names the model; its free quota is limited." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "NOVA_PRO_MODEL", sort: 4 },
-  { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نفس نموذج Nova AI الأساسي (Qwen3.5-4B) بعد تدريب خفيف خاص بنا على الكود والإصلاح وصيغة أدوات البوت. قيد التدريب على Kaggle ولم يُنشر بعد.", en: "The same base model as Nova AI (Qwen3.5-4B) after our own light training on code, bug fixing and the bot's tool format. Training on Kaggle, not published yet." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 5 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -87,7 +84,6 @@ export const canonModelId = (id: string | undefined): string | undefined => (id 
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham_loop") return shamStudioEnabled();
-  if (m.id === "nova_pro") return providerReady("nova_pro");
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
@@ -117,7 +113,6 @@ export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, mode
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
   if (m.id === "sham_loop" && !shamStudioEnabled()) return false;                // needs Sham's Studio token
-  if (m.id === "nova_pro" && !providerReady("nova_pro")) return false;     // not set up yet: it cannot be chosen
   st.model = m.id;
   st.mode = "coder";                                          // the old direct Sham path is no longer offered: every model runs in the engine
   return true;

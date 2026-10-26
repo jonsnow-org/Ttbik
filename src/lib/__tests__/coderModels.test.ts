@@ -13,34 +13,26 @@ function modelsDb(): Db {
 }
 
 describe("coder models", () => {
-  it("the current model is the default and visible; Nova 1 and Sham are hidden until the owner turns them on", async () => {
+  it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham_loop", "nova_pro", "nova1"]);
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham_loop"]);                       // Nova Pro is gone; Nova 1 is Nova AI's own improvement, not an entry
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
-    expect(effectiveModel(all, "nova1", false).id).toBe("coder");          // a user cannot use a hidden one
-    expect(effectiveModel(all, "nova1", true).id).toBe("nova1");           // the owner can try it
-    process.env.NOVA1_STUDIO_URL = "https://nova1.example";                // ready: its Studio address is set
-    await updateModel("nova1", { visible: true, price_stars: 150 }, db);
-    const after = await listModels(db);
-    const pub = publicModels(after, "nova1");
-    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["nova1", 150, true]]);
-    expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
-    await updateModel("coder", { visible: false }, db);                    // the default cannot be hidden
+    expect(effectiveModel(all, "sham_loop", false).id).toBe("coder");                    // a user cannot use a hidden one
+    expect(effectiveModel(all, "sham_loop", true).id).toBe("sham_loop");                 // the owner can try it
+    expect(effectiveModel(all, "sham", true).id).toBe("sham_loop");                      // an old id means the one Sham
+    await updateModel("coder", { visible: false }, db);                                  // the default cannot be hidden
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(true);
     await expect(updateModel("nope", { visible: true }, db)).rejects.toThrow();
-    expect(ownerModels(after, undefined).find((m) => m.id === "sham_loop")).toMatchObject({ visible: false });
-    // the owner's models become public with ONE switch, but a model that is not ready (no key / Studio) is never shown to users
-    delete process.env.NOVA_PRO_MODEL;
+    delete process.env.MODELSCOPE_API_TOKEN;
+    await updateModel("sham_loop", { visible: true, price_stars: 150 }, db);
+    const on = await listModels(db);
+    expect(publicModels(on, "sham_loop").map((m) => m.id)).toEqual(["coder"]);           // switched on but not ready (no Studio token): still hidden from users
     process.env.MODELSCOPE_API_TOKEN = "t";
-    await updateModel("sham_loop", { visible: true }, db);
-    await updateModel("nova_pro", { visible: true }, db);
-    const again = await listModels(db);
-    expect(publicModels(again, "sham").map((m) => m.id)).toEqual(["coder", "sham_loop", "nova1"]);   // Sham is open to users now (an old "sham" id means the same); nova_pro is switched on but not ready
-    expect(effectiveModel(again, "nova_pro", false).id).toBe("coder");
-    expect(effectiveModel(again, "nova_pro", true).id).toBe("nova_pro");
-    process.env.NOVA_PRO_MODEL = "Qwen/Qwen3.5-397B-A17B";
-    expect(effectiveModel(again, "nova_pro", false).id).toBe("nova_pro");                         // ready + switched on: a user may use it
-    delete process.env.NOVA_PRO_MODEL; delete process.env.NOVA1_STUDIO_URL; delete process.env.MODELSCOPE_API_TOKEN;
+    const pub = publicModels(on, "sham_loop");
+    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["sham_loop", 150, true]]);
+    expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
+    expect(ownerModels(on, undefined).find((m) => m.id === "sham_loop")).toMatchObject({ visible: true, ready: true });
+    delete process.env.MODELSCOPE_API_TOKEN;
   });
 });

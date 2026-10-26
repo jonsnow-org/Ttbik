@@ -365,7 +365,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  const OWNER_FIRST = new Set(["sham", "nova_pro", "sham_loop", "sham_v2"]);
+  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
     const open = new Set((await listModels(db)).filter((m) => m.visible && modelReady(m)).map((m) => m.id));          // switched on for everyone AND ready (one tap by the owner)
     if (!(st.model && open.has(st.model))) {
@@ -512,7 +512,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   if (Date.now() - (warmedAt.get(chatId) || 0) < 8 * 60000) return;
   warmedAt.set(chatId, Date.now());
   const st = await loadState(chatId, db);
-  if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2" || st.model === "nova_pro") return;
+  if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2") return;
   const ctx = await toolCtx(chatId, st, db, null);
   const github = Boolean(ctx.gh);
   const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
