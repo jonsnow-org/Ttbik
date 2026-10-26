@@ -99,12 +99,14 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
-    if (!sub.ok) return null;
+    if (!sub.ok) { note(base, api, `HTTP ${sub.status} on submit`); return null; }
     const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return null;
+    if (!event_id) { note(base, api, "no event id"); return null; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) note(base, api, `HTTP ${res.status} on result`);
     return res.ok ? await res.text() : null;
-  } catch {
+  } catch (e) {
+    note(base, api, `${(e as { name?: string })?.name || "error"} (limit ${Math.round(timeoutMs / 1000)} s): ${String((e as Error)?.message || "").slice(0, 80)}`);
     return null;
   }
 }
@@ -113,7 +115,7 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
 export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
 
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
-  if (!shamStudioEnabled()) return null;
+  if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
   const payload = withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
@@ -127,7 +129,9 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
 
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? parseShamReply(body) : null;
+  const reply = body ? parseShamReply(body) : null;
+  if (body && !reply) lastFailure = `generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
+  return reply;
 }
 
 export async function shamGenerateMedia(kind: "image" | "audio" | "video", prompt: string, timeoutMs = 55000): Promise<ShamReply | null> {
@@ -171,6 +175,7 @@ export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout"
 /** The last failed Studio call (api, which Studio, why): shown to the owner under a failure message, so a failure is read, not guessed. */
 let lastFailure = "";
 export const shamLastFailure = (): string => lastFailure;
+export const shamNoteFailure = (why: string): void => { lastFailure = why; };
 const note = (base: string, api: string, why: string) => { lastFailure = `${api} @ ${base.replace(/^https?:\/\/(studio-novaai2026-)?/, "").slice(0, 40)}: ${why}`; };
 
 async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
@@ -194,7 +199,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
 }
 
 async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
-  if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return { reply: null, failure: "off" }; }
   const payload = withMode(payload0);
   const bases = shamBases();
   const t0 = Date.now();

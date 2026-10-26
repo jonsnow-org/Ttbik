@@ -98,11 +98,9 @@ def quantize_int8(model: "ShamSmall") -> "ShamSmall":
 
 
 def _quant(path: str | Path) -> bool:
-    """SHAM_QUANT=int8 forces the int8 load, 0 forbids it; otherwise it follows the low-memory path (big checkpoints on a small CPU box)."""
+    """SHAM_QUANT=int8 asks for the int8 load; off by default (not yet measured fast enough on the Studio)."""
     v = os.environ.get("SHAM_QUANT", "").strip().lower()
-    if v in ("0", "off", "none"):
-        return False
-    return v == "int8" or _lowmem(path)
+    return v == "int8"                       # opt-in: the first int8 load of the 1.7B body stayed "loading" for 8+ minutes on the 2-core Studio (2026-10-26)
 
 
 def load_checkpoint(
@@ -125,7 +123,8 @@ def load_checkpoint(
         prev = torch.get_default_dtype()
         torch.set_default_dtype(torch.bfloat16)
         try:
-            model = ShamSmall(cfg)
+            with torch.device("meta"):                                    # no random initialisation of 1.7B weights (minutes on 2 cores): the saved tensors are assigned
+                model = ShamSmall(cfg)
         finally:
             torch.set_default_dtype(prev)
         from model import precompute_rope
@@ -134,7 +133,7 @@ def load_checkpoint(
         model.register_buffer("rope_sin", sin, persistent=False)
     else:
         model = ShamSmall(cfg)
-    model.load_state_dict(payload["model_state_dict"])
+    model.load_state_dict(payload["model_state_dict"], assign=lowmem)
     if lowmem:
         payload["model_state_dict"] = None
     model.to(map_location)
