@@ -18,6 +18,9 @@ on:
       - fix/sham-v2-real-media-serving
     paths:
       - "ai-system/colab/sham_small/sham_media_ready.py"
+      - "ai-system/colab/sham_small/web/studio_client.py"
+      - "ai-system/colab/sham_small/requirements.txt"
+      - "ai-system/colab/sham_small/serve.py"
       - "ai-system/colab/sham_small/test_sham_media_ready.py"
       - "ai-system/modelscope-sham/app.py"
       - "ai-system/modelscope-sham/requirements.txt"
