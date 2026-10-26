@@ -63,6 +63,22 @@ def _token() -> str:
 
 def _download() -> Path:
     import contextlib
+    cache = HERE / "_models"
+    # The media bundle is ~2.16 GiB. Do not start a new multi-gigabyte snapshot
+    # download on an almost-full 8 GiB Studio when a complete cached model can
+    # keep serving; report the low-space condition instead of filling the disk.
+    min_free = int(float(os.environ.get("SHAM_MIN_REFRESH_FREE_GIB", "2.6")) * (1024 ** 3))
+    try:
+        free = shutil.disk_usage(HERE).free
+    except OSError:
+        free = min_free
+    if free < min_free:
+        cached = sorted(cache.rglob("final_merged.pt"), key=lambda p: p.stat().st_mtime, reverse=True) if cache.exists() else []
+        for ckpt in cached:
+            if (ckpt.parent / "sham_small_tokenizer.json").is_file():
+                _say(f"disk low ({free / 2**30:.2f} GiB free): keeping cached model; skipped snapshot refresh")
+                return ckpt.parent
+        _say(f"disk low ({free / 2**30:.2f} GiB free) but no complete cached model; first download may fail")
     os.environ["TQDM_DISABLE"] = "1"                         # no progress bars in the log
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
@@ -71,7 +87,7 @@ def _download() -> Path:
         HubApi().login(tok)
     _say(f"downloading {MODEL_ID}")
     with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
-        path = Path(snapshot_download(MODEL_ID, cache_dir=str(HERE / "_models")))
+        path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache))
     _say("download finished")
     return path
 
