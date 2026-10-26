@@ -146,6 +146,10 @@
       "role": "مجموعة خاصة بملف اعتماد كاكل للنسخ المدفوعة بالواجهة (أسرار — لا تُرفق إلا بدفاتر خاصة؛ لا أوزان فيها)",
       "writer": "any"
     },
+    "sham-v2-checkpoint": {
+      "role": "نقطة حفظ سلالة شام v2 (جسم المانح المنقول + صفوف الوسائط المدرَّبة)؛ سلالة منفصلة بمُرمِّز المانح فلا تُدمج مع السلالة القديمة",
+      "writer": "sham_v2_train"
+    },
     "sham-media-refined": {
       "role": "مفكّ الصورة والصوت المصقول وحده (الترميز والقاموس كما هما بالضبط) — يُعتمد في الاستوديو فقط إذا طابق ترميز النموذج المدموج",
       "writer": "decoder_refine"
@@ -634,6 +638,28 @@
     "arabic_sft_push": {
       "file": ".github/workflows/sham-arabic-sft-push.yml",
       "title": "دفع دفتر SFT العربي إلى كاكل",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2/sham_v2_train.ipynb",
+      "title": "شام v2: دفتر منفصل يدرّب صفوف الوسائط فوق جسم المانح المنقول + أمثلة الأدوات والكود (GPU أولاً ثم CPU)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-checkpoint",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-checkpoint"
+      ]
+    },
+    "sham_v2_push": {
+      "file": ".github/workflows/sham-v2-push.yml",
+      "title": "دفع دفتر شام v2 إلى كاكل (مرة واحدة، ثم يتولاه المراقب)",
       "kind": "workflow",
       "accelerator": "CPU (GitHub)",
       "reads": [],
