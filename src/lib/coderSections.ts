@@ -12,6 +12,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { shamToolsEnabled } from "@/lib/shamTools";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
@@ -1173,24 +1174,26 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
-      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
-        // tools whose result is a picture the model is shown next (view_*), or a file made by the media Studio and sent to the chat (make_media): they need the chat, so they run here
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+        // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
         let out = "";
         let shown: string[] = [];
         let from = "";
         try {
           if (call.function.name === "make_media") {
-            if (tierFor(chatId) !== "owner") out = "error: making media is for the owner only.";
+            if (tierFor(chatId) !== "owner") out = "error: making media with Sham is for the owner only.";
             else {
               const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
               const prompt = String(a.prompt || "").trim().slice(0, 600);
+              const { shamGenerateMedia, shamStudioEnabled } = await import("@/lib/shamStudio");
               const nm = await import("@/lib/novaMedia");
-              const who = "the media Studio";
+              const viaStudio = nm.novaMediaEnabled();                       // Nova's own media Studio first; Sham's Studio only when there is none
+              const who = viaStudio ? "the media Studio" : "Sham";
               if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-              else if (!nm.novaMediaEnabled()) out = "error: no media Studio is connected here";
+              else if (!viaStudio && !shamStudioEnabled()) out = "error: no media Studio is connected here";
               else {
-                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => nm.novaMakeMedia(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }));
+                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => viaStudio ? nm.novaMakeMedia(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }) : shamGenerateMedia(kind, prompt, 120000));
                 const rb = realBot(bot);
                 if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
                 else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
@@ -1243,7 +1246,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
-      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker")) {
+      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
         // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
         const a = parseArgs(call);
         let out: string;
@@ -1750,7 +1753,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
+    if (run.agent && (run.agentRole !== "sham" || shamToolsEnabled()) && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
@@ -1765,7 +1768,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
-    const toSham = false;                                                    // Sham never runs inside Nova's engine (its own path: novaBotLogic / shamAgent)
+    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2";      // Sham gets the bare words, no context block
     const histOf = (): CoderMessage[] => {
       if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
       const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
@@ -1787,7 +1790,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham_loop" : "sham_probe") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
