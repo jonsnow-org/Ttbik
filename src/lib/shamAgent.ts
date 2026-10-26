@@ -68,8 +68,20 @@ export async function shamAgentRun(opts: {
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
     opts.onEvent?.("tool", `make_media ${kind}: ${String(a.prompt || "").slice(0, 80)}`);
-    const r = await (opts.media || ((k, pr) => shamGenerateMedia(k, pr, Math.min(240000, Math.max(20000, left() - 3000)))))(kind, String(a.prompt || "").slice(0, 600));
+    const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
     return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
+  };
+  // Pictures, speech and clips come from the READY, trained media models on the shared media Studio (execution backend, like the terminal); the transplanted
+  // body brings text and tools, not a trained image decoder (its own decoder gave meaningless blobs). Without that Studio, Sham's own Studio is tried.
+  const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> => {
+    const ms = Math.min(240000, Math.max(20000, left() - 3000));
+    const nm = await import("@/lib/novaMedia");
+    if (nm.novaMediaEnabled()) {
+      const r = await nm.novaMakeMedia(k, pr, { timeoutMs: ms });
+      if (r && r.type !== "error") return r as ShamReply;
+      return r ? ({ type: "text", text: `تعذّر توليد ${k === "image" ? "الصورة" : k === "audio" ? "الصوت" : "المقطع"}: ${r.text || ""}` } as ShamReply) : null;
+    }
+    return shamGenerateMedia(k, pr, ms);
   };
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
