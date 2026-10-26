@@ -111,6 +111,21 @@ describe("sandbox", () => {
     expect(run).not.toMatch(/x-access-token:ghp_/);                  // not in a URL / remote config
     expect(await runSandboxTool("sandbox_clone", { repo: "not a repo" }, ctx)).toMatch(/owner\/name/);
   });
+  it("pushes the VM's changes to a branch with the token as a one-off header (never in the output), refuses bad names and a missing token", async () => {
+    const f = fakeDriver(() => ({ out: "commit abc fix\n cart.py | 2 +-\nPUSHED to o/r branch fix/cart ghp_SECRETSECRETSECRETSECRET1234", code: 0 }));
+    setSandboxDriver(f.d);
+    const r = await runSandboxTool("sandbox_push", { repo: "o/r", branch: "fix/cart", message: "fix the cart bugs" }, ctx);
+    expect(r).toMatch(/PUSHED to o\/r branch fix\/cart/);
+    expect(r).not.toContain("ghp_SECRET");
+    const run = [...f.vms.values()][0].runs.join("\n");
+    expect(run).toMatch(/git checkout -B 'fix\/cart'/);
+    expect(run).toMatch(/git -c http\.extraHeader=.* push origin HEAD:refs\/heads\/fix\/cart/);
+    expect(run).not.toMatch(/--force|push -f/);
+    expect(run).not.toMatch(/x-access-token:ghp_/);
+    expect(await runSandboxTool("sandbox_push", { repo: "o/r", branch: "--delete", message: "m" }, ctx)).toMatch(/plain branch name/);
+    expect(await runSandboxTool("sandbox_push", { repo: "o/r", branch: "a..b", message: "m" }, ctx)).toMatch(/plain branch name/);
+    expect(await runSandboxTool("sandbox_push", { repo: "o/r", branch: "fix/x", message: "m" }, { ...ctx, githubToken: undefined })).toMatch(/not connected/);
+  });
   it("writes and reads files (relative paths resolve under the home folder; line windows)", async () => {
     const f = fakeDriver();
     setSandboxDriver(f.d);

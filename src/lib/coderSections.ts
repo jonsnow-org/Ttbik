@@ -462,7 +462,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
-  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   if (!st.inbox.length) { const rid = st.run!.id; later(() => frontAck(bot, chatId, rid, content, "telegram", db)); }
   return true;
@@ -876,11 +876,22 @@ export function progressNote(run: { step: number; startedAt?: number; agent?: bo
 export const pollTransient = (o: { failure?: string; status?: number }): boolean =>
   o.failure === "timeout" || o.failure === "network" || (o.failure === "http" && (o.status === 429 || Number(o.status) >= 500 || o.status === undefined));
 
+/** The "typing…" indicator. Off by default: in the owner's chat the client reserved a blank area under her message while it was on (the message jumped to the top of the screen until the reply came). CODER_TYPING=on brings it back. */
+async function typing(bot: TelegramBot, chatId: number): Promise<void> {
+  if ((process.env.CODER_TYPING || "").toLowerCase() !== "on") return;
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+}
+
+/** The clock on the progress card: the user's local time (CODER_DEFAULT_TZ, Syria / Türkiye UTC+3 by default), never the server's UTC. */
+export function localClock(now: Date = new Date(), tz: string = defaultTz()): string {
+  return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
+}
+
 /** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
 function cardText(run: Run): string {
   const p = run.progress || { lines: [] as string[] };
   const shown = p.lines.slice(-12);
-  const clock = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const clock = localClock();
   return `📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
 }
 /** Live refresh of the same card message while the model works (every few seconds): the chat shows each phase from start to end, like the app's log. Never sends a second card when an edit fails. */
@@ -956,7 +967,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
     const msgId = run.progress?.msgId;
     if (!msgId) return;
     const dots = ".".repeat((beat % 3) + 1);
-    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${localClock()}`;
     void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
   }, 8000);
   try {
@@ -1110,7 +1121,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await taskEvent(run.id, "info", `⏳ بانتظار الوكلاء: ${finished.filter(Boolean).length}/${d.slots.length} أنهوا.`, db);
         await saveState(chatId, st, db, slot);
       }
-      await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await typing(ioBot, chatId);
       await new Promise((res) => setTimeout(res, Math.max(200, Math.min(pollMs() * 2, 3000, left() - 7000))));
       continue;
     }
@@ -1167,15 +1178,18 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
               const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
               const prompt = String(a.prompt || "").trim().slice(0, 600);
               const { shamGenerateMedia, shamStudioEnabled } = await import("@/lib/shamStudio");
+              const nm = await import("@/lib/novaMedia");
+              const viaStudio = nm.novaMediaEnabled();                       // Nova's own media Studio first; Sham's Studio only when there is none
+              const who = viaStudio ? "the media Studio" : "Sham";
               if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-              else if (!shamStudioEnabled()) out = "error: Sham's Studio is not connected here";
+              else if (!viaStudio && !shamStudioEnabled()) out = "error: no media Studio is connected here";
               else {
-                const r = await withHeartbeat(ioBot, chatId, run, `شام يصنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوتاً" : "مقطعاً"}`, () => shamGenerateMedia(kind, prompt, 120000));
+                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => viaStudio ? nm.novaMakeMedia(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }) : shamGenerateMedia(kind, prompt, 120000));
                 const rb = realBot(bot);
-                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = "made by Sham and sent to the user as a picture"; }
-                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.wav"), { caption: prompt.slice(0, 200) }); out = "made by Sham and sent to the user as a sound file"; }
-                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "sham.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = "made by Sham and sent to the user as a short video"; }
-                else out = `error: Sham made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
+                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
+                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
+                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = `made by ${who} and sent to the user as a short video`; }
+                else out = `error: ${who} made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
               }
             }
           } else {
@@ -1351,7 +1365,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await new Promise((res) => setTimeout(res, Math.max(0, left() - 7000)));
         continue;
       }
-      await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await typing(ioBot, chatId);
       await new Promise((res) => setTimeout(res, ms));
       continue;
     }
@@ -1425,7 +1439,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.progressAt = Date.now();
           const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
           const readDone = Boolean(r.prefill && Number(r.prefill.total) > 0 && Number(r.prefill.processed) >= Number(r.prefill.total));
-          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "النموذج يفكّر قبل أن يكتب…" : readDone ? "النموذج يكتب الردّ…" : pf >= 0 ? `النموذج يقرأ المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
+          const phase = r.phase && r.phase !== "ready" ? `جارٍ التحضير (${r.phase})` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "جارٍ التفكير…" : readDone ? "جارٍ الكتابة…" : pf >= 0 ? `جارٍ قراءة المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
           await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, phase);
         }
@@ -1499,7 +1513,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
-        await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
+        await typing(ioBot, chatId);
         // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
         await new Promise((res) => setTimeout(res, r.total ? pollMs() : Math.max(pollMs(), Number(process.env.CODER_PREFILL_POLL_MS ?? (process.env.NODE_ENV === "test" ? 0 : 4000)))));
         continue;

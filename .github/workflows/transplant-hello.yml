@@ -1,0 +1,31 @@
+name: "What the models answer (Sham chat path and the donors, read-only)"
+# Read-only measurement, nothing is published. Decides whether copying a small trained model's weights into Sham (or a stronger relative into Nova) can pay.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "space-separated Hugging Face ids (chat-tuned unless the id ends with -Base)"
+        default: "Qwen/Qwen3-1.7B Qwen/Qwen3-4B"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers tokenizers kaggle numpy requests pillow datasets soundfile beautifulsoup4 imageio-ffmpeg av accelerate
+      - name: Measure
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODELS: ${{ inputs.models }}
+        run: python scripts/transplant/hello.py --no-sham $MODELS

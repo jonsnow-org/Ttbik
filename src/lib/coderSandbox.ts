@@ -33,7 +33,7 @@ export interface SbxDriver {
   create(name: string, o: { timeoutMs: number; vcpus: number; tags: Record<string, string> }): Promise<SbxHandle>;
 }
 
-export const SANDBOX_TOOLS = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"]);
+export const SANDBOX_TOOLS = new Set(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file", "sandbox_push"]);
 export const sandboxEnabled = () => (process.env.CODER_SANDBOX || "on").trim().toLowerCase() !== "off";
 const timeoutMin = () => Math.max(5, Math.min(45, Number(process.env.CODER_SANDBOX_TIMEOUT_MIN || 30)));   // Hobby: 45 min per session
 const vcpus = () => Math.max(1, Math.min(4, Number(process.env.CODER_SANDBOX_VCPUS || 2)));             // Hobby: up to 4
@@ -308,6 +308,21 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
         const cmd = `rm -rf ${sh(dir)} && git ${auth}clone --depth ${Math.max(1, Math.min(200, Number(a.depth) || 50))} ${branch ? `--branch ${sh(branch)} ` : ""}https://github.com/${repo}.git ${sh(dir)} && cd ${sh(dir)} && git log --oneline -1 && ls`;
         secrets.push(Buffer.from(`x-access-token:${ctx.githubToken || ""}`).toString("base64"));
         return note + `cloned into ${dir}\n` + (await startAndWait(sb, cmd, home, secrets));
+      }
+      case "sandbox_push": {
+        // the VM's changes go back to GitHub: commit everything changed in the clone and push it to a branch (never forced). The token is in the command only for this push (an http header, not stored in the repo config) and is scrubbed from the output.
+        const repo = String(a.repo || "");
+        if (!REPO_RX.test(repo)) return "error: repo must be owner/name";
+        const branch = String(a.branch || "").trim();
+        if (!/^[\w][\w./-]{0,99}$/.test(branch) || branch.includes("..")) return "error: branch must be a plain branch name (letters, digits, - _ . /)";
+        if (!ctx.githubToken) return "error: GitHub is not connected in this chat, so nothing can be pushed";
+        const dir = resolvePath(String(a.dir || repo.split("/")[1]), home);
+        const message = String(a.message || "update").replace(/\s+/g, " ").trim().slice(0, 200) || "update";
+        const auth = `-c http.extraHeader=${sh(`Authorization: Basic ${Buffer.from(`x-access-token:${ctx.githubToken}`).toString("base64")}`)} `;
+        secrets.push(Buffer.from(`x-access-token:${ctx.githubToken}`).toString("base64"));
+        const who = `-c user.name="Nova AI" -c user.email="nova-ai@users.noreply.github.com"`;
+        const cmd = `cd ${sh(dir)} && git checkout -B ${sh(branch)} && printf '__pycache__/\\n.pytest_cache/\\n*.pyc\\nnode_modules/\\n.venv/\\n.next/\\ndist/\\n' >> .git/info/exclude && git add -A && { git diff --cached --quiet && { echo "NOTHING TO PUSH: no file changed in ${dir}"; exit 3; }; true; } && git ${who} commit -q -m ${sh(message)} && git show --stat --format='commit %h %s' HEAD | head -n 20 && git ${auth}push origin HEAD:refs/heads/${branch} 2>&1 | tail -n 5 && echo "PUSHED to ${repo} branch ${branch}"`;
+        return note + (await startAndWait(sb, cmd, home, secrets));
       }
       case "sandbox_exec": {
         const command = String(a.command || "").trim();

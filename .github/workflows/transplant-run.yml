@@ -1,0 +1,38 @@
+name: "Body transplant into Sham (measured before and after a short embedding warm-up, nothing published)"
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "embedding-only warm-up steps (0 = measure only)"
+        default: "40"
+      donors:
+        description: "space-separated Hugging Face ids"
+        default: "Qwen/Qwen3-0.6B-Base"
+      lr:
+        description: "embedding warm-up learning rate"
+        default: "2e-4"
+permissions:
+  contents: read
+jobs:
+  transplant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers tokenizers kaggle numpy requests pillow datasets soundfile beautifulsoup4 imageio-ffmpeg av accelerate
+      - name: Transplant and measure
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          STEPS: ${{ inputs.steps }}
+          WARM_LR: ${{ inputs.lr }}
+          DONORS: ${{ inputs.donors }}
+        run: python scripts/transplant/transplant_probe.py $STEPS $DONORS

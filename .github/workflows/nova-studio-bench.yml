@@ -1,0 +1,24 @@
+name: Nova Studio bench (the Studio measures its own reading speed, with and without AMX)
+# The coder Studios run on Intel Xeon with AMX (amx_tile / amx_int8 / amx_bf16, seen in their status). Does the llama.cpp build the Studio runs use it? The Studio times llama-bench twice itself:
+# with every CPU backend, and with the sapphirerapids backend removed. The Studio must be idle (the bot's tasks wait while it measures, ~2-4 minutes). Never prints the token. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio number 1-5 (use one the owner is not using)"
+        default: "2"
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - run: python3 scripts/nova-eval/studio_bench.py "$N"
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          N: ${{ inputs.studio }}
