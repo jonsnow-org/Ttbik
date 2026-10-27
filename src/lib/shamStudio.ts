@@ -139,16 +139,17 @@ export async function shamGenerateMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
   timeoutMs = 55000,
-  backend: "internal" | "ready" = "internal",
+  backend: "internal" | "ready" | "hf" = "internal",
   opts: { scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply | null> {
-  const api = backend === "ready" ? "generate_media_from_panel" : "generate_media";
+  const api = backend === "internal" ? "generate_media" : "generate_media_from_panel";
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const payload = backend === "ready"
-    ? { kind, prompt, backend_label: "المسار البديل (أوزان محلية جاهزة)", scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) }
-    : { kind, prompt };
+  const backend_label = backend === "ready" ? "المسار البديل (أوزان محلية جاهزة)" : "المسار الخارجي (Hugging Face)";
+  const payload = backend === "internal"
+    ? { kind, prompt }
+    : { kind, prompt, backend_label, scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? parseShamReply(body) : null;
   if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
