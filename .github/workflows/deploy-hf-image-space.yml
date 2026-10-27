@@ -1,5 +1,0 @@
-name: "Deploy Hugging Face Image Space (QUARANTINED)"
-# Disabled by owner request. Original workflow preserved at quarantine/huggingface/deploy-hf-image-space.yml.disabled
-# No push, schedule, or manual trigger is registered here.
-on: {}
-jobs: {}
