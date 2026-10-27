@@ -274,3 +274,17 @@ export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb
   await settingsTable(db);
   await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_order', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
 }
+
+// Priority for the new Hugging Face ZeroGPU image/video Spaces versus the established fallback providers.
+export type HfMediaRouteOrder = "hf_first" | "fallback_first";
+export async function hfMediaRouteOrder(db: Db = prismaDb): Promise<HfMediaRouteOrder> {
+  try {
+    await settingsTable(db);
+    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'hf_media_route_order'`);
+    return r[0]?.value === "fallback_first" ? "fallback_first" : "hf_first";
+  } catch { return "hf_first"; }
+}
+export async function setHfMediaRouteOrder(order: HfMediaRouteOrder, db: Db = prismaDb): Promise<void> {
+  await settingsTable(db);
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('hf_media_route_order', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
+}
