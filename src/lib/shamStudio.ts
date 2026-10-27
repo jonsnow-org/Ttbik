@@ -116,7 +116,8 @@ export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => rep
 
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
-  const payload = withMode(payload0);
+  // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
+  const payload = api === "generate_media" || api === "generate_media_from_panel" ? payload0 : withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
   for (let i = 0; i < bases.length; i++) {
