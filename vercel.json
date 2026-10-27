@@ -10,6 +10,9 @@
       "claude/nova-fixes": false,
       "fix/sham-three-media-routes": false,
       "fix/sham-v2-generate-any-timeout": false,
+      "fix/sham-media-route-backend": false,
+      "fix/sham-v2-local-media-video-args": false,
+      "fix/media-self-owned-default": false,
       "nova-test/media-samples": false
     }
   },
