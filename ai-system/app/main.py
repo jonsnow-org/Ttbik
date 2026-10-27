@@ -1263,10 +1263,9 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        external_selected = _external_media_enabled()
         image_bytes, image_source = nova_media_routing.generate_image(
             expanded_prompt,
-            external_enabled=external_selected,
+            external_enabled=False,
             hf_generate=lambda _prompt: None,
             cloudflare_generate=lambda _prompt: None,
             nova_studio_generate=lambda text: nova_media_studio.generate_media("image", text),
@@ -1295,12 +1294,7 @@ def _process_image_gen_and_deliver(
             # result, the raw SSE lines too (see that function), so the
             # next failure is diagnosable from Render's own logs instead
             # of guessed at again.
-            failure_text = (
-                "تعذّر توليد الصورة عبر مولّد نوفا الخارجي المختار (Hugging Face / Cloudflare). لم أتحول تلقائياً إلى المولّد الداخلي؛ لم يُخصم الطلب. أوقف الأداة الخارجية من لوحة التحكم لاستخدام مولّد نوفا الداخلي."
-                if external_selected
-                else "تعذّر توليد الصورة عبر مولّد نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً."
-            )
-            _send_telegram_message(chat_id, failure_text)
+            _send_telegram_message(chat_id, "تعذّر توليد الصورة عبر مسار نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً.")
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
         # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو والصوت"):
