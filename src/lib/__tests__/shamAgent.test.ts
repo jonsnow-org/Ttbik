@@ -119,6 +119,24 @@ describe("Sham's own agent loop", () => {
     const last = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
     expect(last).toMatchObject({ kind: "text", text: "خلاصة." });                         // the last leg answers instead of handing over
   });
+  it("ignores only a Telegram retry of the same update, not a new message", async () => {
+    const { shamClaimUpdate } = await import("@/lib/shamExec");
+    const seen = new Set<string>();
+    const db: any = {
+      exec: async () => {},
+      query: async (sql: string, chatId: number, updateId: number) => {
+        if (!/INSERT INTO sham_seen/.test(sql)) return [];
+        const key = chatId + ":" + updateId;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [{ update_id: String(updateId) }];
+      },
+    };
+    expect(await shamClaimUpdate(5, 120, db)).toBe(true);
+    expect(await shamClaimUpdate(5, 120, db)).toBe(false);
+    expect(await shamClaimUpdate(5, 121, db)).toBe(true);
+    expect(await shamClaimUpdate(6, 120, db)).toBe(true);
+  });
   it("a saved task is kept per task (not per chat) and taken once", async () => {
     const { shamSaveRun, shamTakeRun } = await import("@/lib/shamExec");
     const rows = new Map<string, string>();
