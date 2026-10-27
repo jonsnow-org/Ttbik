@@ -120,6 +120,18 @@ class GateReply(unittest.TestCase):
 
 class MakeUsesTheGate(unittest.TestCase):
     """sham_media_ready.make(): a black picture from the image model is an error reply, not a PNG."""
+    def setUp(self):             # CPU CI has no torch: the pipeline is patched anyway, only the seed generator needs a stand-in
+        import importlib.util, sys, types
+        self._fake = importlib.util.find_spec("torch") is None
+        if self._fake:
+            torch = types.ModuleType("torch")
+            torch.Generator = lambda: types.SimpleNamespace(manual_seed=lambda s: s)
+            sys.modules["torch"] = torch
+    def tearDown(self):
+        if self._fake:
+            import sys
+            sys.modules.pop("torch", None)
+
     def test_black_image_from_pipeline_is_an_error(self):
         from PIL import Image
         with patch.object(sham_media_ready, "_pipe") as pipe:

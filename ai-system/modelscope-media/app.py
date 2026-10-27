@@ -435,10 +435,10 @@ def cv_encode_mp4(frames, fps: int = 8) -> bytes:
 
 def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_names=("CPU_VIDEO_MODEL_DIR",)) -> bytes:
     """Prompt -> MP4 bytes. 8 fps; frames = seconds x 8 within the CPU profile's limit."""
-    import torch
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("native-video-unavailable: a text prompt is required")
+    import torch
     prof = cv_profile()
     pipe = cv_pipe(root, env_names)
     frames = max(8, min(prof["max_frames"], int(round(float(seconds or 2) * prof["fps"]))))
