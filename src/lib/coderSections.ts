@@ -13,6 +13,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { shamToolsEnabled } from "@/lib/shamTools";
+import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
@@ -207,7 +208,7 @@ void WELCOME_V1;
 export function welcomeText(name = ""): string {
   const who = name.trim().slice(0, 40);
   return [
-    `👋 أهلاً${who ? ` ${who}` : ""}، أنا Nova AI، مساعد البرمجة من فريق شام.`,
+    `👋 أهلاً${who ? ` ${who}` : ""}، أنا Nova AI، مساعد البرمجة.`,
     "",
     "أساعدك تكتب الكود وتراجعه وتصلّحه، وأنفّذ مهامك على مستودعاتك خطوة بخطوة: أخطط، أنفّذ، ثم أتحقق قبل ما أقول «تم».",
     "",
@@ -290,6 +291,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
+  // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
+  if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
   if (!coderEnabled()) {
     if (owner || fromId === undefined) return false;
     // the Sham section is the owner's only (owner's rule, 2026-10-21): users get a short notice instead
@@ -473,7 +476,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   await saveState(chatId, st, db);
   await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
-  if (!st.inbox.length) { const rid = st.run!.id; later(() => frontAck(bot, chatId, rid, content, "telegram", db)); }
+  // no second message in the chat: ONE reply per user message (the live-typing answer); the quick "understood" lane exists for the app terminal only
   return true;
 }
 
@@ -483,11 +486,12 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
  * conversation's prompt cache, never answers the task itself, and is dropped if the real answer has already started.
  */
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
+  if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
   if (coderStudioUrls().length < 2) return;
   await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
   const messages: CoderMessage[] = [
-    { role: "system", content: "You are Nova AI, built by the Sham team. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
+    { role: "system", content: "You are Nova AI. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
     { role: "user", content: content.slice(0, 700) },
   ];
   const o = await coderChat(messages, { maxTokens: 70, temperature: 0.3, waitS: 8, timeoutMs: 20000, fresh: true, tag: "ack" }).catch(() => null);
@@ -501,8 +505,7 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   if (!text) return;
   const cur = await loadState(chatId, db).catch(() => null);
   if (!cur?.run || cur.run.id !== runId || cur.run.sent || cur.run.botSent) return;   // the real answer got there first
-  if (surface === "app") await taskEvent(runId, "info", `🤖 ${text}`, db);
-  else await send(bot, chatId, `🤖 ${text}`);
+  await taskEvent(runId, "info", `🤖 ${text}`, db);
 }
 
 const warmedAt = new Map<number, number>();
