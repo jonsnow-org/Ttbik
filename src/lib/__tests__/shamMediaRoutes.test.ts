@@ -10,7 +10,7 @@ function settingsDb(initial: Record<string, string> = {}) {
       else if (sql.includes("'media_order_v2'")) values.set("media_order_v2", String(args[0]));
     },
     query: async (sql: string, ...args: unknown[]) => {
-      const key = sql.includes("media_route_v4") ? "media_route_v4" : sql.includes("media_order_v2") ? "media_order_v2" : String(args[0] || "").startsWith("media_enabled_") ? String(args[0]) : "";
+      const key = sql.includes("media_route_v4") ? "media_route_v4" : sql.includes("media_route_v3") ? "media_route_v3" : sql.includes("media_order_v2") ? "media_order_v2" : String(args[0] || "").startsWith("media_enabled_") ? String(args[0]) : "";
       const value = values.get(key);
       return value === undefined ? [] : [{ value }];
     },
@@ -38,7 +38,10 @@ describe("Sham isolated media routes", () => {
     expect(await shamMediaRouteEnabled("sham_v2_ready", db)).toBe(false);
   });
 
-  it("migrates the previous two-way setting without losing the selected Studio", async () => {
+  it("migrates old three-way and two-way settings without routing Sham into Nova", async () => {
+    expect(await shamMediaRoute(settingsDb({ media_route_v3: "sham_v1" }))).toBe("sham_v1");
+    expect(await shamMediaRoute(settingsDb({ media_route_v3: "sham_v2" }))).toBe("sham_v2_ready");
+    expect(await shamMediaRoute(settingsDb({ media_route_v3: "nova_media" }))).toBe("sham_v2_hf");
     expect(await shamMediaRoute(settingsDb({ media_order_v2: "reserve_first" }))).toBe("sham_v2_hf");
     expect(await shamMediaRoute(settingsDb({ media_order_v2: "own_first" }))).toBe("sham_v2_ready");
   });
