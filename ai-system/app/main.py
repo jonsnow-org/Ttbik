@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, nova_media_studio, quota, rag, router, self_improve, tts
+from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -1279,26 +1279,19 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        if _external_media_enabled():
-            # External mode is a deliberate tool selection: HF first, then Cloudflare, with no silent switch to a local model.
-            image_bytes = hf_image.generate_image(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: Nova external route served by Hugging Face ZeroGPU Space")
-            else:
-                image_bytes = cloudflare_ai.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: Nova external route served by Cloudflare Workers AI")
+        external_selected = _external_media_enabled()
+        image_bytes, image_source = nova_media_routing.generate_image(
+            expanded_prompt,
+            external_enabled=external_selected,
+            hf_generate=hf_image.generate_image,
+            cloudflare_generate=cloudflare_ai.generate_image,
+            nova_studio_generate=lambda text: nova_media_studio.generate_media("image", text),
+            nova_model_generate=council.generate_image,
+        )
+        if image_bytes is not None:
+            logger.info("image-gen: Nova selected tool returned image via %s", image_source)
         else:
-            # Nova's dedicated media Studio is the primary internal image tool.
-            # The legacy Nova ModelScope image model remains a Nova-only fallback;
-            # this path never calls Sham v1 or Sham v2.
-            image_bytes = nova_media_studio.generate_media("image", expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: Nova internal route served by its dedicated media Studio")
-            else:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: Nova media Studio unavailable; served by Nova's own ModelScope image model")
+            logger.warning("image-gen: Nova selected tool returned no image (tool=%s)", image_source)
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -1320,7 +1313,7 @@ def _process_image_gen_and_deliver(
             # of guessed at again.
             failure_text = (
                 "تعذّر توليد الصورة عبر مولّد نوفا الخارجي المختار (Hugging Face / Cloudflare). لم أتحول تلقائياً إلى المولّد الداخلي؛ لم يُخصم الطلب. أوقف الأداة الخارجية من لوحة التحكم لاستخدام مولّد نوفا الداخلي."
-                if _external_media_enabled()
+                if external_selected
                 else "تعذّر توليد الصورة عبر مولّد نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً."
             )
             _send_telegram_message(chat_id, failure_text)
