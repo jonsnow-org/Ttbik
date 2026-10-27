@@ -1,6 +1,6 @@
 gradio==6.17.3
 modelscope
-diffusers
+diffusers>=0.33.0
 transformers
 accelerate
 safetensors
