@@ -101,14 +101,22 @@ def _video_pipe():
             "No slideshow or external generator will be used."
         )
     local_dir = os.environ.get("NOVA_VIDEO_MODEL_DIR", "").strip()
-    if not local_dir:
-        raise RuntimeError(
-            "native-video-unavailable: set NOVA_VIDEO_MODEL_DIR to a locally mounted Wan2.1-T2V-1.3B "
-            "Diffusers checkpoint. Model downloads are not performed during user requests."
-        )
-    model_dir = Path(local_dir).expanduser().resolve()
-    if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
-        raise RuntimeError(f"native-video-unavailable: Diffusers checkpoint not found at {model_dir}")
+    if local_dir:
+        model_dir = Path(local_dir).expanduser().resolve()
+        if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
+            raise RuntimeError(f"native-video-unavailable: Diffusers checkpoint not found at {model_dir}")
+    else:
+        # This downloads model WEIGHTS from ModelScope, not generated media or an inference service.
+        # Inference remains inside Nova's own Studio process and only runs after the CUDA guard above.
+        from modelscope import snapshot_download
+        model_dir = Path(snapshot_download(
+            "Wan-AI/Wan2.1-T2V-1.3B",
+            cache_dir=str(HERE / "_video_models"),
+        ))
+        if not (model_dir / "model_index.json").is_file():
+            raise RuntimeError(
+                "native-video-unavailable: the ModelScope Wan2.1-T2V-1.3B snapshot is not in Diffusers format"
+            )
     from diffusers import WanPipeline
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     pipe = WanPipeline.from_pretrained(
