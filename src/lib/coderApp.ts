@@ -397,11 +397,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       }
       return { route: await S.shamMediaRoute(db), enabled: await S.shamMediaRouteEnabledMap(db), order: await S.shamMediaOrder(db) };
     }
-    case "hf_media_route": {                    // owner switch: Hugging Face ZeroGPU vs existing image/video fallback routes
+    case "hf_media_route": {                    // Nova-only switch: external HF/Cloudflare vs Nova-owned generators
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const { hfMediaRouteOrder, setHfMediaRouteOrder } = await import("@/lib/shamExec");
-      if (body.order === "hf_first" || body.order === "fallback_first") await setHfMediaRouteOrder(body.order, db);
-      return { order: await hfMediaRouteOrder(db) };
+      const { novaMediaRouteOrder, setNovaMediaRouteOrder } = await import("@/lib/novaSettings");
+      if (body.order === "hf_first" || body.order === "fallback_first") await setNovaMediaRouteOrder(body.order, db);
+      return { order: await novaMediaRouteOrder(db) };
     }
     case "panel_action": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
