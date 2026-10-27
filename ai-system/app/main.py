@@ -1377,25 +1377,41 @@ class GenerateVideoResponse(BaseModel):
 def _enqueue_real_video(
     user_id: str, channel: str, chat_id: str, prompt: str, seconds: int, expanded_prompt: str | None = None
 ) -> None:
-    """Fail honestly when Nova has no native video-diffusion model installed.
-
-    The dedicated Nova Media Studio currently contains SDXS image weights and
-    Piper speech weights only; its video endpoint assembles a slideshow. The
-    owner explicitly rejected slideshow video, and external/Kaggle/HF queues
-    are disallowed for this path. Do not silently substitute another generator
-    or charge the user for a video that cannot be generated natively.
-    """
-    del channel, prompt, seconds, expanded_prompt
-    logger.error(
-        "video-gen unavailable: Nova has no native video-diffusion weights; "
-        "external queues and slideshow substitution are disabled"
-    )
-    quota.refund_quota(user_id, "IMAGE")
-    _send_telegram_message(
-        chat_id,
-        "مولّد الفيديو الحقيقي في نوفا غير جاهز على الخادم الحالي: الاستوديو يعمل بوحدة CPU ولا تتوفر بيئة CUDA وأوزان Wan محمّلة. "
-        "لم أستخدم مولّداً خارجياً أو شرائح صور، وأُعيدت الحصة. يلزم تشغيل الاستوديو على GPU مناسب لتفعيل Wan محلياً.",
-    )
+    """Generate true text-to-video inside Nova's own Studio on CPU; never use a slideshow or external generator."""
+    try:
+        native_prompt = (expanded_prompt or "").strip()
+        if not native_prompt:
+            native_prompt = council.expand_media_prompt(prompt, "video") or prompt
+        video_bytes = nova_media_studio.generate_media(
+            "video", native_prompt, seconds=max(1, min(int(seconds or 2), 2)), timeout=900
+        )
+        if video_bytes is None:
+            quota.refund_quota(user_id, "IMAGE")
+            logger.error("video-gen unavailable: Nova's local CPU Wan pipeline returned no video")
+            _send_telegram_message(
+                chat_id,
+                "تعذّر توليد فيديو حقيقي عبر نموذج Wan المحلي على CPU. لم أستخدم صوراً متتابعة أو مولّداً خارجياً، وأُعيدت الحصة. راجع سجل الاستوديو لمعرفة خطأ الأوزان أو الذاكرة.",
+            )
+            return
+        try:
+            quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt[:500]}",
+                            "(فيديو حقيقي مولّد محلياً بنموذج Wan على CPU)")
+        except Exception:
+            logger.exception("could not log generated video for chat_id=%s", chat_id)
+        try:
+            rag.remember(user_id, f"[طلب توليد فيديو] {prompt[:500]}",
+                         "(تم توليد فيديو فعلي مباشرة من الوصف بنموذج Wan المحلي على CPU)")
+        except Exception:
+            logger.exception("could not remember generated video for chat_id=%s", chat_id)
+        _send_telegram_video(chat_id, video_bytes, prompt[:900])
+        logger.info("video-gen: Nova generated native CPU video (%d bytes)", len(video_bytes))
+    except Exception as exc:
+        logger.exception("native CPU video-generation failed for chat_id=%s", chat_id)
+        quota.refund_quota(user_id, "IMAGE")
+        _send_telegram_message(
+            chat_id,
+            f"فشل توليد الفيديو المحلي على CPU ({type(exc).__name__}). لم يُستخدم مولّد خارجي أو فيديو شرائح، وأُعيدت الحصة.",
+        )
 
 
 # Owner spec, 2026-09-09 ("الافتراضي 6 الى 10 حسب الطلب من المستخدم"):
