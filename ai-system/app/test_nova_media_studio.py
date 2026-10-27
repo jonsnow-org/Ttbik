@@ -30,7 +30,7 @@ class NovaMediaStudioTests(unittest.TestCase):
     def test_audio_and_video_use_the_nova_studio_apis(self):
         for kind, api, prompt, expected in (
             ("audio", "speech", "مرحبا", {"text": "مرحبا"}),
-            ("video", "video", "story", {"prompts": ["scene 1", "scene 2"], "narration": "صوت", "seconds": 3}),
+            ("video", "video", "story", {"prompt": "story", "seconds": 2, "seed": 0}),
         ):
             raw = b"x" * 128
             result_payload = {"type": kind, "b64": base64.b64encode(raw).decode()}
@@ -44,6 +44,8 @@ class NovaMediaStudioTests(unittest.TestCase):
                 result = nova_media_studio.generate_media(kind, prompt, scenes=["scene 1", "scene 2"], narration="صوت")
             self.assertEqual(result, raw)
             self.assertTrue(post.call_args.args[0].endswith(f"/gradio_api/call/v2/{api}"))
+            # Contract of ai-system/modelscope-media/app.py: video takes ONE prompt (+seconds/seed).
+            # Per-scene prompts and narration are intentionally not sent: no stitched-image storyboards.
             self.assertEqual(json.loads(post.call_args.kwargs["json"]["body"]), expected)
 
     def test_errors_are_returned_as_none_without_leaking_tokens(self):
