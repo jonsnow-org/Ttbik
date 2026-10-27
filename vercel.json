@@ -7,7 +7,10 @@
       "claude/sham-next": false,
       "sham-main": false,
       "main": false,
-      "claude/nova-fixes": false
+      "claude/nova-fixes": false,
+      "fix/sham-three-media-routes": false,
+      "fix/sham-v2-generate-any-timeout": false,
+      "nova-test/media-samples": false
     }
   },
   "ignoreCommand": "sh scripts/vercel-ignore.sh",
