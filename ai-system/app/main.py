@@ -67,7 +67,7 @@ def _sham_v2_image_fallback(prompt: str) -> bytes | None:
         return None
     base = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {"kind": "image", "prompt": prompt[:1500], "backend_label": "المسار البديل (أوزان محلية جاهزة)"}
+    payload = {"kind": "image", "prompt": prompt[:1500], "backend_label": "المسار البديل (أوزان محلية جاهزة)", "scenes_json": "[]", "narration": ""}
     try:
         submit = requests.post(f"{base}/gradio_api/call/v2/generate_media_from_panel", headers=headers, json=payload, timeout=30)
         if not submit.ok:
