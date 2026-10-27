@@ -254,8 +254,8 @@ export async function shamClaimUpdate(chatId: number, updateId: number | undefin
   } catch { return true; }
 }
 
-// ---------------------------------------------------------------- Sham's three selectable media routes (owner's Mini App control panel).
-export type ShamMediaRoute = "sham_v1" | "sham_v2" | "nova_media";
+// ---------------------------------------------------------------- Explicit media route selector. Nova is not a Sham media route.
+export type ShamMediaRoute = "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf";
 export type ShamMediaOrder = "reserve_first" | "own_first";
 let settingsReady = false;
 async function settingsTable(db: Db): Promise<void> {
@@ -263,27 +263,29 @@ async function settingsTable(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS sham_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   if (db === prismaDb) settingsReady = true;
 }
-/** The v3 key is authoritative. Old two-way preferences are migrated in memory: reserve_first -> Media Studio, own_first/missing -> Sham v2. */
+/** New keys separate Sham v1, Sham v2 internal tokens, ready donor weights, and HF. Legacy nova_media is migrated to HF directly; Sham never calls Nova. */
 export async function shamMediaRoute(db: Db = prismaDb): Promise<ShamMediaRoute> {
   try {
     await settingsTable(db);
-    const current = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_route_v3'`);
+    const current = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_route_v4'`);
     const route = current[0]?.value;
-    if (route === "sham_v1" || route === "sham_v2" || route === "nova_media") return route;
+    if (route === "sham_v1" || route === "sham_v2_internal" || route === "sham_v2_ready" || route === "sham_v2_hf") return route;
+    if (route === "sham_v2") return "sham_v2_ready";
+    if (route === "nova_media") return "sham_v2_hf";
     const legacy = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_order_v2'`);
-    return legacy[0]?.value === "reserve_first" ? "nova_media" : "sham_v2";
-  } catch { return "sham_v2"; }
+    return legacy[0]?.value === "reserve_first" ? "sham_v2_hf" : "sham_v2_ready";
+  } catch { return "sham_v2_ready"; }
 }
 export async function setShamMediaRoute(route: ShamMediaRoute, db: Db = prismaDb): Promise<void> {
   await settingsTable(db);
-  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_route_v3', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, route);
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_route_v4', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, route);
 }
-/** Compatibility for older Mini App clients. */
+/** Compatibility for older Mini App clients; the old external choice now means Sham's own explicit HF route, never Nova's backend. */
 export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder> {
-  return (await shamMediaRoute(db)) === "nova_media" ? "reserve_first" : "own_first";
+  return (await shamMediaRoute(db)) === "sham_v2_hf" ? "reserve_first" : "own_first";
 }
 export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb): Promise<void> {
-  await setShamMediaRoute(order === "reserve_first" ? "nova_media" : "sham_v2", db);
+  await setShamMediaRoute(order === "reserve_first" ? "sham_v2_hf" : "sham_v2_ready", db);
 }
 
 // Explicit opt-in switch for third-party media-generation routes. The default is
