@@ -40,23 +40,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 
 def _external_media_enabled() -> bool:
-    """External image/video providers are opt-in. Fail closed to our own models if settings cannot be read."""
+    """Nova external image/video providers are opt-in and read only Nova-owned settings."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return False
     try:
         response = requests.get(
-            SUPABASE_URL.rstrip("/") + "/rest/v1/sham_settings",
-            params={"key": "eq.external_media_enabled_v2", "select": "value", "limit": "1"},
+            SUPABASE_URL.rstrip("/") + "/rest/v1/nova_settings",
+            params={"key": "eq.external_media_enabled_v1", "select": "value", "limit": "1"},
             headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
             timeout=3,
         )
         if not response.ok:
-            logger.warning("external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
+            logger.warning("Nova external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
             return False
         rows = response.json()
         return bool(rows and rows[0].get("value") == "enabled")
     except Exception:
-        logger.warning("external media setting lookup failed; keeping external providers disabled", exc_info=True)
+        logger.warning("Nova external media setting lookup failed; keeping external providers disabled", exc_info=True)
         return False
 
 app = FastAPI(title="Nova AI")
