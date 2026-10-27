@@ -1,5 +1,0 @@
-name: "Deploy Hugging Face Image Space (QUARANTINED)"
-# Disabled on the default branch by owner request. Original source is preserved at quarantine/huggingface/default-branch-deploy-hf-image-space.yml.disabled.
-# No push, schedule, or manual trigger is registered.
-on: {}
-jobs: {}
