@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { vetMedia } from "@/lib/mediaQuality";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -81,7 +82,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
   type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
-  text?: string; mime?: string; b64?: string; route?: string;
+  reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -96,6 +97,15 @@ export function parseShamReply(body: string): ShamReply | null {
     /* not JSON: the Studio is still on the older text-only app */
   }
   return null;
+}
+
+/** Every picture / sound / clip a Sham Studio returns passes the quality gate (src/lib/mediaQuality.ts): a blank, noise, silent or empty result becomes a typed
+ *  {type:"error", reason, text} instead of media. Replies finished later (`later`) are vetted too. */
+export async function vetShamReply(reply: ShamReply | null): Promise<ShamReply | null> {
+  if (!reply) return reply;
+  const out = (await vetMedia(reply)) as ShamReply;
+  if (Array.isArray(out.later)) out.later = (await Promise.all(out.later.map((r) => vetShamReply(r)))) as ShamReply[];
+  return out;
 }
 
 async function shamCallAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
@@ -120,7 +130,7 @@ export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => rep
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
   // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
-  const payload = api === "generate_media" || api === "generate_media_from_panel" ? payload0 : withMode(payload0);
+  const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
   for (let i = 0; i < bases.length; i++) {
@@ -133,28 +143,35 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
 
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  const reply = body ? parseShamReply(body) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = `generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
   return reply;
 }
 
+/** The two media paths a Sham Studio really has, by the exact label its panel API validates (ai-system/modelscope-sham/app.py PANEL_BACKENDS). */
+export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)", ready: "المسار البديل (أوزان محلية جاهزة)" } as const;
+export type ShamMediaBackend = keyof typeof SHAM_BACKEND_LABELS;
+
+/**
+ * Media on ONE explicit path, never a silent switch: "internal" = the model's own tokens + decoder (still training: usually refused by the quality gate), "ready" = the CPU
+ * SDXS-512 image / Piper speech / video-model path. Both go through the Studio's `generate_media_from_panel` (the old `generate_media` endpoint is not registered on the Studio,
+ * which made every internal call fail with HTTP 500). The Hugging Face route is gone (the owner's rule: no external providers).
+ */
 export async function shamGenerateMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
   timeoutMs = 55000,
-  backend: "internal" | "ready" | "hf" = "internal",
+  backend: ShamMediaBackend = "internal",
   opts: { scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply | null> {
-  const api = backend === "internal" ? "generate_media" : "generate_media_from_panel";
+  const api = "generate_media_from_panel";
+  if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const backend_label = backend === "ready" ? "المسار البديل (أوزان محلية جاهزة)" : "المسار الخارجي (Hugging Face)";
-  const payload = backend === "internal"
-    ? { kind, prompt }
-    : { kind, prompt, backend_label, scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
+  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
-  const reply = body ? parseShamReply(body) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
   return reply;
 }
@@ -163,7 +180,7 @@ export async function shamGenerateMedia(
 // generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
 export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? parseShamReply(body) : null;
+  return body ? vetShamReply(parseShamReply(body)) : null;
 }
 
 // chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
@@ -180,7 +197,7 @@ export async function shamChatMemory(
     { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
     timeoutMs,
   );
-  return body ? parseShamReply(body) : null;
+  return body ? vetShamReply(parseShamReply(body)) : null;
 }
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {
@@ -208,7 +225,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
     if (!event_id) { note(base, api, "no event id"); return { reply: null, failure: "http" }; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
-    const reply = parseShamReply(await res.text());
+    const reply = await vetShamReply(parseShamReply(await res.text()));
     if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {

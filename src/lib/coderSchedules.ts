@@ -29,7 +29,7 @@ export const MAX_PROMPT = 4000;
 
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_schedules (id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, chat_enc TEXT NOT NULL, bot_id TEXT NOT NULL, title TEXT NOT NULL, prompt TEXT NOT NULL, kind TEXT NOT NULL, cron TEXT, tz TEXT NOT NULL DEFAULT 'UTC', repo TEXT, events JSONB NOT NULL DEFAULT '[]'::jsonb, paused BOOLEAN NOT NULL DEFAULT false, next_run_at TIMESTAMPTZ, last_run_at TIMESTAMPTZ, last_status TEXT, hook_id BIGINT, hook_secret_enc TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);

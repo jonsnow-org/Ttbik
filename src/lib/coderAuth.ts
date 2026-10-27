@@ -58,7 +58,7 @@ export function decryptToken(blob: string): string | null {
 
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = db
       .exec(`CREATE TABLE IF NOT EXISTS coder_connections (chat_key TEXT NOT NULL, provider TEXT NOT NULL, token_enc TEXT NOT NULL, login TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_key, provider))`)

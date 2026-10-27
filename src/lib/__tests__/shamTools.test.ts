@@ -1,5 +1,4 @@
 import { parseShamToolCalls, shamToolBlock, shamToolConversation, shamToolsEnabled } from "@/lib/shamTools";
-import { shamAsModel } from "@/lib/coderProvider";
 import { GITHUB_TOOLS, toolGroups } from "@/lib/coderAgent";
 
 const tools = [...GITHUB_TOOLS.filter((t) => ["github_read_file", "github_list_files", "github_repo_scan"].includes(t.function.name)), ...toolGroups(true, false).computer];
@@ -36,17 +35,6 @@ describe("Sham gets Nova's tools as text", () => {
     expect(p.startsWith("الأدوات المتاحة لك")).toBe(true); expect(p).toMatch(/نتيجة الأداة github_read_file/); expect(p).toMatch(/<tool_call>\{"name": "github_read_file"/); expect(p.endsWith("شام:")).toBe(true);
     expect(p.length).toBeLessThanOrEqual(3400);
   });
-  it("shamAsModel returns the parsed calls as the engine's tool_calls (and plain words stay words)", async () => {
-    process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_TOOLS = "on";
-    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
-    let text = '<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"a.ts"}}</tool_call>';
-    global.fetch = (async (url: string) => (/call\/v2\//.test(url) ? ({ ok: true, json: async () => ({ event_id: "e" }) } as any) : ({ ok: true, text: async () => body({ type: "text", text }) } as any))) as any;
-    const o = await shamAsModel([{ role: "user", content: "اقرأ a.ts" }], { conversation: true, tools });
-    expect(o.reply?.tool_calls?.[0].function.name).toBe("github_read_file");
-    text = "جواب عادي"; const o2 = await shamAsModel([{ role: "user", content: "مرحبا" }], { conversation: true, tools });
-    expect(o2.reply?.tool_calls).toEqual([]); expect(o2.reply?.text).toBe("جواب عادي");
-    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_TOOLS;
-  });
 });
 
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, shamCorrectionNote, validateShamCall } from "@/lib/shamTools";
@@ -76,16 +64,6 @@ describe("Sham's calls are checked before they run, and wrong ones go back to Sh
     expect(codeNotTried(code, user, tools.filter((t) => !t.function.name.startsWith("sandbox_")))).toBe(false);
     expect(SHAM_CODE_NOTE).toMatch(/sandbox_exec/);
   });
-  it("shamAsModel sends a wrong call back once and uses the corrected one", async () => {
-    process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_TOOLS = "on";
-    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
-    const prompts: string[] = []; const answers = ['<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r"}}</tool_call>', '<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"a.ts"}}</tool_call>'];
-    global.fetch = (async (url: string, init: any) => { if (/call\/v2\//.test(url)) { prompts.push(String(init?.body)); return { ok: true, json: async () => ({ event_id: "e" }) } as any; } return { ok: true, text: async () => body({ type: "text", text: answers[Math.min(prompts.length - 1, 1)] }) } as any; }) as any;
-    const o = await shamAsModel([{ role: "user", content: "اقرأ a.ts في o/r" }], { conversation: true, tools });
-    expect(prompts).toHaveLength(2); expect(prompts[1]).toMatch(/تصحيح من المحرك/);
-    expect(JSON.parse(o.reply!.tool_calls![0].function.arguments)).toEqual({ repo: "o/r", path: "a.ts" });
-    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_TOOLS;
-  });
 });
 
 import { shamKnobs } from "@/lib/shamModes";
@@ -107,17 +85,6 @@ describe("thinking / accuracy / speed are real for Sham", () => {
     process.env.SHAM_MODES = "on";
     expect(shamKnobs({ accuracy: "fast" }, "v1").header).toBe("[[sham temp=0.70]]\n");
     delete process.env.SHAM_MODES;
-  });
-  it("shamAsModel sends the header, scales the budget by accuracy, and uses the right number of correction rounds", async () => {
-    process.env.MODELSCOPE_API_TOKEN = "t";
-    const real = global.fetch; const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
-    const sent: any[] = [];
-    global.fetch = (async (url: string, init: any) => { if (/call\/v2\//.test(url)) { sent.push(JSON.parse(String(init.body))); return { ok: true, json: async () => ({ event_id: "e" }) } as any; } return { ok: true, text: async () => body({ type: "text", text: "جواب بلا أداة" }) } as any; }) as any;
-    await shamVariant.run("v2", () => shamAsModel([{ role: "user", content: "سؤال" }], { conversation: true, maxTokens: 100, mode: { accuracy: "precise", think: true, thinkCap: 600 } }));
-    await shamVariant.run("v2", () => shamAsModel([{ role: "user", content: "سؤال" }], { conversation: true, maxTokens: 100, mode: { accuracy: "fast" } }));
-    expect(sent[0].prompt.startsWith("[[sham temp=0.20 think=200]]\n")).toBe(true);
-    expect(sent[0].max_new_tokens).toBeGreaterThan(sent[1].max_new_tokens);          // precise gets a longer budget than fast
-    global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN;
   });
 });
 

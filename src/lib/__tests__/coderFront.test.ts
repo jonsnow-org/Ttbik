@@ -28,33 +28,23 @@ describe("quick acknowledgement", () => {
   });
   afterEach(() => { delete process.env.OPEN_CODER_STUDIO_URLS; delete process.env.CODER_FRONT_ACK; });
 
-  it("a new task gets a one-line model reaction within seconds, on a Studio of its own, even while the main call is still reading", async () => {
-    const hits: { host: string; messages: string }[] = [];
+  it("in Telegram a new task gets NO separate '🤖' acknowledgement in the chat (one reply per message) and no quick call is made", async () => {
+    const hits: string[] = [];
     (global as any).fetch = jest.fn(async (url: string, init?: any) => {
-      const host = new URL(url).origin;
       if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
       if (url.includes("/gradio_api/call/v2/")) {
-        const body = init?.body ? JSON.parse(init.body) : {};
-        if (body.messages) hits.push({ host, messages: body.messages });
+        if (init?.body && /ONE or TWO short sentences/.test(String(init.body))) hits.push(url);
         return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
       }
-      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: 0 }), { status: 200 });
-      if (url.includes("/gradio_api/call/chat/") || url.includes("/gradio_api/call/job_result/")) {
-        const last = hits[hits.length - 1]?.messages || "";
-        // the quick lane's prompt is the short one; the main worker's call stays pending (still reading)
-        if (/ONE or TWO short sentences/.test(last) && hits.length) return new Response(sse({ type: "done", job: "j", text: "فهمت: تريد قراءة README ثم شرح المشروع؛ سأبدأ بقراءته.", tool_calls: [] }), { status: 200 });
-        return new Response(sse({ type: "pending", job: "main", status: "running", phase: "ready", queue_pos: 0, total: 0 }), { status: 200 });
-      }
+      if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "pending", job: "main", status: "running", phase: "ready", queue_pos: 0, total: 0 }), { status: 200 });
       return new Response("{}", { status: 202 });
     });
     const db = fakeDb();
     const { bot, sent } = fakeBot();
     await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اقرأ الملف README.md من المستودع ثم اشرح لي ما هو هذا المشروع" } }, db);
-    for (let i = 0; i < 60 && !sent.some((s) => /🤖 فهمت/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 100));
-    expect(sent.some((s) => /🤖 فهمت/.test(s.text))).toBe(true);
-    const quick = hits.find((h) => /ONE or TWO short sentences/.test(h.messages));
-    expect(quick).toBeTruthy();
-    expect(JSON.parse(quick!.messages)).toHaveLength(2);                 // system + the request only: no history to read
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(sent.some((s) => /🤖/.test(s.text))).toBe(false);
+    expect(hits).toHaveLength(0);
   });
 
   it("a one-Studio setup sends no quick call (it would only evict the conversation's cache)", async () => {

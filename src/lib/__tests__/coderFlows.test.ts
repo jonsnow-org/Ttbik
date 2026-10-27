@@ -5,6 +5,11 @@ import { claimDue, createSchedule, deleteSchedule, eventSummary, fanOut, listSch
 import { createHmac } from "crypto";
 import { fakeBot, fakeDb } from "./coderFakes";
 
+// Hermetic DNS: coderWeb.safeGet resolves every host and refuses private/internal addresses BEFORE it calls fetch.
+// Without this the research tests depend on the machine's real resolver (a sandbox that answers 198.18.x.x or has no
+// DNS blocks the search-engine calls, so the mocked fetch never sees them). Every host resolves to a public address here.
+jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
+
 const CHAT = 4242;
 const USER = 9001;
 const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
@@ -402,42 +407,22 @@ describe("delegate inside a scheduled task", () => {
   });
 });
 
-describe("delegate: the sham role (owner only) puts a question to Sham and brings back its raw answer", () => {
-  it("the owner's sub-agent asks Sham (no tools, no system prompt, one step); the parent receives the raw answer to judge", async () => {
-    const calls = studio([
-      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "اختبار شام", task: "ما عاصمة سوريا؟", role: "sham" }] })] },
-      { type: "text", text: "دمشق هي عاصمة سوريا." },                                         // Sham's own reply (generate_any)
-      { type: "done", job: "j3", text: "حكمي: إجابة شام صحيحة وقصيرة.", tool_calls: [] },
-    ]);
-    const db = fakeDb();
-    const { bot, sent } = fakeBot();
-    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اسأل شام عن عاصمة سوريا وقيّم جوابه" } }, db);
-    await new Promise((r) => setTimeout(r, 2500));
-    const st = await loadState(CHAT, db);
-    expect(st.run).toBeNull();
-    const tool = (st.messages.find((m: any) => m.name === "delegate") as any).content;
-    expect(tool).toMatch(/## Agent 1: Sham: اختبار شام/);
-    expect(tool).toMatch(/دمشق هي عاصمة سوريا/);
-    expect(sent.some((s) => /حكمي: إجابة شام صحيحة/.test(s.text))).toBe(true);
-    expect(calls.some((c) => c.url.includes("/gradio_api/call/v2/generate_any"))).toBe(true);
-    expect(calls.filter((c) => c.url.includes("/call/v2/chat"))).toHaveLength(2);                // the parent's two steps only: Sham's call is not a coder-Studio chat
-    const sham = calls.find((c) => c.url.includes("/call/v2/generate_any"))!;
-    expect(sham.body).toMatchObject({ prompt: "ما عاصمة سوريا؟" });                                // only the task text goes to Sham
-  });
-
-  it("a regular user cannot reach Sham through delegate: the role becomes a normal read-only reader", async () => {
-    const calls = studio([
-      { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "x", task: "ما عاصمة سوريا؟", role: "sham" }] })] },
-      { type: "done", job: "j2", text: "تقرير القارئ.", tool_calls: [] },
-      { type: "done", job: "j3", text: "تم.", tool_calls: [] },
-    ]);
-    const db = fakeDb();
-    const { bot } = fakeBot();
-    await handleCoderSections(bot, botRow, { message: { chat: { id: USER }, text: "اسأل شام" } }, db);
-    await new Promise((r) => setTimeout(r, 2500));
-    expect(calls.some((c) => c.url.includes("generate_any"))).toBe(false);
-    expect(calls.filter((c) => c.url.includes("/call/v2/chat")).some((c) => /read-only research sub-agent/.test(JSON.stringify(c.body)))).toBe(true);
-  });
+describe("delegate: Nova never calls Sham (the old 'sham' role is gone)", () => {
+  for (const [who, label] of [[CHAT, "the owner"], [USER, "a regular user"]] as const) {
+    it(`${label}: role "sham" is an ordinary read-only reader and no Sham Studio call is made`, async () => {
+      const calls = studio([
+        { type: "done", job: "j1", text: "", tool_calls: [call("d1", "delegate", { tasks: [{ title: "x", task: "ما عاصمة سوريا؟", role: "sham" }] })] },
+        { type: "done", job: "j2", text: "تقرير القارئ.", tool_calls: [] },
+        { type: "done", job: "j3", text: "تم.", tool_calls: [] },
+      ]);
+      const db = fakeDb();
+      const { bot } = fakeBot();
+      await handleCoderSections(bot, botRow, { message: { chat: { id: who }, text: "اسأل شام" } }, db);
+      await new Promise((r) => setTimeout(r, 2500));
+      expect(calls.some((c) => c.url.includes("generate_any"))).toBe(false);
+      expect(calls.filter((c) => c.url.includes("/call/v2/chat")).some((c) => /read-only research sub-agent/.test(JSON.stringify(c.body)))).toBe(true);
+    });
+  }
 });
 
 describe("research fast path: one deep research first, then the report", () => {

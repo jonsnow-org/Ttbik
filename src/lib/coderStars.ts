@@ -55,7 +55,7 @@ export async function preCheckoutCoder(q: { from?: { id?: number }; currency?: s
 
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = db.exec(`CREATE TABLE IF NOT EXISTS coder_payments (charge_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, plan_id TEXT NOT NULL, stars INT NOT NULL, days INT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => {
       ready = null;

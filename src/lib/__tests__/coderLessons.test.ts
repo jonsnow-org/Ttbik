@@ -1,5 +1,5 @@
 import { buildLesson, recordLesson, exportLessons, lessonStats, clearLessons } from "@/lib/coderLessons";
-import { shamConversationPrompt } from "@/lib/coderProvider";
+import { shamConversationPrompt } from "@/lib/shamPrompt";
 import { DEFAULT_MODELS, chooseModel } from "@/lib/coderModels";
 import { appOp, AppError } from "@/lib/coderApp";
 import { fakeBot, fakeDb } from "./coderFakes";

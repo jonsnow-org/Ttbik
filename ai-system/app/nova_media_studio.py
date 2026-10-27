@@ -1,7 +1,7 @@
 """Client for Nova's dedicated ModelScope media Studio.
 
 This module belongs only to Nova. It does not call either Sham Studio.
-The Studio provides SDXS images, Piper speech, and native Wan diffusion video on CPU using Nova's own local checkpoint.
+The Studio provides SDXS images, Piper speech, and native AnimateDiff-Lightning video diffusion on CPU using Nova's own local open weights.
 """
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import logging
 import os
 
 import requests
+
+from app.media_quality import MediaQualityError, check_image, check_mp4, check_wav
 
 logger = logging.getLogger(__name__)
 DEFAULT_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net"
@@ -86,6 +88,11 @@ def generate_media(
         raw = base64.b64decode(body["b64"], validate=False)
         if len(raw) < 64:
             logger.warning("Nova media Studio returned a suspiciously small %s payload (%d bytes)", selected, len(raw))
+            return None
+        try:        # defence in depth: the Studio already vets what it returns; an older Studio might not
+            (lambda b: check_mp4(b, decode=False))(raw) if selected == "video" else {"image": check_image, "audio": check_wav}[selected](raw)   # the Studio decodes video frames; this side checks the MP4 structure only
+        except MediaQualityError as exc:
+            logger.warning("Nova media Studio %s rejected by the quality gate (%s)", selected, exc.reason)
             return None
         logger.info("Nova media Studio generated %s (%d bytes)", selected, len(raw))
         return raw

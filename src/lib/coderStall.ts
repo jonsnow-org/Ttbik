@@ -151,7 +151,7 @@ export function recoveryKnobs(ss: StallState): { think: boolean; temperature: nu
 // ---------------------------------------------------------------- persistent log (coder_stall_log, created on first use)
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_stall_log (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, chat_key TEXT NOT NULL, step INT NOT NULL, pattern TEXT NOT NULL, level INT NOT NULL, detail TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);

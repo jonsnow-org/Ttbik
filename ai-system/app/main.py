@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
+from app import council, deep_think, files, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -246,15 +246,8 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
     upload, not a JSON body, and a longer timeout since video files run
     much larger than a text payload.
 
-    Owner spec, 2026-09-12: real video delivery had briefly moved
-    entirely to ai-system/colab/process_video_queue.ipynb (Kaggle sends
-    straight to Telegram itself, bytes never touching this server) once
-    this became the ONLY real-video path. Now that _enqueue_real_video
-    tries Cloudflare Workers AI first (answers inline, in seconds — see
-    cloudflare_ai.py), this server IS delivering real video bytes again
-    for that fast path; the Kaggle queue (and its own direct-to-Telegram
-    send) remains the fallback for whenever Cloudflare's free daily
-    Neuron quota is already used up."""
+    Real video is produced by Nova's own media Studio (AnimateDiff-Lightning on CPU, see nova_media_studio.py); this server delivers the bytes.
+    No external video service is used."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async video to Telegram chat_id=%s", chat_id)
         return
@@ -274,7 +267,7 @@ def _send_telegram_voice(chat_id: str, audio_bytes: bytes, audio_format: str) ->
     version of an answer whose text has ALREADY been delivered — so a
     failure here is logged and swallowed, never surfaced, and never
     retried. Telegram's sendVoice only accepts OGG/Opus; anything else
-    goes through sendAudio, which accepts MP3 (see tts.py for why both
+    goes through sendAudio, which accepts WAV (see tts.py for why both
     shapes exist)."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver voice reply to chat_id=%s", chat_id)
@@ -282,7 +275,7 @@ def _send_telegram_voice(chat_id: str, audio_bytes: bytes, audio_format: str) ->
     method, field, filename, mime = (
         ("sendVoice", "voice", "nova.ogg", "audio/ogg")
         if audio_format == "ogg"
-        else ("sendAudio", "audio", "nova.mp3", "audio/mpeg")
+        else ("sendAudio", "audio", "nova.wav", "audio/wav")
     )
     try:
         requests.post(
@@ -1387,20 +1380,20 @@ def _enqueue_real_video(
         )
         if video_bytes is None:
             quota.refund_quota(user_id, "IMAGE")
-            logger.error("video-gen unavailable: Nova's local CPU Wan pipeline returned no video")
+            logger.error("video-gen unavailable: Nova's local CPU AnimateDiff pipeline returned no video")
             _send_telegram_message(
                 chat_id,
-                "تعذّر توليد فيديو حقيقي عبر نموذج Wan المحلي على CPU. لم أستخدم صوراً متتابعة أو مولّداً خارجياً، وأُعيدت الحصة. راجع سجل الاستوديو لمعرفة خطأ الأوزان أو الذاكرة.",
+                "تعذّر توليد فيديو حقيقي عبر نموذج AnimateDiff المحلي على CPU. لم أستخدم صوراً متتابعة أو مولّداً خارجياً، وأُعيدت الحصة. راجع سجل الاستوديو لمعرفة خطأ الأوزان أو الذاكرة.",
             )
             return
         try:
             quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt[:500]}",
-                            "(فيديو حقيقي مولّد محلياً بنموذج Wan على CPU)")
+                            "(فيديو حقيقي مولّد محلياً بنموذج AnimateDiff على CPU)")
         except Exception:
             logger.exception("could not log generated video for chat_id=%s", chat_id)
         try:
             rag.remember(user_id, f"[طلب توليد فيديو] {prompt[:500]}",
-                         "(تم توليد فيديو فعلي مباشرة من الوصف بنموذج Wan المحلي على CPU)")
+                         "(تم توليد فيديو فعلي مباشرة من الوصف بنموذج AnimateDiff المحلي على CPU)")
         except Exception:
             logger.exception("could not remember generated video for chat_id=%s", chat_id)
         _send_telegram_video(chat_id, video_bytes, prompt[:900])

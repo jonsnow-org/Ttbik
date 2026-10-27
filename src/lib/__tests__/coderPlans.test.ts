@@ -34,7 +34,6 @@ beforeAll(() => {
 
 describe("plans and usage", () => {
   it("free by default; limits are enforced over a rolling week; the owner is never limited", async () => {
-    process.env.CODER_COUNT_LIMITS = "on";                     // the count limits (tasks / steps) are off by default since plans are token-based
     const db = plansDb();
     const free = DEFAULT_PLANS.find((p) => p.id === "free")!;
     const t0 = Date.parse("2026-10-01T10:00:00Z");
@@ -53,12 +52,15 @@ describe("plans and usage", () => {
     expect((await usageSummary(OWNER, db, t0)).unlimited).toBe(true);
     delete process.env.CODER_COUNT_LIMITS;
   });
-  it("plans are token-based: tokens limit a user, task and step counts do not; the owner is never limited", async () => {
+  it("tokens and task counts both limit a user (counts can be turned off with CODER_COUNT_LIMITS=off); the owner is never limited", async () => {
     const db = plansDb();
     const free = DEFAULT_PLANS.find((p) => p.id === "free")!;
     const t0 = Date.parse("2026-10-03T10:00:00Z");
     for (let i = 0; i < free.limits.tasks + 5; i++) await addUsage(8, "tasks", 1, db, t0);
+    expect((await checkLimit(8, "tasks", 1, db, undefined, t0 + 1000)).ok).toBe(false);
+    process.env.CODER_COUNT_LIMITS = "off";
     expect((await checkLimit(8, "tasks", 1, db, undefined, t0 + 1000)).ok).toBe(true);
+    delete process.env.CODER_COUNT_LIMITS;
     await addUsage(8, "tokens", free.limits.tokens, db, t0);
     const c = await checkLimit(8, "tokens", 1, db, undefined, t0 + 1000);
     expect(c.ok).toBe(false);

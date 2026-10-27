@@ -44,7 +44,7 @@ export function similarity(a: string, b: string): number {
 // ---------------------------------------------------------------- store
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_memories (id BIGSERIAL PRIMARY KEY, chat_key TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'global', kind TEXT NOT NULL, text TEXT NOT NULL, source_run TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);

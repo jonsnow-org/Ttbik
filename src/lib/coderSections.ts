@@ -12,13 +12,13 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { shamToolsEnabled } from "@/lib/shamTools";
+import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, listModels, modelReady } from "@/lib/coderModels";
+import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -46,7 +46,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string; agentResult?: AgentResult };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>> };
 export type { Db };
 export { coderChatKey };
 
@@ -130,7 +130,7 @@ const emptyState = (): ChatState => ({ mode: defaultMode(), think: false, messag
 
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = db
       .exec(`CREATE TABLE IF NOT EXISTS coder_chat_state (chat_key TEXT PRIMARY KEY, state JSONB NOT NULL DEFAULT '{}'::jsonb, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
@@ -207,7 +207,7 @@ void WELCOME_V1;
 export function welcomeText(name = ""): string {
   const who = name.trim().slice(0, 40);
   return [
-    `👋 أهلاً${who ? ` ${who}` : ""}، أنا Nova AI، مساعد البرمجة من فريق شام.`,
+    `👋 أهلاً${who ? ` ${who}` : ""}، أنا Nova AI، مساعد البرمجة.`,
     "",
     "أساعدك تكتب الكود وتراجعه وتصلّحه، وأنفّذ مهامك على مستودعاتك خطوة بخطوة: أخطط، أنفّذ، ثم أتحقق قبل ما أقول «تم».",
     "",
@@ -290,6 +290,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
+  // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
+  if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
   if (!coderEnabled()) {
     if (owner || fromId === undefined) return false;
     // the Sham section is the owner's only (owner's rule, 2026-10-21): users get a short notice instead
@@ -473,7 +475,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   await saveState(chatId, st, db);
   await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
-  if (!st.inbox.length) { const rid = st.run!.id; later(() => frontAck(bot, chatId, rid, content, "telegram", db)); }
+  // no second message in the chat: ONE reply per user message (the live-typing answer); the quick "understood" lane exists for the app terminal only
   return true;
 }
 
@@ -483,11 +485,12 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
  * conversation's prompt cache, never answers the task itself, and is dropped if the real answer has already started.
  */
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
+  if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
   if (coderStudioUrls().length < 2) return;
   await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
   const messages: CoderMessage[] = [
-    { role: "system", content: "You are Nova AI, built by the Sham team. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
+    { role: "system", content: "You are Nova AI. The user just sent a request and a longer worker is starting on it right now. Reply in the user's language with ONE or TWO short sentences: say what you understood and what you will do first. Do not claim you have done anything, do not answer the request itself, no lists, no code, no tools." },
     { role: "user", content: content.slice(0, 700) },
   ];
   const o = await coderChat(messages, { maxTokens: 70, temperature: 0.3, waitS: 8, timeoutMs: 20000, fresh: true, tag: "ack" }).catch(() => null);
@@ -501,8 +504,7 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   if (!text) return;
   const cur = await loadState(chatId, db).catch(() => null);
   if (!cur?.run || cur.run.id !== runId || cur.run.sent || cur.run.botSent) return;   // the real answer got there first
-  if (surface === "app") await taskEvent(runId, "info", `🤖 ${text}`, db);
-  else await send(bot, chatId, `🤖 ${text}`);
+  await taskEvent(runId, "info", `🤖 ${text}`, db);
 }
 
 const warmedAt = new Map<number, number>();
@@ -643,10 +645,14 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
     const conv = st.convId;
     later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
   }
-  if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
+  if (st.threadId) {
+    await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
+    // "save conversations" off: the chat is not kept once it is left (hidden from the list like a delete)
+    if (!novaMemory(st).save) await T.hideThread(chatId, st.threadId, db);
+  }
   else if (st.messages.length) await ensureThread(chatId, st, db);
-  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
-  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
+  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db, st);   // no key for quiet time: as before
+  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model, perModel: st.perModel };
   if (target) {
     next.threadId = target.id;
     next.messages = target.messages || [];
@@ -683,9 +689,20 @@ export async function adoptThread(chatId: number, st: ChatState, db: Db = prisma
 
 const encryptionReady = () => Boolean((process.env.CODER_TOKEN_KEY || "").trim());
 
+/** Nova's own memory switches (Mini App → settings → memory). */
+const novaMemory = (st: ChatState): MemorySettings => memorySettings(st, novaModelOf(st.model));
+
+/** The long-term memories shown to Nova for one task: none when the user switched "use memory" off for Nova. */
+export async function novaMemoryPrompt(chatId: number, st: ChatState, goal: string, db: Db): Promise<string> {
+  if (!novaMemory(st).recall) return "";
+  const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
+  return memoryPrompt(chatId, goal, repoOf(goal, st.repo), db).catch(() => "");
+}
+
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
-function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db): void {
+function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db, st: ChatState): void {
   if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
+  if (!novaMemory(st).remember) return;                                  // the user switched "remember" off for Nova in the app
   const snap = msgs.slice(-40);
   later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
 }
@@ -783,7 +800,7 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
   // the conversation's saved copy follows each finished request (memories are learned from it later, in quiet time)
   if (!run.slot && st.threadId && chatKeyOf) {
     const { syncThread } = await import("@/lib/coderThreads");
-    await syncThread(chatKeyOf, st.threadId, st, db, true);
+    await syncThread(chatKeyOf, st.threadId, st, db, novaMemory(st).remember);
   }
   // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
   if (chatKeyOf && run.slot) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(chatKeyOf, run.id)));
@@ -828,6 +845,7 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
     chatKey: coderChatKey(chatId),
     userId: chatId,
+    memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
     botId,
     tz: st.tz || defaultTz(),
     db,
@@ -1174,7 +1192,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
-      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
         // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
         let out = "";
@@ -1182,24 +1200,22 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         let from = "";
         try {
           if (call.function.name === "make_media") {
-            if (tierFor(chatId) !== "owner") out = "error: making media with Sham is for the owner only.";
+            // Nova's OWN media Studio (src/lib/novaMedia.ts -> ai-system/modelscope-media): SDXS pictures, Piper speech, AnimateDiff video. Nothing of Sham's is used here.
+            const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
+            const prompt = String(a.prompt || "").trim().slice(0, 600);
+            const nm = await import("@/lib/novaMedia");
+            const { vetMedia } = await import("@/lib/mediaQuality");
+            if (modelSettings(st, novaModelOf(st.model)).media === false) out = "error: media generation is switched off for this model in the app settings. Nothing was made; tell the user how to switch it on (Settings → Media generation).";
+            else if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
+            else if (!nm.novaMediaEnabled()) out = "error: Nova's media Studio is not connected here. Nothing was made or sent; tell the user so, do not say it was made.";
             else {
-              const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
-              const prompt = String(a.prompt || "").trim().slice(0, 600);
-              const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
-              const { shamStudioEnabled } = await import("@/lib/shamStudio");
-              const nm = await import("@/lib/novaMedia");
-              if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-              else if (!nm.novaMediaEnabled() && !shamStudioEnabled()) out = "error: no media Studio is connected here";
-              else {
-                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => generateShamMediaThroughRoute(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }));
-                const who = r?.route || "the selected media route";
-                const rb = realBot(bot);
-                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
-                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
-                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = `made by ${who} and sent to the user as a short video`; }
-                else out = `error: selected route ${who} failed for ${kind} (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). No automatic route switch was performed.`;
-              }
+              const r0 = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => nm.novaMakeMedia(kind, prompt, { timeoutMs: 240000 }));
+              const r = (await vetMedia(r0)) as typeof r0;               // the last gate before Telegram: a blank / constant / noise picture, silent sound or empty clip is never sent
+              const rb = realBot(bot);
+              if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); out = "made by Nova's media Studio and sent to the user as a picture"; }
+              else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav")); out = "made by Nova's media Studio and sent to the user as a sound file"; }
+              else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); out = "made by Nova's media Studio and sent to the user as a short video"; }
+              else out = `error: the ${kind} could not be made (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). NOTHING was sent to the user: tell them plainly that it failed; never say it was made.`;
             }
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
@@ -1246,7 +1262,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
-      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker")) {
         // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
         const a = parseArgs(call);
         let out: string;
@@ -1555,7 +1571,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         run.logged = 0;
         // With deeper thinking a small model sometimes writes its whole answer (or its tool call) inside the thinking part, which the server hands back as "no text":
         // the same step is asked again with thinking off, for the rest of this run, before anything else is tried.
-        if ((st.think || run.stall.level >= 2) && !run.thinkOff) {
+        if ((modelSettings(st, novaModelOf(st.model)).think || run.stall.level >= 2) && !run.thinkOff) {
           run.thinkOff = true;
           await taskEvent(run.id, "info", "🔁 انتهت الخطوة بلا نص مع التفكير الأعمق؛ أعيدها بدونه.", db);
           await saveState(chatId, st, db, slot);
@@ -1622,7 +1638,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
-      if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
+      if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
       if (run.agent) st.agentResult = { status: "done", text: text.trim() || "(empty report)", at: Date.now() };
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
@@ -1711,7 +1727,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             st.messages.push({ role: "assistant", content: pr.text });
             await sendParts(run.surface === "app" ? bot : ioBot, chatId, pr.text, run, true, db);
             await taskEvent(run.id, "info", `✍️ [سجل داخلي] كُتب التقرير من ${pr.sections} أقسام بالتوازي.`, db);
-            if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
+            if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
             if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
               const snap = [...st.messages], id = run.id, steps = run.step;
               later(() => import("@/lib/coderLessons").then((mm) => mm.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
@@ -1748,12 +1764,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const knobs = recoveryKnobs(run.stall);
     if (run.memory === undefined) {
       // relevant long-term memories, once per task (keyword + recency + repo scope)
-      const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
-      run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
+      run.memory = await novaMemoryPrompt(chatId, st, run.goal || "", db);
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
-    const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    if (run.agent && (run.agentRole !== "sham" || shamToolsEnabled()) && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
+    const nset = modelSettings(st, novaModelOf(st.model));                  // this model's OWN thinking / speed / media switches
+    const accuracy: Accuracy = nset.accuracy;
+    if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
@@ -1768,14 +1784,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
-    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2";      // Sham gets the bare words, no context block
     const histOf = (): CoderMessage[] => {
       if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
       const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
       st.winStart = w.start;
       return w.msgs;
     };
-    const wireOf = (m: CoderMessage): CoderMessage => (!toSham && m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
+    const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
     const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
@@ -1790,7 +1805,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham_loop" : "sham_probe") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (nset.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -1938,7 +1953,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, perModel: main.perModel, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
   await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title, surface: "app" }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
@@ -1986,10 +2001,10 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   const st = await loadState(chatId, db);
-  const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy, think: Boolean(st.think), thinkCap: thinkCapFor(accuracy) } };
+  const set = modelSettings(st, st.model === "sham_v2" ? "sham_v2" : "sham");          // the chosen Sham's own switches (old and new Sham each have theirs)
+  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, st.model === "sham_v2" ? "sham_v2" : "sham") } };
 }

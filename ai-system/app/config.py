@@ -102,56 +102,8 @@ NOVA_DEV_AGENT_REPO = os.environ.get("NOVA_DEV_AGENT_REPO", "")
 # current working branch is (NOT necessarily "main").
 NOVA_DEV_AGENT_BASE_BRANCH = os.environ.get("NOVA_DEV_AGENT_BASE_BRANCH", "")
 
-# Owner spec, 2026-09-12 ("ابحث حتى لو اضطررت لتغيير النموذج كله...
-# حل نهائي ودائم للصوت والفديو والصور... ليس عبر ترميم"): real research
-# (see cloudflare_ai.py's module docstring for the full reasoning) found
-# Cloudflare Workers AI is a genuinely free ($0, no credit card, "Workers
-# Free" plan — 10,000 shared "Neurons"/day, resets daily at 00:00 UTC),
-# always-on, GPU-served hosted inference platform — a real fix for the
-# three separate workarounds this project had been forced into by owning
-# no free GPU: ModelScope's CPU-only distilled sd-turbo (poor image
-# quality), the Kaggle-scheduled async video queue (real video, but up to
-# ~2h late), and gTTS's unofficial, timeout-prone narration endpoint.
-# Sign up free at https://dash.cloudflare.com/sign-up (email+password
-# only). Account ID: Cloudflare dashboard -> Workers AI -> shown on that
-# page. Token: My Profile -> API Tokens -> Create Token -> a scoped
-# "Workers AI" template token (read-only against this one product).
-CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
-
-# Real, documented model IDs (developers.cloudflare.com/workers-ai/models)
-# as overridable env vars rather than hardcoded, since Workers AI's free
-# catalog changes over time exactly like Groq's/Gemini's do (see those
-# vars' own comments above) — check that page for the current exact slug
-# before assuming these defaults still apply.
-CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
-# Owner complaint, 2026-09-12 (real generated image): cartoon-looking
-# output with a deformed hand. The real cause is what flux-1-schnell IS
-# — a model distilled specifically to produce an image in ~4 diffusion
-# steps, trading fidelity for speed. Raising the step count is the one
-# lever that works WITHOUT swapping to a model whose free-tier status
-# this project cannot currently verify (developers.cloudflare.com is
-# blocked from the sandbox that maintains this code, and the owner
-# already confirmed live that Cloudflare's better "Partner" models are
-# billed separately — that is exactly how the video lane turned out to
-# be a dead end).
-#
-# Set to 0 to disable and send the model's own default. cloudflare_ai
-# .generate_image RETRIES WITHOUT this parameter if a request carrying
-# it fails, so an unsupported value or a differently-named parameter on
-# whatever model is configured can never break image generation — it
-# just quietly costs one extra call the first time.
-CLOUDFLARE_IMAGE_STEPS = int(os.environ.get("CLOUDFLARE_IMAGE_STEPS", "8") or 0)
-# UNCONFIRMED exact slug (this project's own research could not browse
-# Cloudflare's live model list — its docs domain is blocked from this
-# sandbox's own network egress): real web search independently confirmed
-# Alibaba's "Wan" text-to-video model is live on Workers AI's free
-# catalog as of 2026-09, but not the precise @cf/... id string. Verify
-# the real current slug from the Workers AI dashboard's own model
-# catalog (it shows a copyable exact ID per model) before relying on
-# this default — override here if it differs.
-CLOUDFLARE_VIDEO_MODEL = os.environ.get("CLOUDFLARE_VIDEO_MODEL", "@cf/alibaba/wan-2.1-t2v")
-CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/melotts")
+# Media generation (image / speech / video) runs ONLY on Nova's own ModelScope media Studio (modelscope-media/app.py) with open weights run by our own code:
+# SDXS images, Piper Arabic speech, AnimateDiff-Lightning video. No external media service (no Cloudflare Workers AI, no Microsoft/Google TTS) is called.
 
 # Hugging Face media inference configuration is quarantined; runtime serving does not read HF_TOKEN or Space IDs.
 
@@ -165,15 +117,3 @@ CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/me
 # sign up (email or Google/GitHub) -> the API key is shown directly on
 # the dashboard, starts with "tvly-".
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
-
-# Owner report, 2026-09-13 (real evidence: a voice reply said "شاكرنن"
-# instead of "شاكراً"): gTTS is literally Google Translate's simple TTS
-# endpoint — never built for Arabic grammar (tanween/case endings), just
-# for reading translated phrases aloud. edge-tts (app/tts.py) is a real,
-# free, no-key wrapper around Microsoft Edge's own online TTS service —
-# the same real neural voices Edge/Word's "Read Aloud" use commercially,
-# genuinely better at Arabic prosody. ar-SA-HamedNeural (Saudi, male) is
-# a reasonable MSA-leaning default; override to any other real Arabic
-# neural voice id (e.g. ar-EG-SalmaNeural, ar-SA-ZariyahNeural) freely —
-# this is a live Microsoft catalog, not fixed by this project.
-EDGE_TTS_ARABIC_VOICE = os.environ.get("EDGE_TTS_ARABIC_VOICE", "ar-SA-HamedNeural")

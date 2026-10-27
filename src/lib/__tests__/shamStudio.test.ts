@@ -105,7 +105,7 @@ describe("shamStudio think", () => {
 
 describe("Sham limits are settings, not code", () => {
   it("today's numbers by default; SHAM_LIMITS=open lifts them all at once; each can be set alone", () => {
-    const { SHAM_LIM } = require("@/lib/coderProvider");
+    const { SHAM_LIM } = require("@/lib/shamPrompt");
     const { shamReplyTokens } = require("@/lib/shamStudio");
     const keys = ["SHAM_LIMITS", "SHAM_MAX_NEW_TOKENS", "SHAM_REPLY_TOKENS", "SHAM_PROMPT_CHARS"];
     const saved = keys.map((k) => process.env[k]); keys.forEach((k) => delete process.env[k]);

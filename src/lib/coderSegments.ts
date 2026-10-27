@@ -114,7 +114,7 @@ export function segmentMessages(goal: string, summary: string, segment: number):
 // ---------------------------------------------------------------- persistent task memory (coder_task_memory, created on first use)
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = db
       .exec(`CREATE TABLE IF NOT EXISTS coder_task_memory (run_id TEXT NOT NULL, segment INT NOT NULL, chat_key TEXT NOT NULL, summary TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (run_id, segment))`)

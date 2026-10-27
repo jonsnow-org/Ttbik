@@ -304,7 +304,7 @@ async function rows(chatId: number | string, db: Db): Promise<{ provider: string
 }
 let tableReady: Promise<void> | null = null;
 function saveConnectionTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!tableReady) {
     tableReady = db.exec(`CREATE TABLE IF NOT EXISTS coder_connections (chat_key TEXT NOT NULL, provider TEXT NOT NULL, token_enc TEXT NOT NULL, login TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_key, provider))`).then(() => undefined).catch((e) => {
       tableReady = null;

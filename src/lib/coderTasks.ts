@@ -15,7 +15,7 @@ export type EventRow = { id: number; run_id: string; kind: EventKind; text: stri
 
 let ready: Promise<void> | null = null;
 export function ensureTaskTables(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_tasks (run_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'interactive', schedule_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'running', steps INT NOT NULL DEFAULT 0, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ)`);

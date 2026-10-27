@@ -15,7 +15,7 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 import type { CoderMessage } from "@/lib/openCoderStudio";
 
 export type ThreadRow = {
-  id: string; title: string; created_at: string; updated_at: string; deleted_at: string | null; legacy: boolean; messages_count?: number;
+  id: string; title: string; created_at: string; updated_at: string; deleted_at: string | null; legacy: boolean; messages_count?: number; pinned?: boolean; archived?: boolean;
 };
 type FullRow = ThreadRow & { chat_key: string; chat_enc: string | null; messages: CoderMessage[]; notes: string; conv_id: string | null; memory_due: boolean; segments: number };
 
@@ -23,9 +23,11 @@ export const THREAD_MAX_MESSAGES = () => Math.max(40, Number(process.env.CODER_T
 export const quietMs = () => Math.max(60000, Number(process.env.CODER_QUIET_MS || 600000));
 export const LEGACY_TITLE = "المحادثة السابقة";
 
-let ready: Promise<void> | null = null;
+const readyBy = new WeakMap<object, Promise<void>>();
+/** A db handle with `ddl: true` (a real SQL engine in tests) gets the tables like the production one; other doubles are left alone. */
 export function ensureThreadTables(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();
+  let ready = readyBy.get(db) || null;
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_threads (id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, chat_enc TEXT, title TEXT NOT NULL DEFAULT '', messages JSONB NOT NULL DEFAULT '[]'::jsonb, notes TEXT NOT NULL DEFAULT '', conv_id TEXT, legacy BOOLEAN NOT NULL DEFAULT false, memory_due BOOLEAN NOT NULL DEFAULT false, memory_at TIMESTAMPTZ, segments INT NOT NULL DEFAULT 0, summary TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ)`);
@@ -34,10 +36,14 @@ export function ensureThreadTables(db: Db): Promise<void> {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_tasks (run_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'interactive', schedule_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'running', steps INT NOT NULL DEFAULT 0, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ)`);
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS thread_id TEXT`);
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_tasks_thread_idx ON coder_tasks (thread_id, started_at)`);
+      // chat-list features: pin to the top, archive (kept, hidden from the main list)
+      await db.exec(`ALTER TABLE coder_threads ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false`);
+      await db.exec(`ALTER TABLE coder_threads ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`);
     })().catch((e) => {
-      ready = null;
+      readyBy.delete(db);
       throw e;
     });
+    readyBy.set(db, ready);
   }
   return ready;
 }
@@ -91,7 +97,7 @@ export async function getThread(chatId: number | string, id: string, db: Db = pr
   try {
     await ensureThreadTables(db);
     const r = (await db.query<any>(
-      `SELECT id, chat_key, chat_enc, title, messages, notes, conv_id, legacy, memory_due, segments, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM coder_threads WHERE id = $1 AND chat_key = $2`,
+      `SELECT id, chat_key, chat_enc, title, messages, notes, conv_id, legacy, memory_due, segments, pinned, archived, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM coder_threads WHERE id = $1 AND chat_key = $2`,
       id, coderChatKey(chatId),
     ))[0];
     return r ? { ...r, messages: parse<CoderMessage[]>(r.messages, []), legacy: Boolean(r.legacy) } : null;
@@ -101,7 +107,7 @@ export async function getThread(chatId: number | string, id: string, db: Db = pr
 }
 
 /** The user's conversations, newest activity first (hidden ones are left out). */
-export async function listThreads(chatId: number | string, opts: { limit?: number; before?: string } = {}, db: Db = prismaDb): Promise<ThreadRow[]> {
+export async function listThreads(chatId: number | string, opts: { limit?: number; before?: string; q?: string; archived?: "exclude" | "only" | "include" } = {}, db: Db = prismaDb): Promise<ThreadRow[]> {
   try {
     await ensureThreadTables(db);
     const limit = Math.max(1, Math.min(100, opts.limit || 40));
@@ -109,13 +115,22 @@ export async function listThreads(chatId: number | string, opts: { limit?: numbe
     let extra = "";
     if (opts.before) {
       args.push(opts.before);
-      extra = ` AND updated_at < $2::timestamptz`;
+      extra += ` AND updated_at < $${args.length}::timestamptz`;
     }
+    const q = String(opts.q || "").trim().slice(0, 80);
+    if (q) {                                           // search: the title or anything said in the conversation (user and assistant text)
+      args.push(`%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`);
+      extra += ` AND (title ILIKE $${args.length} OR messages::text ILIKE $${args.length})`;
+    }
+    extra += ` AND (title <> '' OR jsonb_array_length(messages) > 0)`;      // a new chat nothing was said in is not a list entry yet
+    const arch = opts.archived || "exclude";
+    if (arch === "exclude") extra += ` AND archived = false`;
+    else if (arch === "only") extra += ` AND archived = true`;
     const rows = await db.query<any>(
-      `SELECT id, title, legacy, jsonb_array_length(messages) AS messages_count, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM coder_threads WHERE chat_key = $1 AND deleted_at IS NULL${extra} ORDER BY updated_at DESC LIMIT ${limit}`,
+      `SELECT id, title, legacy, pinned, archived, jsonb_array_length(messages) AS messages_count, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM coder_threads WHERE chat_key = $1 AND deleted_at IS NULL${extra} ORDER BY pinned DESC, updated_at DESC LIMIT ${limit}`,
       ...args,
     );
-    return rows.map((r) => ({ ...r, legacy: Boolean(r.legacy), messages_count: Number(r.messages_count) || 0 }));
+    return rows.map((r) => ({ ...r, legacy: Boolean(r.legacy), pinned: Boolean(r.pinned), archived: Boolean(r.archived), messages_count: Number(r.messages_count) || 0 }));
   } catch {
     return [];
   }
@@ -232,4 +247,49 @@ async function summarizeThread(r: any, msgs: CoderMessage[], db: Db, deps: Quiet
   // updated_at is kept as it was: a summary is not new activity
   await db.exec(`UPDATE coder_threads SET messages = $2::jsonb, segments = $3, summary = $4 WHERE id = $1`, r.id, JSON.stringify(next), seg, summary.slice(0, 20000));
   return `summary ${r.id}`;
+}
+
+export async function pinThread(chatId: number | string, id: string, pinned: boolean, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await ensureThreadTables(db);
+    return (await db.query<{ id: string }>(`UPDATE coder_threads SET pinned = $3 WHERE id = $1 AND chat_key = $2 AND deleted_at IS NULL RETURNING id`, id, coderChatKey(chatId), pinned)).length > 0;
+  } catch { return false; }
+}
+export async function archiveThread(chatId: number | string, id: string, archived: boolean, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await ensureThreadTables(db);
+    return (await db.query<{ id: string }>(`UPDATE coder_threads SET archived = $3, pinned = CASE WHEN $3 THEN false ELSE pinned END WHERE id = $1 AND chat_key = $2 AND deleted_at IS NULL RETURNING id`, id, coderChatKey(chatId), archived)).length > 0;
+  } catch { return false; }
+}
+/** Bulk delete (hidden, like the single delete). `ids`; or `olderThanDays` (by last activity); or `archived` (every archived chat); or `all`. A pinned chat and `keepId` (the open one) are never swept by the non-id modes. Returns how many were hidden and the ids. */
+export async function hideThreads(chatId: number | string, o: { ids?: string[]; olderThanDays?: number; archived?: boolean; all?: boolean; keepId?: string }, db: Db = prismaDb): Promise<string[]> {
+  try {
+    await ensureThreadTables(db);
+    const key = coderChatKey(chatId);
+    const keep = o.keepId || "";
+    let rows: { id: string }[] = [];
+    if (o.ids?.length) {
+      const ids = o.ids.map(String).slice(0, 200);
+      rows = await db.query<{ id: string }>(`UPDATE coder_threads SET deleted_at = now(), memory_due = false WHERE chat_key = $1 AND deleted_at IS NULL AND id = ANY($2::text[]) RETURNING id`, key, ids);
+    } else if (Number(o.olderThanDays) > 0) {
+      const cutoff = new Date(Date.now() - Number(o.olderThanDays) * 86400000).toISOString();
+      rows = await db.query<{ id: string }>(`UPDATE coder_threads SET deleted_at = now(), memory_due = false WHERE chat_key = $1 AND deleted_at IS NULL AND pinned = false AND id <> $2 AND updated_at < $3::timestamptz RETURNING id`, key, keep, cutoff);
+    } else if (o.archived) {
+      rows = await db.query<{ id: string }>(`UPDATE coder_threads SET deleted_at = now(), memory_due = false WHERE chat_key = $1 AND deleted_at IS NULL AND archived = true AND id <> $2 RETURNING id`, key, keep);
+    } else if (o.all) {
+      rows = await db.query<{ id: string }>(`UPDATE coder_threads SET deleted_at = now(), memory_due = false WHERE chat_key = $1 AND deleted_at IS NULL AND pinned = false AND id <> $2 RETURNING id`, key, keep);
+    }
+    return rows.map((r) => r.id);
+  } catch { return []; }
+}
+/** What was said in a conversation, as plain turns (for showing it again and for handing it to another model). */
+export async function threadTranscript(chatId: number | string, id: string, max = 60, db: Db = prismaDb): Promise<{ role: "user" | "assistant"; text: string }[] | null> {
+  const t = await getThread(chatId, id, db);
+  if (!t || t.deleted_at) return null;
+  const out: { role: "user" | "assistant"; text: string }[] = [];
+  for (const m of t.messages || []) {
+    const text = String((m as { content?: unknown }).content || "").trim();
+    if ((m.role === "user" || m.role === "assistant") && text && !text.startsWith("[harness]")) out.push({ role: m.role, text: text.slice(0, 4000) });
+  }
+  return out.slice(-max);
 }

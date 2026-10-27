@@ -23,7 +23,9 @@ import {
 } from "./parts";
 
 type Tab = "home" | "chats" | "auto" | "settings";
-type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | null;
+type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
+type ChatItem = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
+type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
@@ -594,6 +596,14 @@ function Chats({ c }: { c: Ctx }) {
   const [err, setErr] = useState("");
   const [note, setNote] = useState(false);
   const [busy, setBusy] = useState(false);
+  // each model has its own chat list: Nova, Sham, Sham v2 (the ones this person may use)
+  const canon = (x?: string) => (x === "sham_loop" ? "sham" : x || "coder");
+  const [model, setModel] = useState<string>(canon(me.settings?.model));
+  const [avail, setAvail] = useState<{ id: string; name: string }[]>([{ id: "coder", name: "Nova AI" }]);
+  const [bump, setBump] = useState(0);
+  useEffect(() => {
+    api<Models>("models").then((m) => setAvail((m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en })))).catch(() => null);
+  }, [lang]);
   const load = useCallback(async () => {
     try { setD(await api<Threads>("threads", { limit: 40 })); setErr(""); }
     catch (e: any) {
@@ -609,7 +619,7 @@ function Chats({ c }: { c: Ctx }) {
     if (busy) return;
     setBusy(true);
     haptic("medium");
-    try { await api("thread_new"); setNote(true); haptic("success"); void load(); } catch { haptic("error"); } finally { setBusy(false); }
+    try { await api("chat_new", { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
   const isLive = (s: string) => s === "running" || s === "waiting";
   return (
@@ -618,8 +628,16 @@ function Chats({ c }: { c: Ctx }) {
         <h1>{n.chatsTitle}</h1>
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
+      {avail.length > 1 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }} role="tablist">
+          {avail.map((m) => (
+            <button key={m.id} type="button" role="tab" aria-selected={m.id === model} className={`n-btn${m.id === model ? "" : " n-ghost"}`} style={{ height: 34, padding: "0 14px", fontSize: 13 }}
+              onClick={() => { haptic("select"); setModel(m.id); setNote(false); }}>{m.name}</button>
+          ))}
+        </div>
+      )}
       {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
-      {me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
+      {model === "coder" && me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
         <div style={{ margin: "0 0 16px", minHeight: 180 }}>
           <TerminalScreen lang={lang} compact />
         </div>
@@ -639,30 +657,9 @@ function Chats({ c }: { c: Ctx }) {
         )
         : !d ? <Loading /> : (
           <>
-            {d.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={load} /></List></div>)}
-            {d.threads.length === 0 ? (
-              <Card>
-                <div className="n-empty">
-                  <div className="n-mark"><Mark size={52} color="var(--n-primary)" /></div>
-                  <div style={{ marginBottom: 14 }}>{t.noChats}</div>
-                  <button type="button" className="n-btn" onClick={fresh}>+ {n.startChat}</button>
-                </div>
-              </Card>
-            ) : (
-              <Card>
-                {d.threads.map((h) => {
-                  const running = d.live.some((x) => x.thread_id === h.id && isLive(x.status));
-                  return (
-                    <Row key={h.id} icon={h.legacy ? "🗂️" : "💬"} title={h.title || t.untitled}
-                      badge={h.id === d.current ? <span className="n-chip n-on">{t.currentChat}</span> : undefined}
-                      sub={`${ago(h.updated_at, t)}${h.messages_count ? ` · ${h.messages_count} ${n.messages}` : ""}`}
-                      after={running ? <span className="n-dot" aria-hidden="true" /> : undefined}
-                      onClick={() => open({ k: "thread", id: h.id, title: h.title || t.untitled })} />
-                  );
-                })}
-              </Card>
-            )}
-            {d.runs.length > 0 && (
+            {model === "coder" && d.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={load} /></List></div>)}
+            <ChatsOfModel key={model} c={c} model={model} bump={bump} live={model === "coder" ? d.live : []} onNew={fresh} />
+            {model === "coder" && d.runs.length > 0 && (
               <>
                 <Head lang={lang} title={t.scheduledRuns} />
                 <Card>{d.runs.map((x) => <Row key={x.run_id} icon={srcIcon(x.source)} title={x.title || "—"} sub={`${tx(t, `src_${x.source}`)} · ${ago(x.updated_at, t)}`} value={tx(t, `status_${x.status}`)} />)}</Card>
@@ -673,10 +670,132 @@ function Chats({ c }: { c: Ctx }) {
     </div>
   );
 }
+// One model's chat list: search, pinned first, archive filter, select + bulk delete, clean-up of old / archived ones, "continue" by opening a chat.
+function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; bump: number; live: (Task & { thread_id?: string })[]; onNew: () => void }) {
+  const { t, n, lang, open } = c;
+  const [q, setQ] = useState("");
+  const [view, setView] = useState<"exclude" | "only">("exclude");
+  const [d, setD] = useState<ChatList | null>(null);
+  const [err, setErr] = useState("");
+  const [sel, setSel] = useState<Set<string> | null>(null);
+  const [manage, setManage] = useState(false);
+  const load = useCallback(async () => {
+    try { setD(await api<ChatList>("chats", { model, q: q.trim() || undefined, archived: view, limit: 100 })); setErr(""); } catch (e: any) { setErr(e.message); }
+  }, [model, q, view]);
+  useEffect(() => {
+    const h = setTimeout(() => void load(), q ? 250 : 0);                                // search is typed: wait a moment between keys
+    const iv = setInterval(() => document.visibilityState === "visible" && !sel && load(), 6000);
+    return () => { clearTimeout(h); clearInterval(iv); };
+  }, [load, bump, sel, q]);
+  const del = async (spec: object, label: string) => {
+    if (!(await guard(label))) return;
+    try { await api("chat_delete", { model, ...spec }); haptic("success"); setSel(null); setManage(false); void load(); } catch { haptic("error"); }
+  };
+  const isLive = (s: string) => s === "running" || s === "waiting";
+  if (err && !d) return <Fail t={t} msg={err} retry={load} />;
+  const items = d?.items || [];
+  const pinned = items.filter((x) => x.pinned), rest = items.filter((x) => !x.pinned);
+  const row = (h: ChatItem) => {
+    const running = live.some((x) => x.thread_id === h.id && isLive(x.status));
+    const on = sel?.has(h.id);
+    return (
+      <Row key={h.id} icon={sel ? (on ? "☑️" : "⬜") : h.pinned ? "📌" : "💬"} title={h.title || t.untitled}
+        badge={h.current ? <span className="n-chip n-on">{t.currentChat}</span> : undefined}
+        sub={`${ago(h.updated_at, t)}${h.turns ? ` · ${h.turns} ${n.messages}` : ""}${h.preview ? ` · ${h.preview}` : ""}`.slice(0, 160)}
+        after={running ? <span className="n-dot" aria-hidden="true" /> : undefined}
+        onClick={() => {
+          if (sel) { const m = new Set(sel); if (m.has(h.id)) m.delete(h.id); else m.add(h.id); setSel(m); return; }
+          open(model === "coder" ? { k: "thread", id: h.id, title: h.title || t.untitled } : { k: "chat", model, id: h.id, title: h.title || t.untitled, pinned: h.pinned, archived: h.archived });
+        }} />
+    );
+  };
+  return (
+    <>
+      <div style={{ display: "flex", gap: 8, margin: "0 0 10px", alignItems: "center" }}>
+        <input type="search" value={q} placeholder={`🔎 ${n.ch_search}`} dir="auto" maxLength={80} aria-label={n.ch_search} onChange={(e) => setQ(e.target.value)}
+          style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 999, border: "1px solid var(--n-line, rgba(127,127,127,.3))", padding: "0 14px", background: "var(--n-surface)", color: "var(--n-ink)", font: "inherit" }} />
+        <button type="button" className="n-btn n-ghost" style={{ height: 40, padding: "0 12px" }} onClick={() => { haptic("select"); setSel(sel ? null : new Set()); }}>{sel ? n.ch_done : n.ch_select}</button>
+      </div>
+      <div style={{ display: "flex", gap: 8, margin: "0 0 10px" }}>
+        {(["exclude", "only"] as const).map((v) => (
+          <button key={v} type="button" className={`n-btn${view === v ? "" : " n-ghost"}`} style={{ height: 30, padding: "0 12px", fontSize: 12 }} onClick={() => setView(v)}>{v === "exclude" ? n.ch_active : n.ch_archived}</button>
+        ))}
+        <button type="button" className="n-btn n-ghost" style={{ height: 30, padding: "0 12px", fontSize: 12, marginInlineStart: "auto" }} onClick={() => setManage(!manage)}>🧹 {n.ch_manage}</button>
+      </div>
+      {sel && (
+        <div className="n-wrap" style={{ margin: "0 0 10px" }}>
+          <button type="button" className="n-btn n-wide" disabled={!sel.size} style={{ background: "var(--n-danger)" }} onClick={() => del({ ids: [...sel] }, `${n.ch_delSel} (${sel.size})`)}>🗑 {n.ch_delSel} · {sel.size} {n.ch_selected}</button>
+        </div>
+      )}
+      {manage && (
+        <Card>
+          <Row icon="🗄️" title={n.ch_delArch} tone="var(--n-danger)" chevron={false} onClick={() => del({ archived: true }, n.ch_delArch)} />
+          <Row icon="⏳" title={n.ch_delOld} tone="var(--n-danger)" chevron={false} onClick={() => del({ olderThanDays: 30 }, n.ch_delOld)} />
+          <Row icon="🧨" title={n.ch_delAll} sub={n.ch_sure} tone="var(--n-danger)" chevron={false} onClick={() => del({ all: true }, n.ch_delAll)} />
+        </Card>
+      )}
+      {!d ? <Loading /> : items.length === 0 ? (
+        <Card>
+          <div className="n-empty">
+            <div className="n-mark"><Mark size={52} color="var(--n-primary)" /></div>
+            <div style={{ marginBottom: 14 }}>{q ? n.ch_noMatch : model === "coder" ? t.noChats : n.ch_empty}</div>
+            {!q && view === "exclude" && <button type="button" className="n-btn" onClick={onNew}>+ {n.startChat}</button>}
+          </div>
+        </Card>
+      ) : (
+        <>
+          {pinned.length > 0 && <Card title={n.ch_pinned}>{pinned.map(row)}</Card>}
+          {rest.length > 0 && <Card>{rest.map(row)}</Card>}
+        </>
+      )}
+    </>
+  );
+}
+
+/** A Sham / Sham v2 chat: its full history, continue, rename, pin, archive, delete. */
+function ChatPage({ c, model, id, pinned: p0, archived: a0, onGone }: { c: Ctx; model: string; id: string; pinned: boolean; archived: boolean; onGone: () => void }) {
+  const { t, n } = c;
+  const [msgs, setMsgs] = useState<{ role: "user" | "assistant"; text: string; at?: string }[] | null>(null);
+  const [err, setErr] = useState("");
+  const [name, setName] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(p0), [archived, setArchived] = useState(a0);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { try { setMsgs((await api<{ messages: { role: "user" | "assistant"; text: string; at?: string }[] }>("chat_messages", { model, id })).messages); setErr(""); } catch (e: any) { setErr(e.message); } }, [model, id]);
+  useEffect(() => { void load(); }, [load]);
+  if (err && !msgs) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
+  if (!msgs) return <Loading />;
+  const cont = async () => { setBusy(true); haptic("medium"); try { await api("chat_open", { model, id }); closeApp(); } finally { setBusy(false); } };
+  return (
+    <div style={{ paddingTop: 8 }}>
+      {!msgs.length && <div className="n-empty">{t.noMessages}</div>}
+      {msgs.map((m, i) => <div key={i} className={`n-bubble ${m.role === "user" ? "n-me" : "n-bot"}`} dir="auto">{m.text.slice(0, 4000)}</div>)}
+      <div className="n-wrap" style={{ marginTop: 16 }}>
+        <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {n.ch_cont}</button>
+        <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{n.ch_contHint}</p>
+        <Card>
+          <Row icon="📌" title={pinned ? n.ch_unpin : n.ch_pin} chevron={false} onClick={async () => { await api("chat_pin", { model, id, pinned: !pinned }); setPinned(!pinned); if (!pinned) setArchived(false); haptic("success"); }} />
+          <Row icon="🗄️" title={archived ? n.ch_unarchive : n.ch_archive} chevron={false} onClick={async () => { await api("chat_archive", { model, id, archived: !archived }); setArchived(!archived); if (!archived) setPinned(false); haptic("success"); }} />
+          {name === null ? <Row icon="✏️" title={t.rename} onClick={() => setName("")} />
+            : (
+              <div className="n-tg">
+                <List><Input header={t.rename} value={name} maxLength={80} dir="auto" onChange={(e) => setName(e.target.value)} /></List>
+                <div style={{ padding: "0 16px 14px" }}>
+                  <button type="button" className="n-btn" disabled={!name.trim()} onClick={async () => { await api("chat_rename", { model, id, title: name }); haptic("success"); setName(null); }}>{t.save}</button>
+                </div>
+              </div>
+            )}
+          <Row icon="🗑" title={t.hideChat} sub={n.ch_sure} tone="var(--n-danger)" chevron={false}
+            onClick={async () => { if (!(await guard(t.hideChat))) return; await api("chat_delete", { model, ids: [id] }); haptic("success"); onGone(); }} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 type ThreadTask = { run_id: string; title: string; status: string; started_at: string; finished_at: string | null; events: Ev[] };
 function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void }) {
   const { t, n } = c;
-  const [d, setD] = useState<{ thread: Thread; current: boolean; tasks: ThreadTask[] } | null>(null);
+  const [d, setD] = useState<{ thread: Thread & { pinned?: boolean; archived?: boolean }; current: boolean; tasks: ThreadTask[] } | null>(null);
   const [err, setErr] = useState("");
   const [name, setName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -724,6 +843,8 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
                 </div>
               </div>
             )}
+          <Row icon="📌" title={d.thread.pinned ? n.ch_unpin : n.ch_pin} chevron={false} onClick={async () => { await api("chat_pin", { model: "coder", id, pinned: !d.thread.pinned }); haptic("success"); void load(); }} />
+          <Row icon="🗄️" title={d.thread.archived ? n.ch_unarchive : n.ch_archive} chevron={false} onClick={async () => { await api("chat_archive", { model: "coder", id, archived: !d.thread.archived }); haptic("success"); void load(); }} />
           <Row icon="🗑" title={t.hideChat} sub={t.hideChatQ} tone="var(--n-danger)" chevron={false}
             onClick={async () => { if (!(await guard(t.hideChat))) return; await api("thread_delete", { id }); haptic("success"); onGone(); }} />
         </Card>
@@ -790,7 +911,15 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
+  useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
   const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz">("");
+  const isSham = s.model === "sham" || s.model === "sham_v2" || s.model === "sham_loop";
+  const [known, setKnown] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    setKnown(null);
+    if (isSham) void api<{ facts: Record<string, string> }>("sham_memory", { model: s.model }).then((d) => setKnown(d.facts)).catch(() => setKnown({}));
+  }, [s.model, isSham]);
+  const mem = s.memory || { remember: true, recall: true, save: true };
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -820,10 +949,23 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   return (
     <div className="n-page">
       <div className="n-ph" lang={lang}><h1>{n.navSettings}</h1></div>
-      <Card title={n.g_nova}>
+      <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
         <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.think} aria-label={n.s_think} onChange={(e) => set({ think: e.currentTarget.checked })} /></span>} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
+        <Row icon="🎞️" title={n.s_media} sub={n.s_mediaSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.media !== false} aria-label={n.s_media} onChange={(e) => set({ media: e.currentTarget.checked })} /></span>} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
+      </Card>
+      <Card title={`${n.m_title}: ${modelName(models, lang)}`}>
+        <Row icon="🧬" title={n.m_remember} sub={n.m_rememberSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.remember} aria-label={n.m_remember} onChange={(e) => set({ memory: { ...mem, remember: e.currentTarget.checked } })} /></span>} />
+        <Row icon="📖" title={n.m_recall} sub={n.m_recallSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.recall} aria-label={n.m_recall} onChange={(e) => set({ memory: { ...mem, recall: e.currentTarget.checked } })} /></span>} />
+        <Row icon="💾" title={n.m_save} sub={n.m_saveSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.save} aria-label={n.m_save} onChange={(e) => set({ memory: { ...mem, save: e.currentTarget.checked } })} /></span>} />
+        {isSham && (
+          <>
+            <Row icon="🧾" title={n.m_known} chevron={false} sub={known ? (Object.keys(known).length ? Object.entries(known).map(([k, v]) => `${k}: ${v}`).join(" · ") : n.m_none) : "…"} />
+            <Row icon="🗑" title={n.m_forget} sub={n.m_forgetQ} tone="var(--n-danger)" chevron={false}
+              onClick={async () => { if (!(await guard(n.m_forget))) return; await api("sham_memory", { model: s.model, forget: true }); haptic("success"); setKnown({}); }} />
+          </>
+        )}
       </Card>
       <Card title={n.g_profile}>
         <Row icon="👤" title={n.s_mem} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />
@@ -856,7 +998,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
-      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
+      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={() => { reloadModels(); void reload(); }} onClose={() => setPop(null)} />
     </div>
   );
 }
@@ -995,7 +1137,7 @@ export default function NovaApp() {
   const go = (x: Tab) => { haptic("select"); setPage(null); setTab(x); };
   const open = (p: Page) => setPage(p);
   const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload: () => void reload(), mode: resolved } : null;
-  const pageTitle = !page ? "" : page.k === "thread" ? page.title : page.k === "billing" ? t.billing : page.k === "pricing" ? n.s_pricing : page.k === "panel" ? n.s_panel
+  const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "pricing" ? n.s_pricing : page.k === "panel" ? n.s_panel
     : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? n.s_mem : n.s_policy;
   return (
     <AppRoot appearance={appearance} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="nova"
@@ -1013,6 +1155,7 @@ export default function NovaApp() {
                 </div>
               </div>
               {page.k === "thread" ? <ThreadPage key={page.id} c={ctx} id={page.id} onGone={closePage} />
+                : page.k === "chat" ? <ChatPage key={page.id} c={ctx} model={page.model} id={page.id} pinned={page.pinned} archived={page.archived} onGone={closePage} />
                 : page.k === "billing" ? <Billing c={ctx} />
                 : page.k === "pricing" ? (owner ? <div className="n-tg"><BillingPage t={t} lang={lang} me={ctx.me} /></div> : <Billing c={ctx} />)
                 : page.k === "panel" ? (owner ? <div className="n-tg"><PanelPage lang={lang} /></div> : <Fail t={t} msg="—" retry={closePage} />)

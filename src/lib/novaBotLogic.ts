@@ -3,9 +3,10 @@ import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
-import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
+import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
-import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
+import { chatKey, type loadMemory } from "@/lib/shamMemory";
+import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
@@ -830,7 +831,7 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   const out = r.kind === "ask" ? r.question : r.text;
   if (runId) { await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
   await sendShamReply(bot, chatId, { type: "text", text: out });
-  await saveTurn(chatId, request, out);
+  await saveChatTurn(chatId, request, out);
   return true;
 }
 
@@ -853,7 +854,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= SHAM_LEGS;
     const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => void taskEvent(run.runId!, k, t).catch(() => null) : undefined;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
+    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId))) {
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
       await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
@@ -870,7 +871,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => void taskEvent(runId, k, t).catch(() => null);
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId);
 }
 
@@ -886,7 +887,7 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
   await sendShamLater(bot, chatId, r?.later);
   const done = async (x: ShamReply) => {
     await sendShamReply(bot, chatId, x);
-    if (x.type === "text" && x.text) await saveTurn(chatId, text, x.text);
+    if (x.type === "text" && x.text) await saveChatTurn(chatId, text, x.text);
   };
   if (!r || r.type === "loading" || r.type === "busy" || r.type === "gone") {
     await bot.api.sendMessage(chatId, shamStatusText(first)).catch(() => null);
@@ -922,11 +923,12 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
 }
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
-  if (NOVA_PAUSED) {
+  // A call made inside shamVariant.run (the bot route always does) is a Sham chat: it takes Sham's path whatever the legacy-backend flag says (B-09).
+  if (NOVA_LEGACY_BACKEND_PAUSED || shamVariant.getStore()) {
     if (update.callback_query?.id && /^sham(ok|no)\|/.test(String(update.callback_query.data || ""))) {
       await handleShamCallback(bot, update.callback_query);                  // the user's tap on a write Sham asked about
     } else if (update.callback_query?.id) {
-      await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
+      await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_LEGACY_PAUSED_TEXT, show_alert: true }).catch(() => null);
     } else if (update.message?.chat?.id) {
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
@@ -948,8 +950,14 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
             await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
             return;
           }
+          if (shamModeCtx.getStore()?.media === false) {          // this Sham's own "media generation" switch (Mini App → settings) is off
+            await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
+            return;
+          }
           await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
-          await sendShamReply(bot, chatId, await shamGenerateMedia(kind, caption));
+          // the route chosen in the owner's panel, on the variant that route belongs to; nothing is switched silently (the old direct call used the broken internal endpoint)
+          const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
+          await sendShamReply(bot, chatId, await generateShamMediaThroughRoute(kind as "image" | "audio" | "video", caption));
           return;
         }
         await bot.api.sendMessage(chatId, cmd === "/start" || cmd === "/help" ? welcome : unavailable, { reply_markup: { remove_keyboard: true } }).catch(() => null);
@@ -961,7 +969,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         // the webhook has 60 s (maxDuration): the fallback only runs with the time chat_auto left (a fast "no such api" leaves nearly all of it)
         const t0 = Date.now();
         // the chat's recent turns + rolling summary + facts go with the message (chat_memory); an older Studio, or no database, falls back to chat_auto
-        const mem = await loadMemory(chatId, text);
+        const mem = await loadChatMemory(chatId, text);
         // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
         // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
         // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
@@ -981,12 +989,12 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         if (!any && left > 15000) any = await shamGenerateAny(text, 80, left);
         if (any) {
           await sendShamReply(bot, chatId, any);
-          if (any.type === "text" && any.text) await saveTurn(chatId, text, any.text);
+          if (any.type === "text" && any.text) await saveChatTurn(chatId, text, any.text);
           return;
         }
         const reply = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
         if (reply) {
-          await saveTurn(chatId, text, reply);
+          await saveChatTurn(chatId, text, reply);
           await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
           return;
         }
@@ -996,7 +1004,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         else await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
         return;
       }
-      await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
+      await bot.api.sendMessage(update.message.chat.id, NOVA_LEGACY_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     }
     return;
   }

@@ -3,7 +3,6 @@
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { prismaDb, type Db } from "@/lib/coderAuth";
-import { shamStudioEnabled } from "@/lib/shamStudio";
 
 export type CoderModel = {
   id: string;
@@ -82,9 +81,14 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 /** Older chats may hold the id of the former "Sham (advanced)" entry: it was merged into the old Sham (which now has everything it had). */
 export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
 
+/** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
+const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || "").trim());
+/** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
+export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
+
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
-  if (m.id === "sham" || m.id === "sham_v2") return shamStudioEnabled();
+  if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
@@ -113,8 +117,50 @@ export function ownerModels(models: CoderModel[], picked: string | undefined) {
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
-  if ((m.id === "sham" || m.id === "sham_v2") && !shamStudioEnabled()) return false;                // they need the Studio token                // needs Sham's Studio token
+  if ((m.id === "sham" || m.id === "sham_v2") && !studioTokenSet()) return false;                // they need the Studio token
   st.model = m.id;
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios
   return true;
+}
+
+// ---------------------------------------------------------------- per-model settings (Mini App → settings): strictly the selected model's own
+/** Thinking, speed (accuracy) and media generation are set PER MODEL: changing one model's switches never changes another's. */
+export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "precise"; media: boolean };
+export type PerModelState = { model?: string; think?: boolean; accuracy?: string; perModel?: Record<string, Partial<ModelSettings>> };
+const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x === "balanced" || x === "precise";
+/** The effective settings of one model. Nova (id "coder") also honours the old single global switches until it has its own entry; every other model starts from the defaults. */
+export function modelSettings(st: PerModelState, id: string | undefined): ModelSettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const pm = st.perModel?.[mid] || {};
+  const legacy = mid === DEFAULT_MODEL_ID;
+  return {
+    think: typeof pm.think === "boolean" ? pm.think : legacy ? Boolean(st.think) : false,
+    accuracy: isAcc(pm.accuracy) ? pm.accuracy : legacy && isAcc(st.accuracy) ? st.accuracy : "balanced",
+    media: typeof pm.media === "boolean" ? pm.media : true,
+  };
+}
+/** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
+export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const cur = modelSettings(st, mid);
+  const next: ModelSettings = { think: typeof patch.think === "boolean" ? patch.think : cur.think, accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: typeof patch.media === "boolean" ? patch.media : cur.media };
+  st.perModel = { ...(st.perModel || {}), [mid]: next };
+  return next;
+}
+
+// ---------------------------------------------------------------- memory / save settings, per model
+/** What a model may keep about the user: `remember` = learn lasting facts from chats, `recall` = use what was learned in answers, `save` = keep the conversations in the chat list.
+ *  Each model has its own three switches (all on by default, as before); the server-wide kill switches (CODER_MEMORY=off, SHAM_MEMORY=off) still win. */
+export type MemorySettings = { remember: boolean; recall: boolean; save: boolean };
+export type MemoryState = { memPer?: Record<string, Partial<MemorySettings>> };
+export function memorySettings(st: MemoryState, id: string | undefined): MemorySettings {
+  const m = st.memPer?.[canonModelId(id) || DEFAULT_MODEL_ID] || {};
+  return { remember: m.remember !== false, recall: m.recall !== false, save: m.save !== false };
+}
+export function setMemorySettings(st: MemoryState, id: string, patch: Partial<MemorySettings>): MemorySettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const cur = memorySettings(st, mid);
+  const next: MemorySettings = { remember: typeof patch.remember === "boolean" ? patch.remember : cur.remember, recall: typeof patch.recall === "boolean" ? patch.recall : cur.recall, save: typeof patch.save === "boolean" ? patch.save : cur.save };
+  st.memPer = { ...(st.memPer || {}), [mid]: next };
+  return next;
 }

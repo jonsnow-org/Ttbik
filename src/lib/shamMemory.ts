@@ -13,6 +13,8 @@ const SUMMARY_MAX = 600;
 
 export type Turn = { q: string; a: string };
 export type Facts = Record<string, string>;
+/** The user's own switches for this Sham (Mini App → memory): learn facts, use what was learned, keep the conversation. Undefined = all on. */
+export type MemoryOpts = { remember?: boolean; recall?: boolean; save?: boolean };
 export type MemoryContext = { chatKey: string; history: Turn[]; summary: string; facts: Facts };
 export type Db = { exec: (sql: string, ...args: unknown[]) => Promise<unknown>; query: <T>(sql: string, ...args: unknown[]) => Promise<T[]> };
 
@@ -29,6 +31,11 @@ export function shamMemoryEnabled(): boolean {
 export function chatKey(chatId: number | string): string {
   const salt = process.env.SHAM_MEMORY_SALT || "sham-palmyra";
   return "tg:" + createHash("sha256").update(`${salt}|${chatId}`).digest("hex").slice(0, 32);
+}
+
+/** The key under which ONE named conversation's turns are stored (the chat list): never equal to the user-level key, which keeps facts and the legacy single stream. */
+export function scopeKey(chatId: number | string, variant: string, threadId: string): string {
+  return `${chatKey(chatId)}|${variant}|${threadId}`;
 }
 
 // ---- natural-language rules (the same rules as sham_memory.py on the Studio)
@@ -77,15 +84,17 @@ export function foldSummary(prev: string, leaving: Turn[]): string {
   return s.slice(-SUMMARY_MAX);
 }
 
-let ready: Promise<void> | null = null;
-function ensureTables(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+const readyBy = new WeakMap<object, Promise<void>>();
+export function ensureTables(db: Db): Promise<void> {
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
+  let ready = readyBy.get(db) || null;
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS sham_chat_memory (id BIGSERIAL PRIMARY KEY, chat_key TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await db.exec(`CREATE INDEX IF NOT EXISTS sham_chat_memory_chat_idx ON sham_chat_memory (chat_key, id DESC)`);
       await db.exec(`CREATE TABLE IF NOT EXISTS sham_user_facts (chat_key TEXT PRIMARY KEY, facts JSONB NOT NULL DEFAULT '{}'::jsonb, summary TEXT NOT NULL DEFAULT '', summarized_upto BIGINT NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
-    })().catch((e) => { ready = null; throw e; });
+    })().catch((e) => { readyBy.delete(db); throw e; });
+    readyBy.set(db, ready);
   }
   return ready;
 }
@@ -106,7 +115,7 @@ export function nearSameReply(a: string, b: string): boolean {
 }
 const dedupeOn = () => process.env.SHAM_MEMORY_DEDUPE !== "0";
 const sendRepliesOn = () => process.env.SHAM_MEMORY_SEND_REPLIES === "1";
-export function cleanHistory(turns: Turn[]): Turn[] {
+export function cleanHistory(turns: Turn[], withReplies = false): Turn[] {
   let out = turns;
   if (dedupeOn()) {
     const seen: string[] = [];
@@ -116,7 +125,7 @@ export function cleanHistory(turns: Turn[]): Turn[] {
       return dup ? { q: t.q, a: "" } : t;
     });
   }
-  return sendRepliesOn() ? out : out.map((t) => ({ q: t.q, a: "" }));
+  return sendRepliesOn() || withReplies ? out : out.map((t) => ({ q: t.q, a: "" }));
 }
 
 const STOP = new Set(["هذا", "هذه", "ذلك", "التي", "الذي", "على", "الى", "إلى", "عن", "في", "من", "ما", "هل", "كيف", "ماذا", "لماذا", "أنا", "انا", "انت", "أنت", "لي", "لك", "مع", "كان", "يكون", "هو", "هي", "the", "and", "for", "you", "what", "how"]);
@@ -156,25 +165,28 @@ export function relatedEarlier(text: string, older: Turn[], max = 2): string {
 }
 
 /** The memory to send with a message (facts already include what THIS message states). Null when off or the database is unreachable. */
-export async function loadMemory(chatId: number | string, text: string, db: Db = prismaDb): Promise<MemoryContext | null> {
+export async function loadMemory(chatId: number | string, text: string, db: Db = prismaDb, scope?: string, opts: MemoryOpts = {}): Promise<MemoryContext | null> {
   if (!shamMemoryEnabled()) return null;
   const key = chatKey(chatId);
+  const turnKey = scope || key;      // a named conversation (chat list) replays ITS OWN turns in full; facts stay per user
   try {
     await ensureTables(db);
     const rows = await db.query<{ question: string; answer: string; created_at?: Date | string | null }>(
-      `SELECT question, answer, created_at FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS * 4}`, key);
+      `SELECT question, answer, created_at FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS * 4}`, turnKey);
     const prof = await db.query<{ facts: Facts | string; summary: string }>(`SELECT facts, summary FROM sham_user_facts WHERE chat_key=$1`, key);
     const stored = prof[0] ? (typeof prof[0].facts === "string" ? JSON.parse(prof[0].facts) : prof[0].facts) || {} : {};
-    const { current, older } = currentSession(rows);
+    // a named conversation is one continuous session however long the pause (that is what "continue the previous chat" means)
+    const { current, older } = scope ? { current: rows, older: [] as typeof rows } : currentSession(rows);
     const recent = current.slice(0, WINDOW_TURNS);
     const toTurn = (r: { question: string; answer: string }) => ({ q: r.question, a: r.answer });
     return {
       chatKey: key,
       // 2026-10-17: only the current conversation is replayed as dialogue (a new day no longer continues yesterday's thread); earlier ones come back
       // only when related to this message. REVIEW (2026-10-15): duplicates dropped and (default) only the user's side sent.
-      history: cleanHistory(recent.reverse().map(toTurn)),
-      summary: process.env.SHAM_MEMORY_SUMMARY === "1" ? prof[0]?.summary || "" : relatedEarlier(text, older.map(toTurn)),
-      facts: { ...stored, ...extractFacts(text) },
+      history: cleanHistory(recent.reverse().map(toTurn), Boolean(scope)),
+      // "use memory" off: neither the stored facts nor related earlier conversations reach the model (this conversation's own turns still do)
+      summary: opts.recall === false ? "" : process.env.SHAM_MEMORY_SUMMARY === "1" ? prof[0]?.summary || "" : relatedEarlier(text, older.map(toTurn)),
+      facts: opts.recall === false ? {} : { ...stored, ...extractFacts(text) },
     };
   } catch {
     return null;
@@ -182,26 +194,28 @@ export async function loadMemory(chatId: number | string, text: string, db: Db =
 }
 
 /** Store one turn, merge new facts, and fold turns that left the window into the rolling summary. */
-export async function saveTurn(chatId: number | string, question: string, answer: string, db: Db = prismaDb): Promise<void> {
+export async function saveTurn(chatId: number | string, question: string, answer: string, db: Db = prismaDb, scope?: string, opts: MemoryOpts = {}): Promise<void> {
   if (!shamMemoryEnabled() || !question.trim() || !answer.trim()) return;
+  if (opts.save === false && opts.remember === false) return;
   const key = chatKey(chatId);
+  const turnKey = scope || key;
   try {
     await ensureTables(db);
-    if (dedupeOn()) {   // 2026-10-15: a reply (near-)identical to a recent one is not stored, so it cannot feed the next prompt
-      const recent = await db.query<{ answer: string }>(`SELECT answer FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS}`, key);
+    if (dedupeOn() && opts.save !== false) {   // 2026-10-15: a reply (near-)identical to a recent one is not stored, so it cannot feed the next prompt
+      const recent = await db.query<{ answer: string }>(`SELECT answer FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS}`, turnKey);
       if (recent.some((r) => nearSameReply(r.answer, answer))) return;
     }
-    await db.exec(`INSERT INTO sham_chat_memory (chat_key, question, answer) VALUES ($1, $2, $3)`, key, question.slice(0, 4000), answer.slice(0, 4000));
+    if (opts.save !== false) await db.exec(`INSERT INTO sham_chat_memory (chat_key, question, answer) VALUES ($1, $2, $3)`, turnKey, question.slice(0, 4000), answer.slice(0, 4000));
     const prof = await db.query<{ facts: Facts | string; summary: string; summarized_upto: string | number }>(
       `SELECT facts, summary, summarized_upto FROM sham_user_facts WHERE chat_key=$1`, key);
     const stored: Facts = prof[0] ? (typeof prof[0].facts === "string" ? JSON.parse(prof[0].facts) : prof[0].facts) || {} : {};
-    const facts = { ...stored, ...extractFacts(question) };
+    const facts = opts.remember === false ? stored : { ...stored, ...extractFacts(question) };   // "remember" off: nothing new is learned about the user
     let summary = prof[0]?.summary || "";
     let upto = Number(prof[0]?.summarized_upto || 0);
     // turns older than the window and not yet summarised, once there are SUMMARY_EVERY of them
-    const old = await db.query<{ id: string | number; question: string; answer: string }>(
+    const old = scope ? [] : await db.query<{ id: string | number; question: string; answer: string }>(   // (a named conversation keeps every turn; no folding)
       `SELECT id, question, answer FROM sham_chat_memory WHERE chat_key=$1 AND id > $2 ORDER BY id DESC OFFSET ${WINDOW_TURNS}`, key, upto);
-    if (old.length >= SUMMARY_EVERY) {
+    if (old.length >= SUMMARY_EVERY && opts.remember !== false) {
       const leaving = old.reverse();
       summary = foldSummary(summary, leaving.map((r) => ({ q: r.question, a: r.answer })));
       upto = Number(leaving[leaving.length - 1].id);
@@ -215,13 +229,31 @@ export async function saveTurn(chatId: number | string, question: string, answer
   }
 }
 
+/** Forget only what was learned about the user (facts + summary); the conversations stay. */
+export async function forgetFacts(chatId: number | string, db: Db = prismaDb): Promise<boolean> {
+  try { await ensureTables(db); await db.exec(`DELETE FROM sham_user_facts WHERE chat_key=$1`, chatKey(chatId)); return true; } catch { return false; }
+}
+/** What Sham has learned about this user. */
+export async function shamFacts(chatId: number | string, db: Db = prismaDb): Promise<Facts> {
+  try {
+    await ensureTables(db);
+    const r = await db.query<{ facts: Facts | string }>(`SELECT facts FROM sham_user_facts WHERE chat_key=$1`, chatKey(chatId));
+    return r[0] ? (typeof r[0].facts === "string" ? JSON.parse(r[0].facts) : r[0].facts) || {} : {};
+  } catch { return {}; }
+}
+
 /** «انسَ معلوماتي»: delete this chat's turns, facts and summary. */
 export async function forgetMemory(chatId: number | string, db: Db = prismaDb): Promise<boolean> {
   const key = chatKey(chatId);
   try {
     await ensureTables(db);
-    await db.exec(`DELETE FROM sham_chat_memory WHERE chat_key=$1`, key);
+    await db.exec(`DELETE FROM sham_chat_memory WHERE chat_key=$1 OR chat_key LIKE $2`, key, key + "|%");
     await db.exec(`DELETE FROM sham_user_facts WHERE chat_key=$1`, key);
+    // the chat list goes too (its turns are gone); the table may not exist yet, which is fine
+    try {
+      await db.exec(`UPDATE sham_threads SET deleted_at = now() WHERE chat_key=$1 AND deleted_at IS NULL`, key);
+      await db.exec(`DELETE FROM sham_thread_active WHERE chat_key=$1`, key);
+    } catch { /* no chat list table yet */ }
     return true;
   } catch {
     return false;
