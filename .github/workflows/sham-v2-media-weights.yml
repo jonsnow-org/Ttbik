@@ -5,6 +5,13 @@ name: Sham v2 media weights (ready picture model + Arabic voice into Sham's own 
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/sham_small/sham_media_ready.py"
+      - "ai-system/modelscope-sham/app.py"
+      - ".github/workflows/sham-v2-media-weights.yml"
 
 concurrency:
   group: sham-v2-media-weights

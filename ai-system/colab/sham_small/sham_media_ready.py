@@ -137,28 +137,32 @@ def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0)
         return (dd / "o.mp4").read_bytes()
 
 
-def make(root: Path, kind: str, prompt: str) -> dict:
-    """One picture / one spoken sentence / one short slideshow, from the ready weights. Never raises: a failure is {"type": "error", "text": ...}."""
+def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, narration: str = "") -> dict:
+    """Create media with packaged local weights; video accepts up to six optional shots and local speech narration."""
     kind = (kind or "").strip().lower()
     prompt = (prompt or "").strip()
+    scenes = [str(item).strip()[:300] for item in (scenes or []) if str(item).strip()][:6]
+    narration = (narration or "").strip()[:1500]
     if not prompt:
         return {"type": "error", "text": "prompt is required"}
     try:
         if kind == "image":
             return {"type": "image", "b64": base64.b64encode(_png(_image(root, prompt))).decode()}
         if kind in ("audio", "speech"):
-            return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, prompt)).decode()}
+            spoken = narration or prompt
+            return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, spoken)).decode()}
         if kind == "video":
             # Honest CPU path: four independently generated storyboard shots plus local narration.
             # This is a slideshow-style video, not a temporally trained video-diffusion model.
-            scenes = _scene_prompts(prompt)
-            clip = _video(root, scenes, prompt, seconds=1.5)
+            shots = scenes or _scene_prompts(prompt)
+            spoken = narration or prompt
+            clip = _video(root, shots, spoken, seconds=1.5)
             return {
                 "type": "video",
                 "mime": "video/mp4",
                 "b64": base64.b64encode(clip).decode(),
                 "text": "مقطع شرائح سينمائي من أربع لقطات مولّدة محلياً مع تعليق صوتي؛ ليس توليد فيديو انتشارياً متصلاً.",
-                "frames": len(scenes),
+                "frames": len(shots),
             }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except Exception as exc:                                   # noqa: BLE001

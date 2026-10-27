@@ -27,7 +27,13 @@ export async function generateShamMediaThroughRoute(
     } else {
       const variant = route === "sham_v1" ? "v1" : "v2";
       shamNoteFailure("");
-      reply = await shamVariant.run(variant, () => shamGenerateMedia(kind, prompt, timeoutMs));
+      reply = await shamVariant.run(variant, () => shamGenerateMedia(
+        kind,
+        prompt,
+        timeoutMs,
+        route === "sham_v2" ? "ready" : "internal",
+        { scenes: opts.scenes, narration: opts.narration },
+      ));
     }
     if (reply && (reply.type === "image" || reply.type === "audio" || reply.type === "video") && reply.b64) {
       return { ...reply, route };

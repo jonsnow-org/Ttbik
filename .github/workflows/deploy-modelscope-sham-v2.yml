@@ -11,6 +11,15 @@ on:
     paths:
       - "ai-system/modelscope-sham/**"
       - ".github/workflows/deploy-modelscope-sham-v2.yml"
+  # Re-deploy after the ready media bundle is copied into novaai2026/sham-v2.
+  # The first push-triggered deploy may start concurrently; this follow-up ensures
+  # the running Studio takes a snapshot that includes the completed media upload.
+  workflow_run:
+    workflows:
+      - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
+    types: [completed]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
 
 concurrency:
   group: deploy-modelscope-sham-v2
@@ -23,6 +32,7 @@ env:
 
 jobs:
   deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -93,12 +103,14 @@ jobs:
           api = HubApi()
           api.login(os.environ["MODELSCOPE_TOKEN"])
           sid, tok = os.environ["STUDIO_ID"], os.environ["MODELSCOPE_TOKEN"]
-          try:
-              api.add_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
-          except Exception as e:                       # already there: replace it
-              print("add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
-              api.update_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
-          print("studio secret set")
+          # Sham v2 must read its own model repo; the legacy default is sham-merged.
+          for key, value in (("MODELSCOPE_API_TOKEN", tok), ("SHAM_MS_MODEL", "novaai2026/sham-v2")):
+              try:
+                  api.add_studio_secret(sid, key, value)
+              except Exception as e:                       # already there: replace it
+                  print(key, "add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
+                  api.update_studio_secret(sid, key, value)
+          print("studio model and token secrets set")
           PY
 
       - name: Deploy and show status

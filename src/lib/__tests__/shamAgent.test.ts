@@ -84,6 +84,27 @@ describe("Sham's own agent loop", () => {
       ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"قطة"}}</tool_call>')]) });
     expect(r).toMatchObject({ kind: "reply", reply: { type: "image" } });
   });
+  it("passes requested video scenes and narration through make_media", async () => {
+    const tools = shamToolDefs(false);
+    const calls: unknown[] = [];
+    const r = await shamAgentRun({
+      text: "اصنع فيديو لأرنب",
+      ctx,
+      tools,
+      budgetMs: 60000,
+      media: async (kind, prompt, opts) => {
+        calls.push({ kind, prompt, opts });
+        return { type: "video", b64: "AAAA", route: "sham_v2" } as any;
+      },
+      ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"video","prompt":"أرنب في حديقة","scenes":["لقطة واسعة","لقطة قريبة"],"narration":"الأرنب يقفز"}}</tool_call>')]),
+    });
+    expect(r).toMatchObject({ kind: "reply", reply: { type: "video", route: "sham_v2" } });
+    expect(calls).toEqual([{
+      kind: "video",
+      prompt: "أرنب في حديقة",
+      opts: { scenes: ["لقطة واسعة", "لقطة قريبة"], narration: "الأرنب يقفز" },
+    }]);
+  });
   it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
     const tools = shamToolDefs(false);
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
@@ -97,6 +118,24 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).toMatch(/نتيجة الأداة web_search/);                                    // the earlier legs' results are in front of Sham
     const last = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
     expect(last).toMatchObject({ kind: "text", text: "خلاصة." });                         // the last leg answers instead of handing over
+  });
+  it("ignores only a Telegram retry of the same update, not a new message", async () => {
+    const { shamClaimUpdate } = await import("@/lib/shamExec");
+    const seen = new Set<string>();
+    const db: any = {
+      exec: async () => {},
+      query: async (sql: string, chatId: number, updateId: number) => {
+        if (!/INSERT INTO sham_seen/.test(sql)) return [];
+        const key = chatId + ":" + updateId;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [{ update_id: String(updateId) }];
+      },
+    };
+    expect(await shamClaimUpdate(5, 120, db)).toBe(true);
+    expect(await shamClaimUpdate(5, 120, db)).toBe(false);
+    expect(await shamClaimUpdate(5, 121, db)).toBe(true);
+    expect(await shamClaimUpdate(6, 120, db)).toBe(true);
   });
   it("a saved task is kept per task (not per chat) and taken once", async () => {
     const { shamSaveRun, shamTakeRun } = await import("@/lib/shamExec");

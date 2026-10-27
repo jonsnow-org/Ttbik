@@ -302,7 +302,7 @@ def _busy_wait() -> float:
         return 25.0
 
 
-def _generate_media_with_backend(kind: str, prompt: str, backend: str) -> str:
+def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
     """Run media generation through the selected local path. 'internal' is Sham's own tokenizer/decoder; 'ready' is the optional packaged-weight alternative."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
@@ -320,7 +320,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str) -> str:
     try:
         if selected == "ready":
             from sham_media_ready import make
-            result = make(Path(STATE["media_root"]), kind, prompt)
+            result = make(Path(STATE["media_root"]), kind, prompt, scenes=scenes, narration=narration)
         else:
             result = _studio_modules()[1].make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
@@ -343,10 +343,17 @@ def generate_media(kind: str, prompt: str) -> str:
     return _generate_media_with_backend(kind, prompt, backend)
 
 
-def generate_media_from_panel(kind: str, prompt: str, backend_label: str) -> str:
-    """Studio control-panel handler; selection applies to this request only and never silently changes another client's path."""
+def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "") -> str:
+    """Select a local backend for this request and optionally provide video shots and spoken narration."""
     backend = "ready" if (backend_label or "").strip() == "المسار البديل (أوزان محلية جاهزة)" else "internal"
-    return _generate_media_with_backend(kind, prompt, backend)
+    try:
+        scenes = json.loads(scenes_json) if (scenes_json or "").strip() else []
+        if not isinstance(scenes, list):
+            raise ValueError("scenes_json must contain a JSON list")
+        scenes = [str(item).strip()[:300] for item in scenes if str(item).strip()][:6]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return json.dumps({"type": "error", "text": "مشاهد الفيديو يجب أن تكون قائمة JSON صحيحة."}, ensure_ascii=False)
+    return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500])
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
     """Sham reads a picture / sound / video (base64 of the file, any format) and answers `question` about it — the same function as serve.py's
@@ -466,6 +473,8 @@ def build_ui():
                 label="مسار وسائط شام — اختر المسار لكل طلب",
                 info="الأساسي يستخدم مفكك شام نفسه. البديل يعمل فقط إذا كانت أوزانه المحلية موجودة."
             ),
+            gr.Textbox(label="مشاهد الفيديو بصيغة JSON (اختياري)", value="[]"),
+            gr.Textbox(label="التعليق الصوتي (اختياري)", value=""),
         ],
         gr.Textbox(label="النتيجة (JSON)"),
         api_name="generate_media_from_panel",

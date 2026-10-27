@@ -116,7 +116,8 @@ export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => rep
 
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
-  const payload = withMode(payload0);
+  // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
+  const payload = api === "generate_media" || api === "generate_media_from_panel" ? payload0 : withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
   for (let i = 0; i < bases.length; i++) {
@@ -134,9 +135,24 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
   return reply;
 }
 
-export async function shamGenerateMedia(kind: "image" | "audio" | "video", prompt: string, timeoutMs = 55000): Promise<ShamReply | null> {
-  const body = await shamCall("generate_media", { kind, prompt }, timeoutMs);
-  return body ? parseShamReply(body) : null;
+export async function shamGenerateMedia(
+  kind: "image" | "audio" | "video",
+  prompt: string,
+  timeoutMs = 55000,
+  backend: "internal" | "ready" = "internal",
+  opts: { scenes?: unknown; narration?: unknown } = {},
+): Promise<ShamReply | null> {
+  const api = backend === "ready" ? "generate_media_from_panel" : "generate_media";
+  const scenes = Array.isArray(opts.scenes)
+    ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
+    : [];
+  const payload = backend === "ready"
+    ? { kind, prompt, backend_label: "المسار البديل (أوزان محلية جاهزة)", scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) }
+    : { kind, prompt };
+  const body = await shamCall(api, payload, timeoutMs);
+  const reply = body ? parseShamReply(body) : null;
+  if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
+  return reply;
 }
 
 // chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
