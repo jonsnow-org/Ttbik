@@ -43,27 +43,52 @@ export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
   }
   const has = new Set(tools.map((t) => t.function.name));
   const ex = EXAMPLES.filter(([n]) => has.has(n)).map(([, text]) => text);
+  // the new body (room for ~1200 prompt tokens) also gets the two details its real CPU run got wrong; the old 384-token body has no spare room
+  if (shamVariant.getStore() === "v2") {
+    const i = ex.findIndex((t) => t.includes("github_read_file")), j = ex.findIndex((t) => t.includes("sandbox_write_file"));
+    if (i >= 0) ex[i] += ' (repo="owner/name")';
+    if (j >= 0) ex[j] += "؛ الاختبارات: python3 -m unittest -v f (اسم الوحدة بلا .py)";
+  }
   return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_LINE}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
+}
+
+/** Harmless spelling of an argument the model gets "almost" right is fixed here instead of failing the call: a GitHub URL / `.git` / trailing slash in `repo`. */
+export function normaliseShamArgs(a: unknown): unknown {
+  if (!a || typeof a !== "object" || Array.isArray(a)) return a;
+  const o = { ...(a as Record<string, unknown>) };
+  // `python3 -m unittest -v stack.py` runs nothing (unittest wants the module name): the real CPU run showed the model writing it that way every time
+  if (typeof o.command === "string") o.command = o.command.replace(/(-m\s+unittest(?:\s+-[\w-]+)*\s+)((?:[\w-]+\/)*[\w-]+)\.py\b/g, (_m, pre: string, mod: string) => pre + mod.replace(/\//g, "."));
+  if (typeof o.repo === "string") o.repo = o.repo.trim().replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "").split("/").slice(0, 2).join("/");
+  // the owner and the repo name split across `repo` and `path` ("octocat" + "Hello-World/README.md") are put back together
+  if (typeof o.repo === "string" && /^[\w.-]+$/.test(o.repo) && typeof o.path === "string" && /^[\w.-]+\/.+/.test(o.path)) {
+    const i = o.path.indexOf("/");
+    o.repo = `${o.repo}/${o.path.slice(0, i)}`;
+    o.path = o.path.slice(i + 1);
+  }
+  return o;
 }
 
 /** Sham's text → a tool call, only for a tool that is really loaded. Returns the words around the call too. */
 export function parseShamToolCalls(text: string, tools: CoderTool[]): { text: string; calls: CoderToolCall[] } {
   const known = new Set(tools.map((t) => t.function.name));
   const calls: CoderToolCall[] = [];
-  let rest = text;
+  // the body goes on to INVENT the tool's result ("نتيجة الأداة x: ...") and even further calls after a real one: everything after the first such line is its own fiction, never real
+  const inv = text.search(/\n\s*نتيجة الأداة/);
+  let rest = inv > 0 ? text.slice(0, inv) : text;
   const take = (raw: string): boolean => {
     try {
       const o = JSON.parse(raw);
       const name = String(o?.name ?? o?.tool ?? "");
       if (!known.has(name)) return false;
-      const a = o.arguments ?? o.args ?? o.parameters ?? {};
+      const a = normaliseShamArgs(o.arguments ?? o.args ?? o.parameters ?? {});
       calls.push({ id: `sham_${Date.now().toString(36)}_${calls.length}`, type: "function", function: { name, arguments: typeof a === "string" ? a : JSON.stringify(a) } });
       return true;
     } catch { return false; }
   };
   rest = rest.replace(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g, (m, raw) => (take(raw) ? "" : m));
   if (!calls.length) rest = rest.replace(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/g, (m, raw) => (take(raw) ? "" : m));
-  if (!calls.length && /^\s*\{[\s\S]*\}\s*$/.test(rest) && take(rest.trim())) rest = "";
+  // the body often echoes its own speaker label in front of a bare call ("شام: {"name": ...}"): the label is not part of the call
+  if (!calls.length) { const bare = rest.replace(/^\s*(?:شام|sham)\s*[:：]\s*/i, ""); if (/^\s*\{[\s\S]*\}\s*$/.test(bare) && take(bare.trim())) rest = ""; }
   return { text: rest.trim(), calls: calls.slice(0, 4) };
 }
 
@@ -87,7 +112,7 @@ export function shamToolConversation(messages: CoderMessage[], tools: CoderTool[
 }
 
 
-type Schema = { type?: string; enum?: unknown[] };
+type Schema = { type?: string; enum?: unknown[]; pattern?: string };
 const typeOk = (v: unknown, t?: string): boolean => {
   if (!t) return true;
   if (t === "string") return typeof v === "string";
@@ -119,13 +144,15 @@ export function validateShamCall(call: CoderToolCall, tools: CoderTool[]): strin
     if (!sch) { if (Object.keys(props).length) problems.push(`المعامل «${k}» غير موجود في ${call.function.name}`); continue; }
     if (!typeOk(v, sch.type)) problems.push(`المعامل «${k}» يجب أن يكون من نوع ${sch.type}`);
     else if (sch.enum && !sch.enum.includes(v)) problems.push(`المعامل «${k}» يقبل فقط: ${sch.enum.join(" | ")}`);
+    else if (sch.pattern && typeof v === "string" && !new RegExp(sch.pattern).test(v)) problems.push(`المعامل «${k}» غير صحيح («${v.slice(0, 40)}»): الصيغة المطلوبة ${k === "repo" ? "owner/name مثل octocat/Hello-World" : sch.pattern}`);
   }
   return problems.length ? `${call.function.name}: ${problems.join("؛ ")}.` : null;
 }
 
 /** A `<tool_call>` that is still in the words after parsing is a call Sham tried to write and did not get right (bad JSON, unknown tool). */
 export function brokenCallAttempt(leftover: string): boolean {
-  return /<tool_call>/.test(leftover);
+  // also a call that was CUT OFF by the Studio's answer limit (`{"name": "sandbox_write_file", "arguments": {"path": ...` with no end): it is shown to the user as raw JSON otherwise
+  return /<tool_call>/.test(leftover) || /^\s*(?:```(?:json)?\s*)?\{\s*"name"\s*:\s*"[A-Za-z_]+"/.test(leftover);
 }
 
 /** What the engine tells Sham when its call cannot run. Not an answer to the user: only the reason, so the model rewrites the call (or asks the user for what is missing). */
@@ -145,4 +172,4 @@ export function codeNotTried(text: string, messages: CoderMessage[], tools: Code
   return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "sandbox_exec");
 }
 
-export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه. اكتبه في ملف بـ sandbox_write_file ثم شغّله بـ sandbox_exec، وأصلح ما يفشل، وبعدها أجب.";
+export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه، وكتابة الكود في الرد لا تُشغّله. اكتب سطراً واحداً بالصيغة الحرفية هكذا ثم انتظر: <tool_call>{\"name\": \"sandbox_write_file\", \"arguments\": {\"path\": \"main.py\", \"content\": \"...الكود...\"}}</tool_call> وبعده شغّله بـ sandbox_exec وأصلح ما يفشل، ثم أجب.";

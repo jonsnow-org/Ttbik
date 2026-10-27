@@ -16,7 +16,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const s = (description: string) => ({ type: "string", description });
 const n = (description: string) => ({ type: "number", description });
 const tool = (name: string, description: string, parameters: object): CoderTool => ({ type: "function", function: { name, description, parameters } } as CoderTool);
-const REPO = s("owner/name");
+const REPO = { type: "string", description: "owner/name, e.g. octocat/Hello-World", pattern: "^[\\w.-]+/[\\w.-]+$" };
 
 /** Every tool Sham has, by name. Writes to the user's repositories are the ones in SHAM_NEEDS_OK. */
 export const SHAM_TOOLS: CoderTool[] = [
@@ -96,7 +96,7 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
     }
     case "github_read_file": {
       const r = await gh(ctx, "GET", `${R}/contents/${enc(String(a.path))}${a.ref ? `?ref=${encodeURIComponent(a.ref)}` : ""}`);
-      if (r.status >= 300 || !r.data?.content) return clip(`error ${r.status}: ${r.data?.message || "not a file"}`);
+      if (r.status >= 300 || !r.data?.content) return clip(`error ${r.status}: ${r.data?.message || "not a file"}${r.status === 404 ? ` — no file "${a.path}" at that path: call github_list_files(repo) to see the real file names` : ""}`);
       const lines = Buffer.from(r.data.content, "base64").toString("utf-8").split("\n");
       const from = Math.max(1, Number(a.start_line) || 1), to = Math.min(lines.length, Number(a.end_line) || lines.length);
       return clip(`${a.path} (${lines.length} lines)\n${lines.slice(from - 1, to).map((l, i) => `${from + i}| ${l}`).join("\n")}`);

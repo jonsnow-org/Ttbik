@@ -62,7 +62,11 @@ export async function shamAgentRun(opts: {
     for (const h of (opts.history || []).slice(-4)) { messages.push({ role: "user", content: h.q }, { role: "assistant", content: h.a }); }
     messages.push({ role: "user", content: opts.text });
   }
-  const lim = { turns: 6, turnChars: 400, maxChars: 3600 };
+  // the old body has a ~384-token window; the new body (Qwen3, Studio with SHAM_LIMITS=open) holds ~1200 prompt tokens (~3.6 chars/token): a longer conversation, longer tool results
+  const v2 = shamVariant.getStore() === "v2";
+  const lim = v2 ? { turns: 8, turnChars: 900, maxChars: 4600 } : { turns: 6, turnChars: 400, maxChars: 3600 };
+  const toolClip = v2 ? 2600 : 1800;
+  let recoveries = 0;
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
     let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown } = {};
@@ -107,6 +111,13 @@ export async function shamAgentRun(opts: {
       text = String(again.text);
       p = parseShamToolCalls(text, opts.tools);
     }
+    // the last tool answered with an error and the model now writes prose with no call: give it the error back (twice at most) instead of ending the task on an apology
+    const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
+    if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, opts.tools)) && recoveries < 2 && left() > 10000) {
+      recoveries++;
+      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة بالصيغة <tool_call>{"name": "...", "arguments": {...}}</tool_call>، أو اسأل المستخدم بـ ask_user إن كانت المعلومة ناقصة.\nشام:`, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+      if (again && again.type === "text" && (again.text || "").trim()) { text = String(again.text); p = parseShamToolCalls(text, opts.tools); }
+    }
     const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
     if (!valid.length) {
       const final = (p.text || text).trim();
@@ -137,7 +148,7 @@ export async function shamAgentRun(opts: {
       let result: string;
       try { result = await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
       opts.onEvent?.("info", clip(String(result), 300));
-      messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), 1800) } as CoderMessage);
+      messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), toolClip) } as CoderMessage);
     }
   }
 
