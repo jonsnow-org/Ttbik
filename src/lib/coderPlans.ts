@@ -9,7 +9,7 @@ import { prismaDb, coderChatKey, tierFor, type Db } from "@/lib/coderAuth";
 export const METRICS = ["tasks", "steps", "tokens", "sandbox_minutes", "research", "schedules"] as const;
 export type Metric = (typeof METRICS)[number];
 export type Limits = Record<Metric, number>;                              // -1 = unlimited
-export type Plan = { id: string; name: { ar: string; en: string }; price_label: string; price_cents: number | null; currency: string; limits: Limits; sort: number; active: boolean; price_stars?: number | null; days?: number };
+export type Plan = { id: string; name: { ar: string; en: string }; price_label: string; price_cents: number | null; currency: string; limits: Limits; sort: number; active: boolean; price_stars?: number | null; daily_tokens?: number | null; days?: number };
 export const isMetric = (m: unknown): m is Metric => METRICS.includes(m as Metric);
 /**
  * Plans are token-based (owner's decision 2026-10-21, like Claude): the weekly allowance is model tokens (prompt + completion, from the
@@ -17,19 +17,23 @@ export const isMetric = (m: unknown): m is Metric => METRICS.includes(m as Metri
  * (CODER_COUNT_LIMITS=on brings those two limits back). Machine minutes, deep research and scheduled tasks stay as resource caps.
  */
 export const COUNT_METRICS: Metric[] = ["tasks", "steps"];
-export const enforced = (m: Metric) => !COUNT_METRICS.includes(m) || (process.env.CODER_COUNT_LIMITS || "").toLowerCase() === "on";
+// Task / step counts are limits again (owner's tier table, 2026-10-28); CODER_COUNT_LIMITS=off turns those two off.
+export const enforced = (m: Metric) => !COUNT_METRICS.includes(m) || (process.env.CODER_COUNT_LIMITS || "").toLowerCase() !== "off";
+export const DAY_MS = 24 * 3600 * 1000;
 export const WINDOW_MS = 7 * 24 * 3600 * 1000;
 const HOUR = 3600 * 1000;
 
 // Defaults (the owner edits names, prices and limits in the Mini App; prices are placeholders until payments exist).
 export const DEFAULT_PLANS: Plan[] = [
-  { id: "free", name: { ar: "مجاني", en: "Free" }, price_label: "0", price_cents: 0, currency: "USD", sort: 0, active: true,
-    limits: { tasks: 20, steps: 600, tokens: 2_000_000, sandbox_minutes: 60, research: 10, schedules: 2 } },
-  { id: "plus", name: { ar: "بلس", en: "Plus" }, price_label: "—", price_cents: null, currency: "USD", sort: 1, active: true, price_stars: 250, days: 30,
-    limits: { tasks: 100, steps: 4000, tokens: 12_000_000, sandbox_minutes: 400, research: 60, schedules: 10 } },
-  { id: "pro", name: { ar: "برو", en: "Pro" }, price_label: "—", price_cents: null, currency: "USD", sort: 2, active: true, price_stars: 750, days: 30,
-    limits: { tasks: 400, steps: 20000, tokens: 50_000_000, sandbox_minutes: 1500, research: 250, schedules: 40 } },
+  { id: "free", name: { ar: "مجاني", en: "Free" }, price_label: "0", price_cents: 0, currency: "USD", sort: 0, active: true, daily_tokens: 25_000,
+    limits: { tasks: 8, steps: 250, tokens: 120_000, sandbox_minutes: 15, research: 3, schedules: 1 } },
+  { id: "plus", name: { ar: "بلس", en: "Plus" }, price_label: "250⭐ / 30d", price_cents: null, currency: "USD", sort: 1, active: true, price_stars: 250, days: 30, daily_tokens: null,
+    limits: { tasks: 40, steps: 1500, tokens: 750_000, sandbox_minutes: 120, research: 20, schedules: 5 } },
+  { id: "pro", name: { ar: "برو", en: "Pro" }, price_label: "750⭐ / 30d", price_cents: null, currency: "USD", sort: 2, active: true, price_stars: 750, days: 30, daily_tokens: null,
+    limits: { tasks: 120, steps: 5000, tokens: 1_500_000, sandbox_minutes: 400, research: 60, schedules: 15 } },
 ];
+/** Plans that are meant to get queue priority. Data only for now: the Studio's own queue is first-come-first-served and no priority is sent to it yet. */
+export const PRIORITY_PLANS = ["pro"];
 
 /** Later: a payment integration implements this (checkout link for a plan, webhook that activates the subscription). None is wired now. */
 /** The terminal (live task logs, Mini App tab) is for the owner always and for paid plans only; the free plan does not see it (owner's order, 2026-10-26). */
@@ -62,6 +66,7 @@ function ensureTables(db: Db): Promise<void> {
       // Telegram Stars price and period of a plan (2026-10-21): added columns, older rows keep working
       await db.exec(`ALTER TABLE coder_plans ADD COLUMN IF NOT EXISTS price_stars INT`);
       await db.exec(`ALTER TABLE coder_plans ADD COLUMN IF NOT EXISTS days INT`);
+      await db.exec(`ALTER TABLE coder_plans ADD COLUMN IF NOT EXISTS daily_tokens INT`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -87,7 +92,7 @@ export async function listPlans(db: Db = prismaDb): Promise<Plan[]> {
     const name = typeof r.name === "string" ? JSON.parse(r.name) : r.name;
     const limits = typeof r.limits === "string" ? JSON.parse(r.limits) : r.limits;
     byId.set(r.id, { id: r.id, name: { ar: String(name?.ar || base.name.ar), en: String(name?.en || base.name.en) }, price_label: String(r.price_label ?? ""), price_cents: r.price_cents == null ? null : Number(r.price_cents), currency: String(r.currency || "USD"), limits: clean(limits, base.limits), sort: Number(r.sort) || 0, active: r.active !== false,
-      price_stars: r.price_stars === undefined ? base.price_stars ?? null : r.price_stars === null ? null : Number(r.price_stars), days: r.days ? Number(r.days) : base.days ?? 30 });
+      price_stars: r.price_stars === undefined ? base.price_stars ?? null : r.price_stars === null ? null : Number(r.price_stars), days: r.days ? Number(r.days) : base.days ?? 30, daily_tokens: r.daily_tokens === undefined ? base.daily_tokens ?? null : r.daily_tokens === null ? null : Number(r.daily_tokens) });
   }
   return [...byId.values()].sort((a, b) => a.sort - b.sort);
 }
@@ -106,6 +111,7 @@ export async function upsertPlan(p: Partial<Plan> & { id: string }, db: Db = pri
     sort: p.sort === undefined ? cur.sort : Number(p.sort) || 0,
     active: p.active === undefined ? cur.active : Boolean(p.active),
     price_stars: p.price_stars === undefined ? cur.price_stars ?? null : p.price_stars === null || Number(p.price_stars) <= 0 ? null : Math.min(100000, Math.floor(Number(p.price_stars) || 0)) || null,
+    daily_tokens: p.daily_tokens === undefined ? cur.daily_tokens ?? null : p.daily_tokens === null || Number(p.daily_tokens) <= 0 ? null : Math.floor(Number(p.daily_tokens)),
     days: p.days === undefined ? cur.days ?? 30 : Math.max(1, Math.min(366, Math.floor(Number(p.days) || 30))),
   };
   await ensureTables(db);
@@ -114,7 +120,7 @@ export async function upsertPlan(p: Partial<Plan> & { id: string }, db: Db = pri
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price_label = EXCLUDED.price_label, price_cents = EXCLUDED.price_cents, currency = EXCLUDED.currency, limits = EXCLUDED.limits, sort = EXCLUDED.sort, active = EXCLUDED.active, updated_at = now()`,
     next.id, JSON.stringify(next.name), next.price_label, next.price_cents, next.currency, JSON.stringify(next.limits), next.sort, next.active,
   );
-  await db.exec(`UPDATE coder_plans SET price_stars = $2, days = $3 WHERE id = $1`, next.id, next.price_stars ?? null, next.days ?? 30).catch(() => null);
+  await db.exec(`UPDATE coder_plans SET price_stars = $2, days = $3, daily_tokens = $4 WHERE id = $1`, next.id, next.price_stars ?? null, next.days ?? 30, next.daily_tokens ?? null).catch(() => null);
   return next;
 }
 
@@ -195,15 +201,21 @@ export async function usageSummary(chatId: number | string, db: Db = prismaDb, n
   return { plan, unlimited: owner, owner, subscription, metrics };
 }
 
-export type LimitCheck = { ok: true } | { ok: false; metric: Metric; used: number; limit: number; resetAt: string | null; plan: Plan };
+export type LimitCheck = { ok: true } | { ok: false; metric: Metric; used: number; limit: number; resetAt: string | null; plan: Plan; daily?: boolean };
 /** Is there room for `amount` more of `metric`? The owner always passes. `current` = an absolute count (schedules). */
 export async function checkLimit(chatId: number | string, metric: Metric, amount = 1, db: Db = prismaDb, current?: number, now = Date.now()): Promise<LimitCheck> {
   if (tierFor(chatId) === "owner") return { ok: true };
   if (!enforced(metric)) return { ok: true };
   const s = await usageSummary(chatId, db, now, current !== undefined ? { [metric]: current } : {});
   const m = s.metrics.find((x) => x.metric === metric)!;
-  if (m.limit < 0 || (amount === 0 ? m.used < m.limit : m.used + amount <= m.limit)) return { ok: true };   // amount 0 = "any room left"
-  return { ok: false, metric, used: m.used, limit: m.limit, resetAt: m.nextRelief, plan: s.plan };
+  if (!(m.limit < 0 || (amount === 0 ? m.used < m.limit : m.used + amount <= m.limit))) return { ok: false, metric, used: m.used, limit: m.limit, resetAt: m.nextRelief, plan: s.plan };   // amount 0 = "any room left"
+  const daily = metric === "tokens" ? s.plan.daily_tokens : null;
+  if (daily && daily > 0) {                                           // the rolling 24 h token cap (Free: 25k/day); the weekly cap above still applies too
+    const rows = (await windowRows(chatId, db, now)).filter((r) => r.metric === "tokens" && Date.parse(r.bucket) > now - DAY_MS);
+    const used = rows.reduce((n, r) => n + r.amount, 0);
+    if (!(amount === 0 ? used < daily : used + amount <= daily)) return { ok: false, metric, used, limit: daily, resetAt: rows[0] ? new Date(Date.parse(rows[0].bucket) + DAY_MS + HOUR).toISOString() : null, plan: s.plan, daily: true };
+  }
+  return { ok: true };
 }
 
 export const METRIC_LABEL: Record<Metric, { ar: string; en: string }> = {
@@ -215,6 +227,7 @@ export const METRIC_LABEL: Record<Metric, { ar: string; en: string }> = {
 export function limitMessage(c: Exclude<LimitCheck, { ok: true }>, tz = "UTC"): string {
   // what a user sees: the plan name and when it frees up — never the internal meters (tokens, steps, machine minutes) or counts
   const when = c.resetAt ? new Intl.DateTimeFormat("ar-SY", { timeZone: tz, weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long" }).format(new Date(c.resetAt)) : "";
+  if (c.daily) return `⏳ وصلت إلى الحد اليومي في خطة «${c.plan.name.ar}».` + (when ? ` يتجدد تدريجياً، وأول تجدّد: ${when}.` : "") + " يمكنك الترقية من قسم «الاشتراك» في التطبيق.";
   return c.metric === "schedules"
     ? `⏳ وصلت إلى عدد المهام المجدولة المسموح في خطة «${c.plan.name.ar}». احذف مهمة مجدولة أو رقِّ خطتك من قسم «الاشتراك».`
     : `⏳ وصلت إلى حد استخدامك الأسبوعي في خطة «${c.plan.name.ar}».` + (when ? ` يتجدد تدريجياً، وأول تجدّد: ${when}.` : "") + " يمكنك الترقية من قسم «الاشتراك» في التطبيق.";
