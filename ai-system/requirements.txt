@@ -13,13 +13,12 @@ requests==2.32.3
 pypdf==5.1.0
 python-docx==1.1.2
 
-# Owner spec, 2026-09-12 (Cloudflare Workers AI integration —
-# cloudflare_ai.py): real per-frame watermark/mux for video (ffmpeg via
+# Owner spec, 2026-09-12 (media post-processing): real per-frame watermark/mux for video (ffmpeg via
 # imageio-ffmpeg's bundled static binary, no system apt package needed)
 # and real pixel-level watermark + PNG metadata for images (Pillow) —
 # same two libraries modelscope-studio/requirements.txt already uses for
 # the identical reason there, needed here too since main.py now does
-# this post-processing itself for Cloudflare-sourced media.
+# this post-processing itself.
 Pillow==11.0.0
 imageio-ffmpeg==0.5.1
 
@@ -42,33 +41,3 @@ imageio-ffmpeg==0.5.1
 # verified locally, a clean venv with this exact version list imports
 # both supabase and gradio_client together with no conflict.
 gradio_client==2.7.0
-
-# Owner spec, 2026-09-13 (voice replies — app/tts.py): needed ONLY for
-# Arabic, and only because the TTS model this project already pays
-# nothing for cannot speak it. MeloTTS (CLOUDFLARE_TTS_MODEL) supports
-# exactly six languages per its own docs — English, Spanish, French,
-# Chinese, Japanese, Korean — and Arabic is not among them, so the
-# owner's own language had no voice at all without this.
-#
-# Owner report, 2026-09-13 (real evidence: a voice reply said "شاكرنن"
-# instead of "شاكراً"): gTTS is Google Translate's simple TTS endpoint,
-# never built for Arabic grammar — replaced as the FIRST attempt by
-# edge-tts (below), a real, free, no-key wrapper around Microsoft
-# Edge's own neural TTS. gTTS is kept, not deleted, as the real second
-# attempt for exactly the same reason it was chosen originally: it is
-# an unofficial endpoint (Google Translate's), plausibly blocked on
-# Render's shared cloud IP exactly as ddgs already is, and edge-tts is
-# its own kind of unofficial client with the identical risk. tts.py
-# treats either failing as normal and falls back to a text-only reply,
-# so that outcome costs nothing either way. Pulls only click + requests
-# — verified in a clean venv that it coexists with
-# supabase/gradio_client/chromadb, the conflict class that broke this
-# service once already.
-gTTS==2.5.4
-
-# Owner spec, 2026-09-13: real Microsoft Edge neural voices (the same
-# ones Edge/Word's own "Read Aloud" uses) via rany2/edge-tts — a widely
-# used, actively maintained unofficial client, no API key, no card.
-# Pulls aiohttp/certifi/tabulate/typing-extensions only — verified in a
-# clean venv alongside every dependency above with no conflict.
-edge-tts==7.2.8

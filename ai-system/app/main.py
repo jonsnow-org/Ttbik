@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
+from app import council, deep_think, files, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -246,15 +246,8 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
     upload, not a JSON body, and a longer timeout since video files run
     much larger than a text payload.
 
-    Owner spec, 2026-09-12: real video delivery had briefly moved
-    entirely to ai-system/colab/process_video_queue.ipynb (Kaggle sends
-    straight to Telegram itself, bytes never touching this server) once
-    this became the ONLY real-video path. Now that _enqueue_real_video
-    tries Cloudflare Workers AI first (answers inline, in seconds — see
-    cloudflare_ai.py), this server IS delivering real video bytes again
-    for that fast path; the Kaggle queue (and its own direct-to-Telegram
-    send) remains the fallback for whenever Cloudflare's free daily
-    Neuron quota is already used up."""
+    Real video is produced by Nova's own media Studio (AnimateDiff-Lightning on CPU, see nova_media_studio.py); this server delivers the bytes.
+    No external video service is used."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async video to Telegram chat_id=%s", chat_id)
         return
@@ -274,7 +267,7 @@ def _send_telegram_voice(chat_id: str, audio_bytes: bytes, audio_format: str) ->
     version of an answer whose text has ALREADY been delivered — so a
     failure here is logged and swallowed, never surfaced, and never
     retried. Telegram's sendVoice only accepts OGG/Opus; anything else
-    goes through sendAudio, which accepts MP3 (see tts.py for why both
+    goes through sendAudio, which accepts WAV (see tts.py for why both
     shapes exist)."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver voice reply to chat_id=%s", chat_id)
@@ -282,7 +275,7 @@ def _send_telegram_voice(chat_id: str, audio_bytes: bytes, audio_format: str) ->
     method, field, filename, mime = (
         ("sendVoice", "voice", "nova.ogg", "audio/ogg")
         if audio_format == "ogg"
-        else ("sendAudio", "audio", "nova.mp3", "audio/mpeg")
+        else ("sendAudio", "audio", "nova.wav", "audio/wav")
     )
     try:
         requests.post(
