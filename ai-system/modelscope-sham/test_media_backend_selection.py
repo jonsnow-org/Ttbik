@@ -70,6 +70,21 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertIn("المسار البديل غير جاهز", result["text"])
         self.make_media.assert_not_called()
 
+    def test_ready_weights_generate_even_when_text_checkpoint_is_not_ready(self):
+        sham_app.STATE.update(phase="waiting", media_root="/tmp/sham-v2-media")
+        ready = types.ModuleType("sham_media_ready")
+        ready.make = Mock(return_value={"type": "image", "b64": "local-test"})
+        with patch.dict(sys.modules, {"sham_media_ready": ready}):
+            result = json.loads(
+                sham_app.generate_media_from_panel(
+                    "image", "a tree", "المسار البديل (أوزان محلية جاهزة)"
+                )
+            )
+        self.assertEqual(result["type"], "image")
+        self.assertEqual(result["backend"], "ready")
+        ready.make.assert_called_once_with(Path("/tmp/sham-v2-media"), "image", "a tree", scenes=[], narration="")
+        self.make_media.assert_not_called()
+
     def test_ready_backend_receives_video_scenes_and_narration(self):
         sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
         ready = types.ModuleType("sham_media_ready")
