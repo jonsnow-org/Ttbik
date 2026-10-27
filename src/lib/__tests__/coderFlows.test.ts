@@ -5,6 +5,11 @@ import { claimDue, createSchedule, deleteSchedule, eventSummary, fanOut, listSch
 import { createHmac } from "crypto";
 import { fakeBot, fakeDb } from "./coderFakes";
 
+// Hermetic DNS: coderWeb.safeGet resolves every host and refuses private/internal addresses BEFORE it calls fetch.
+// Without this the research tests depend on the machine's real resolver (a sandbox that answers 198.18.x.x or has no
+// DNS blocks the search-engine calls, so the mocked fetch never sees them). Every host resolves to a public address here.
+jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
+
 const CHAT = 4242;
 const USER = 9001;
 const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
