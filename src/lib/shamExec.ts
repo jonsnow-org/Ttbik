@@ -275,16 +275,19 @@ export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb
   await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_order_v2', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
 }
 
-// Priority for the new Hugging Face ZeroGPU image/video Spaces versus the established fallback providers.
+// Explicit opt-in switch for third-party media-generation routes. The default is
+// own_only, stored under a versioned key so a previous "HF first" preference
+// cannot silently re-enable external generation after this safety change.
 export type HfMediaRouteOrder = "hf_first" | "fallback_first";
 export async function hfMediaRouteOrder(db: Db = prismaDb): Promise<HfMediaRouteOrder> {
   try {
     await settingsTable(db);
-    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'hf_media_route_order'`);
-    return r[0]?.value === "fallback_first" ? "fallback_first" : "hf_first";
-  } catch { return "hf_first"; }
+    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'external_media_enabled_v2'`);
+    return r[0]?.value === "enabled" ? "hf_first" : "fallback_first";
+  } catch { return "fallback_first"; }
 }
 export async function setHfMediaRouteOrder(order: HfMediaRouteOrder, db: Db = prismaDb): Promise<void> {
   await settingsTable(db);
-  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('hf_media_route_order', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
+  const value = order === "hf_first" ? "enabled" : "disabled";
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('external_media_enabled_v2', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, value);
 }
