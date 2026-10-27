@@ -386,7 +386,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "sham_media": {                       // owner's isolated Sham route selector + per-route enable switches
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const S = await import("@/lib/shamExec");
-      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal" || v === "sham_v2_ready" || v === "sham_v2_hf";
+      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal" || v === "sham_v2_ready";
       if (validRoute(body.route)) {
         await S.setShamMediaRoute(body.route, db);
       } else if (body.enabledRoute && validRoute(body.enabledRoute) && typeof body.enabled === "boolean") {
@@ -397,11 +397,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       }
       return { route: await S.shamMediaRoute(db), enabled: await S.shamMediaRouteEnabledMap(db), order: await S.shamMediaOrder(db) };
     }
-    case "hf_media_route": {                    // Nova-only switch: external HF/Cloudflare vs Nova-owned generators
+    case "hf_media_route": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const { novaMediaRouteOrder, setNovaMediaRouteOrder } = await import("@/lib/novaSettings");
-      if (body.order === "hf_first" || body.order === "fallback_first") await setNovaMediaRouteOrder(body.order, db);
-      return { order: await novaMediaRouteOrder(db) };
+      // Quarantined by owner request: external media routes are disabled.
+      // Keep this response only for older Mini App clients; never persist or enable HF.
+      return { order: "fallback_first" as const };
     }
     case "panel_action": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
