@@ -968,7 +968,7 @@ function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "فعّل أو أوقف كل مسار بشكل مستقل، ثم اختر المسار النشط. لا يوجد تحويل تلقائي عند الفشل. مسار Hugging Face يدعم الصور والفيديو؛ للصوت العربي استخدم الأوزان الجاهزة." : "Enable or disable each route independently, then choose the active route. No automatic fallback. Hugging Face supports images and video; use ready weights for Arabic audio."}>
+      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "فعّل أو أوقف كل مسار بشكل مستقل، ثم اختر المسار النشط. لا يوجد تحويل تلقائي عند الفشل. جميع المسارات المعروضة تخص شام فقط." : "Enable or disable each route independently, then choose the active route. No automatic fallback. Hugging Face supports images and video; use ready weights for Arabic audio."}>
         <Select header={ar ? "المسار النشط" : "Active media route"} value={mediaRoute} onChange={(e) => void chooseMediaRoute(e.target.value as "sham_v1" | "sham_v2_internal" | "sham_v2_ready")}>
           <option value="sham_v1">شام القديم / Sham v1</option>
           <option value="sham_v2_internal">شام v2 — الداخلي / v2 internal</option>
