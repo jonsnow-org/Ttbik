@@ -41,8 +41,8 @@ export async function generateShamMediaThroughRoute(
       reply = await shamVariant.run(variant, () => shamGenerateMedia(kind, prompt, timeoutMs));
     }
 
-    if (good(reply)) return reply;
-    if (reply) last = reply;
+    if (good(reply)) return { ...reply, route: order[i] };
+    if (reply) last = { ...reply, route: order[i] };
   }
 
   return last;
