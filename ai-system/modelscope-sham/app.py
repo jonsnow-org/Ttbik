@@ -320,7 +320,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
     try:
         if selected == "ready":
             from sham_media_ready import make
-            result = make(Path(STATE["media_root"]), kind, prompt)
+            result = make(Path(STATE["media_root"]), kind, prompt, scenes=scenes, narration=narration)
         else:
             result = _studio_modules()[1].make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
