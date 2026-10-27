@@ -1,0 +1,9 @@
+torch
+diffusers
+transformers
+accelerate
+sentencepiece
+imageio
+imageio-ffmpeg
+spaces
+gradio
