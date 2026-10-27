@@ -30,7 +30,23 @@ export function parseMediaSse(body: string): MediaReply | null {
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number } = {},
+): Promise<MediaReply | null> {
+  // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
+  const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
+  let last: MediaReply | null = null;
+  for (let seed = 0; seed < attempts; seed++) {
+    last = await novaMakeMediaOnce(kind, prompt, opts, seed);
+    if (!last || last.type !== "error" || !/^(blank_image|noise_image)$/.test(String(last.reason || ""))) return last;
+  }
+  return last;
+}
+
+async function novaMakeMediaOnce(
+  kind: "image" | "audio" | "video",
+  prompt: string,
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch },
+  seed = 0,
 ): Promise<MediaReply | null> {
   const base = novaMediaUrl();
   if (!base) return null;
@@ -38,7 +54,7 @@ export async function novaMakeMedia(
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
   const scenes = Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
   const payload =
-    kind === "image" ? { prompt: prompt.slice(0, 400) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: 2, seed: 0 };   // modelscope-media/app.py api_video reads "prompt"
+    kind === "image" ? { prompt: prompt.slice(0, 400), seed } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: 2, seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
   if (tok) headers.Authorization = `Bearer ${tok}`;

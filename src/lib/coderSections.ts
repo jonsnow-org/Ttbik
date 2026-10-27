@@ -1185,24 +1185,21 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         let from = "";
         try {
           if (call.function.name === "make_media") {
-            if (tierFor(chatId) !== "owner") out = "error: making media with Sham is for the owner only.";
+            // Nova's OWN media Studio (src/lib/novaMedia.ts -> ai-system/modelscope-media): SDXS pictures, Piper speech, AnimateDiff video. Nothing of Sham's is used here.
+            const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
+            const prompt = String(a.prompt || "").trim().slice(0, 600);
+            const nm = await import("@/lib/novaMedia");
+            const { vetMedia } = await import("@/lib/mediaQuality");
+            if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
+            else if (!nm.novaMediaEnabled()) out = "error: Nova's media Studio is not connected here. Nothing was made or sent; tell the user so, do not say it was made.";
             else {
-              const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
-              const prompt = String(a.prompt || "").trim().slice(0, 600);
-              const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
-              const { shamStudioEnabled } = await import("@/lib/shamStudio");
-              const nm = await import("@/lib/novaMedia");
-              if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-              else if (!nm.novaMediaEnabled() && !shamStudioEnabled()) out = "error: no media Studio is connected here";
-              else {
-                const r = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => generateShamMediaThroughRoute(kind, prompt, { scenes: a.scenes, narration: a.narration, timeoutMs: 240000 }));
-                const who = r?.route || "the selected media route";
-                const rb = realBot(bot);
-                if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
-                else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
-                else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = `made by ${who} and sent to the user as a short video`; }
-                else out = `error: selected route ${who} failed for ${kind} (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). No automatic route switch was performed.`;
-              }
+              const r0 = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => nm.novaMakeMedia(kind, prompt, { timeoutMs: 240000 }));
+              const r = (await vetMedia(r0)) as typeof r0;               // the last gate before Telegram: a blank / constant / noise picture, silent sound or empty clip is never sent
+              const rb = realBot(bot);
+              if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); out = "made by Nova's media Studio and sent to the user as a picture"; }
+              else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav")); out = "made by Nova's media Studio and sent to the user as a sound file"; }
+              else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); out = "made by Nova's media Studio and sent to the user as a short video"; }
+              else out = `error: the ${kind} could not be made (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). NOTHING was sent to the user: tell them plainly that it failed; never say it was made.`;
             }
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
