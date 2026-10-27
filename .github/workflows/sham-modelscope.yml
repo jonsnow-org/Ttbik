@@ -3,7 +3,7 @@ name: Sham ModelScope Studio (host + worker)
 # يجسّر بين Kaggle (حيث نقاط حفظ شام) واستوديو ModelScope المجاني (16 جيجا، يعمل دائماً، ولا يصل github.com):
 #  1) ينزّل sham-merged-checkpoint من Kaggle ويرفعه إلى مستودع نموذج خاص في ModelScope — فقط حين يتغيّر (بصمة sha256)
 #  2) ينسخ تطبيق شام (ai-system/modelscope-sham + كود sham_small) إلى مستودع git الخاص بالاستوديو ويدفعه.
-#     تطبيق نوفا القديم يُنقل إلى legacy-nova/ داخل الاستوديو (لا يُحذف).
+# هذا المسار ينشر شام القديم إلى sham-v1-server فقط؛ خادم نوفا nova-inference-server يُنشر مستقلاً عبر deploy-modelscope-studio.yml.
 # الاستوديو يقرأ المستودع الخاص بمفتاح يضعه المالك مرة واحدة في إعدادات الاستوديو (MODELSCOPE_API_TOKEN) — لا يُكتب في أي كود.
 # الكود الذي يسحبه الاستوديو بنفسه (studio_code/) موقَّع بـ HMAC (codesign.py) ولا يُنفَّذ بدون توقيع صحيح.
 # الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان)، SHAM_CODE_SIGNING_KEY (اختياري، يقوّي التوقيع).
