@@ -140,7 +140,8 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
             out = torch.cat([out, torch.tensor([close + tokenizer.encode("\n\n")], dtype=torch.long)], dim=1)
         ids = out
     from sham_toolcall import ToolCallGuard, repair_call, tool_names_from_prompt
-    guard = ToolCallGuard(tokenizer, tool_names_from_prompt(prompt)) if _on("SHAM_TOOLCALL_GUARD") else None      # tools in the prompt: a call is held to a valid shape (sham_toolcall.py)
+    # Constrained decoding is opt-in, not a default generation filter. The execution engine still validates tool calls and permissions.
+    guard = ToolCallGuard(tokenizer, tool_names_from_prompt(prompt)) if _on("SHAM_TOOLCALL_GUARD") and os.environ.get("SHAM_TOOLCALL_GUARD", "").strip().lower() not in ("", "0", "off", "false", "no") else None
     use = bool(guard and guard.usable)
     out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, eos_id=end, repetition_penalty=1.0 if use else 1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
                           stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None, **sample)
