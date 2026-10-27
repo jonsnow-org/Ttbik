@@ -1387,20 +1387,20 @@ def _enqueue_real_video(
         )
         if video_bytes is None:
             quota.refund_quota(user_id, "IMAGE")
-            logger.error("video-gen unavailable: Nova's local CPU Wan pipeline returned no video")
+            logger.error("video-gen unavailable: Nova's local CPU AnimateDiff pipeline returned no video")
             _send_telegram_message(
                 chat_id,
-                "تعذّر توليد فيديو حقيقي عبر نموذج Wan المحلي على CPU. لم أستخدم صوراً متتابعة أو مولّداً خارجياً، وأُعيدت الحصة. راجع سجل الاستوديو لمعرفة خطأ الأوزان أو الذاكرة.",
+                "تعذّر توليد فيديو حقيقي عبر نموذج AnimateDiff المحلي على CPU. لم أستخدم صوراً متتابعة أو مولّداً خارجياً، وأُعيدت الحصة. راجع سجل الاستوديو لمعرفة خطأ الأوزان أو الذاكرة.",
             )
             return
         try:
             quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt[:500]}",
-                            "(فيديو حقيقي مولّد محلياً بنموذج Wan على CPU)")
+                            "(فيديو حقيقي مولّد محلياً بنموذج AnimateDiff على CPU)")
         except Exception:
             logger.exception("could not log generated video for chat_id=%s", chat_id)
         try:
             rag.remember(user_id, f"[طلب توليد فيديو] {prompt[:500]}",
-                         "(تم توليد فيديو فعلي مباشرة من الوصف بنموذج Wan المحلي على CPU)")
+                         "(تم توليد فيديو فعلي مباشرة من الوصف بنموذج AnimateDiff المحلي على CPU)")
         except Exception:
             logger.exception("could not remember generated video for chat_id=%s", chat_id)
         _send_telegram_video(chat_id, video_bytes, prompt[:900])

@@ -1,7 +1,7 @@
 """Client for Nova's dedicated ModelScope media Studio.
 
 This module belongs only to Nova. It does not call either Sham Studio.
-The Studio provides SDXS images, Piper speech, and native Wan diffusion video on CPU using Nova's own local checkpoint.
+The Studio provides SDXS images, Piper speech, and native AnimateDiff-Lightning video diffusion on CPU using Nova's own local open weights.
 """
 from __future__ import annotations
 

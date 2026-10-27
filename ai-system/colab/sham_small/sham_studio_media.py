@@ -10,9 +10,8 @@ Two ways in, neither a patch:
   make_media(kind, caption) the USER decides (a command such as /image): the server begins the span, exactly like serve.py's /generate/image.
 
 What comes out is whatever the model's tokens decode to — at this stage of training mostly noise; that is the honest state, and it is measured by the
-tokenizers' and the model's own training, never dressed up. Video (2026-10-14): a SHORT clip — SHAM_STUDIO_VIDEO_FRAMES frames (default 2, max 4; four frames of 256 tokens each was more than a
-2-core CPU can write in a Telegram request), each written by the model and decoded by the image tokenizer. SHAM_STUDIO_VIDEO_FRAMES=0 brings
-back the plain status line.
+tokenizers' and the model's own training, never dressed up. Video is NOT made from the model's own tokens any more (two stitched stills is a slideshow): a video request returns NO_VIDEO,
+which points to the real text-to-video path (sham_media_ready.py / cpu_video.py).
 
 The result is a dict {"type": "text|image|audio|video|notice", "text": ..., "mime": ..., "b64": ...}. This file lives in sham_small, so it reaches the Studio
 through the signed hot copy (app.py loads it from there).
@@ -87,60 +86,16 @@ def _audio_result(model, audio_tokenizer, cond_prefix, uncond_prefix) -> dict:
     return {"type": "audio", "mime": "audio/wav", "b64": base64.b64encode(_wav(audio_tokenizer, extract_audio_tokens(seq, n))).decode()}
 
 
-NO_VIDEO = {"type": "notice", "text": "طلب فيديو: توليد الفيديو لم يصبح متاحاً بعد على هذا الخادم."}
-
-
-def video_frames() -> int:
-    """Frames per generated clip on this CPU (2026-10-14: video enabled with a small, bounded size). 0 = off (the old NO_VIDEO notice).
-    Each frame is tokens_per_image guided steps (two forwards each), so the default keeps a clip at about twice an image's time."""
-    import os
-    try:
-        return max(0, min(4, int(os.environ.get("SHAM_STUDIO_VIDEO_FRAMES", "2"))))
-    except ValueError:
-        return 2
-
-
-def _mp4(image_tokenizer, frame_tokens: list[torch.Tensor], fps: int = 2) -> bytes:
-    import subprocess
-    import tempfile
-    from pathlib import Path
-
-    import imageio_ffmpeg
-    with tempfile.TemporaryDirectory() as td:
-        for i, raw in enumerate(frame_tokens):
-            Path(td, f"f_{i:04d}.png").write_bytes(_png(image_tokenizer, raw))
-        out = Path(td) / "out.mp4"
-        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-framerate", str(fps), "-i", str(Path(td) / "f_%04d.png"),
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", str(out)],
-                       check=True, capture_output=True, timeout=120)
-        return out.read_bytes()
-
-
-def _video_result(model, image_tokenizer, cond_prefix, uncond_prefix, frames: int) -> dict:
-    """<VIDEO_START> then `frames` × (<IMAGE_START> 256 image tokens <IMAGE_END>) then <VIDEO_END> — the span the chat stage trains
-    (sham_chat.build_video_chat_examples), written with the same guidance as pictures; each frame decoded by the image tokenizer."""
-    from sham_decoding import _media_plan, guided_span
-    per = image_tokenizer.cfg.tokens_per_image
-    start, forced, allowed = _media_plan("video", frames, per)
-    cond = torch.tensor([cond_prefix + [start]], dtype=torch.long)
-    uncond = torch.tensor([uncond_prefix + [start]], dtype=torch.long)
-    span = guided_span(model, cond, uncond, forced, allowed, scale=_scale(), temperature=1.0, top_k=40)[0]
-    out, i = [], 0
-    for _ in range(frames):
-        out.append(span[i + 1:i + 1 + per] - IMAGE_VOCAB_BASE)      # skip IMAGE_START; raw codebook ids for the decoder
-        i += per + 2
-    # "text" too: a client that does not know "video" yet (the site's bot reads image/audio/text) still shows a line instead of nothing
-    return {"type": "video", "mime": "video/mp4", "frames": frames, "text": f"🎬 مقطع فيديو قصير من شام ({frames} إطار).", "b64": base64.b64encode(_mp4(image_tokenizer, out)).decode()}
+# The model's own tokens never become a "video" (two stitched stills is a slideshow, not video): a video request is served by the real text-to-video path
+# (sham_media_ready.py -> cpu_video.py, route "المسار البديل"), which is the default route of the Sham clients.
+NO_VIDEO = {"type": "notice", "text": "الفيديو الحقيقي يُولَّد عبر مسار الوسائط الجاهز (نموذج AnimateDiff على CPU): اختر المسار البديل أو اكتب /video مع الوصف."}
 
 
 def make_media(model, tokenizer, image_tokenizer, audio_tokenizer, kind: str, caption: str) -> dict:
     """The user chose the kind (a command): begin that span with the dialogue prompt the model was trained on."""
     from sham_decoding import media_prompts
     if kind == "video":
-        if not video_frames():
-            return dict(NO_VIDEO)
-        cond, uncond = media_prompts("video", tokenizer.encode(caption)[:200], tokenizer, chat=True)
-        return _video_result(model, image_tokenizer, cond, uncond, video_frames())
+        return dict(NO_VIDEO)
     cond, uncond = media_prompts(kind, tokenizer.encode(caption)[:200], tokenizer, chat=True)
     if kind == "image":
         return _image_result(model, image_tokenizer, cond, uncond)
@@ -200,7 +155,7 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     if first == SpecialTokens.AUDIO_START:
         return _audio_result(model, audio_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
     if first == SpecialTokens.VIDEO_START:
-        return _video_result(model, image_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]], video_frames()) if video_frames() else dict(NO_VIDEO)
+        return dict(NO_VIDEO)
     return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
 
 
@@ -233,17 +188,13 @@ if __name__ == "__main__":
     assert r["type"] == "image" and base64.b64decode(r["b64"])[:8] == b"\x89PNG\r\n\x1a\n", r["type"]
     a = make_media(model, Tok(), img_tok, aud_tok, "audio", "مرحبا")
     assert a["type"] == "audio" and base64.b64decode(a["b64"])[:4] == b"RIFF"
-    os.environ["SHAM_STUDIO_VIDEO_FRAMES"] = "0"
-    assert make_media(model, Tok(), img_tok, aud_tok, "video", "x")["type"] == "notice"         # switched off: the old status line
+    assert make_media(model, Tok(), img_tok, aud_tok, "video", "x")["type"] == "notice"         # never a slideshow: a notice pointing to the real video path
     assert generate_any(model, Tok(), img_tok, aud_tok, "فيديو", 6, datetime.date(2026, 10, 12), choose=lambda *a, **k: SpecialTokens.VIDEO_START)["type"] == "notice"
-    os.environ["SHAM_STUDIO_VIDEO_FRAMES"] = "2"
-    v = make_media(model, Tok(), img_tok, aud_tok, "video", "سيارة")
-    assert v["type"] == "video" and v["frames"] == 2 and base64.b64decode(v["b64"])[4:8] == b"ftyp", v["type"]
     d = datetime.date(2026, 10, 12)
     # the model decides: when its first token is a media start, a media result comes back; when it is text, text comes back
     assert generate_any(model, Tok(), img_tok, aud_tok, "أعطني صورة أرنب", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)["type"] == "image"
     assert generate_any(model, Tok(), img_tok, aud_tok, "قل مرحبا", 6, d, choose=lambda *a, **k: SpecialTokens.AUDIO_START)["type"] == "audio"
-    assert generate_any(model, Tok(), img_tok, aud_tok, "فيديو", 6, d, choose=lambda *a, **k: SpecialTokens.VIDEO_START)["type"] == "video"
+    assert generate_any(model, Tok(), img_tok, aud_tok, "فيديو", 6, d, choose=lambda *a, **k: SpecialTokens.VIDEO_START)["type"] == "notice"
     t = generate_any(model, Tok(), img_tok, aud_tok, "مرحبا", 6, d, choose=lambda *a, **k: 5)
     assert t["type"] == "text" and t["text"]
     assert "صورة" in generate_any(model, Tok(), img_tok, aud_tok, "#pmedia أعطني صورة أرنب", 6, d)["text"]

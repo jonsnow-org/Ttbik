@@ -1,7 +1,7 @@
 """
-Sham v2's own local media path: SDXS for images, Piper ONNX for Arabic speech, and native Wan text-to-video diffusion on CPU. Video is never assembled from still images.
+Sham v2's own local media path: SDXS for images, Piper ONNX for Arabic speech, and AnimateDiff-Lightning text-to-video diffusion on CPU (cpu_video.py). Video is never assembled from still images.
 
-The transplanted text body does not provide a usable image decoder, so Sham v2 uses its own bundled donor weights for image/speech and its own local Wan checkpoint for true video. Every pipeline loads lazily and runs on CPU. Video diffusion is resource-intensive; the implementation starts with short 256px clips and very few steps.
+The transplanted text body does not provide a usable image decoder, so Sham v2 uses its own bundled donor weights for image/speech and its own open video weights (~3 GB, fetched once into <model_dir>/media/video_animatediff) for true video. Every pipeline loads lazily and runs on CPU.
 
     root = ready_root(model_dir)          # model_dir/media if it holds sdxs/ and piper/, else None
     reply = make(root, "image", "a rabbit playing")   # {"type": "image", "b64": "<png>"} | audio (wav) | video (mp4) | {"type": "error", "text": ...}
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from media_quality import MediaQualityError, check_image, check_mp4, check_wav, classify_exception, quality_error
 
-_CACHE: dict = {"pipe": None, "voice": None, "video_pipe": None, "video_root": None}
+_CACHE: dict = {"pipe": None, "voice": None}
 
 
 def inspect_ready_assets(model_dir: str | Path | None) -> dict:
@@ -122,60 +122,14 @@ def _image(root: Path, prompt: str, size: int = 512, seed: int = 0):
     return image
 
 
-def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0) -> bytes:
-    """Generate a temporally coherent video directly from text with Wan on CPU; never use a slideshow."""
-    import torch
-    from diffusers import WanPipeline
-    from diffusers.utils import export_to_video
-
-    if _CACHE["video_pipe"] is None:
-        local_dir = os.environ.get("SHAM_VIDEO_MODEL_DIR", "").strip()
-        if local_dir:
-            model_dir = Path(local_dir).expanduser().resolve()
-        else:
-            model_dir = root / "wan"
-            if not (model_dir / "model_index.json").is_file():
-                # Wan's full Diffusers snapshot is about 17.6 GB; do not fill/crash a small CPU Studio trying to fetch it.
-                free_bytes = shutil.disk_usage(root.parent).free
-                required_bytes = 20 * (1024 ** 3)
-                if free_bytes < required_bytes:
-                    raise RuntimeError(
-                        f"native-video-unavailable: CPU mode needs at least 20 GiB free disk for local Wan weights; "
-                        f"only {free_bytes / (1024 ** 3):.1f} GiB is free. Set SHAM_VIDEO_MODEL_DIR to an existing local checkpoint."
-                    )
-                # Download weights only. Generation remains local to Sham v2's own Studio process.
-                from modelscope import snapshot_download
-                model_dir = Path(snapshot_download(
-                    "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
-                    cache_dir=str(root.parent / "_video_models"),
-                ))
-        if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
-            raise RuntimeError(f"native-video-unavailable: Wan Diffusers weights not found at {model_dir}")
-        torch.set_num_threads(max(1, min(os.cpu_count() or 2, 4)))
-        pipe = WanPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32, local_files_only=True)
-        pipe.to("cpu")
-        _CACHE["video_pipe"] = pipe
-        _CACHE["video_root"] = str(model_dir)
+def _video(root: Path, prompts: list[str], narration: str, seconds: float = 2.0) -> bytes:
+    """Real text-to-video on CPU (AnimateDiff-Lightning, cpu_video.py): one temporal diffusion pass, never a slideshow of stills."""
+    from cpu_video import cv_generate
 
     prompt = (prompts[0] if prompts else "").strip()
     if not prompt:
         raise ValueError("native-video-unavailable: a text prompt is required")
-    seconds = max(1.0, min(2.0, float(seconds or 2)))
-    frame_count = 9 if seconds <= 1.5 else 13
-    generator = torch.Generator(device="cpu").manual_seed(0)
-    result = _CACHE["video_pipe"](
-        prompt=prompt[:800],
-        height=256,
-        width=256,
-        num_frames=frame_count,
-        num_inference_steps=2,
-        guidance_scale=3.0,
-        generator=generator,
-    )
-    with tempfile.TemporaryDirectory() as d:
-        target = Path(d) / "sham-v2-native-video.mp4"
-        export_to_video(result.frames[0], str(target), fps=8)
-        data = target.read_bytes()
+    data = cv_generate(root, prompt, seconds, 0, ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
     check_mp4(data)             # empty / frozen / blank video is an error, never a reply
     return data
 
@@ -195,13 +149,13 @@ def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, na
             spoken = narration or prompt
             return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, spoken)).decode()}
         if kind == "video":
-            # One prompt goes directly into Wan's temporal diffusion model. No image storyboard fallback.
+            # One prompt goes directly into the temporal diffusion model. No image storyboard fallback.
             clip = _video(root, [prompt], narration, seconds=2.0)
             return {
                 "type": "video",
                 "mime": "video/mp4",
                 "b64": base64.b64encode(clip).decode(),
-                "text": "فيديو مولّد مباشرة من الوصف بنموذج Wan على CPU.",
+                "text": "فيديو مولّد مباشرة من الوصف بنموذج AnimateDiff على CPU.",
             }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except MediaQualityError as exc:
