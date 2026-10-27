@@ -1,8 +1,7 @@
 """Live smoke tests for the Sham v2 ModelScope Studio.
 
-Required local-ready tests fail the workflow. Internal token-decoder and HF external
-routes are diagnostic: failures are printed explicitly because the former is
-known to be untrained and the latter may be blocked by ZeroGPU quota/licensing.
+Required local-ready tests fail the workflow. Internal token-decoder is diagnostic.
+External provider routes are deliberately excluded from this smoke test.
 """
 from __future__ import annotations
 
@@ -15,7 +14,6 @@ from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
-HF_TOKEN = (os.environ.get("HF_TOKEN1") or "").strip()
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 60):
@@ -64,7 +62,6 @@ def call(api: str, payload: dict, timeout: int = 300):
 def media(kind: str, backend: str):
     label = {
         "ready": "المسار البديل (أوزان محلية جاهزة)",
-        "hf": "المسار الخارجي (Hugging Face)",
     }[backend]
     value = call("generate_media_from_panel", {
         "kind": kind,
@@ -137,16 +134,7 @@ def main() -> int:
     except Exception as exc:
         print(f"DIAGNOSTIC internal/image failed: {type(exc).__name__}: {str(exc)[:180]}")
 
-    # External HF is tested against the real Space, but an exhausted free ZeroGPU
-    # allowance or a gated model must not invalidate the independent local route.
-    if HF_TOKEN:
-        for kind in ("image", "video"):
-            try:
-                media(kind, "hf")
-            except Exception as exc:
-                print(f"WARNING hf/{kind}: {type(exc).__name__}: {str(exc)[:220]}")
-    else:
-        print("WARNING hf route: HF_TOKEN1 missing from Studio; external route intentionally unavailable.")
+    # External media providers are quarantined; only Sham-owned routes are tested.
     return 0
 
 
