@@ -59,46 +59,6 @@ def _external_media_enabled() -> bool:
         logger.warning("external media setting lookup failed; keeping external providers disabled", exc_info=True)
         return False
 
-def _sham_v2_image_fallback(prompt: str) -> bytes | None:
-    """Ask Sham v2's own packaged donor-weight image tool only if Nova's own image model failed."""
-    token = (MODELSCOPE_API_TOKEN or "").strip()
-    if not token:
-        logger.info("sham-v2 media fallback skipped: ModelScope token unavailable")
-        return None
-    base = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {"kind": "image", "prompt": prompt[:1500], "backend_label": "المسار البديل (أوزان محلية جاهزة)", "scenes_json": "[]", "narration": ""}
-    try:
-        submit = requests.post(f"{base}/gradio_api/call/v2/generate_media_from_panel", headers=headers, json=payload, timeout=30)
-        if not submit.ok:
-            logger.info("sham-v2 image fallback submit returned HTTP %s", submit.status_code)
-            return None
-        event_id = submit.json().get("event_id")
-        if not event_id:
-            logger.info("sham-v2 image fallback returned no event id")
-            return None
-        result = requests.get(f"{base}/gradio_api/call/generate_media_from_panel/{event_id}", headers=headers, timeout=240)
-        if not result.ok:
-            logger.info("sham-v2 image fallback result returned HTTP %s", result.status_code)
-            return None
-        for line in result.text.splitlines():
-            if not line.startswith("data:"):
-                continue
-            try:
-                data = json.loads(line[5:].strip())
-                value = data[0] if isinstance(data, list) and data else data
-                if isinstance(value, str):
-                    value = json.loads(value)
-                if isinstance(value, dict) and value.get("type") == "image" and value.get("b64"):
-                    return base64.b64decode(value["b64"], validate=False)
-            except (ValueError, TypeError, json.JSONDecodeError):
-                continue
-        logger.info("sham-v2 image fallback returned no usable image")
-    except Exception as exc:
-        logger.info("sham-v2 image fallback failed (%s)", type(exc).__name__)
-    return None
-
-
 app = FastAPI(title="Nova AI")
 
 
@@ -1337,10 +1297,7 @@ def _process_image_gen_and_deliver(
             image_bytes = council.generate_image(expanded_prompt)
             if image_bytes is not None:
                 logger.info("image-gen: external route disabled; served by our own ModelScope image model")
-        if image_bytes is None:
-            image_bytes = _sham_v2_image_fallback(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: Nova's own image model unavailable; served by Sham v2's local donor-weight generator")
+        # Nova is isolated: never call Sham v1/v2 as a media fallback.
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
