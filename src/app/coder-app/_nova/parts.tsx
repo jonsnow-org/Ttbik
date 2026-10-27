@@ -577,7 +577,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("own_first");
-  const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("hf_first");
+  const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("fallback_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -648,10 +648,10 @@ export function PanelPage({ lang }: { lang: Lang }) {
           {ar ? "الاحتياط أولاً" : "Reserve first"}
         </Cell>
       </Section>
-      <Section header={ar ? "مسار توليد الصور والفيديو (Hugging Face)" : "Image & video generation route (Hugging Face)"} footer={ar ? "مفعّل: جرّب مساحات ZeroGPU أولاً ثم المسارات الاحتياطية. مطفأ: استخدم المسارات الحالية أولاً؛ الفيديو ينتقل إلى طابور Kaggle، والصور إلى Cloudflare ثم ModelScope." : "On: try the ZeroGPU Spaces first, then fall back. Off: use existing providers first; video goes to the Kaggle queue and images to Cloudflare then ModelScope."}>
-        <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "مساحات Hugging Face أولاً للصور والفيديو" : "Hugging Face Spaces first for images and video") : (ar ? "المسارات الحالية أولاً" : "Existing providers first")}
-          after={<Switch checked={hfMediaOrder === "hf_first"} disabled={busy === "hf_media_route"} onChange={async (e) => { const order = e.currentTarget.checked ? "hf_first" : "fallback_first"; const prev = hfMediaOrder; setHfMediaOrder(order); setBusy("hf_media_route"); setMsg(""); try { const r = await api<{ order: "hf_first" | "fallback_first" }>("hf_media_route", { order }); setHfMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ مسار توليد الوسائط." : "Media route saved."); } catch (err: any) { setHfMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } finally { setBusy(""); } }} />}>
-          {ar ? "تفضيل مساحات الصور والفيديو الجديدة" : "Prefer the new image/video Spaces"}
+      <Section header={ar ? "المسار الخارجي لتوليد الصور والفيديو" : "External image & video generation"} footer={ar ? "مطفأ افتراضيًا: الصور عبر نموذج نوفا الذي نملكه، والفيديو عبر طابور نموذجنا المدرّب. عند التفعيل تُجرّب مساحات Hugging Face وCloudflare الخارجية أولًا؛ وإذا فشلت يعود النظام إلى مساراتنا الذاتية." : "Off by default: images use Nova's own ModelScope-hosted model; video uses our trained-model queue. When enabled, Hugging Face and Cloudflare external generators are tried first, then the system falls back to our own paths."}>
+        <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "المسارات الخارجية مفعّلة" : "External generation enabled") : (ar ? "التوليد الذاتي فقط — بلا مولدات خارجية" : "Own generation only — external generators disabled")}
+          after={<Switch checked={hfMediaOrder === "hf_first"} disabled={busy === "hf_media_route"} onChange={async (e) => { const order = e.currentTarget.checked ? "hf_first" : "fallback_first"; const prev = hfMediaOrder; setHfMediaOrder(order); setBusy("hf_media_route"); setMsg(""); try { const r = await api<{ order: "hf_first" | "fallback_first" }>("hf_media_route", { order }); setHfMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ إعداد المسارات الخارجية." : "External media setting saved."); } catch (err: any) { setHfMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } finally { setBusy(""); } }} />}>
+          {ar ? "السماح باستخدام مولدات الوسائط الخارجية" : "Allow external media generators"}
         </Cell>
         {busy === "hf_media_route" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ المسار…" : "Saving route…"}</Cell>}
         {msg && <Cell multiline before="ℹ️">{msg}</Cell>}

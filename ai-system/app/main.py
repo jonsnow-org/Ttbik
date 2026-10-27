@@ -13,7 +13,9 @@ Deploy free:  Render.com (Docker web service, free instance type) — see
               notebook pushing to HF Hub.)
 """
 import base64
+import json
 import logging
+import os
 import re
 import resource
 import threading
@@ -25,7 +27,7 @@ from pydantic import BaseModel
 
 from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
-from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 # Without this, logger.info() calls throughout this file and council.py
 # (added 2026-09-06 to show which model actually answered each message)
@@ -37,25 +39,65 @@ from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRA
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 
-def _hf_media_first() -> bool:
-    """Read the admin media route preference from Supabase; preserve current HF-first behaviour on lookup failure."""
+def _external_media_enabled() -> bool:
+    """External image/video providers are opt-in. Fail closed to our own models if settings cannot be read."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return True
+        return False
     try:
         response = requests.get(
             SUPABASE_URL.rstrip("/") + "/rest/v1/sham_settings",
-            params={"key": "eq.hf_media_route_order", "select": "value", "limit": "1"},
+            params={"key": "eq.external_media_enabled_v2", "select": "value", "limit": "1"},
             headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
             timeout=3,
         )
         if not response.ok:
-            logger.warning("media route preference lookup failed with HTTP %s; keeping Hugging Face first", response.status_code)
-            return True
+            logger.warning("external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
+            return False
         rows = response.json()
-        return not (rows and rows[0].get("value") == "fallback_first")
+        return bool(rows and rows[0].get("value") == "enabled")
     except Exception:
-        logger.warning("media route preference lookup failed; keeping Hugging Face first", exc_info=True)
-        return True
+        logger.warning("external media setting lookup failed; keeping external providers disabled", exc_info=True)
+        return False
+
+def _sham_v2_image_fallback(prompt: str) -> bytes | None:
+    """Ask Sham v2's own packaged donor-weight image tool only if Nova's own image model failed."""
+    token = (MODELSCOPE_API_TOKEN or "").strip()
+    if not token:
+        logger.info("sham-v2 media fallback skipped: ModelScope token unavailable")
+        return None
+    base = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {"kind": "image", "prompt": prompt[:1500], "backend_label": "المسار البديل (أوزان محلية جاهزة)"}
+    try:
+        submit = requests.post(f"{base}/gradio_api/call/v2/generate_media_from_panel", headers=headers, json=payload, timeout=30)
+        if not submit.ok:
+            logger.info("sham-v2 image fallback submit returned HTTP %s", submit.status_code)
+            return None
+        event_id = submit.json().get("event_id")
+        if not event_id:
+            logger.info("sham-v2 image fallback returned no event id")
+            return None
+        result = requests.get(f"{base}/gradio_api/call/generate_media_from_panel/{event_id}", headers=headers, timeout=240)
+        if not result.ok:
+            logger.info("sham-v2 image fallback result returned HTTP %s", result.status_code)
+            return None
+        for line in result.text.splitlines():
+            if not line.startswith("data:"):
+                continue
+            try:
+                data = json.loads(line[5:].strip())
+                value = data[0] if isinstance(data, list) and data else data
+                if isinstance(value, str):
+                    value = json.loads(value)
+                if isinstance(value, dict) and value.get("type") == "image" and value.get("b64"):
+                    return base64.b64decode(value["b64"], validate=False)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+        logger.info("sham-v2 image fallback returned no usable image")
+    except Exception as exc:
+        logger.info("sham-v2 image fallback failed (%s)", type(exc).__name__)
+    return None
+
 
 app = FastAPI(title="Nova AI")
 
@@ -1277,30 +1319,28 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        if _hf_media_first():
+        if _external_media_enabled():
+            # Explicit opt-in: try external HF/Cloudflare generators, then our own trained ModelScope image model.
             image_bytes = hf_image.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: served by our own Hugging Face ZeroGPU Space (SD 3.5)")
+                logger.info("image-gen: external route enabled; served by Hugging Face ZeroGPU Space")
             else:
                 image_bytes = cloudflare_ai.generate_image(expanded_prompt)
                 if image_bytes is not None:
-                    logger.info("image-gen: served by Cloudflare Workers AI (flux)")
+                    logger.info("image-gen: external route enabled; served by Cloudflare Workers AI")
             if image_bytes is None:
                 image_bytes = council.generate_image(expanded_prompt)
                 if image_bytes is not None:
-                    logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")
+                    logger.info("image-gen: external routes unavailable — served by our own ModelScope image model")
         else:
-            image_bytes = cloudflare_ai.generate_image(expanded_prompt)
+            # External generators are disabled: do not call Hugging Face or Cloudflare at all.
+            image_bytes = council.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: admin route preference served by Cloudflare Workers AI (flux)")
-            if image_bytes is None:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: admin route preference served by ModelScope fallback")
-            if image_bytes is None:
-                image_bytes = hf_image.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: existing providers unavailable — served by Hugging Face ZeroGPU Space")
+                logger.info("image-gen: external route disabled; served by our own ModelScope image model")
+        if image_bytes is None:
+            image_bytes = _sham_v2_image_fallback(expanded_prompt)
+            if image_bytes is not None:
+                logger.info("image-gen: Nova's own image model unavailable; served by Sham v2's local donor-weight generator")
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -1459,8 +1499,8 @@ def _enqueue_real_video(
         # module's docstring) — fails soft to None either way, so the
         # Kaggle queue below still fires exactly as it always did the
         # moment this fast path can't answer.
-        if not _hf_media_first():
-            logger.info("video-gen: admin route preference selects the existing Kaggle queue before Hugging Face ZeroGPU")
+        if not _external_media_enabled():
+            logger.info("video-gen: external generation is disabled; use our own trained-model Kaggle queue")
             quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
             _send_telegram_message(
                 chat_id,
@@ -1479,7 +1519,7 @@ def _enqueue_real_video(
             _send_telegram_video(chat_id, video_bytes, prompt)
             return
 
-        logger.info("video-gen: HF ZeroGPU unavailable/quota exhausted for chat_id=%s — falling back to the Kaggle queue", chat_id)
+        logger.info("video-gen: external route enabled but HF ZeroGPU unavailable/quota exhausted for chat_id=%s — using our own trained-model Kaggle queue", chat_id)
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,

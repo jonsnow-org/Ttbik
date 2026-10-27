@@ -866,7 +866,7 @@ function PanelPage({ lang }: { lang: Lang }) {
   const [models, setModels] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
-  const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("reserve_first");
+  const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("own_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -930,9 +930,9 @@ function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسار وسائط شام" : "Sham media path"} footer={ar ? "مفعّل: استوديو الوسائط (نماذج جاهزة) أولاً ثم أوزان شام عند الفشل. مطفأ: أوزان شام أولاً ثم استوديو الوسائط عند الفشل." : "On: the media Studio (ready models) first, Sham's own weights on failure. Off: Sham's own weights first, the media Studio on failure."}>
-        <Cell Component="label" multiline subtitle={mediaOrder === "reserve_first" ? (ar ? "استوديو الوسائط أولاً" : "Media Studio first") : (ar ? "أوزان شام أولاً" : "Sham's own weights first")}
-          after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; setMediaOrder(order); const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); }} />}>
+      <Section header={ar ? "مسار وسائط شام" : "Sham media path"} footer={ar ? "افتراضيًا: أوزان شام الداخلية أولًا. فعّل المفتاح لاستخدام استوديو الوسائط الخارجي أولًا، ثم العودة إلى شام عند الفشل." : "Default: Sham's internal weights first. Enable the switch to try the external Media Studio first, then fall back to Sham."}>
+        <Cell Component="label" multiline subtitle={mediaOrder === "reserve_first" ? (ar ? "استوديو الوسائط الخارجي أولًا" : "External Media Studio first") : (ar ? "أوزان شام الداخلية أولًا" : "Sham internal weights first")}
+          after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; const prev = mediaOrder; setMediaOrder(order); try { const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ مسار شام." : "Sham media route saved."); } catch (err: any) { setMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } }} />}>
           {ar ? "الاحتياط أولاً" : "Reserve first"}
         </Cell>
       </Section>
