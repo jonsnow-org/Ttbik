@@ -189,6 +189,9 @@ def _worker() -> None:
         try:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
             model_dir = _download()
+            # Detect the packaged donor media independently before attempting to load Sham's text checkpoint.
+            # A broken/not-yet-ready text body must not hide usable local image and speech weights.
+            _refresh_media_assets(model_dir)
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
             sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
             media_sig = _media_signature(model_dir)
@@ -309,14 +312,18 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
     selected = (backend or "internal").strip().lower()
     if selected not in ("internal", "ready"):
         return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
-    if STATE["phase"] != "ready":
+
+    # The donor-weight generator is self-contained and must remain usable even
+    # while Sham's separate text checkpoint is loading or unavailable.
+    if selected == "ready":
+        if not STATE.get("media_root"):
+            return json.dumps({
+                "type": "error",
+                "text": "المسار البديل غير جاهز: لم تُعثر أوزان الصورة والصوت المحلية المطلوبة داخل مستودع شام. اختر «شام الداخلي» أو جهّز الأوزان محلياً."
+            }, ensure_ascii=False)
+    elif STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
-    import serve
-    if selected == "ready" and not STATE.get("media_root"):
-        return json.dumps({
-            "type": "error",
-            "text": "المسار البديل غير جاهز: لم تُعثر أوزان الصورة والصوت المحلية المطلوبة داخل مستودع شام. اختر «شام الداخلي» أو جهّز الأوزان محلياً."
-        }, ensure_ascii=False)
+
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
@@ -324,6 +331,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
             from sham_media_ready import make
             result = make(Path(STATE["media_root"]), kind, prompt, scenes=scenes, narration=narration)
         else:
+            import serve
             result = _studio_modules()[1].make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
