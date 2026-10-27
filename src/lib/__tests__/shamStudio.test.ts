@@ -128,6 +128,11 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
     const ev = String(url).split("/").pop() as string;
     return { ok: true, text: async () => body(answers[ev] || { type: "text", text: "?" }) } as any;
   }) as any;
+  it("never routes Sham v1 to Nova's inference Studio even if a stale env value remains", () => {
+    process.env.SHAM_MODELSCOPE_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+    expect(shamBases()).toEqual(["https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"]);
+    delete process.env.SHAM_MODELSCOPE_URL;
+  });
   it("the new body uses SHAM_V2_URL (default: its own Studio), the old one SHAM_MODELSCOPE_URL", () => {
     process.env.SHAM_MODELSCOPE_URL = "https://old.example"; delete process.env.SHAM_V2_URL;
     expect(shamBases()).toEqual(["https://old.example"]);
