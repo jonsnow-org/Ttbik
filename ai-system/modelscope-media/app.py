@@ -153,16 +153,20 @@ def api_status() -> str:
 
 
 def _warm() -> None:
-    try:
-        STATE["phase"] = "loading models"
-        _pipe()
-        _voice()
-        STATE["phase"] = "ready"
-    except Exception as e:                                                    # noqa: BLE001
-        traceback.print_exc()
-        STATE["phase"], STATE["error"] = "waiting for models", f"{type(e).__name__}: {str(e)[:200]}"
-        time.sleep(120)
-        _warm()
+    """Load Nova's local image and speech weights; retry without recursive stack growth."""
+    while True:
+        try:
+            STATE["phase"] = "loading models"
+            _pipe()
+            _voice()
+            STATE["phase"] = "ready"
+            STATE["error"] = ""
+            return
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            STATE["phase"] = "waiting for models"
+            STATE["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+            time.sleep(120)
 
 
 if __name__ == "__main__":
