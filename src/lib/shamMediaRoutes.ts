@@ -17,7 +17,7 @@ export async function generateShamMediaThroughRoute(
   try {
     let reply: ShamReply | null;
     const variant = route === "sham_v1" ? "v1" : "v2";
-    const backend = route === "sham_v2_ready" ? "ready" : route === "sham_v2_hf" ? "hf" : "internal";
+    const backend = route === "sham_v2_ready" ? "ready" : "internal";
     shamNoteFailure("");
     reply = await shamVariant.run(variant, () => shamGenerateMedia(
       kind,

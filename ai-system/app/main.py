@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
+from app import cloudflare_ai, council, deep_think, files, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -40,24 +40,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 
 def _external_media_enabled() -> bool:
-    """Nova external image/video providers are opt-in and read only Nova-owned settings."""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return False
-    try:
-        response = requests.get(
-            SUPABASE_URL.rstrip("/") + "/rest/v1/nova_settings",
-            params={"key": "eq.external_media_enabled_v1", "select": "value", "limit": "1"},
-            headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
-            timeout=3,
-        )
-        if not response.ok:
-            logger.warning("Nova external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
-            return False
-        rows = response.json()
-        return bool(rows and rows[0].get("value") == "enabled")
-    except Exception:
-        logger.warning("Nova external media setting lookup failed; keeping external providers disabled", exc_info=True)
-        return False
+    """Hugging Face and other external media providers are quarantined by owner request."""
+    return False
 
 app = FastAPI(title="Nova AI")
 
@@ -1279,12 +1263,11 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        external_selected = _external_media_enabled()
         image_bytes, image_source = nova_media_routing.generate_image(
             expanded_prompt,
-            external_enabled=external_selected,
-            hf_generate=hf_image.generate_image,
-            cloudflare_generate=cloudflare_ai.generate_image,
+            external_enabled=False,
+            hf_generate=lambda _prompt: None,
+            cloudflare_generate=lambda _prompt: None,
             nova_studio_generate=lambda text: nova_media_studio.generate_media("image", text),
             nova_model_generate=council.generate_image,
         )
@@ -1311,12 +1294,7 @@ def _process_image_gen_and_deliver(
             # result, the raw SSE lines too (see that function), so the
             # next failure is diagnosable from Render's own logs instead
             # of guessed at again.
-            failure_text = (
-                "تعذّر توليد الصورة عبر مولّد نوفا الخارجي المختار (Hugging Face / Cloudflare). لم أتحول تلقائياً إلى المولّد الداخلي؛ لم يُخصم الطلب. أوقف الأداة الخارجية من لوحة التحكم لاستخدام مولّد نوفا الداخلي."
-                if external_selected
-                else "تعذّر توليد الصورة عبر مولّد نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً."
-            )
-            _send_telegram_message(chat_id, failure_text)
+            _send_telegram_message(chat_id, "تعذّر توليد الصورة عبر مسار نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً.")
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
         # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو والصوت"):
@@ -1461,23 +1439,6 @@ def _enqueue_real_video(
             )
             return
 
-        video_bytes = hf_video.generate_video(expanded_prompt, seconds)
-        if video_bytes is not None:
-            logger.info("video-gen: served by Hugging Face ZeroGPU (real motion, inline) for chat_id=%s", chat_id)
-            quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
-            # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو
-            # والصوت") — same real gap as the image-gen path above, see
-            # its own comment for the full reasoning.
-            rag.remember(user_id, f"[طلب توليد فيديو] {prompt}", "(تم توليد فيديو فعلياً بناءً على هذا الطلب)")
-            _send_telegram_video(chat_id, video_bytes, prompt)
-            return
-
-        logger.warning("video-gen: Nova external route was selected but Hugging Face did not return a video for chat_id=%s; no internal route fallback", chat_id)
-        quota.refund_quota(user_id, "IMAGE")
-        _send_telegram_message(
-            chat_id,
-            "تعذّر توليد الفيديو عبر أداة Hugging Face المختارة. لم أتحول تلقائياً إلى أداة نوفا الداخلية ولم يُخصم الطلب؛ أوقف الأداة الخارجية من لوحة التحكم لاستخدام مسار نوفا الداخلي.",
-        )
     except Exception:
         logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)
         quota.refund_quota(user_id, "IMAGE")

@@ -48,27 +48,12 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(result["backend"], "internal")
         self.make_media.assert_called_once()
 
-    def test_hf_route_works_without_sham_model_ready_and_does_not_fallback(self):
-        import base64
-        import os
-        with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
-            image_file.write(b"fake-png")
-            image_file.flush()
-            fake_client_module = types.ModuleType("gradio_client")
-            fake_client_module.Client = Mock(return_value=types.SimpleNamespace(predict=Mock(return_value=image_file.name)))
-            with patch.dict(sys.modules, {"gradio_client": fake_client_module}), patch.dict(os.environ, {"HF_TOKEN1": "test-token", "HF_IMAGE_SPACE_ID": "Novasy/nova-image-space"}):
-                sham_app.STATE["phase"] = "waiting"
-                result = json.loads(sham_app.generate_media_from_panel("image", "a rabbit", "المسار الخارجي (Hugging Face)"))
-        self.assertEqual(result["type"], "image")
-        self.assertEqual(result["backend"], "hf")
-        self.assertEqual(base64.b64decode(result["b64"]), b"fake-png")
-        self.make_media.assert_not_called()
-
-    def test_hf_audio_returns_explicit_unsupported_error(self):
-        result = json.loads(sham_app.generate_media_from_panel("audio", "مرحبا", "المسار الخارجي (Hugging Face)"))
-        self.assertEqual(result["type"], "error")
-        self.assertIn("يدعم الصور والفيديو", result["text"])
-        self.make_media.assert_not_called()
+    def test_external_hf_label_is_neutralized_to_internal_route(self):
+        result = json.loads(
+            sham_app.generate_media_from_panel("image", "a tree", "المسار الخارجي (Hugging Face)")
+        )
+        self.assertEqual(result["backend"], "internal")
+        self.make_media.assert_called_once()
 
     def test_panel_can_select_internal_sham(self):
         result = json.loads(
