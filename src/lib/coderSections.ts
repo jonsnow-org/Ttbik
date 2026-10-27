@@ -12,14 +12,13 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { shamToolsEnabled } from "@/lib/shamTools";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, listModels, modelReady } from "@/lib/coderModels";
+import { chooseModel, listModels, modelReady, novaModelOf } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -1177,7 +1176,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
-      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
         // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
         let out = "";
@@ -1246,7 +1245,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
-      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker" || run.agentRole === "sham")) {
+      if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker")) {
         // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
         const a = parseArgs(call);
         let out: string;
@@ -1753,7 +1752,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-    if (run.agent && (run.agentRole !== "sham" || shamToolsEnabled()) && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
+    if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
     }
@@ -1768,14 +1767,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
-    const toSham = run.agent ? run.agentRole === "sham" : st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2";      // Sham gets the bare words, no context block
     const histOf = (): CoderMessage[] => {
       if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
       const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
       st.winStart = w.start;
       return w.msgs;
     };
-    const wireOf = (m: CoderMessage): CoderMessage => (!toSham && m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
+    const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
     const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
@@ -1790,7 +1788,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? (run.agentRole === "sham" ? (shamToolsEnabled() ? "sham_loop" : "sham_probe") : "coder") : st.model, tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" || (run.agentRole === "sham" && shamToolsEnabled()) ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {

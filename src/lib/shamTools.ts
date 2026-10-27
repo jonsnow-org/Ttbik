@@ -5,7 +5,7 @@
 //   - the engine runs it exactly like a Nova call (same permissions, same sandbox, same stall guard) and shows Sham the result next turn.
 // Nothing is decided here by rule: if Sham writes no call, its words are the answer. Off until SHAM_TOOLS=on or SHAM_LIMITS=open (an untrained Sham should not be
 // shown a format it cannot follow); SHAM_TOOLS=off always wins. The training side is ai-system/colab/sham_small/sham_tools_data.py (same text format).
-import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { shamVariant } from "@/lib/shamStudio";
 
 export function shamToolsEnabled(): boolean {

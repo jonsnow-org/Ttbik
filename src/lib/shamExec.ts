@@ -3,10 +3,26 @@
 // The VM, the memory scope and the run id are Sham's own (`sham:<chat>`, `sham-<chat>`), so Sham and Nova never share a computer.
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
-import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
-import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
-import { prismaDb, resolveConnections, tierFor, coderChatKey, type Db } from "@/lib/coderAuth";
-import type { CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import { prismaDb, type Db } from "@/lib/shamDb";
+import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
+
+/** What Sham needs from the platform it runs on (web access, the VM driver, limits, memory, schedules, the user's connections). Sham never imports Nova's modules:
+ *  everything comes through this interface, implemented in ONE place (shamHost.ts), which is the only file where the two meet. */
+export interface ShamHost {
+  web: {
+    search(q: string, o: { fetchImpl?: typeof fetch; limit: number }): Promise<string>;
+    page(url: string, o: { fetchImpl?: typeof fetch; maxChars: number }): Promise<{ ok: boolean; text: string; error?: string; url: string }>;
+    research(q: string, o: { fetchImpl?: typeof fetch; maxSources: number }): Promise<string>;
+  };
+  sandbox: { has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
+  account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string }>;
+  limits: { ok(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<boolean>; add(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<void> };
+  memory(chatId: number, tool: string, args: Record<string, unknown>, runId: string, db: Db): Promise<string>;
+  schedules: { list(chatId: number, db: Db): Promise<string>; remove(chatId: number, id: string, db: Db): Promise<boolean>; create(chatId: number, botId: string, args: Record<string, unknown>, db: Db): Promise<string> };
+}
+let hostImpl: ShamHost | null = null;
+export const setShamHost = (h: ShamHost | null) => { hostImpl = h; };
+const host = async (): Promise<ShamHost> => hostImpl || (hostImpl = (await import("@/lib/shamHost")).shamHost);
 
 export type ShamCtx = { chatId: number; botId?: string; db: Db; githubToken: string | null; chatKey: string; runId: string; owner: boolean; fetchImpl?: typeof fetch };
 
@@ -56,8 +72,8 @@ export function shamTools(github: boolean): CoderTool[] {
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
-  const conn = await resolveConnections(chatId, db);
-  return { chatId, botId, db, githubToken: conn.github?.token || null, chatKey: `sham:${coderChatKey(chatId)}`, runId: `sham-${chatId}`, owner: tierFor(chatId) === "owner" };
+  const a = await (await host()).account(chatId, db);
+  return { chatId, botId, db, githubToken: a.githubToken, chatKey: `sham:${a.chatKey}`, runId: `sham-${chatId}`, owner: a.owner };
 }
 
 // ---------------------------------------------------------------- GitHub (Sham's own small client)
@@ -141,43 +157,37 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
     if (SHAM_NEEDS_OK.has(name) && !approved) return "error: this changes the user's repository: it runs only after the user taps «نفّذ».";
     if (name === "web_search") {
       const q = String(a.query || "").trim();
-      return q ? clip(formatSearch(q, await webSearch(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 8 }))) : "error: query is required";
+      return q ? clip(await (await host()).web.search(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 8 })) : "error: query is required";
     }
     if (name === "fetch_page") {
-      const p = await fetchPage(String(a.url || ""), { fetchImpl: ctx.fetchImpl, maxChars: Number(a.max_chars) || 20000 });
-      return p.ok ? clip(`${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}`, Math.max(RESULT_MAX, Number(a.max_chars) || 20000)) : `error: could not read ${p.url}: ${p.error}`;
+      const p = await (await host()).web.page(String(a.url || ""), { fetchImpl: ctx.fetchImpl, maxChars: Number(a.max_chars) || 20000 });
+      return p.ok ? clip(p.text, Math.max(RESULT_MAX, Number(a.max_chars) || 20000)) : `error: could not read ${p.url}: ${p.error}`;
     }
     if (name === "deep_research") {
       const q = String(a.question || "").trim();
       if (!q) return "error: question is required";
-      const { checkLimit, addUsage } = await import("@/lib/coderPlans");
-      const c = await checkLimit(ctx.chatId, "research", 1, ctx.db);
-      if (!c.ok) return "error: the weekly deep-research allowance is used up. Use web_search + fetch_page instead.";
-      await addUsage(ctx.chatId, "research", 1, ctx.db);
-      return formatResearch(await deepResearch(q, { fetchImpl: ctx.fetchImpl, maxSources: Number(a.max_sources) || 10 }), 24000);
+      const H = await host();
+      if (!(await H.limits.ok(ctx.chatId, "research", 1, ctx.db))) return "error: the weekly deep-research allowance is used up. Use web_search + fetch_page instead.";
+      await H.limits.add(ctx.chatId, "research", 1, ctx.db);
+      return await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Number(a.max_sources) || 10 });
     }
     if (name === "memory_save" || name === "memory_search") {
-      const { memoryTool } = await import("@/lib/coderMemory");
-      return await memoryTool(ctx.chatId, name, a, ctx.runId, ctx.db);
+      return await (await host()).memory(ctx.chatId, name, a, ctx.runId, ctx.db);
     }
     if (name === "schedule_create" || name === "schedule_list" || name === "schedule_delete") {
       if (!ctx.botId) return "error: scheduling is not available here";
-      const S = await import("@/lib/coderSchedules");
-      if (name === "schedule_list") {
-        const rows = await S.listSchedules(ctx.chatId, ctx.db);
-        return rows.length ? rows.map((r) => `${r.id} | ${r.title} | ${S.publicSchedule(r, "ar").describe}${r.paused ? " (paused)" : ""} | next: ${r.next_run_at || "-"}`).join("\n") : "no schedules";
-      }
-      if (name === "schedule_delete") return (await S.deleteSchedule(ctx.chatId, String(a.id || ""), true, ctx.db)) === "deleted" ? `deleted schedule ${a.id}` : "error: no such schedule";
-      const r = await S.createSchedule(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events } as any, ctx.db);
-      return r.ok ? `scheduled ${r.schedule.id}: ${S.publicSchedule(r.schedule, "ar").describe}` : `error: ${r.error}`;
+      const S = (await host()).schedules;
+      if (name === "schedule_list") return await S.list(ctx.chatId, ctx.db);
+      if (name === "schedule_delete") return (await S.remove(ctx.chatId, String(a.id || ""), ctx.db)) ? `deleted schedule ${a.id}` : "error: no such schedule";
+      return await S.create(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events }, ctx.db);
     }
-    if (SANDBOX_TOOLS.has(name)) {
-      const { checkLimit, addUsage } = await import("@/lib/coderPlans");
-      const c = ctx.owner ? { ok: true } : await checkLimit(ctx.chatId, "sandbox_minutes", 0, ctx.db);
-      if (!c.ok) return "error: the weekly sandbox time is used up. Continue without running code.";
+    const H0 = await host();
+    if (H0.sandbox.has(name)) {
+      const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));
+      if (!c) return "error: the weekly sandbox time is used up. Continue without running code.";
       const t0 = Date.now();
-      const out = await runSandboxTool(name, a, { chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken, owner: ctx.owner, db: ctx.db });
-      if (!ctx.owner) await addUsage(ctx.chatId, "sandbox_minutes", Math.ceil((Date.now() - t0) / 1000), ctx.db);
+      const out = await H0.sandbox.run(name, a, { chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken, owner: ctx.owner, db: ctx.db });
+      if (!ctx.owner) await H0.limits.add(ctx.chatId, "sandbox_minutes", Math.ceil((Date.now() - t0) / 1000), ctx.db);
       return out === null ? `error: ${name} is not available` : out;
     }
     if (name.startsWith("github_")) return await githubTool(ctx, name, a);

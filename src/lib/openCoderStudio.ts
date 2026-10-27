@@ -7,8 +7,7 @@
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
 import { noteStudioCtx } from "@/lib/coderContext";
-import { shamAsModel, PROVIDER_JOB_PREFIX } from "@/lib/coderProvider";
-import { shamVariant } from "@/lib/shamStudio";
+const PROVIDER_JOB_PREFIX = "p~";   // jobs of the removed "Sham inside Nova" provider: a run saved before that was removed gets "gone" instead of being polled
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
   | { role: "system" | "user"; content: string; ctx?: string; images?: string[] }          // images: data URLs of pictures the model should SEE (only a vision Studio can)
@@ -294,8 +293,6 @@ export function coderChat(
   opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  if (opts.model === "sham_loop") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: true, tools: opts.tools });   // Sham as Nova's helper agent (role sham, with tools). Sham as a CHOSEN model never comes here: it runs on its own path (novaBotLogic)
-  if (opts.model === "sham_probe") return shamAsModel(messages, { maxTokens: opts.maxTokens, timeoutMs: Math.max(60000, opts.timeoutMs ?? 0), conversation: false, tools: opts.tools });   // Sham as a sub-agent probe (role sham): the task as a plain question
   return coderCall(
     "chat",
     {

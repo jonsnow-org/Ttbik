@@ -6,7 +6,7 @@
 // Its tools and their executors are Sham's own too (shamExec.ts): the guarded web fetch, the VM driver, memory and schedules are called as plain libraries,
 // GitHub is spoken to directly; the VM, memory scope and run id are Sham's (`sham:<chat>` / `sham-<chat>`), never Nova's. No Nova engine, prompt, Studio or run state is touched.
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
-import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
 import { shamGenerateAny, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";

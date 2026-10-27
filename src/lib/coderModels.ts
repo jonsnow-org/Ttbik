@@ -3,7 +3,6 @@
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { prismaDb, type Db } from "@/lib/coderAuth";
-import { shamStudioEnabled } from "@/lib/shamStudio";
 
 export type CoderModel = {
   id: string;
@@ -82,9 +81,14 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 /** Older chats may hold the id of the former "Sham (advanced)" entry: it was merged into the old Sham (which now has everything it had). */
 export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
 
+/** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
+const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || "").trim());
+/** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
+export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
+
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
-  if (m.id === "sham" || m.id === "sham_v2") return shamStudioEnabled();
+  if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
@@ -113,7 +117,7 @@ export function ownerModels(models: CoderModel[], picked: string | undefined) {
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
-  if ((m.id === "sham" || m.id === "sham_v2") && !shamStudioEnabled()) return false;                // they need the Studio token                // needs Sham's Studio token
+  if ((m.id === "sham" || m.id === "sham_v2") && !studioTokenSet()) return false;                // they need the Studio token
   st.model = m.id;
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios
   return true;
