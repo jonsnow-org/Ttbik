@@ -386,7 +386,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "sham_media": {                       // owner's three-way media route selector
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { shamMediaRoute, setShamMediaRoute, shamMediaOrder } = await import("@/lib/shamExec");
-      if (body.route === "sham_v1" || body.route === "sham_v2" || body.route === "nova_media") {
+      if (body.route === "sham_v1" || body.route === "sham_v2_internal" || body.route === "sham_v2_ready" || body.route === "sham_v2_hf") {
         await setShamMediaRoute(body.route, db);
       } else if (body.order === "own_first" || body.order === "reserve_first") {
         // Compatibility with clients that still send the old binary switch.
