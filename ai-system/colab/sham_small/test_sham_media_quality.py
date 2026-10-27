@@ -61,6 +61,42 @@ class AudioVideoGate(unittest.TestCase):
             self.assertEqual(c.exception.reason, "empty_video")
 
 
+def _ffmpeg():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        import shutil
+        return shutil.which("ffmpeg")
+
+
+@unittest.skipUnless(_ffmpeg(), "ffmpeg not installed: frame-level video checks are skipped (the Studio has imageio-ffmpeg)")
+class RealVideoDecode(unittest.TestCase):
+    def clip(self, source: str) -> bytes:
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "c.mp4"
+            subprocess.run([_ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", source, "-t", "1", "-pix_fmt", "yuv420p", "-c:v", "libx264", str(out)], check=True, timeout=60)
+            return out.read_bytes()
+
+    def test_moving_clip_passes_black_and_frozen_clips_fail(self):
+        info = mq.check_mp4(self.clip("testsrc=size=128x128:rate=8"))
+        self.assertTrue(info["decoded"])
+        self.assertGreaterEqual(info["frames"], 2)
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(self.clip("color=c=black:size=128x128:rate=8"))
+        self.assertEqual(c.exception.reason, "static_video")
+        with self.assertRaises(mq.MediaQualityError) as c:       # a still picture held for a second: no motion
+            mq.check_mp4(self.clip("color=c=red:size=128x128:rate=8,drawbox=x=20:y=20:w=60:h=60:color=white:t=fill"))
+        self.assertEqual(c.exception.reason, "static_video")
+
+    def test_garbage_that_looks_like_mp4_is_rejected_by_the_decoder(self):
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(fx.mp4_shell())
+        self.assertEqual(c.exception.reason, "empty_video")
+
+
 class GateReply(unittest.TestCase):
     def reply(self, kind, raw, **extra):
         return {"type": kind, "b64": base64.b64encode(raw).decode(), **extra}

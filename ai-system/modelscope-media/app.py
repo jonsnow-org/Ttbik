@@ -163,7 +163,8 @@ def check_mp4(data: bytes, *, decode: bool = True) -> dict:
             return info
         with _tf.TemporaryDirectory() as d:
             src = d + "/in.mp4"
-            open(src, "wb").write(data)
+            with open(src, "wb") as fh:
+                fh.write(data)
             side = 64
             out = _sp.run([exe, "-v", "error", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
                           capture_output=True, timeout=90).stdout

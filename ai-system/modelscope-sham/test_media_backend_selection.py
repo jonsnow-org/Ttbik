@@ -12,6 +12,12 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app as sham_app  # noqa: E402
+import base64  # noqa: E402
+
+import media_fixtures as fx  # noqa: E402  (ai-system/colab/sham_small, on PYTHONPATH)
+
+GOOD_PNG = base64.b64encode(fx.png()).decode()
+GOOD_MP4 = base64.b64encode(fx.mp4_shell()).decode()
 
 
 class MediaBackendSelectionTests(unittest.TestCase):
@@ -25,7 +31,7 @@ class MediaBackendSelectionTests(unittest.TestCase):
             "image_tokenizer": object(),
             "audio_tokenizer": object(),
         }
-        self.make_media = Mock(return_value={"type": "image", "b64": "local-test"})
+        self.make_media = Mock(return_value={"type": "image", "b64": GOOD_PNG})
         self.modules_patch = patch.object(
             sham_app, "_studio_modules",
             return_value=(None, types.SimpleNamespace(make_media=self.make_media)),
@@ -73,7 +79,7 @@ class MediaBackendSelectionTests(unittest.TestCase):
     def test_ready_weights_generate_even_when_text_checkpoint_is_not_ready(self):
         sham_app.STATE.update(phase="waiting", media_root="/tmp/sham-v2-media")
         ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock(return_value={"type": "image", "b64": "local-test"})
+        ready.make = Mock(return_value={"type": "image", "b64": GOOD_PNG})
         with patch.dict(sys.modules, {"sham_media_ready": ready}):
             result = json.loads(
                 sham_app.generate_media_from_panel(
@@ -85,10 +91,11 @@ class MediaBackendSelectionTests(unittest.TestCase):
         ready.make.assert_called_once_with(Path("/tmp/sham-v2-media"), "image", "a tree", scenes=[], narration="")
         self.make_media.assert_not_called()
 
+    @patch("media_quality.check_mp4", lambda data, **k: {"decoded": False})      # the fixture is a container shell; real decoding is covered in test_sham_media_quality
     def test_ready_backend_receives_video_scenes_and_narration(self):
         sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
         ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock(return_value={"type": "video", "b64": "local-test"})
+        ready.make = Mock(return_value={"type": "video", "b64": GOOD_MP4})
         scenes = ["wide shot of a rabbit", "close-up of the rabbit"]
         with patch.dict(sys.modules, {"sham_media_ready": ready}):
             result = json.loads(
@@ -108,6 +115,28 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(kwargs["scenes"], scenes)
         self.assertEqual(kwargs["narration"], "الأرنب يقفز في الحديقة")
         self.make_media.assert_not_called()
+
+    def test_blank_picture_from_either_path_never_leaves_the_studio(self):
+        blank = base64.b64encode(fx.png("black", 512)).decode()
+        self.make_media.return_value = {"type": "image", "b64": blank}
+        internal = json.loads(sham_app.generate_media_from_panel("image", "a tree", "شام الداخلي (الأساسي)"))
+        self.assertEqual((internal["type"], internal["reason"], internal["backend"]), ("error", "blank_image", "internal"))
+        self.assertNotIn("b64", internal)
+        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
+        ready = types.ModuleType("sham_media_ready")
+        ready.make = Mock(return_value={"type": "image", "b64": blank})
+        with patch.dict(sys.modules, {"sham_media_ready": ready}):
+            out = json.loads(sham_app.generate_media_from_panel("image", "a tree", "المسار البديل (أوزان محلية جاهزة)"))
+        self.assertEqual((out["type"], out["reason"], out["backend"]), ("error", "blank_image", "ready"))
+
+    def test_generate_any_is_vetted_too(self):
+        blank = base64.b64encode(fx.png("black", 512)).decode()
+        serve = self.fake_serve
+        serve._state["model"] = object()
+        media = types.SimpleNamespace(generate_any=Mock(return_value={"type": "image", "b64": blank}))
+        with patch.object(sham_app, "_studio_modules", return_value=(None, media)):
+            out = json.loads(sham_app.generate_any("ارسم قطة"))
+        self.assertEqual((out["type"], out["reason"]), ("error", "blank_image"))
 
     def test_invalid_scenes_json_returns_explicit_error(self):
         sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
