@@ -383,18 +383,19 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panel } = await import("@/lib/coderPanel");
       return await panel(db, deps.fetchImpl || globalThis.fetch);
     }
-    case "sham_media": {                       // owner's three-way media route selector
+    case "sham_media": {                       // owner's isolated Sham route selector + per-route enable switches
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const { shamMediaRoute, setShamMediaRoute, shamMediaOrder } = await import("@/lib/shamExec");
-      if (body.route === "sham_v1" || body.route === "sham_v2_internal" || body.route === "sham_v2_ready" || body.route === "sham_v2_hf") {
-        await setShamMediaRoute(body.route, db);
+      const S = await import("@/lib/shamExec");
+      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal" || v === "sham_v2_ready" || v === "sham_v2_hf";
+      if (validRoute(body.route)) {
+        await S.setShamMediaRoute(body.route, db);
+      } else if (body.enabledRoute && validRoute(body.enabledRoute) && typeof body.enabled === "boolean") {
+        await S.setShamMediaRouteEnabled(body.enabledRoute, body.enabled, db);
       } else if (body.order === "own_first" || body.order === "reserve_first") {
         // Compatibility with clients that still send the old binary switch.
-        const { setShamMediaOrder } = await import("@/lib/shamExec");
-        await setShamMediaOrder(body.order, db);
+        await S.setShamMediaOrder(body.order, db);
       }
-      const route = await shamMediaRoute(db);
-      return { route, order: await shamMediaOrder(db) };
+      return { route: await S.shamMediaRoute(db), enabled: await S.shamMediaRouteEnabledMap(db), order: await S.shamMediaOrder(db) };
     }
     case "hf_media_route": {                    // owner switch: Hugging Face ZeroGPU vs existing image/video fallback routes
       if (user.tier !== "owner") throw new AppError(403, "owner only");
