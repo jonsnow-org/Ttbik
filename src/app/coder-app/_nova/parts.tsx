@@ -661,7 +661,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسارات وسائط شام الثلاثة" : "Sham's three media routes"} footer={ar ? "اختر المسار المفضل. إذا تعذّر تقنيًا، يجرب شام المسارات الأخرى المهيأة تلقائيًا. لا يتطلب تغيير المسار إعادة نشر." : "Choose the preferred route. If it fails technically, Sham tries the other configured routes. Changing this setting does not require a redeploy."}>
+      <Section header={ar ? "مسارات وسائط شام الثلاثة" : "Sham's three media routes"} footer={ar ? "اختر المسار الذي تريد استخدامه. عند الفشل سيعرض شام اسم المسار وسبب الخطأ ولن ينتقل تلقائيًا إلى مسار آخر. لا يتطلب تغيير المسار إعادة نشر." : "Choose the route to use. If it fails, Sham reports the selected route and error reason; it will not automatically switch routes. Changing this setting does not require a redeploy."}>
         <Cell Component="label" multiline subtitle={mediaRoute === "sham_v1" ? (ar ? "المسار النشط" : "Active route") : (ar ? "تحديد المسار" : "Select route")}
           after={<Switch checked={mediaRoute === "sham_v1"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v1"); }} />}>
           {ar ? "شام الأصلي — أوزانه الداخلية" : "Original Sham — its own weights"}
