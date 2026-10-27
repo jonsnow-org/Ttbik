@@ -18,6 +18,7 @@ import io
 import json
 import os
 import subprocess
+import shutil
 import tempfile
 import threading
 import time
@@ -100,7 +101,15 @@ def _video_pipe():
     if local_dir:
         model_dir = Path(local_dir).expanduser().resolve()
     else:
-        # Retrieve open model weights only; all prompts and inference remain inside Nova's own process.
+        # Wan's full Diffusers snapshot is about 17.6 GB; refuse before download if this CPU host cannot store it.
+        free_bytes = shutil.disk_usage(HERE).free
+        required_bytes = 20 * (1024 ** 3)
+        if free_bytes < required_bytes:
+            raise RuntimeError(
+                f"native-video-unavailable: CPU mode needs at least 20 GiB free disk for local Wan weights; "
+                f"only {free_bytes / (1024 ** 3):.1f} GiB is free. Set NOVA_VIDEO_MODEL_DIR to an existing local checkpoint."
+            )
+        # Retrieve weights only. All prompts and inference remain inside Nova's own process.
         from modelscope import snapshot_download
         model_dir = Path(snapshot_download(
             "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
