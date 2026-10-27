@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
+from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -1289,10 +1289,16 @@ def _process_image_gen_and_deliver(
                 if image_bytes is not None:
                     logger.info("image-gen: Nova external route served by Cloudflare Workers AI")
         else:
-            # Internal mode is Nova's own ModelScope-hosted image generator only.
-            image_bytes = council.generate_image(expanded_prompt)
+            # Nova's dedicated media Studio is the primary internal image tool.
+            # The legacy Nova ModelScope image model remains a Nova-only fallback;
+            # this path never calls Sham v1 or Sham v2.
+            image_bytes = nova_media_studio.generate_media("image", expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: Nova internal route served by its own ModelScope image model")
+                logger.info("image-gen: Nova internal route served by its dedicated media Studio")
+            else:
+                image_bytes = council.generate_image(expanded_prompt)
+                if image_bytes is not None:
+                    logger.info("image-gen: Nova media Studio unavailable; served by Nova's own ModelScope image model")
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
