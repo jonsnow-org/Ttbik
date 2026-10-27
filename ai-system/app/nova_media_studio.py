@@ -1,7 +1,7 @@
 """Client for Nova's dedicated ModelScope media Studio.
 
 This module belongs only to Nova. It does not call either Sham Studio.
-The Studio provides SDXS images, Piper speech, and native Wan diffusion video when a local checkpoint and CUDA GPU are configured.
+The Studio provides SDXS images, Piper speech, and native Wan diffusion video on CPU using Nova's own local checkpoint.
 """
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ def generate_media(
     *,
     scenes: list[str] | None = None,
     narration: str = "",
+    seconds: int = 2,
     timeout: int = 900,
 ) -> bytes | None:
     """Generate media on Nova's own Studio; return bytes or None on a real error."""
@@ -57,7 +58,7 @@ def generate_media(
     else:
         payload = {
             "prompt": (prompt or "")[:800],
-            "seconds": 3,
+            "seconds": max(1, min(int(seconds or 2), 2)),
             "seed": 0,
         }
     try:
