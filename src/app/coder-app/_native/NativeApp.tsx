@@ -866,7 +866,8 @@ function PanelPage({ lang }: { lang: Lang }) {
   const [models, setModels] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
-  const [mediaRoute, setMediaRoute] = useState<"sham_v1" | "sham_v2" | "nova_media">("sham_v2");
+  const [mediaRoute, setMediaRoute] = useState<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf">("sham_v2_ready");
+  const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("fallback_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -877,7 +878,8 @@ function PanelPage({ lang }: { lang: Lang }) {
       setD(p);
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
-      void api<{ route: "sham_v1" | "sham_v2" | "nova_media" }>("sham_media").then((x) => setMediaRoute(x.route)).catch(() => null);
+      void api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf" }>("sham_media").then((x) => setMediaRoute(x.route)).catch(() => null);
+      void api<{ order: "hf_first" | "fallback_first" }>("hf_media_route").then((x) => setHfMediaOrder(x.order)).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -896,14 +898,14 @@ function PanelPage({ lang }: { lang: Lang }) {
     }
     setBusy("");
   };
-  const chooseMediaRoute = async (route: "sham_v1" | "sham_v2" | "nova_media") => {
+  const chooseMediaRoute = async (route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf") => {
     if (route === mediaRoute || busy === "sham_media") return;
     const prev = mediaRoute;
     setMediaRoute(route);
     setBusy("sham_media");
     setMsg("");
     try {
-      const r = await api<{ route: "sham_v1" | "sham_v2" | "nova_media" }>("sham_media", { route });
+      const r = await api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf" }>("sham_media", { route });
       setMediaRoute(r.route);
       haptic("success");
       setMsg(ar ? "تم حفظ مسار وسائط شام." : "Sham media route saved.");
@@ -949,20 +951,32 @@ function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسارات وسائط شام الثلاثة" : "Sham's three media routes"} footer={ar ? "اختر المسار الذي تريد استخدامه. عند الفشل سيعرض شام اسم المسار وسبب الخطأ ولن ينتقل تلقائيًا إلى مسار آخر. لا يتطلب تغيير المسار إعادة نشر." : "Choose the route to use. If it fails, Sham reports the selected route and error reason; it will not automatically switch routes. Changing this setting does not require a redeploy."}>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v1" ? (ar ? "المسار النشط" : "Active route") : (ar ? "تحديد المسار" : "Select route")}
+      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "اختر مساراً واحداً نشطاً. لا ينتقل شام تلقائياً إلى مسار آخر عند الفشل. مسار Hugging Face يدعم الصور والفيديو؛ للصوت العربي استخدم الأوزان الجاهزة." : "Choose one active route. Sham never silently switches paths on failure. Hugging Face supports images and video; use ready weights for Arabic audio."}>
+        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v1" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
           after={<Switch checked={mediaRoute === "sham_v1"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v1"); }} />}>
-          {ar ? "شام الأصلي — أوزانه الداخلية" : "Original Sham — its own weights"}
+          {ar ? "شام القديم — الاستوديو الأصلي" : "Sham v1 — original Studio"}
         </Cell>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2" ? (ar ? "المسار النشط" : "Active route") : (ar ? "تحديد المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "sham_v2"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2"); }} />}>
-          {ar ? "شام v2 — أوزان المانح" : "Sham v2 — donor weights"}
+        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_internal" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
+          after={<Switch checked={mediaRoute === "sham_v2_internal"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_internal"); }} />}>
+          {ar ? "شام v2 — مولّد الرموز الداخلي (تدريبه غير مثبت)" : "Sham v2 — internal token decoder (training unverified)"}
         </Cell>
-        <Cell Component="label" multiline subtitle={mediaRoute === "nova_media" ? (ar ? "المسار النشط" : "Active route") : (ar ? "تحديد المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "nova_media"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("nova_media"); }} />}>
-          {ar ? "استوديو مولّد الوسائط الإضافي" : "Dedicated Media Generator Studio"}
+        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_ready" ? (ar ? "المسار النشط" : "Active route · recommended") : (ar ? "اختيار المسار" : "Select route")}
+          after={<Switch checked={mediaRoute === "sham_v2_ready"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_ready"); }} />}>
+          {ar ? "شام v2 — أوزان المانح الجاهزة (الافتراضي)" : "Sham v2 — ready donor weights (default)"}
+        </Cell>
+        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_hf" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
+          after={<Switch checked={mediaRoute === "sham_v2_hf"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_hf"); }} />}>
+          {ar ? "شام v2 — مولّد Hugging Face الخارجي" : "Sham v2 — external Hugging Face generator"}
         </Cell>
         {busy === "sham_media" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ مسار الوسائط…" : "Saving media route…"}</Cell>}
+      </Section>
+      <Section header={ar ? "مولّد نوفا الخارجي" : "Nova external media generator"} footer={ar ? "هذا المفتاح يخص نوفا فقط؛ لا يغيّر أي مسار في شام." : "Nova only; this never changes Sham routes."}>
+        <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "مولّد نوفا الخارجي مفعّل" : "Nova external generator enabled") : (ar ? "مولّد نوفا الداخلي" : "Nova internal generator")}
+          after={<Switch checked={hfMediaOrder === "hf_first"} disabled={busy === "hf_media_route"} onChange={async (e) => { const order = e.currentTarget.checked ? "hf_first" : "fallback_first"; const prev = hfMediaOrder; setHfMediaOrder(order); setBusy("hf_media_route"); setMsg(""); try { const r = await api<{ order: "hf_first" | "fallback_first" }>("hf_media_route", { order }); setHfMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ أداة نوفا." : "Nova media tool saved."); } catch (err: any) { setHfMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } finally { setBusy(""); } }}>
+          {ar ? "استخدام Hugging Face / Cloudflare في نوفا" : "Use Hugging Face / Cloudflare for Nova"}
+        </Cell>
+        {busy === "hf_media_route" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ أداة نوفا…" : "Saving Nova media tool…"}</Cell>}
+        {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
