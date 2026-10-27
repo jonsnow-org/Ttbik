@@ -5,6 +5,7 @@ import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 import { prismaDb as platformDb, resolveConnections, tierFor, coderChatKey, type Db as PlatformDb } from "@/lib/coderAuth";
 import { checkLimit, addUsage } from "@/lib/coderPlans";
+import { connectedIds, connectorApi, mcpRequest } from "@/lib/coderConnectors";
 import { memoryTool } from "@/lib/coderMemory";
 import * as S from "@/lib/coderSchedules";
 import { prismaDb as shamDb } from "@/lib/shamDb";
@@ -25,7 +26,12 @@ export const shamHost: ShamHost = {
   sandbox: { has: (n) => SANDBOX_TOOLS.has(n), run: (name, args, c) => runSandboxTool(name, args, { ...c, db: d(c.db) }) },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
-    return { githubToken: conn.github?.token || null, owner: tierFor(chatId) === "owner", chatKey: coderChatKey(chatId) };
+    const connectors = (await connectedIds(chatId, d(db)).catch(() => [] as string[])).filter((x) => x !== "github");
+    return { githubToken: conn.github?.token || null, owner: tierFor(chatId) === "owner", chatKey: coderChatKey(chatId), connectors };
+  },
+  connectors: {
+    api: (chatId, a, db, f) => connectorApi(chatId, a, d(db), f),
+    mcp: (chatId, server, method, params, db, f) => mcpRequest(chatId, server, method, params, d(db), f),
   },
   limits: {
     ok: async (chatId, metric, amount, db) => (await checkLimit(chatId, metric, amount, d(db))).ok,

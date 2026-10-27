@@ -15,7 +15,9 @@ export interface ShamHost {
     research(q: string, o: { fetchImpl?: typeof fetch; maxSources: number }): Promise<string>;
   };
   sandbox: { has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
-  account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string }>;
+  account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
+  /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
+  connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
   limits: { ok(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<boolean>; add(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<void> };
   memory(chatId: number, tool: string, args: Record<string, unknown>, runId: string, db: Db): Promise<string>;
   schedules: { list(chatId: number, db: Db): Promise<string>; remove(chatId: number, id: string, db: Db): Promise<boolean>; create(chatId: number, botId: string, args: Record<string, unknown>, db: Db): Promise<string> };
@@ -24,7 +26,7 @@ let hostImpl: ShamHost | null = null;
 export const setShamHost = (h: ShamHost | null) => { hostImpl = h; };
 const host = async (): Promise<ShamHost> => hostImpl || (hostImpl = (await import("@/lib/shamHost")).shamHost);
 
-export type ShamCtx = { chatId: number; botId?: string; db: Db; githubToken: string | null; chatKey: string; runId: string; owner: boolean; fetchImpl?: typeof fetch };
+export type ShamCtx = { chatId: number; botId?: string; db: Db; githubToken: string | null; connectors?: string[]; chatKey: string; runId: string; owner: boolean; fetchImpl?: typeof fetch };
 
 const RESULT_MAX = 7000;
 const clip = (x: unknown, max = RESULT_MAX) => { const t = typeof x === "string" ? x : JSON.stringify(x, null, 1); return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars]` : t; };
@@ -48,6 +50,9 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("schedule_list", "List this user's scheduled tasks.", obj({})),
   tool("schedule_delete", "Delete a scheduled task.", obj({ id: s("schedule id") }, ["id"])),
   tool("schedule_create", "Schedule a task that runs by itself later and reports back in this chat. Write the prompt as a complete standalone instruction.", obj({ title: s("short title"), prompt: s("full instruction for the run"), kind: { type: "string", enum: ["cron", "event"] }, recurrence: { type: "object", description: "when it repeats (as the schedules API expects)" }, repo: s("owner/name for event schedules") }, ["title", "prompt"])),
+  tool("connector_api", "Call the REST API of a service the user connected in the app (google_drive, gmail, notion, vercel, supabase, slack, discord) with their own account. GET reads run directly; anything that writes waits for the user's confirmation.", obj({ service: s("connector id, e.g. notion"), method: s("GET (default), POST, PATCH, PUT, DELETE"), path: s("API path relative to the service's API base or a full https URL on that API"), body: { type: "object", description: "JSON body for POST/PATCH/PUT" } }, ["service", "path"])),
+  tool("mcp_list_tools", "List the tools of an MCP server the user added in the app (id like mcp:ab12cd34ef).", obj({ server: s("MCP server id") }, ["server"])),
+  tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -63,17 +68,24 @@ export const SHAM_TOOLS: CoderTool[] = [
 ];
 
 /** Calls that change the user's repositories: they wait for the user's tap. */
-export const SHAM_NEEDS_OK = new Set(["sandbox_push", "github_create_pr", "github_merge_pr"]);
+export const SHAM_NEEDS_OK = new Set(["sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"]);
+/** Does this call change something outside the chat? Those wait for the user's tap: the fixed write tools, an MCP call, and a connector call that is not a plain read. */
+export function shamNeedsOk(call: CoderToolCall): boolean {
+  if (SHAM_NEEDS_OK.has(call.function.name)) return true;
+  if (call.function.name !== "connector_api") return false;
+  try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
+}
+const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
 const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_create_pr", "github_merge_pr", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
-export function shamTools(github: boolean): CoderTool[] {
-  return SHAM_TOOLS.filter((t) => github || !GITHUB_TOOLS.has(t.function.name));
+export function shamTools(github: boolean, connectors = false): CoderTool[] {
+  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
   const a = await (await host()).account(chatId, db);
-  return { chatId, botId, db, githubToken: a.githubToken, chatKey: `sham:${a.chatKey}`, runId: `sham-${chatId}`, owner: a.owner };
+  return { chatId, botId, db, githubToken: a.githubToken, connectors: a.connectors, chatKey: `sham:${a.chatKey}`, runId: `sham-${chatId}`, owner: a.owner };
 }
 
 // ---------------------------------------------------------------- GitHub (Sham's own small client)
@@ -190,6 +202,12 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
       if (!ctx.owner) await H0.limits.add(ctx.chatId, "sandbox_minutes", Math.ceil((Date.now() - t0) / 1000), ctx.db);
       return out === null ? `error: ${name} is not available` : out;
     }
+    if (name === "connector_api") return clip(await (await host()).connectors.api(ctx.chatId, a, ctx.db, ctx.fetchImpl), 20000);
+    if (name === "mcp_list_tools" || name === "mcp_call") {
+      const server = String(a.server || "");
+      if (!server) return "error: server is required";
+      return clip(await (await host()).connectors.mcp(ctx.chatId, server, name === "mcp_list_tools" ? "tools/list" : "tools/call", name === "mcp_call" ? { name: String(a.tool || ""), arguments: a.arguments && typeof a.arguments === "object" ? a.arguments : {} } : {}, ctx.db, ctx.fetchImpl), 20000);
+    }
     if (name.startsWith("github_")) return await githubTool(ctx, name, a);
     return `error: unknown tool ${name}`;
   } catch (e) {
@@ -224,6 +242,8 @@ export async function shamTakePending(chatId: number, id: string, db: Db = prism
 export function shamConfirmText(call: CoderToolCall): string {
   const a = parse(call);
   const what = call.function.name === "sandbox_push" ? `رفع التعديلات من الجهاز الافتراضي إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
+    : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
+    : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;
   return `🔐 شام يريد أن ينفّذ:\n${what}\n\nهل أسمح له؟`;
