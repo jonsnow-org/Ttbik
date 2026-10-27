@@ -576,7 +576,8 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [models, setModels] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
-  const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("reserve_first");
+  const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("own_first");
+  const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("hf_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -588,6 +589,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
       void api<{ order: "reserve_first" | "own_first" }>("sham_media").then((x) => setMediaOrder(x.order)).catch(() => null);
+      void api<{ order: "hf_first" | "fallback_first" }>("hf_media_route").then((x) => setHfMediaOrder(x.order)).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -640,11 +642,18 @@ export function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسار وسائط شام" : "Sham media path"} footer={ar ? "مفعّل: استوديو الوسائط (نماذج جاهزة) أولاً ثم أوزان شام عند الفشل. مطفأ: أوزان شام أولاً ثم استوديو الوسائط عند الفشل." : "On: the media Studio (ready models) first, Sham's own weights on failure. Off: Sham's own weights first, the media Studio on failure."}>
-        <Cell Component="label" multiline subtitle={mediaOrder === "reserve_first" ? (ar ? "استوديو الوسائط أولاً" : "Media Studio first") : (ar ? "أوزان شام أولاً" : "Sham's own weights first")}
-          after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; setMediaOrder(order); const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); }} />}>
-          {ar ? "الاحتياط أولاً" : "Reserve first"}
+      <Section header={ar ? "مسار وسائط شام" : "Sham media path"} footer={ar ? "افتراضيًا: أوزان شام الداخلية أولًا. فعّل المفتاح لتجربة استوديو الوسائط الخارجي أولًا ثم العودة إلى شام عند الفشل." : "Default: Sham’s internal weights first. Turn on the switch to try the external Media Studio first, then fall back to Sham."}>
+        <Cell Component="label" multiline subtitle={mediaOrder === "reserve_first" ? (ar ? "استوديو الوسائط الخارجي أولًا" : "External Media Studio first") : (ar ? "أوزان شام الداخلية أولًا" : "Sham internal weights first")}
+          after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; const prev = mediaOrder; setMediaOrder(order); try { const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ مسار شام." : "Sham media route saved."); } catch (err: any) { setMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } }} />}>
+          {ar ? "تجربة الاستوديو الخارجي أولًا" : "Try external Studio first"}
         </Cell>
+      </Section>
+      <Section header={ar ? "المسار البديل للصور والفيديو (Hugging Face)" : "Optional image/video route (Hugging Face)"} footer={ar ? "مفعّل: تُجرّب مساحات Hugging Face أولًا. مطفأ: تُجرّب المسارات الحالية أولًا. يبقى مسار شام الداخلي مستقلًا." : "On: try Hugging Face Spaces first. Off: try existing routes first. Sham’s internal media route remains independently selectable."}>
+        <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "Hugging Face أولًا" : "Hugging Face first") : (ar ? "المسارات الحالية أولًا" : "Existing routes first")}
+          after={<Switch checked={hfMediaOrder === "hf_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "hf_first" : "fallback_first"; const prev = hfMediaOrder; setHfMediaOrder(order); try { const r = await api<{ order: "hf_first" | "fallback_first" }>("hf_media_route", { order }); setHfMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ المسار البديل." : "Alternative media route saved."); } catch (err: any) { setHfMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } }}> 
+          {ar ? "تفعيل مسار Hugging Face البديل" : "Prefer Hugging Face media route"}
+        </Cell>
+        {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
