@@ -46,7 +46,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number } };
 export type { Db };
 export { coderChatKey };
 
@@ -130,7 +130,7 @@ const emptyState = (): ChatState => ({ mode: defaultMode(), think: false, messag
 
 let ready: Promise<void> | null = null;
 function ensureTable(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = db
       .exec(`CREATE TABLE IF NOT EXISTS coder_chat_state (chat_key TEXT PRIMARY KEY, state JSONB NOT NULL DEFAULT '{}'::jsonb, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)

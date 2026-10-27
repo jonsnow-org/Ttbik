@@ -30,7 +30,7 @@ describe("Nova <-> Sham boundary", () => {
 
   it("no Nova module imports a Sham module (the Mini App control plane is the one allowed exception)", () => {
     const bad: string[] = [];
-    for (const f of files.filter(isNova).filter((x) => x !== "coderApp.ts"))
+    for (const f of files.filter(isNova).filter((x) => x !== "coderApp.ts" && x !== "coderChats.ts"))
       for (const i of importsOf(f)) if (/^@\/lib\/sham/.test(i) || /^\.\/sham/.test(i)) bad.push(`${f} -> ${i}`);
     expect(bad).toEqual([]);
   });

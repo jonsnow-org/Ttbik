@@ -113,10 +113,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "settings": {
       const st = await loadState(chatId, db);
+      let carried = 0;
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
-        const { listModels, chooseModel } = await import("@/lib/coderModels");
+        const { listModels, chooseModel, canonModelId } = await import("@/lib/coderModels");
+        const C = await import("@/lib/coderChats");
+        const from = canonModelId(st.model) || "coder";
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
+        // switching in the middle of a conversation: the new model gets the conversation so far as its open chat (connectors are the user's and are already there)
+        // `carry: false` switches without it (a clean start in the other model's own last chat)
+        const to = canonModelId(st.model) || "coder";
+        if (body.carry !== false && C.isChatModel(from) && C.isChatModel(to)) carried = await C.carryConversation(chatId, st, from, to, db).catch(() => 0);
       }
       // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
       if (typeof body.think === "boolean" || isAccuracy(body.accuracy) || typeof body.media === "boolean") {
@@ -132,7 +139,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
       await saveState(chatId, st, db);
-      return { ok: true };
+      return { ok: true, carried };
     }
     case "pref_preset": {
       // one tap for the whole confirmation policy: "careful" asks for every category, "default" goes back to the tier defaults,
@@ -208,7 +215,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         out.push({ ...k, events: shown.filter((e) => e.kind === "start" || e.kind === "text" || e.kind === "failed" || e.kind === "confirm" || e.kind === "segment") });
       }
       const st = await loadState(chatId, db);
-      return { thread: { id: t.id, title: t.title, legacy: t.legacy, created_at: t.created_at, updated_at: t.updated_at }, current: st.threadId === t.id, tasks: out };
+      return { thread: { id: t.id, title: t.title, legacy: t.legacy, pinned: Boolean(t.pinned), archived: Boolean(t.archived), created_at: t.created_at, updated_at: t.updated_at }, current: st.threadId === t.id, tasks: out };
     }
     case "thread_new":
     case "thread_open": {
@@ -233,6 +240,61 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (st.threadId === id) await (await sections()).switchThread(chatId, st, null, db);
       if (!(await hideThread(chatId, id, db))) throw new AppError(404, "not found");
       return { ok: true };
+    }
+    // ---------------------------------------------------------------- per-model chat lists (src/lib/coderChats.ts): Nova, Sham and Sham v2 each have their own
+    case "chats":
+    case "chat_new":
+    case "chat_open":
+    case "chat_rename":
+    case "chat_pin":
+    case "chat_archive":
+    case "chat_delete":
+    case "chat_messages": {
+      const C = await import("@/lib/coderChats");
+      const { listModels, canonModelId, chooseModel } = await import("@/lib/coderModels");
+      const st = await loadState(chatId, db);
+      const model = canonModelId(typeof body.model === "string" ? body.model : st.model) || "coder";
+      const known = await listModels(db);
+      const m = known.find((x) => x.id === model);
+      // the same rule as the model picker: a user sees only the models the owner opened (Sham and Sham v2 are the owner's until their own switch is on)
+      if (!C.isChatModel(model) || !m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+      const id = String(body.id || "");
+      if (op === "chats") {
+        if (!st.threadId && model === "coder" && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
+        const archived = body.archived === "only" || body.archived === "include" ? body.archived : "exclude";
+        return { model, selected: st.model || "coder", ...(await C.chatList(chatId, st, model, { q: typeof body.q === "string" ? body.q : undefined, archived, limit: Number(body.limit) || 60 }, db)) };
+      }
+      if (op === "chat_new" || op === "chat_open") {
+        // continuing a chat of another model also selects that model (its tools, settings and connectors are the same user's)
+        if (model !== (canonModelId(st.model) || "coder") && !chooseModel(st, known, model, user.tier === "owner")) throw new AppError(400, "model not available");
+        const ok = op === "chat_new" ? Boolean(await C.chatNew(chatId, st, model, db)) : await C.chatOpen(chatId, st, model, id, db);
+        if (!ok) throw new AppError(404, "not found");
+        await saveState(chatId, st, db);
+        return { ok: true, model, ...(op === "chat_open" ? { messages: (await C.chatMessages(chatId, model, id, db)) || [] } : {}) };
+      }
+      if (op === "chat_rename") {
+        if (!(await C.chatRename(chatId, model, id, String(body.title || ""), db))) throw new AppError(400, "bad title");
+        return { ok: true };
+      }
+      if (op === "chat_pin") {
+        if (!(await C.chatPin(chatId, model, id, body.pinned !== false, db))) throw new AppError(404, "not found");
+        return { ok: true };
+      }
+      if (op === "chat_archive") {
+        if (!(await C.chatArchive(chatId, st, model, id, body.archived !== false, db))) throw new AppError(404, "not found");
+        return { ok: true };
+      }
+      if (op === "chat_delete") {
+        const ids = Array.isArray(body.ids) ? body.ids.map(String) : id ? [id] : undefined;
+        const spec = ids ? { ids } : Number(body.olderThanDays) > 0 ? { olderThanDays: Number(body.olderThanDays) } : body.archived === true ? { archived: true } : body.all === true ? { all: true } : null;
+        if (!spec) throw new AppError(400, "nothing to delete");
+        const deleted = await C.chatDelete(chatId, st, model, spec, db);
+        await saveState(chatId, st, db);
+        return { ok: true, deleted };
+      }
+      const messages = await C.chatMessages(chatId, model, id, db);
+      if (!messages) throw new AppError(404, "not found");
+      return { model, id, messages };
     }
     case "send": {
       const text = String(body.text || "").trim();

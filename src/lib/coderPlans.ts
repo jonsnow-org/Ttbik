@@ -56,7 +56,7 @@ export const paymentProvider = () => payment;
 
 let ready: Promise<void> | null = null;
 function ensureTables(db: Db): Promise<void> {
-  if (db !== prismaDb) return Promise.resolve();
+  if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_plans (id TEXT PRIMARY KEY, name JSONB NOT NULL, price_label TEXT NOT NULL DEFAULT '', price_cents INT, currency TEXT NOT NULL DEFAULT 'USD', limits JSONB NOT NULL, sort INT NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
