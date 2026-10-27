@@ -77,7 +77,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone";
+  type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
   text?: string; mime?: string; b64?: string; route?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];

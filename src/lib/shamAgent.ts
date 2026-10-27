@@ -8,8 +8,8 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamMediaOrder } from "@/lib/shamExec";
-import { shamGenerateAny, shamGenerateMedia, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAny, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
@@ -40,7 +40,7 @@ export async function shamAgentRun(opts: {
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
-  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // Sham's own media models (default: shamGenerateMedia)
+  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
@@ -68,26 +68,20 @@ export async function shamAgentRun(opts: {
     let a: { kind?: string; prompt?: string } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
-    opts.onEvent?.("tool", `make_media ${kind}: ${String(a.prompt || "").slice(0, 80)}`);
+    opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
-    return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
+    if (r?.type === "error") {
+      opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " FAILED: " + String(r.text || "unknown error").slice(0, 220));
+      return { kind: "text", text: "Media generation failed on selected route " + (r.route || "unknown") + ": " + (r.text || "no details") + ". No automatic route switch was performed.", used: usedNow, steps: stepNow };
+    }
+    if (r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64) {
+      opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " SUCCEEDED (" + r.type + ").");
+      return { kind: "reply", reply: r, used: usedNow, steps: stepNow };
+    }
+    return { kind: "text", text: "Selected media route " + (r?.route || "unknown") + " did not return a usable file (" + (r?.text || r?.type || "no answer") + "). No automatic route switch was performed.", used: usedNow, steps: stepNow };
   };
-  // Two media paths, in the order the owner chose in the Mini App panel (shamMediaOrder): the shared media Studio (nova-media-server, ready trained models) and
-  // Sham's own weights (its Studio). The first is tried; only a technical failure (no answer, error, busy, loading) moves on to the second.
-  const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> => {
-    const total = Math.min(240000, Math.max(20000, left() - 3000));
-    const nm = await import("@/lib/novaMedia");
-    const reserve = nm.novaMediaEnabled();
-    const order = reserve ? await shamMediaOrder() : "own_first";
-    const good = (r: ShamReply | null): r is ShamReply => Boolean(r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64);
-    const viaStudio = async (ms: number): Promise<ShamReply | null> => { const r = await nm.novaMakeMedia(k, pr, { timeoutMs: ms }); return r && r.type !== "error" ? (r as ShamReply) : null; };
-    const first = order === "reserve_first" ? "studio" : "own";
-    const a = first === "studio" ? await viaStudio(Math.max(20000, Math.min(150000, total - 60000))) : await shamGenerateMedia(k, pr, reserve ? Math.max(20000, Math.min(150000, total - 60000)) : total);
-    if (good(a)) return a;
-    if (!reserve) return a;
-    const b = first === "studio" ? await shamGenerateMedia(k, pr, Math.max(20000, total - 20000)) : await viaStudio(Math.max(20000, total - 20000));
-    return good(b) ? b : (a || b);
-  };
+  const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> =>
+    generateShamMediaThroughRoute(k, pr, { timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)) });
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
