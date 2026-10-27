@@ -1,9 +1,9 @@
 """
-Nova Media Studio — makes pictures, speech and short videos on a free ModelScope CPU Studio (2 vCPU), for Nova's `make_media` tool.
+Nova Media Studio — image and speech on CPU; native Wan video requires a CUDA GPU and local Wan weights.
 
   image   a distilled one-step diffusion model (SDXS-512): measured ~6 s per 512 px picture on 2 cores
   speech  Piper (ONNX), Arabic voice: measured 7.8 s of audio in 0.5 s
-  video   a slideshow: several pictures + optional narration, joined with ffmpeg (no video-diffusion model fits a free CPU)
+  video   Wan2.1 text-to-video diffusion, only when CUDA and local checkpoint are available; never a slideshow
 
 One job at a time (a busy Studio answers {"type": "busy"} at once instead of queueing: the caller decides). The models are downloaded from modelscope.cn
 (this Studio cannot reach huggingface.co or github.com): MEDIA_MODEL_REPO (default novaai2026/nova-media-models) holds  sdxs/  and  piper/ar_JO-kareem-medium.onnx(+.json).
@@ -11,7 +11,7 @@ One job at a time (a busy Studio answers {"type": "busy"} at once instead of que
 Gradio API (same call protocol as the coder Studio):  /gradio_api/call/{image,speech,video,status}  — each takes one JSON string and answers one JSON string.
   image   {"prompt": "...", "size": 512, "seed": 0}                      -> {"type":"image","b64":"<png>"}
   speech  {"text": "..."}                                               -> {"type":"audio","b64":"<wav>"}
-  video   {"prompts": ["...", ...], "narration": "...", "seconds": 3}   -> {"type":"video","b64":"<mp4>"}
+  video   {"prompt": "...", "seconds": 3, "seed": 0}                    -> {"type":"video","b64":"<mp4>"}
 """
 import base64
 import io
