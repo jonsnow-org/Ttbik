@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Pause the image and video Spaces without deleting them
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN1 || secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN || secrets.HF_TOKEN1 }}
         run: |
           set -eu
           test -n "$HF_TOKEN" || { echo "::error::Neither HF_TOKEN1 nor HF_TOKEN is configured"; exit 1; }
