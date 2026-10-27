@@ -68,9 +68,17 @@ export async function shamAgentRun(opts: {
     let a: { kind?: string; prompt?: string } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
-    opts.onEvent?.("tool", `make_media ${kind}: ${String(a.prompt || "").slice(0, 80)}`);
+    opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
-    return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
+    if (r?.type === "error") {
+      opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " FAILED: " + String(r.text || "unknown error").slice(0, 220));
+      return { kind: "text", text: "Media generation failed on selected route " + (r.route || "unknown") + ": " + (r.text || "no details") + ". No automatic route switch was performed.", used: usedNow, steps: stepNow };
+    }
+    if (r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64) {
+      opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " SUCCEEDED (" + r.type + ").");
+      return { kind: "reply", reply: r, used: usedNow, steps: stepNow };
+    }
+    return { kind: "text", text: "Selected media route " + (r?.route || "unknown") + " did not return a usable file (" + (r?.text || r?.type || "no answer") + "). No automatic route switch was performed.", used: usedNow, steps: stepNow };
   };
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> =>
     generateShamMediaThroughRoute(k, pr, { timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)) });
