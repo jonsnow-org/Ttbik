@@ -221,6 +221,25 @@ def _send_telegram_photo(chat_id: str, photo_bytes: bytes, caption: str) -> None
         logger.exception("Failed to deliver async photo to Telegram chat_id=%s", chat_id)
 
 
+
+def _send_telegram_audio_file(chat_id: str, audio_bytes: bytes, caption: str) -> None:
+    """Deliver the Nova Studio's local Piper WAV as a file; no third-party audio service is used."""
+    if not NOVA_BOT_TOKEN:
+        logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver generated audio to chat_id=%s", chat_id)
+        return
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendDocument",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"document": ("nova-speech.wav", audio_bytes, "audio/wav")},
+            timeout=60,
+        )
+        response.raise_for_status()
+    except Exception:
+        logger.exception("Failed to deliver generated audio to Telegram chat_id=%s", chat_id)
+
+
+
 def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None:
     """Same async-delivery shape as _send_telegram_message above, but
     for a generated video file — sendVideo needs a real multipart file
@@ -603,13 +622,7 @@ def _recent_context_for_intent(user_id: str) -> str:
 
 
 def _dispatch_media_intent(user: dict, channel: str, chat_id: str, message: str, intent: str, expanded_prompt: str) -> None:
-    """council.classify_intent already decided (via real model
-    understanding, not a keyword match) that this message is an
-    image/video request and already produced the professional prompt —
-    this just reserves the correct quota bucket and hands off to the
-    same background generation pipelines /generate-image and
-    /generate-video use, passing expanded_prompt through so it's never
-    computed twice."""
+    """Route understood image, speech, or video requests to Nova-owned media paths only."""
     seconds = 0
     if intent == "VIDEO":
         requested_seconds = _parse_requested_seconds(message)
@@ -624,8 +637,11 @@ def _dispatch_media_intent(user: dict, channel: str, chat_id: str, message: str,
         return
 
     if intent == "IMAGE":
-        _send_telegram_message(chat_id, "🖼 جارٍ توليد الصورة — قد يستغرق الأمر بضع دقائق، ستصلك هنا فور الانتهاء.")
+        _send_telegram_message(chat_id, "🖼 جارٍ توليد الصورة — ستصلك هنا فور الانتهاء.")
         _process_image_gen_and_deliver(user["id"], channel, chat_id, message, expanded_prompt=expanded_prompt)
+    elif intent == "AUDIO":
+        _send_telegram_message(chat_id, "🔊 جارٍ توليد الكلام الصوتي — سيصلك ملف WAV عند الانتهاء.")
+        _process_audio_gen_and_deliver(user["id"], channel, chat_id, message, spoken_text=expanded_prompt)
     else:
         _enqueue_real_video(user["id"], channel, chat_id, message, seconds, expanded_prompt=expanded_prompt)
 
@@ -974,11 +990,11 @@ def _process_chat_and_deliver_impl(user: dict, channel: str, message: str, chat_
         _send_telegram_message(chat_id, reply)
         return
 
-    if intent_result["intent"] in ("IMAGE", "VIDEO"):
+    if intent_result["intent"] in ("IMAGE", "AUDIO", "VIDEO"):
         # chat() below already reserved one TEXT quota unit before
         # scheduling this background task — refund it now that real
         # understanding says this is actually a media request, then
-        # _dispatch_media_intent reserves the correct IMAGE/VIDEO unit.
+        # _dispatch_media_intent reserves the media quota and routes IMAGE/AUDIO/VIDEO.
         quota.refund_quota(user["id"], "TEXT")
         _dispatch_media_intent(user, channel, chat_id, message, intent_result["intent"], intent_result["prompt"])
         return
@@ -1190,6 +1206,30 @@ class GenerateImageRequest(BaseModel):
 class GenerateImageResponse(BaseModel):
     accepted: bool
     quota_message: str
+
+
+def _process_audio_gen_and_deliver(
+    user_id: str, channel: str, chat_id: str, prompt: str, spoken_text: str | None = None
+) -> None:
+    """Generate speech with Nova's packaged local Piper voice; no fallback to Sham or a remote TTS API."""
+    text_to_speak = (spoken_text or prompt or "").strip()
+    if not text_to_speak:
+        quota.refund_quota(user_id, "IMAGE")
+        _send_telegram_message(chat_id, "لم أحدد النص الذي سيُنطق؛ لم يُخصم الطلب.")
+        return
+    try:
+        audio_bytes = nova_media_studio.generate_media("audio", text_to_speak)
+        if audio_bytes is None:
+            quota.refund_quota(user_id, "IMAGE")
+            _send_telegram_message(chat_id, "تعذّر توليد الصوت عبر صوت نوفا المحلي؛ لم يُخصم الطلب.")
+            return
+        quota.log_usage(user_id, channel, "AUDIO_GEN", f"[توليد صوت] {text_to_speak[:500]}", "(ملف صوتي WAV)")
+        rag.remember(user_id, f"[طلب توليد صوت] {text_to_speak[:500]}", "(تم توليد ملف صوتي WAV)")
+        _send_telegram_audio_file(chat_id, audio_bytes, "صوت مولّد محلياً بواسطة نوفا")
+    except Exception:
+        logger.exception("background audio-generation pipeline failed for chat_id=%s", chat_id)
+        quota.refund_quota(user_id, "IMAGE")
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الصوت — لم يُخصم الطلب.")
 
 
 def _process_image_gen_and_deliver(
