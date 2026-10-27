@@ -23,6 +23,20 @@ jobs:
           python ai-system/colab/sham_small/sham_media_ready.py
           python ai-system/colab/sham_small/sham_intent.py
 
+  nova-media-client-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Test Nova media Studio client without network calls
+        env:
+          PYTHONPATH: ai-system
+        run: |
+          python -m unittest discover -s ai-system/app -p 'test_nova_media_studio.py' -v
+          python -m py_compile ai-system/app/nova_media_studio.py ai-system/app/test_nova_media_studio.py
+
   build:
     runs-on: ubuntu-latest
     env:
