@@ -1,9 +1,9 @@
 """
-Nova Media Studio — image and speech on CPU; native Wan video requires a CUDA GPU and local Wan weights.
+Nova Media Studio — image, speech, and native text-to-video inference on CPU only.
 
-  image   a distilled one-step diffusion model (SDXS-512): measured ~6 s per 512 px picture on 2 cores
-  speech  Piper (ONNX), Arabic voice: measured 7.8 s of audio in 0.5 s
-  video   Wan2.1 text-to-video diffusion, only when CUDA and local checkpoint are available; never a slideshow
+  image   a distilled one-step diffusion model (SDXS-512)
+  speech  Piper (ONNX), Arabic voice
+  video   Wan2.1 text-to-video diffusion on CPU; deliberately low-resolution/short output because CPU inference is slow; never a slideshow
 
 One job at a time (a busy Studio answers {"type": "busy"} at once instead of queueing: the caller decides). The models are downloaded from modelscope.cn
 (this Studio cannot reach huggingface.co or github.com): MEDIA_MODEL_REPO (default novaai2026/nova-media-models) holds  sdxs/  and  piper/ar_JO-kareem-medium.onnx(+.json).
@@ -91,70 +91,60 @@ def _make_image(prompt: str, size: int, seed: int):
 
 
 def _video_pipe():
-    """Load a real text-to-video diffusion model from local ModelScope weights, never a remote inference API."""
+    """Load Nova's own local Wan checkpoint and run its temporal diffusion on CPU only."""
     if _MODELS["video_pipe"] is not None:
         return _MODELS["video_pipe"]
     import torch
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "native-video-unavailable: Wan2.1 requires a CUDA GPU; this Studio is currently CPU-only. "
-            "No slideshow or external generator will be used."
-        )
+    torch.set_num_threads(max(1, min(os.cpu_count() or 2, 4)))
     local_dir = os.environ.get("NOVA_VIDEO_MODEL_DIR", "").strip()
     if local_dir:
         model_dir = Path(local_dir).expanduser().resolve()
-        if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
-            raise RuntimeError(f"native-video-unavailable: Diffusers checkpoint not found at {model_dir}")
     else:
-        # This downloads model WEIGHTS from ModelScope, not generated media or an inference service.
-        # Inference remains inside Nova's own Studio process and only runs after the CUDA guard above.
+        # Retrieve open model weights only; all prompts and inference remain inside Nova's own process.
         from modelscope import snapshot_download
         model_dir = Path(snapshot_download(
-            "Wan-AI/Wan2.1-T2V-1.3B",
+            "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
             cache_dir=str(HERE / "_video_models"),
         ))
-        if not (model_dir / "model_index.json").is_file():
-            raise RuntimeError(
-                "native-video-unavailable: the ModelScope Wan2.1-T2V-1.3B snapshot is not in Diffusers format"
-            )
+    if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
+        raise RuntimeError(f"native-video-unavailable: local Diffusers checkpoint not found at {model_dir}")
     from diffusers import WanPipeline
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     pipe = WanPipeline.from_pretrained(
         str(model_dir),
-        torch_dtype=dtype,
+        torch_dtype=torch.float32,
         local_files_only=True,
     )
-    pipe.enable_model_cpu_offload()
+    pipe.to("cpu")
     _MODELS["video_pipe"] = pipe
     _MODELS["video_root"] = str(model_dir)
     return pipe
 
 
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Generate temporal motion with Wan diffusion; never assemble generated still images into a video."""
+    """Generate real temporal motion with Wan on CPU; never assemble generated still images into a video."""
     import torch
     from diffusers.utils import export_to_video
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("native-video-unavailable: a text prompt is required")
-    seconds = max(2.0, min(5.0, float(seconds or 3)))
-    frames = max(33, min(81, int(round(seconds * 16 / 4)) * 4 + 1))
+    # CPU-safe starter settings: short, low-resolution clips. Runtime can be long on 2-vCPU hosts.
+    seconds = max(1.0, min(2.0, float(seconds or 2)))
+    frames = 9 if seconds <= 1.5 else 13
     pipe = _video_pipe()
-    generator = torch.Generator(device="cuda").manual_seed(int(seed))
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
     result = pipe(
         prompt=prompt[:800],
-        negative_prompt="static image, frozen motion, slideshow, low quality, blurry, watermark, text",
-        height=480,
-        width=832,
+        height=256,
+        width=256,
         num_frames=frames,
-        num_inference_steps=20,
-        guidance_scale=5.0,
+        num_inference_steps=2,
+        guidance_scale=3.0,
         generator=generator,
     )
     video_frames = result.frames[0]
     with tempfile.TemporaryDirectory() as d:
         target = Path(d) / "nova-native-video.mp4"
-        export_to_video(video_frames, str(target), fps=16)
+        export_to_video(video_frames, str(target), fps=8)
         return target.read_bytes()
 
 
@@ -205,11 +195,13 @@ def api_status() -> str:
     except Exception:
         gpu, gpu_name = False, None
     video_dir = os.environ.get("NOVA_VIDEO_MODEL_DIR", "").strip()
-    video_ready = bool(gpu and video_dir and (Path(video_dir) / "model_index.json").is_file())
+    cached_video = bool(_MODELS.get("video_root") and Path(_MODELS["video_root"]).is_dir())
+    configured_video = bool(video_dir and Path(video_dir).is_dir() and (Path(video_dir) / "model_index.json").is_file())
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(),
-        "video": {"engine": "WanPipeline", "ready": video_ready, "gpu": gpu, "gpu_name": gpu_name,
-                  "model_dir_configured": bool(video_dir), "mode": "native-diffusion-only"},
+        "video": {"engine": "WanPipeline", "ready": bool(_MODELS.get("video_pipe") or cached_video or configured_video),
+                  "device": "cpu", "gpu_required": False, "model_dir_configured": bool(video_dir),
+                  "mode": "native-diffusion-only", "note": "CPU inference is slow; short low-resolution clips are used"},
     })
 
 
