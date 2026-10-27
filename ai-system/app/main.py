@@ -25,7 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
+from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, nova_media_routing, nova_media_studio, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
 from app.config import MODELSCOPE_API_TOKEN, NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
@@ -40,64 +40,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 
 def _external_media_enabled() -> bool:
-    """External image/video providers are opt-in. Fail closed to our own models if settings cannot be read."""
+    """Nova external image/video providers are opt-in and read only Nova-owned settings."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return False
     try:
         response = requests.get(
-            SUPABASE_URL.rstrip("/") + "/rest/v1/sham_settings",
-            params={"key": "eq.external_media_enabled_v2", "select": "value", "limit": "1"},
+            SUPABASE_URL.rstrip("/") + "/rest/v1/nova_settings",
+            params={"key": "eq.external_media_enabled_v1", "select": "value", "limit": "1"},
             headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
             timeout=3,
         )
         if not response.ok:
-            logger.warning("external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
+            logger.warning("Nova external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
             return False
         rows = response.json()
         return bool(rows and rows[0].get("value") == "enabled")
     except Exception:
-        logger.warning("external media setting lookup failed; keeping external providers disabled", exc_info=True)
+        logger.warning("Nova external media setting lookup failed; keeping external providers disabled", exc_info=True)
         return False
-
-def _sham_v2_image_fallback(prompt: str) -> bytes | None:
-    """Ask Sham v2's own packaged donor-weight image tool only if Nova's own image model failed."""
-    token = (MODELSCOPE_API_TOKEN or "").strip()
-    if not token:
-        logger.info("sham-v2 media fallback skipped: ModelScope token unavailable")
-        return None
-    base = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {"kind": "image", "prompt": prompt[:1500], "backend_label": "المسار البديل (أوزان محلية جاهزة)", "scenes_json": "[]", "narration": ""}
-    try:
-        submit = requests.post(f"{base}/gradio_api/call/v2/generate_media_from_panel", headers=headers, json=payload, timeout=30)
-        if not submit.ok:
-            logger.info("sham-v2 image fallback submit returned HTTP %s", submit.status_code)
-            return None
-        event_id = submit.json().get("event_id")
-        if not event_id:
-            logger.info("sham-v2 image fallback returned no event id")
-            return None
-        result = requests.get(f"{base}/gradio_api/call/generate_media_from_panel/{event_id}", headers=headers, timeout=240)
-        if not result.ok:
-            logger.info("sham-v2 image fallback result returned HTTP %s", result.status_code)
-            return None
-        for line in result.text.splitlines():
-            if not line.startswith("data:"):
-                continue
-            try:
-                data = json.loads(line[5:].strip())
-                value = data[0] if isinstance(data, list) and data else data
-                if isinstance(value, str):
-                    value = json.loads(value)
-                if isinstance(value, dict) and value.get("type") == "image" and value.get("b64"):
-                    return base64.b64decode(value["b64"], validate=False)
-            except (ValueError, TypeError, json.JSONDecodeError):
-                continue
-        logger.info("sham-v2 image fallback returned no usable image")
-    except Exception as exc:
-        logger.info("sham-v2 image fallback failed (%s)", type(exc).__name__)
-    return None
-
 
 app = FastAPI(title="Nova AI")
 
@@ -1319,28 +1279,19 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        if _external_media_enabled():
-            # Explicit opt-in: try external HF/Cloudflare generators, then our own trained ModelScope image model.
-            image_bytes = hf_image.generate_image(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: external route enabled; served by Hugging Face ZeroGPU Space")
-            else:
-                image_bytes = cloudflare_ai.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: external route enabled; served by Cloudflare Workers AI")
-            if image_bytes is None:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: external routes unavailable — served by our own ModelScope image model")
+        external_selected = _external_media_enabled()
+        image_bytes, image_source = nova_media_routing.generate_image(
+            expanded_prompt,
+            external_enabled=external_selected,
+            hf_generate=hf_image.generate_image,
+            cloudflare_generate=cloudflare_ai.generate_image,
+            nova_studio_generate=lambda text: nova_media_studio.generate_media("image", text),
+            nova_model_generate=council.generate_image,
+        )
+        if image_bytes is not None:
+            logger.info("image-gen: Nova selected tool returned image via %s", image_source)
         else:
-            # External generators are disabled: do not call Hugging Face or Cloudflare at all.
-            image_bytes = council.generate_image(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: external route disabled; served by our own ModelScope image model")
-        if image_bytes is None:
-            image_bytes = _sham_v2_image_fallback(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: Nova's own image model unavailable; served by Sham v2's local donor-weight generator")
+            logger.warning("image-gen: Nova selected tool returned no image (tool=%s)", image_source)
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -1360,10 +1311,12 @@ def _process_image_gen_and_deliver(
             # result, the raw SSE lines too (see that function), so the
             # next failure is diagnosable from Render's own logs instead
             # of guessed at again.
-            _send_telegram_message(
-                chat_id,
-                "تعذّر توليد الصورة هذه المرة — إما أن التوليد الفعلي (بلا معالج رسومي GPU) أخذ وقتاً أطول من المتوقع، أو حدث خطأ غير متوقع. حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).",
+            failure_text = (
+                "تعذّر توليد الصورة عبر مولّد نوفا الخارجي المختار (Hugging Face / Cloudflare). لم أتحول تلقائياً إلى المولّد الداخلي؛ لم يُخصم الطلب. أوقف الأداة الخارجية من لوحة التحكم لاستخدام مولّد نوفا الداخلي."
+                if external_selected
+                else "تعذّر توليد الصورة عبر مولّد نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً."
             )
+            _send_telegram_message(chat_id, failure_text)
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
         # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو والصوت"):
@@ -1519,12 +1472,11 @@ def _enqueue_real_video(
             _send_telegram_video(chat_id, video_bytes, prompt)
             return
 
-        logger.info("video-gen: external route enabled but HF ZeroGPU unavailable/quota exhausted for chat_id=%s — using our own trained-model Kaggle queue", chat_id)
-        quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
+        logger.warning("video-gen: Nova external route was selected but Hugging Face did not return a video for chat_id=%s; no internal route fallback", chat_id)
+        quota.refund_quota(user_id, "IMAGE")
         _send_telegram_message(
             chat_id,
-            "🎬 التوليد الفوري وصل حده المجاني اليومي حالياً — أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) "
-            "يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
+            "تعذّر توليد الفيديو عبر أداة Hugging Face المختارة. لم أتحول تلقائياً إلى أداة نوفا الداخلية ولم يُخصم الطلب؛ أوقف الأداة الخارجية من لوحة التحكم لاستخدام مسار نوفا الداخلي.",
         )
     except Exception:
         logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)

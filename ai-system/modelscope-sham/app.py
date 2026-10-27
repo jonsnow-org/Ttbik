@@ -302,14 +302,47 @@ def _busy_wait() -> float:
         return 25.0
 
 
+def _generate_hf_media(kind: str, prompt: str, scenes: list[str] | None = None) -> dict:
+    """Sham v2's explicit external route. It calls Hugging Face Spaces directly; it never calls Nova's backend."""
+    import base64
+    if kind == "audio":
+        return {"type": "error", "backend": "hf", "text": "مسار Hugging Face الخارجي يدعم الصور والفيديو حالياً فقط؛ اختر أوزان شام الجاهزة للصوت العربي."}
+    token = (os.environ.get("HF_TOKEN1") or os.environ.get("HF_TOKEN") or "").strip()
+    if not token:
+        return {"type": "error", "backend": "hf", "text": "مسار Hugging Face غير مهيأ: سر HF_TOKEN1 غير موجود في استوديو شام v2."}
+    try:
+        from gradio_client import Client
+        if kind == "image":
+            space = os.environ.get("HF_IMAGE_SPACE_ID", "Novasy/nova-image-space").strip()
+            path = Client(space, hf_token=token).predict(prompt[:1500], api_name="/generate")
+            mime, typ = "image/png", "image"
+        elif kind == "video":
+            space = os.environ.get("HF_VIDEO_SPACE_ID", "Novasy/nova-video-space").strip()
+            video_prompt = ". ".join(scenes or [])[:1500] or prompt[:1500]
+            path = Client(space, hf_token=token).predict(video_prompt, 6, api_name="/generate")
+            mime, typ = "video/mp4", "video"
+        else:
+            return {"type": "error", "backend": "hf", "text": "نوع وسائط غير معروف."}
+        with open(path, "rb") as f:
+            raw = f.read()
+        if not raw:
+            return {"type": "error", "backend": "hf", "text": "أعاد Hugging Face ملفاً فارغاً."}
+        return {"type": typ, "mime": mime, "b64": base64.b64encode(raw).decode("ascii"), "backend": "hf"}
+    except Exception as exc:
+        print(f"HF media route failed ({kind}, {type(exc).__name__}: {str(exc)[:140]})", flush=True)
+        return {"type": "error", "backend": "hf", "text": f"فشل مسار Hugging Face: {type(exc).__name__}. لم يتم التحويل تلقائياً إلى مسار آخر."}
+
+
 def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
-    """Run media generation through the selected local path. 'internal' is Sham's own tokenizer/decoder; 'ready' is the optional packaged-weight alternative."""
+    """Run exactly the selected path: internal tokens, packaged donor weights, or direct Hugging Face Spaces. No silent fallback."""
+    selected = (backend or "internal").strip().lower()
+    if selected not in ("internal", "ready", "hf"):
+        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
+    if selected == "hf":
+        return json.dumps(_generate_hf_media(kind.strip().lower(), prompt, scenes=scenes), ensure_ascii=False)
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
-    selected = (backend or "internal").strip().lower()
-    if selected not in ("internal", "ready"):
-        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
     if selected == "ready" and not STATE.get("media_root"):
         return json.dumps({
             "type": "error",
@@ -344,8 +377,9 @@ def generate_media(kind: str, prompt: str) -> str:
 
 
 def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "") -> str:
-    """Select a local backend for this request and optionally provide video shots and spoken narration."""
-    backend = "ready" if (backend_label or "").strip() == "المسار البديل (أوزان محلية جاهزة)" else "internal"
+    """Select one media backend and optionally provide video shots and spoken narration."""
+    label = (backend_label or "").strip()
+    backend = "ready" if label == "المسار البديل (أوزان محلية جاهزة)" else "hf" if label == "المسار الخارجي (Hugging Face)" else "internal"
     try:
         scenes = json.loads(scenes_json) if (scenes_json or "").strip() else []
         if not isinstance(scenes, list):
@@ -354,6 +388,7 @@ def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes
     except (TypeError, ValueError, json.JSONDecodeError):
         return json.dumps({"type": "error", "text": "مشاهد الفيديو يجب أن تكون قائمة JSON صحيحة."}, ensure_ascii=False)
     return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500])
+
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
     """Sham reads a picture / sound / video (base64 of the file, any format) and answers `question` about it — the same function as serve.py's

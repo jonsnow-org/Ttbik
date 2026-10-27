@@ -5,15 +5,7 @@ name: "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat,
 
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - "ai-system/modelscope-sham/**"
-      - ".github/workflows/deploy-modelscope-sham-v2.yml"
-  # Re-deploy after the ready media bundle is copied into novaai2026/sham-v2.
-  # The first push-triggered deploy may start concurrently; this follow-up ensures
-  # the running Studio takes a snapshot that includes the completed media upload.
+  # The media-sync workflow is the only automatic deployment trigger, so the Studio is deployed after the ready bundle is copied into novaai2026/sham-v2. Manual dispatch remains available.
   workflow_run:
     workflows:
       - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
@@ -91,27 +83,45 @@ jobs:
           git diff --cached --quiet && echo "no change" || git commit -m "sham v2: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
-      - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
+      - name: Set and verify the Studio model/token secrets (never print values)
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
-          pip install -q modelscope
-          python - <<'PY'
-          import os
-          from modelscope.hub.api import HubApi
-          api = HubApi()
-          api.login(os.environ["MODELSCOPE_TOKEN"])
-          sid, tok = os.environ["STUDIO_ID"], os.environ["MODELSCOPE_TOKEN"]
-          # Sham v2 must read its own model repo; the legacy default is sham-merged.
-          for key, value in (("MODELSCOPE_API_TOKEN", tok), ("SHAM_MS_MODEL", "novaai2026/sham-v2")):
-              try:
-                  api.add_studio_secret(sid, key, value)
-              except Exception as e:                       # already there: replace it
-                  print(key, "add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
-                  api.update_studio_secret(sid, key, value)
-          print("studio model and token secrets set")
-          PY
+          set -eu
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN secret is empty"; exit 1; }
+          # Use the documented ModelScope OpenAPI directly. The legacy HubApi
+          # secret helpers did not result in the running Studio receiving a
+          # token that could read the private model repository (runtime 403).
+          set_secret() {
+            key="$1"; value="$2"
+            printf '%s' "$value" | python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$key" > secret.json
+            code=$(curl -sS -o secret-response.json -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o secret-response.json -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            fi
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              echo "::error::ModelScope rejected secret update for $key (HTTP $code)"
+              head -c 500 secret-response.json; echo
+              exit 1
+            fi
+            echo "updated Studio secret key: $key"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T"
+          set_secret MODELSCOPE_TOKEN "$T"
+          set_secret SHAM_MS_MODEL "novaai2026/sham-v2"
+          if [ -n "${HF_TOKEN1:-}" ]; then
+            set_secret HF_TOKEN1 "$HF_TOKEN1"
+            echo "HF_TOKEN1 provisioned for Sham v2 external media route"
+          else
+            echo "::notice::HF_TOKEN1 is not configured as a GitHub Actions secret; Sham v2 HF route will report not configured."
+          fi
+          rm -f secret.json secret-response.json
 
       - name: Deploy and show status
         env:
@@ -147,3 +157,10 @@ jobs:
           done
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
+
+      - name: Live text and media smoke tests
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+        run: python ai-system/supervision/sham_v2_media_smoke.py

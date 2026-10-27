@@ -4,7 +4,7 @@ import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
 
-const DEFAULT_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+const DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net";
 const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
 
 /** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
@@ -29,9 +29,12 @@ let rotate = 0;
  *  one, so users spread over the Studios, and a busy or unreachable one is skipped for the next (see shamBusyHop). */
 export function shamBases(): string[] {
   const v2 = shamVariant.getStore() === "v2";
-  const raw = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-  const k = rotate++ % Math.max(1, raw.length);
-  return [...raw.slice(k), ...raw.slice(0, k)];
+  const configured = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
+  // nova-inference-server belongs to Nova. Ignore stale environment values rather than reconnecting Sham to Nova.
+  const raw = configured.filter((x) => !/nova-inference-server/i.test(x));
+  const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
+  const k = rotate++ % Math.max(1, bases.length);
+  return [...bases.slice(k), ...bases.slice(0, k)];
 }
 
 export function shamStudioEnabled(): boolean {
@@ -139,16 +142,17 @@ export async function shamGenerateMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
   timeoutMs = 55000,
-  backend: "internal" | "ready" = "internal",
+  backend: "internal" | "ready" | "hf" = "internal",
   opts: { scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply | null> {
-  const api = backend === "ready" ? "generate_media_from_panel" : "generate_media";
+  const api = backend === "internal" ? "generate_media" : "generate_media_from_panel";
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const payload = backend === "ready"
-    ? { kind, prompt, backend_label: "المسار البديل (أوزان محلية جاهزة)", scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) }
-    : { kind, prompt };
+  const backend_label = backend === "ready" ? "المسار البديل (أوزان محلية جاهزة)" : "المسار الخارجي (Hugging Face)";
+  const payload = backend === "internal"
+    ? { kind, prompt }
+    : { kind, prompt, backend_label, scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? parseShamReply(body) : null;
   if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";

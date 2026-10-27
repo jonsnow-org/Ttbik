@@ -1,5 +1,4 @@
-import { shamMediaRoute } from "@/lib/shamExec";
-import { novaMakeMedia, novaMediaEnabled } from "@/lib/novaMedia";
+import { shamMediaRoute, shamMediaRouteEnabled } from "@/lib/shamExec";
 import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
 export type ShamMediaKind = "image" | "audio" | "video";
@@ -12,29 +11,21 @@ export async function generateShamMediaThroughRoute(
 ): Promise<ShamReply> {
   const route = await shamMediaRoute();
   const timeoutMs = Math.min(240000, Math.max(8000, opts.timeoutMs ?? 240000));
+  if (!(await shamMediaRouteEnabled(route))) {
+    return { type: "error", route, text: `المسار المحدد ${route} متوقف من لوحة التحكم. فعّله أو اختر مساراً آخر؛ لم يحدث تحويل تلقائي.` };
+  }
   try {
     let reply: ShamReply | null;
-    if (route === "nova_media") {
-      if (!novaMediaEnabled()) {
-        return { type: "error", route, text: "The selected Nova Media Studio route is disabled or not configured." };
-      }
-      const result = await novaMakeMedia(kind, prompt, {
-        scenes: opts.scenes,
-        narration: opts.narration,
-        timeoutMs,
-      });
-      reply = result ? (result as ShamReply) : null;
-    } else {
-      const variant = route === "sham_v1" ? "v1" : "v2";
-      shamNoteFailure("");
-      reply = await shamVariant.run(variant, () => shamGenerateMedia(
-        kind,
-        prompt,
-        timeoutMs,
-        route === "sham_v2" ? "ready" : "internal",
-        { scenes: opts.scenes, narration: opts.narration },
-      ));
-    }
+    const variant = route === "sham_v1" ? "v1" : "v2";
+    const backend = route === "sham_v2_ready" ? "ready" : route === "sham_v2_hf" ? "hf" : "internal";
+    shamNoteFailure("");
+    reply = await shamVariant.run(variant, () => shamGenerateMedia(
+      kind,
+      prompt,
+      timeoutMs,
+      backend,
+      { scenes: opts.scenes, narration: opts.narration },
+    ));
     if (reply && (reply.type === "image" || reply.type === "audio" || reply.type === "video") && reply.b64) {
       return { ...reply, route };
     }
