@@ -1,10 +1,7 @@
 """
-Sham's media with READY, trained weights that live inside Sham's own model repo (novaai2026/sham-v2, folder media/): a distilled one-step diffusion model for
-pictures (SDXS-512), an Arabic voice for speech (Piper, ONNX) and a slideshow video (pictures + narration joined by ffmpeg).
+Sham v2's own local media path: SDXS for images, Piper ONNX for Arabic speech, and native Wan text-to-video diffusion on CPU. Video is never assembled from still images.
 
-The transplanted text body brings language and tools but no trained image decoder (its own decoder gave meaningless blobs), so Sham's `make_media` uses these
-weights through Sham's own Studio instead of calling another service. Everything loads lazily, on the first request, and stays loaded; the picture model is
-kept in bfloat16 so that it fits beside the 1.7B text body in the free 8 GB Studio.
+The transplanted text body does not provide a usable image decoder, so Sham v2 uses its own bundled donor weights for image/speech and its own local Wan checkpoint for true video. Every pipeline loads lazily and runs on CPU. Video diffusion is resource-intensive; the implementation starts with short 256px clips and very few steps.
 
     root = ready_root(model_dir)          # model_dir/media if it holds sdxs/ and piper/, else None
     reply = make(root, "image", "a rabbit playing")   # {"type": "image", "b64": "<png>"} | audio (wav) | video (mp4) | {"type": "error", "text": ...}
@@ -14,12 +11,11 @@ from __future__ import annotations
 import base64
 import io
 import os
-import subprocess
 import tempfile
 import wave
 from pathlib import Path
 
-_CACHE: dict = {"pipe": None, "voice": None}
+_CACHE: dict = {"pipe": None, "voice": None, "video_pipe": None, "video_root": None}
 
 
 def inspect_ready_assets(model_dir: str | Path | None) -> dict:
@@ -120,21 +116,51 @@ def _image(root: Path, prompt: str, size: int = 512, seed: int = 0):
 
 
 def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0) -> bytes:
-    import imageio_ffmpeg
-    ff = imageio_ffmpeg.get_ffmpeg_exe()
-    seconds = max(1.5, min(6.0, float(seconds or 3)))
+    """Generate a temporally coherent video directly from text with Wan on CPU; never use a slideshow."""
+    import torch
+    from diffusers import WanPipeline
+    from diffusers.utils import export_to_video
+
+    if _CACHE["video_pipe"] is None:
+        local_dir = os.environ.get("SHAM_VIDEO_MODEL_DIR", "").strip()
+        if local_dir:
+            model_dir = Path(local_dir).expanduser().resolve()
+        else:
+            model_dir = root / "wan"
+            if not (model_dir / "model_index.json").is_file():
+                # Download weights only. Generation remains local to Sham v2's own Studio process.
+                from modelscope import snapshot_download
+                model_dir = Path(snapshot_download(
+                    "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+                    cache_dir=str(root.parent / "_video_models"),
+                ))
+        if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
+            raise RuntimeError(f"native-video-unavailable: Wan Diffusers weights not found at {model_dir}")
+        torch.set_num_threads(max(1, min(os.cpu_count() or 2, 4)))
+        pipe = WanPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32, local_files_only=True)
+        pipe.to("cpu")
+        _CACHE["video_pipe"] = pipe
+        _CACHE["video_root"] = str(model_dir)
+
+    prompt = (prompts[0] if prompts else "").strip()
+    if not prompt:
+        raise ValueError("native-video-unavailable: a text prompt is required")
+    seconds = max(1.0, min(2.0, float(seconds or 2)))
+    frame_count = 9 if seconds <= 1.5 else 13
+    generator = torch.Generator(device="cpu").manual_seed(0)
+    result = _CACHE["video_pipe"](
+        prompt=prompt[:800],
+        height=256,
+        width=256,
+        num_frames=frame_count,
+        num_inference_steps=2,
+        guidance_scale=3.0,
+        generator=generator,
+    )
     with tempfile.TemporaryDirectory() as d:
-        dd = Path(d)
-        for i, p in enumerate(prompts[:6]):
-            _image(root, p, 512, i).save(dd / f"f{i:02d}.png")
-        audio: list[str] = []
-        if narration.strip():
-            (dd / "a.wav").write_bytes(_speech_wav(root, narration))
-            audio = ["-i", str(dd / "a.wav")]
-        cmd = [ff, "-y", "-framerate", f"1/{seconds}", "-i", str(dd / "f%02d.png"), *audio, "-vf", "format=yuv420p,scale=512:512",
-               "-c:v", "libx264", "-r", "24", *(["-c:a", "aac", "-shortest"] if audio else []), "-movflags", "+faststart", str(dd / "o.mp4")]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
-        return (dd / "o.mp4").read_bytes()
+        target = Path(d) / "sham-v2-native-video.mp4"
+        export_to_video(result.frames[0], str(target), fps=8)
+        return target.read_bytes()
 
 
 def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, narration: str = "") -> dict:
@@ -152,17 +178,13 @@ def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, na
             spoken = narration or prompt
             return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, spoken)).decode()}
         if kind == "video":
-            # Honest CPU path: four independently generated storyboard shots plus local narration.
-            # This is a slideshow-style video, not a temporally trained video-diffusion model.
-            shots = scenes or _scene_prompts(prompt)
-            spoken = narration or prompt
-            clip = _video(root, shots, spoken, seconds=1.5)
+            # One prompt goes directly into Wan's temporal diffusion model. No image storyboard fallback.
+            clip = _video(root, [prompt], narration, seconds=2.0)
             return {
                 "type": "video",
                 "mime": "video/mp4",
                 "b64": base64.b64encode(clip).decode(),
-                "text": "مقطع شرائح سينمائي من أربع لقطات مولّدة محلياً مع تعليق صوتي؛ ليس توليد فيديو انتشارياً متصلاً.",
-                "frames": len(shots),
+                "text": "فيديو مولّد مباشرة من الوصف بنموذج Wan على CPU.",
             }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except Exception as exc:                                   # noqa: BLE001
