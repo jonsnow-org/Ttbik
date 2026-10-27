@@ -1223,8 +1223,14 @@ def _process_audio_gen_and_deliver(
             quota.refund_quota(user_id, "IMAGE")
             _send_telegram_message(chat_id, "تعذّر توليد الصوت عبر صوت نوفا المحلي؛ لم يُخصم الطلب.")
             return
-        quota.log_usage(user_id, channel, "AUDIO_GEN", f"[توليد صوت] {text_to_speak[:500]}", "(ملف صوتي WAV)")
-        rag.remember(user_id, f"[طلب توليد صوت] {text_to_speak[:500]}", "(تم توليد ملف صوتي WAV)")
+        try:
+            quota.log_usage(user_id, channel, "AUDIO_GEN", f"[توليد صوت] {text_to_speak[:500]}", "(ملف صوتي WAV)")
+        except Exception:
+            logger.exception("could not log generated audio for chat_id=%s", chat_id)
+        try:
+            rag.remember(user_id, f"[طلب توليد صوت] {text_to_speak[:500]}", "(تم توليد ملف صوتي WAV)")
+        except Exception:
+            logger.exception("could not remember generated audio for chat_id=%s", chat_id)
         _send_telegram_audio_file(chat_id, audio_bytes, "صوت مولّد محلياً بواسطة نوفا")
     except Exception:
         logger.exception("background audio-generation pipeline failed for chat_id=%s", chat_id)
