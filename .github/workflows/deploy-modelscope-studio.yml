@@ -24,6 +24,7 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - "ai-system/modelscope-studio/**"
+      - ".github/workflows/deploy-modelscope-studio.yml"
   workflow_dispatch:
     inputs:
       force_restart:
