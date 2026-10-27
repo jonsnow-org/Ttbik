@@ -65,11 +65,13 @@ export async function shamAgentRun(opts: {
   const lim = { turns: 6, turnChars: 400, maxChars: 3600 };
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
-    let a: { kind?: string; prompt?: string } = {};
+    let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
+    const scenes = Array.isArray(a.scenes) ? a.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6) : undefined;
+    const narration = String(a.narration || "").trim().slice(0, 1500) || undefined;
     opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
-    const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
+    const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600), { scenes, narration });
     if (r?.type === "error") {
       opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " FAILED: " + String(r.text || "unknown error").slice(0, 220));
       return { kind: "text", text: "Media generation failed on selected route " + (r.route || "unknown") + ": " + (r.text || "no details") + ". No automatic route switch was performed.", used: usedNow, steps: stepNow };
