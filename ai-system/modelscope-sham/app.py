@@ -302,7 +302,7 @@ def _busy_wait() -> float:
         return 25.0
 
 
-def _generate_media_with_backend(kind: str, prompt: str, backend: str) -> str:
+def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
     """Run media generation through the selected local path. 'internal' is Sham's own tokenizer/decoder; 'ready' is the optional packaged-weight alternative."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
