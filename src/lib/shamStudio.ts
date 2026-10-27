@@ -149,7 +149,7 @@ export async function shamGenerateMedia(
     : { kind, prompt };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? parseShamReply(body) : null;
-  if (body && !reply) lastFailure = `${api}: unreadable answer (${body.slice(0, 120).replace(/\\s+/g, " ")})`;
+  if (body && !reply) lastFailure = `${api}: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
   return reply;
 }
 
