@@ -5,7 +5,15 @@ name: "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat,
 
 on:
   workflow_dispatch: {}
-  # The media-sync workflow is the only automatic deployment trigger, so the Studio is deployed after the ready bundle is copied into novaai2026/sham-v2. Manual dispatch remains available.
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ai-system/modelscope-sham/**
+      - ai-system/colab/sham_small/sham_media_ready.py
+      - scripts/transplant/stage_sham_v2_studio.py
+      - .github/workflows/deploy-modelscope-sham-v2.yml
+  # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
   workflow_run:
     workflows:
       - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
