@@ -1,4 +1,4 @@
-import { shamMediaRoute, type ShamMediaRoute } from "@/lib/shamExec";
+import { shamMediaRoute } from "@/lib/shamExec";
 import { novaMakeMedia, novaMediaEnabled } from "@/lib/novaMedia";
 import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
