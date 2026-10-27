@@ -37,25 +37,25 @@ from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRA
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 
-def _hf_media_first() -> bool:
-    """Read the admin media route preference from Supabase; preserve current HF-first behaviour on lookup failure."""
+def _external_media_enabled() -> bool:
+    """External image/video providers are opt-in. Fail closed to our own models if settings cannot be read."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return True
+        return False
     try:
         response = requests.get(
             SUPABASE_URL.rstrip("/") + "/rest/v1/sham_settings",
-            params={"key": "eq.hf_media_route_order", "select": "value", "limit": "1"},
+            params={"key": "eq.external_media_enabled_v2", "select": "value", "limit": "1"},
             headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
             timeout=3,
         )
         if not response.ok:
-            logger.warning("media route preference lookup failed with HTTP %s; keeping Hugging Face first", response.status_code)
-            return True
+            logger.warning("external media setting lookup failed with HTTP %s; keeping external providers disabled", response.status_code)
+            return False
         rows = response.json()
-        return not (rows and rows[0].get("value") == "fallback_first")
+        return bool(rows and rows[0].get("value") == "enabled")
     except Exception:
-        logger.warning("media route preference lookup failed; keeping Hugging Face first", exc_info=True)
-        return True
+        logger.warning("external media setting lookup failed; keeping external providers disabled", exc_info=True)
+        return False
 
 app = FastAPI(title="Nova AI")
 
@@ -1277,15 +1277,25 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        if _hf_media_first():
+        if _external_media_enabled():
+            # Explicit opt-in: try external HF/Cloudflare generators, then our own trained ModelScope image model.
             image_bytes = hf_image.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: served by our own Hugging Face ZeroGPU Space (SD 3.5)")
+                logger.info("image-gen: external route enabled; served by Hugging Face ZeroGPU Space")
             else:
                 image_bytes = cloudflare_ai.generate_image(expanded_prompt)
                 if image_bytes is not None:
-                    logger.info("image-gen: served by Cloudflare Workers AI (flux)")
+                    logger.info("image-gen: external route enabled; served by Cloudflare Workers AI")
             if image_bytes is None:
+                image_bytes = council.generate_image(expanded_prompt)
+                if image_bytes is not None:
+                    logger.info("image-gen: external routes unavailable — served by our own ModelScope image model")
+        else:
+            # External generators are disabled: do not call Hugging Face or Cloudflare at all.
+            image_bytes = council.generate_image(expanded_prompt)
+            if image_bytes is not None:
+                logger.info("image-gen: external route disabled; served by our own ModelScope image model")
+        if image_bytes is None:
                 image_bytes = council.generate_image(expanded_prompt)
                 if image_bytes is not None:
                     logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")
@@ -1459,8 +1469,8 @@ def _enqueue_real_video(
         # module's docstring) — fails soft to None either way, so the
         # Kaggle queue below still fires exactly as it always did the
         # moment this fast path can't answer.
-        if not _hf_media_first():
-            logger.info("video-gen: admin route preference selects the existing Kaggle queue before Hugging Face ZeroGPU")
+        if not _external_media_enabled():
+            logger.info("video-gen: external generation is disabled; use our own trained-model Kaggle queue")
             quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
             _send_telegram_message(
                 chat_id,
@@ -1479,7 +1489,7 @@ def _enqueue_real_video(
             _send_telegram_video(chat_id, video_bytes, prompt)
             return
 
-        logger.info("video-gen: HF ZeroGPU unavailable/quota exhausted for chat_id=%s — falling back to the Kaggle queue", chat_id)
+        logger.info("video-gen: external route enabled but HF ZeroGPU unavailable/quota exhausted for chat_id=%s — using our own trained-model Kaggle queue", chat_id)
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,
