@@ -1280,24 +1280,19 @@ def _process_image_gen_and_deliver(
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
         if _external_media_enabled():
-            # Explicit opt-in: try external HF/Cloudflare generators, then our own trained ModelScope image model.
+            # External mode is a deliberate tool selection: HF first, then Cloudflare, with no silent switch to a local model.
             image_bytes = hf_image.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: external route enabled; served by Hugging Face ZeroGPU Space")
+                logger.info("image-gen: Nova external route served by Hugging Face ZeroGPU Space")
             else:
                 image_bytes = cloudflare_ai.generate_image(expanded_prompt)
                 if image_bytes is not None:
-                    logger.info("image-gen: external route enabled; served by Cloudflare Workers AI")
-            if image_bytes is None:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: external routes unavailable — served by our own ModelScope image model")
+                    logger.info("image-gen: Nova external route served by Cloudflare Workers AI")
         else:
-            # External generators are disabled: do not call Hugging Face or Cloudflare at all.
+            # Internal mode is Nova's own ModelScope-hosted image generator only.
             image_bytes = council.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: external route disabled; served by our own ModelScope image model")
-        # Nova is isolated: never call Sham v1/v2 as a media fallback.
+                logger.info("image-gen: Nova internal route served by its own ModelScope image model")
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -1476,12 +1471,11 @@ def _enqueue_real_video(
             _send_telegram_video(chat_id, video_bytes, prompt)
             return
 
-        logger.info("video-gen: external route enabled but HF ZeroGPU unavailable/quota exhausted for chat_id=%s — using our own trained-model Kaggle queue", chat_id)
-        quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
+        logger.warning("video-gen: Nova external route was selected but Hugging Face did not return a video for chat_id=%s; no internal route fallback", chat_id)
+        quota.refund_quota(user_id, "IMAGE")
         _send_telegram_message(
             chat_id,
-            "🎬 التوليد الفوري وصل حده المجاني اليومي حالياً — أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) "
-            "يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
+            "تعذّر توليد الفيديو عبر أداة Hugging Face المختارة. لم أتحول تلقائياً إلى أداة نوفا الداخلية ولم يُخصم الطلب؛ أوقف الأداة الخارجية من لوحة التحكم لاستخدام مسار نوفا الداخلي.",
         )
     except Exception:
         logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)
