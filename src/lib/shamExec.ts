@@ -280,6 +280,24 @@ export async function setShamMediaRoute(route: ShamMediaRoute, db: Db = prismaDb
   await settingsTable(db);
   await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_route_v4', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, route);
 }
+export type ShamMediaEnabled = Record<ShamMediaRoute, boolean>;
+const MEDIA_ROUTES: ShamMediaRoute[] = ["sham_v1", "sham_v2_internal", "sham_v2_ready", "sham_v2_hf"];
+export async function shamMediaRouteEnabled(route: ShamMediaRoute, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await settingsTable(db);
+    const rows = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = $1`, `media_enabled_${route}`);
+    if (rows.length) return rows[0].value === "enabled";
+  } catch { /* use the safe default below */ }
+  return route === "sham_v2_ready";
+}
+export async function shamMediaRouteEnabledMap(db: Db = prismaDb): Promise<ShamMediaEnabled> {
+  const values = await Promise.all(MEDIA_ROUTES.map(async (route) => [route, await shamMediaRouteEnabled(route, db)] as const));
+  return Object.fromEntries(values) as ShamMediaEnabled;
+}
+export async function setShamMediaRouteEnabled(route: ShamMediaRoute, enabled: boolean, db: Db = prismaDb): Promise<void> {
+  await settingsTable(db);
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ($1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, `media_enabled_${route}`, enabled ? "enabled" : "disabled");
+}
 /** Compatibility for older Mini App clients; the old external choice now means Sham's own explicit HF route, never Nova's backend. */
 export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder> {
   return (await shamMediaRoute(db)) === "sham_v2_hf" ? "reserve_first" : "own_first";
