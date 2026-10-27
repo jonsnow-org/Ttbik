@@ -1352,55 +1352,6 @@ def _enqueue_real_video(
     )
 
 
-# Owner spec, 2026-09-09-era pattern, still real here: this may run
-    # inside a FastAPI BackgroundTask with no request/response cycle
-    # left to surface an exception on — an uncaught error here would
-    # leave the user with total silence, the exact failure mode this
-    # file has fixed repeatedly elsewhere.
-    try:
-        expanded_prompt = expanded_prompt or council.expand_media_prompt(prompt, "video")
-        if expanded_prompt != prompt:
-            quota.log_usage(
-                user_id, channel, "PROMPT_EXPANSION",
-                f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
-                expanded_prompt,
-            )
-
-        # Owner spec, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
-        # مقبول"): a Cloudflare-first attempt was tried here (same idea
-        # as the image path below) but REAL evidence overturned it —
-        # the owner personally scrolled Cloudflare's own model catalog
-        # (all 34 "video" results) and confirmed every single
-        # text-to-video/image-to-video model there (Vidu, RunwayML,
-        # Alibaba Wan/HappyHorse, xAI Grok, ByteDance Seedance, Google
-        # Gemini, Black Forest Labs flux-video) is tagged "Third-party" —
-        # billed separately from the free 10,000 Neurons/day pool, not
-        # actually free. cloudflare_ai.generate_video/generate_speech
-        # are kept, not deleted, for if Cloudflare ever adds a real
-        # first-party (@cf/...) video model.
-        #
-        # Tried FIRST now instead: hf_video.py's self-hosted LTX-Video-2B
-        # on Hugging Face's free ZeroGPU tier — real GPU, answers in
-        # real seconds when it works. Honestly unverified whether
-        # server-to-server calls reliably get GPU time (see that
-        # module's docstring) — fails soft to None either way, so the
-        # Kaggle queue below still fires exactly as it always did the
-        # moment this fast path can't answer.
-        if not _external_media_enabled():
-            logger.info("video-gen: external generation is disabled; use our own trained-model Kaggle queue")
-            quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
-            _send_telegram_message(
-                chat_id,
-                "🎬 تم اختيار مسار الفيديو الاحتياطي. أُضيف طلبك لطابور توليد فيديو حقيقي على GPU؛ قد يتأخر حتى دورة المعالجة التالية، وسيصلك هنا عند الانتهاء.",
-            )
-            return
-
-    except Exception:
-        logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)
-        quota.refund_quota(user_id, "IMAGE")
-        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
-
-
 # Owner spec, 2026-09-09 ("الافتراضي 6 الى 10 حسب الطلب من المستخدم"):
 # a plain-language duration mentioned in the request itself ("فيديو 8
 # ثواني قطة تلعب") — no explicit UI field needed, matches how every
