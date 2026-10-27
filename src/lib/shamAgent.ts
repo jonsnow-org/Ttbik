@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAny, shamNoteFailure, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAny, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
