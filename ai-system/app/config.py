@@ -153,28 +153,7 @@ CLOUDFLARE_IMAGE_STEPS = int(os.environ.get("CLOUDFLARE_IMAGE_STEPS", "8") or 0)
 CLOUDFLARE_VIDEO_MODEL = os.environ.get("CLOUDFLARE_VIDEO_MODEL", "@cf/alibaba/wan-2.1-t2v")
 CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/melotts")
 
-# Owner spec, 2026-09-12 ("ابحث حتى لو اضطررت لتغيير النموذج... حل
-# نهائي ودائم"): real second free-GPU lane found once Cloudflare's own
-# video catalog was confirmed (live, by the owner) to have no real
-# free first-party model — see hf_video.py's module docstring for the
-# full reasoning. A free Hugging Face account's personal access token
-# (huggingface.co -> Settings -> Access Tokens -> New token, Read scope
-# is enough) is all HF_TOKEN needs; HF_VIDEO_SPACE_ID is the Space's
-# own id in "username/space-name" form, created once (SDK: Gradio,
-# Hardware: ZeroGPU) per ai-system/huggingface-video/app.py.
-# Prefer the new secret while preserving the legacy deployment key.
-# This keeps existing setups working during token rotation.
-HF_TOKEN = os.environ.get("HF_TOKEN1", "") or os.environ.get("HF_TOKEN", "")
-HF_VIDEO_SPACE_ID = os.environ.get("HF_VIDEO_SPACE_ID", "")
-# Owner spec, 2026-09-13: a free Hugging Face account is entitled to TWO
-# ZeroGPU Spaces and only one was ever used — see
-# ai-system/huggingface-image/app.py for what runs in the second one and
-# why that particular model (licensing matters here: Nova is sold).
-# Same "username/space-name" form as HF_VIDEO_SPACE_ID, same HF_TOKEN,
-# and the same daily GPU allowance shared between them. Leave empty to
-# disable this lane entirely — image generation then behaves exactly as
-# it did before it existed.
-HF_IMAGE_SPACE_ID = os.environ.get("HF_IMAGE_SPACE_ID", "")
+# Hugging Face media inference configuration is quarantined; runtime serving does not read HF_TOKEN or Space IDs.
 
 # Owner spec, 2026-09-12 ("ابحث عن api مجاني يحل لنا كل مشاكل البحث
 # المباشر والوصول الحي للشبكة"): real research found Tavily — a real
