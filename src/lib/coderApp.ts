@@ -383,11 +383,18 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panel } = await import("@/lib/coderPanel");
       return await panel(db, deps.fetchImpl || globalThis.fetch);
     }
-    case "sham_media": {                       // the owner's switch: which media path Sham tries first
+    case "sham_media": {                       // owner's three-way media route selector
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const { shamMediaOrder, setShamMediaOrder } = await import("@/lib/shamExec");
-      if (body.order === "own_first" || body.order === "reserve_first") await setShamMediaOrder(body.order, db);
-      return { order: await shamMediaOrder(db) };
+      const { shamMediaRoute, setShamMediaRoute, shamMediaOrder } = await import("@/lib/shamExec");
+      if (body.route === "sham_v1" || body.route === "sham_v2" || body.route === "nova_media") {
+        await setShamMediaRoute(body.route, db);
+      } else if (body.order === "own_first" || body.order === "reserve_first") {
+        // Compatibility with clients that still send the old binary switch.
+        const { setShamMediaOrder } = await import("@/lib/shamExec");
+        await setShamMediaOrder(body.order, db);
+      }
+      const route = await shamMediaRoute(db);
+      return { route, order: await shamMediaOrder(db) };
     }
     case "hf_media_route": {                    // owner switch: Hugging Face ZeroGPU vs existing image/video fallback routes
       if (user.tier !== "owner") throw new AppError(403, "owner only");
