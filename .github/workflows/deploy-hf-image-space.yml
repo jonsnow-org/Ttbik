@@ -38,7 +38,7 @@ jobs:
 
       - name: Clone the Hugging Face Space git repo
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN1 || secrets.HF_TOKEN }}
           HF_IMAGE_SPACE_ID: ${{ secrets.HF_IMAGE_SPACE_ID }}
         run: |
           git config --global user.name "Nova AI CI"
