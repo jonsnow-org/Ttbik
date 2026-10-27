@@ -1247,29 +1247,11 @@ def _process_image_gen_and_deliver(
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد صورة بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
-        # Owner spec, 2026-09-12 ("حل نهائي ودائم... ليس عبر ترميم"):
-        # tried FIRST — see cloudflare_ai.py's module docstring for why
-        # this is a real quality jump over ModelScope's distilled
-        # sd-turbo, at $0. Returns None (never raises) on any failure,
-        # including today's free daily Neuron quota simply being used
-        # up already — council.generate_image below is the exact same
-        # working fallback this project already had before Cloudflare
-        # existed, now demoted to "used only when Cloudflare didn't
-        # answer" rather than deleted.
-        # Owner spec, 2026-09-13 ("بطريقة احترافية"): our own ZeroGPU
-        # Space goes FIRST now — an undistilled model at 28 steps with a
-        # real negative prompt, which is the actual answer to the
-        # cartoon-looking output with a deformed hand, since Cloudflare's
-        # flux-1-schnell is distilled to ~4 steps and supports no
-        # negative prompt at all. See hf_image.py for why the scarcest
-        # lane is deliberately spent first rather than last.
+        # Nova's own media Studio is the only image generator. It uses its packaged SDXS weights.
+        # A Studio failure is surfaced to the user; no secondary model or external provider is tried.
         image_bytes, image_source = nova_media_routing.generate_image(
             expanded_prompt,
-            external_enabled=False,
-            hf_generate=lambda _prompt: None,
-            cloudflare_generate=lambda _prompt: None,
             nova_studio_generate=lambda text: nova_media_studio.generate_media("image", text),
-            nova_model_generate=council.generate_image,
         )
         if image_bytes is not None:
             logger.info("image-gen: Nova selected tool returned image via %s", image_source)
@@ -1286,14 +1268,7 @@ def _process_image_gen_and_deliver(
             # quota.check_and_reserve_quota) is refunded here since this
             # failure is never the user's fault.
             quota.refund_quota(user_id, "IMAGE")
-            # Owner report, 2026-09-09 (real evidence): the server had
-            # been confirmed up and stable for 30+ minutes, ruling out
-            # the old message's guessed "still restarting" cause — that
-            # guess is gone. council.generate_image now logs the real
-            # POST/GET status and, on a stream that ends with no usable
-            # result, the raw SSE lines too (see that function), so the
-            # next failure is diagnosable from Render's own logs instead
-            # of guessed at again.
+            # The sole Nova media Studio returned no image. Refund the reservation and report the real failure.
             _send_telegram_message(chat_id, "تعذّر توليد الصورة عبر مسار نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً.")
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
@@ -1356,47 +1331,28 @@ class GenerateVideoResponse(BaseModel):
 def _enqueue_real_video(
     user_id: str, channel: str, chat_id: str, prompt: str, seconds: int, expanded_prompt: str | None = None
 ) -> None:
-    """Owner spec, 2026-09-12 ("لا اريد عرض شرائح... اريد فديو حقيقي
-    وليس شرائح"): replaces the old CPU-only "AI keyframes + classical
-    Ken Burns slideshow" path (council.generate_video) — that was an
-    honest workaround for having no free GPU to serve video live, but
-    the owner explicitly rejected it once he saw it: it isn't real
-    video, it's stills with pan/zoom. Real video (CogVideoX-2B, already
-    confirmed working — 157s on an actual T4 GPU, see
-    ai-system/colab/generate_image_model.ipynb's own test cell) needs a
-    real GPU this project has no free LIVE-serving access to — so the
-    honest way to still deliver REAL video at $0 is to queue it here
-    and let a scheduled Kaggle run (ai-system/colab/process_video_queue.ipynb,
-    real free T4 GPU quota) generate and deliver it directly to
-    Telegram in a later batch. Real trade-off, stated plainly: this is
-    no longer "a few minutes" — it's "whenever the next scheduled batch
-    runs" (see that workflow's own schedule for the current interval).
-    A real video is worth more than an instant slideshow was, per the
-    owner's own explicit priority.
+    """Fail honestly when Nova has no native video-diffusion model installed.
 
-    Owner follow-up, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
-    مقبول"): the Kaggle queue's up-to-~2h wait was then itself rejected
-    as too slow. Real research found Cloudflare Workers AI, a genuinely
-    free, always-on, GPU-served host — and it did fix this exact
-    problem for images (see the image path below and cloudflare_ai.py).
-    A Cloudflare-first attempt was briefly added here too, but REAL,
-    live evidence overturned it just as quickly: the owner personally
-    scrolled Cloudflare's own model catalog (all 34 "video"-tagged
-    results, not a guess) and confirmed every text-to-video/
-    image-to-video model listed there — Vidu, RunwayML, Alibaba Wan/
-    HappyHorse, xAI Grok, ByteDance Seedance, Google Gemini, Black
-    Forest Labs flux-video, all of them — is tagged "Third-party": billed
-    separately from the free 10,000 Neurons/day pool, not actually free.
-    Research kept going past that dead end and found a second, real
-    free-GPU lane: Hugging Face Spaces' "ZeroGPU" hardware tier (real
-    NVIDIA H200 time, genuinely free for a personal account) — see
-    hf_video.py's module docstring for the full reasoning and the one
-    honestly-unverified part (whether this backend's server-to-server
-    calls reliably get real GPU time the way a browser visitor does).
-    Tried first below; the Kaggle queue (up to ~2h, but proven reliable
-    since the very first version of this feature) remains the real
-    fallback for whenever that path can't answer — never silence."""
-    # Owner spec, 2026-09-09-era pattern, still real here: this may run
+    The dedicated Nova Media Studio currently contains SDXS image weights and
+    Piper speech weights only; its video endpoint assembles a slideshow. The
+    owner explicitly rejected slideshow video, and external/Kaggle/HF queues
+    are disallowed for this path. Do not silently substitute another generator
+    or charge the user for a video that cannot be generated natively.
+    """
+    del channel, prompt, seconds, expanded_prompt
+    logger.error(
+        "video-gen unavailable: Nova has no native video-diffusion weights; "
+        "external queues and slideshow substitution are disabled"
+    )
+    quota.refund_quota(user_id, "IMAGE")
+    _send_telegram_message(
+        chat_id,
+        "لا يتوفر حالياً مولّد فيديو حقيقي داخل نوفا: الأوزان المثبتة تدعم الصور والصوت فقط. "
+        "لم أستخدم طابوراً أو مولّداً خارجياً، ولم يُخصم الطلب. لن أستبدل الفيديو بشرائح صور.",
+    )
+
+
+# Owner spec, 2026-09-09-era pattern, still real here: this may run
     # inside a FastAPI BackgroundTask with no request/response cycle
     # left to surface an exception on — an uncaught error here would
     # leave the user with total silence, the exact failure mode this
