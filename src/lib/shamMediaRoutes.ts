@@ -1,6 +1,6 @@
 import { shamMediaRoute, type ShamMediaRoute } from "@/lib/shamExec";
 import { novaMakeMedia, novaMediaEnabled } from "@/lib/novaMedia";
-import { shamGenerateMedia, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
 export type ShamMediaKind = "image" | "audio" | "video";
 
@@ -26,12 +26,13 @@ export async function generateShamMediaThroughRoute(
       reply = result ? (result as ShamReply) : null;
     } else {
       const variant = route === "sham_v1" ? "v1" : "v2";
+      shamNoteFailure("");
       reply = await shamVariant.run(variant, () => shamGenerateMedia(kind, prompt, timeoutMs));
     }
     if (reply && (reply.type === "image" || reply.type === "audio" || reply.type === "video") && reply.b64) {
       return { ...reply, route };
     }
-    const detail = reply?.text || (reply ? 'Studio returned type "' + reply.type + '" without a usable media file.' : "The selected route returned no response.");
+    const detail = reply?.text || (reply ? 'Studio returned type "' + reply.type + '" without a usable media file.' : shamLastFailure() || "The selected route returned no response.");
     return { type: "error", route, text: detail };
   } catch (error) {
     return { type: "error", route, text: String((error as Error)?.message || error).slice(0, 300) };
