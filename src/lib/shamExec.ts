@@ -309,20 +309,3 @@ export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder>
 export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb): Promise<void> {
   await setShamMediaRoute(order === "reserve_first" ? "sham_v2_hf" : "sham_v2_ready", db);
 }
-
-// Explicit opt-in switch for third-party media-generation routes. The default is
-// own_only, stored under a versioned key so a previous "HF first" preference
-// cannot silently re-enable external generation after this safety change.
-export type HfMediaRouteOrder = "hf_first" | "fallback_first";
-export async function hfMediaRouteOrder(db: Db = prismaDb): Promise<HfMediaRouteOrder> {
-  try {
-    await settingsTable(db);
-    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'external_media_enabled_v2'`);
-    return r[0]?.value === "enabled" ? "hf_first" : "fallback_first";
-  } catch { return "fallback_first"; }
-}
-export async function setHfMediaRouteOrder(order: HfMediaRouteOrder, db: Db = prismaDb): Promise<void> {
-  await settingsTable(db);
-  const value = order === "hf_first" ? "enabled" : "disabled";
-  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('external_media_enabled_v2', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, value);
-}
