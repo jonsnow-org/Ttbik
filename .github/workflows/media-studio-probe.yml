@@ -1,14 +1,21 @@
-name: Media Studio Probe (read-only)
+name: Nova Media Studio Smoke Test
 
-# اطلب صورة من استوديو الوسائط (nova-media-server: نماذج جاهزة مدرَّبة) واحفظها كملف قابل للتنزيل لأنظر إليها. للقراءة فقط.
-
+# Live tests for Nova's own ModelScope media Studio. These calls never touch Sham and never send media to Telegram.
 on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: "وصف الصورة"
+        description: "Image prompt"
         required: false
         default: "a rabbit playing in a green garden, cartoon style"
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/app/main.py"
+      - "ai-system/app/nova_media_studio.py"
+      - "ai-system/modelscope-media/app.py"
+      - ".github/workflows/media-studio-probe.yml"
 
 permissions:
   contents: read
@@ -16,38 +23,58 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install requests
-      - name: Ask the media Studio for a picture
+      - name: Generate and validate an image, Arabic speech, and a short slideshow video
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          PROMPT: ${{ inputs.prompt }}
+          PROMPT: ${{ inputs.prompt || 'a rabbit playing in a green garden, cartoon style' }}
         run: |
           python - <<'PY'
           import base64, json, os, time, requests
           base = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net"
-          h = {"Authorization": "Bearer " + os.environ["MODELSCOPE_TOKEN"], "Content-Type": "application/json"}
-          t0 = time.time()
-          r = requests.post(f"{base}/gradio_api/call/v2/image", headers=h, json={"body": json.dumps({"prompt": os.environ["PROMPT"]})}, timeout=30)
-          print("submit", r.status_code, r.text[:200])
-          eid = r.json().get("event_id")
-          res = requests.get(f"{base}/gradio_api/call/image/{eid}", headers=h, timeout=600)
-          print("result", res.status_code, f"{time.time()-t0:.0f}s", len(res.text))
-          for line in res.text.splitlines():
-              if line.startswith("data:"):
-                  d = json.loads(json.loads(line[5:])[0])
-                  print("type", d.get("type"), (d.get("text") or "")[:200])
-                  if d.get("b64"):
-                      open("probe.png", "wb").write(base64.b64decode(d["b64"]))
-                      print("saved probe.png", os.path.getsize("probe.png"))
+          headers = {"Authorization": "Bearer " + os.environ["MODELSCOPE_TOKEN"], "Content-Type": "application/json"}
+
+          def run(api, payload, expected, path):
+              started = time.time()
+              submit = requests.post(f"{base}/gradio_api/call/v2/{api}", headers=headers, json={"body": json.dumps(payload, ensure_ascii=False)}, timeout=30)
+              submit.raise_for_status()
+              event = submit.json().get("event_id")
+              if not event:
+                  raise RuntimeError(f"{api}: no event_id: {submit.text[:200]}")
+              response = requests.get(f"{base}/gradio_api/call/{api}/{event}", headers=headers, timeout=600)
+              response.raise_for_status()
+              for line in response.text.splitlines():
+                  if not line.startswith("data:"):
+                      continue
+                  value = json.loads(line[5:].strip())
+                  value = value[0] if isinstance(value, list) and value else value
+                  result = json.loads(value) if isinstance(value, str) else value
+                  print(api, "type=", result.get("type"), "seconds=", round(time.time()-started, 1), "detail=", str(result.get("text", ""))[:120])
+                  if result.get("type") != expected or not result.get("b64"):
+                      raise RuntimeError(f"{api}: expected {expected} media, got {str(result)[:300]}")
+                  raw = base64.b64decode(result["b64"])
+                  if len(raw) < 128:
+                      raise RuntimeError(f"{api}: suspiciously small payload ({len(raw)} bytes)")
+                  open(path, "wb").write(raw)
+                  print("PASS", api, path, len(raw), "bytes")
+                  return
+              raise RuntimeError(f"{api}: no SSE data event received")
+
+          run("image", {"prompt": os.environ["PROMPT"], "size": 512, "seed": 17}, "image", "probe.png")
+          run("speech", {"text": "مرحباً، هذا اختبار صوتي لاستوديو نوفا."}, "audio", "probe.wav")
+          run("video", {"prompts": ["A rabbit playing in a green garden", "A close-up of the rabbit in the grass"], "narration": "أرنب صغير يلعب في الحديقة الخضراء.", "seconds": 3}, "video", "probe.mp4")
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: media-probe
-          path: probe.png
+          name: nova-media-smoke
+          path: |
+            probe.png
+            probe.wav
+            probe.mp4
           if-no-files-found: ignore
