@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse, json, os, re, sys, time, urllib.request, urllib.error
 
-SHAM_BASE = os.environ.get("SHAM_BASE", "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").rstrip("/")
+SHAM_BASE = os.environ.get("SHAM_BASE", "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net").rstrip("/")
 JUDGE_BASE = os.environ.get("JUDGE_BASE", "http://127.0.0.1:8080/v1").rstrip("/")
 
 # fixed prompts: (skill, prompt). Do not reorder or edit lightly: the trend only means something on the same questions.
