@@ -91,27 +91,38 @@ jobs:
           git diff --cached --quiet && echo "no change" || git commit -m "sham v2: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
-      - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
+      - name: Set and verify the Studio model/token secrets (never print values)
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
-          pip install -q modelscope
-          python - <<'PY'
-          import os
-          from modelscope.hub.api import HubApi
-          api = HubApi()
-          api.login(os.environ["MODELSCOPE_TOKEN"])
-          sid, tok = os.environ["STUDIO_ID"], os.environ["MODELSCOPE_TOKEN"]
-          # Sham v2 must read its own model repo; the legacy default is sham-merged.
-          for key, value in (("MODELSCOPE_API_TOKEN", tok), ("SHAM_MS_MODEL", "novaai2026/sham-v2")):
-              try:
-                  api.add_studio_secret(sid, key, value)
-              except Exception as e:                       # already there: replace it
-                  print(key, "add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
-                  api.update_studio_secret(sid, key, value)
-          print("studio model and token secrets set")
-          PY
+          set -eu
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN secret is empty"; exit 1; }
+          # Use the documented ModelScope OpenAPI directly. The legacy HubApi
+          # secret helpers did not result in the running Studio receiving a
+          # token that could read the private model repository (runtime 403).
+          set_secret() {
+            key="$1"; value="$2"
+            printf '%s' "$value" | python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$key" > secret.json
+            code=$(curl -sS -o secret-response.json -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o secret-response.json -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            fi
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              echo "::error::ModelScope rejected secret update for $key (HTTP $code)"
+              head -c 500 secret-response.json; echo
+              exit 1
+            fi
+            echo "updated Studio secret key: $key"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T"
+          set_secret MODELSCOPE_TOKEN "$T"
+          set_secret SHAM_MS_MODEL "novaai2026/sham-v2"
+          rm -f secret.json secret-response.json
 
       - name: Deploy and show status
         env:
