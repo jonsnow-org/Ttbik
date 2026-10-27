@@ -29,9 +29,12 @@ let rotate = 0;
  *  one, so users spread over the Studios, and a busy or unreachable one is skipped for the next (see shamBusyHop). */
 export function shamBases(): string[] {
   const v2 = shamVariant.getStore() === "v2";
-  const raw = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-  const k = rotate++ % Math.max(1, raw.length);
-  return [...raw.slice(k), ...raw.slice(0, k)];
+  const configured = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
+  // nova-inference-server belongs to Nova. Ignore stale environment values rather than reconnecting Sham to Nova.
+  const raw = configured.filter((x) => !/nova-inference-server/i.test(x));
+  const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
+  const k = rotate++ % Math.max(1, bases.length);
+  return [...bases.slice(k), ...bases.slice(0, k)];
 }
 
 export function shamStudioEnabled(): boolean {
