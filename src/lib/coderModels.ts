@@ -147,3 +147,20 @@ export function setModelSettings(st: PerModelState, id: string, patch: Partial<M
   st.perModel = { ...(st.perModel || {}), [mid]: next };
   return next;
 }
+
+// ---------------------------------------------------------------- memory / save settings, per model
+/** What a model may keep about the user: `remember` = learn lasting facts from chats, `recall` = use what was learned in answers, `save` = keep the conversations in the chat list.
+ *  Each model has its own three switches (all on by default, as before); the server-wide kill switches (CODER_MEMORY=off, SHAM_MEMORY=off) still win. */
+export type MemorySettings = { remember: boolean; recall: boolean; save: boolean };
+export type MemoryState = { memPer?: Record<string, Partial<MemorySettings>> };
+export function memorySettings(st: MemoryState, id: string | undefined): MemorySettings {
+  const m = st.memPer?.[canonModelId(id) || DEFAULT_MODEL_ID] || {};
+  return { remember: m.remember !== false, recall: m.recall !== false, save: m.save !== false };
+}
+export function setMemorySettings(st: MemoryState, id: string, patch: Partial<MemorySettings>): MemorySettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const cur = memorySettings(st, mid);
+  const next: MemorySettings = { remember: typeof patch.remember === "boolean" ? patch.remember : cur.remember, recall: typeof patch.recall === "boolean" ? patch.recall : cur.recall, save: typeof patch.save === "boolean" ? patch.save : cur.save };
+  st.memPer = { ...(st.memPer || {}), [mid]: next };
+  return next;
+}

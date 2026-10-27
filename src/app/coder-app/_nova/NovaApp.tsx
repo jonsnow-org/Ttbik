@@ -911,7 +911,15 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
+  useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
   const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz">("");
+  const isSham = s.model === "sham" || s.model === "sham_v2" || s.model === "sham_loop";
+  const [known, setKnown] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    setKnown(null);
+    if (isSham) void api<{ facts: Record<string, string> }>("sham_memory", { model: s.model }).then((d) => setKnown(d.facts)).catch(() => setKnown({}));
+  }, [s.model, isSham]);
+  const mem = s.memory || { remember: true, recall: true, save: true };
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -946,6 +954,18 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
         <Row icon="🎞️" title={n.s_media} sub={n.s_mediaSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.media !== false} aria-label={n.s_media} onChange={(e) => set({ media: e.currentTarget.checked })} /></span>} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
+      </Card>
+      <Card title={`${n.m_title}: ${modelName(models, lang)}`}>
+        <Row icon="🧬" title={n.m_remember} sub={n.m_rememberSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.remember} aria-label={n.m_remember} onChange={(e) => set({ memory: { ...mem, remember: e.currentTarget.checked } })} /></span>} />
+        <Row icon="📖" title={n.m_recall} sub={n.m_recallSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.recall} aria-label={n.m_recall} onChange={(e) => set({ memory: { ...mem, recall: e.currentTarget.checked } })} /></span>} />
+        <Row icon="💾" title={n.m_save} sub={n.m_saveSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.save} aria-label={n.m_save} onChange={(e) => set({ memory: { ...mem, save: e.currentTarget.checked } })} /></span>} />
+        {isSham && (
+          <>
+            <Row icon="🧾" title={n.m_known} chevron={false} sub={known ? (Object.keys(known).length ? Object.entries(known).map(([k, v]) => `${k}: ${v}`).join(" · ") : n.m_none) : "…"} />
+            <Row icon="🗑" title={n.m_forget} sub={n.m_forgetQ} tone="var(--n-danger)" chevron={false}
+              onClick={async () => { if (!(await guard(n.m_forget))) return; await api("sham_memory", { model: s.model, forget: true }); haptic("success"); setKnown({}); }} />
+          </>
+        )}
       </Card>
       <Card title={n.g_profile}>
         <Row icon="👤" title={n.s_mem} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />

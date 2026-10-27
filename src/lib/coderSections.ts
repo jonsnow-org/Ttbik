@@ -18,7 +18,7 @@ import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, type ModelSettings } from "@/lib/coderModels";
+import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -46,7 +46,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number } };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>> };
 export type { Db };
 export { coderChatKey };
 
@@ -645,9 +645,13 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
     const conv = st.convId;
     later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
   }
-  if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
+  if (st.threadId) {
+    await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
+    // "save conversations" off: the chat is not kept once it is left (hidden from the list like a delete)
+    if (!novaMemory(st).save) await T.hideThread(chatId, st.threadId, db);
+  }
   else if (st.messages.length) await ensureThread(chatId, st, db);
-  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
+  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db, st);   // no key for quiet time: as before
   const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model, perModel: st.perModel };
   if (target) {
     next.threadId = target.id;
@@ -685,9 +689,20 @@ export async function adoptThread(chatId: number, st: ChatState, db: Db = prisma
 
 const encryptionReady = () => Boolean((process.env.CODER_TOKEN_KEY || "").trim());
 
+/** Nova's own memory switches (Mini App → settings → memory). */
+const novaMemory = (st: ChatState): MemorySettings => memorySettings(st, novaModelOf(st.model));
+
+/** The long-term memories shown to Nova for one task: none when the user switched "use memory" off for Nova. */
+export async function novaMemoryPrompt(chatId: number, st: ChatState, goal: string, db: Db): Promise<string> {
+  if (!novaMemory(st).recall) return "";
+  const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
+  return memoryPrompt(chatId, goal, repoOf(goal, st.repo), db).catch(() => "");
+}
+
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
-function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db): void {
+function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db, st: ChatState): void {
   if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
+  if (!novaMemory(st).remember) return;                                  // the user switched "remember" off for Nova in the app
   const snap = msgs.slice(-40);
   later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
 }
@@ -785,7 +800,7 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
   // the conversation's saved copy follows each finished request (memories are learned from it later, in quiet time)
   if (!run.slot && st.threadId && chatKeyOf) {
     const { syncThread } = await import("@/lib/coderThreads");
-    await syncThread(chatKeyOf, st.threadId, st, db, true);
+    await syncThread(chatKeyOf, st.threadId, st, db, novaMemory(st).remember);
   }
   // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
   if (chatKeyOf && run.slot) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(chatKeyOf, run.id)));
@@ -830,6 +845,7 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
     chatKey: coderChatKey(chatId),
     userId: chatId,
+    memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
     botId,
     tz: st.tz || defaultTz(),
     db,
@@ -1622,7 +1638,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
-      if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
+      if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
       if (run.agent) st.agentResult = { status: "done", text: text.trim() || "(empty report)", at: Date.now() };
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
@@ -1711,7 +1727,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             st.messages.push({ role: "assistant", content: pr.text });
             await sendParts(run.surface === "app" ? bot : ioBot, chatId, pr.text, run, true, db);
             await taskEvent(run.id, "info", `✍️ [سجل داخلي] كُتب التقرير من ${pr.sections} أقسام بالتوازي.`, db);
-            if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
+            if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
             if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
               const snap = [...st.messages], id = run.id, steps = run.step;
               later(() => import("@/lib/coderLessons").then((mm) => mm.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
@@ -1748,8 +1764,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const knobs = recoveryKnobs(run.stall);
     if (run.memory === undefined) {
       // relevant long-term memories, once per task (keyword + recency + repo scope)
-      const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
-      run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
+      run.memory = await novaMemoryPrompt(chatId, st, run.goal || "", db);
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const nset = modelSettings(st, novaModelOf(st.model));                  // this model's OWN thinking / speed / media switches
@@ -1986,10 +2001,10 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   const st = await loadState(chatId, db);
   const set = modelSettings(st, st.model === "sham_v2" ? "sham_v2" : "sham");          // the chosen Sham's own switches (old and new Sham each have theirs)
-  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media } };
+  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, st.model === "sham_v2" ? "sham_v2" : "sham") } };
 }

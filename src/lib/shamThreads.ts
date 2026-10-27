@@ -6,7 +6,7 @@
 // Nova (coder*) module: the Mini App control plane (coderApp.ts) is the only place that carries a chat from one model to the other.
 import { prisma } from "@/lib/prisma";
 import { chatKey, ensureTables, loadMemory, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
-import { shamVariant } from "@/lib/shamStudio";
+import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 
 export type ShamVariantId = "v1" | "v2";
 export type ShamThread = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; created_at: string; updated_at: string; preview: string };
@@ -190,12 +190,13 @@ export async function loadChatMemory(chatId: number | string, text: string, db: 
   const variant = variantNow();
   let scope: string | undefined;
   try { scope = scopeKey(chatId, variant, await activeThreadId(chatId, variant, db)); } catch { scope = undefined; }
-  return loadMemory(chatId, text, db, scope);
+  return loadMemory(chatId, text, db, scope, shamModeCtx.getStore()?.memory);
 }
 export async function saveChatTurn(chatId: number | string, question: string, answer: string, db: Db = prismaDb): Promise<void> {
   const variant = variantNow();
+  const mem = shamModeCtx.getStore()?.memory;            // this Sham's own switches (remember / recall / save)
   let id = "";
-  try { id = await activeThreadId(chatId, variant, db); } catch { id = ""; }
-  await saveTurn(chatId, question, answer, db, id ? scopeKey(chatId, variant, id) : undefined);
-  if (id && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
+  try { id = mem?.save === false ? (await currentThreadId(chatId, variant, db)) || "" : await activeThreadId(chatId, variant, db); } catch { id = ""; }
+  await saveTurn(chatId, question, answer, db, id ? scopeKey(chatId, variant, id) : undefined, mem);
+  if (id && mem?.save !== false && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
 }
