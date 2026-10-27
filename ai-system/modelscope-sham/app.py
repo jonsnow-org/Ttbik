@@ -302,44 +302,13 @@ def _busy_wait() -> float:
         return 25.0
 
 
-def _generate_hf_media(kind: str, prompt: str, scenes: list[str] | None = None) -> dict:
-    """Sham v2's explicit external route. It calls Hugging Face Spaces directly; it never calls Nova's backend."""
-    import base64
-    if kind == "audio":
-        return {"type": "error", "backend": "hf", "text": "مسار Hugging Face الخارجي يدعم الصور والفيديو حالياً فقط؛ اختر أوزان شام الجاهزة للصوت العربي."}
-    token = (os.environ.get("HF_TOKEN1") or os.environ.get("HF_TOKEN") or "").strip()
-    if not token:
-        return {"type": "error", "backend": "hf", "text": "مسار Hugging Face غير مهيأ: سر HF_TOKEN1 غير موجود في استوديو شام v2."}
-    try:
-        from gradio_client import Client
-        if kind == "image":
-            space = os.environ.get("HF_IMAGE_SPACE_ID", "Novasy/nova-image-space").strip()
-            path = Client(space, hf_token=token).predict(prompt[:1500], api_name="/generate")
-            mime, typ = "image/png", "image"
-        elif kind == "video":
-            space = os.environ.get("HF_VIDEO_SPACE_ID", "Novasy/nova-video-space").strip()
-            video_prompt = ". ".join(scenes or [])[:1500] or prompt[:1500]
-            path = Client(space, hf_token=token).predict(video_prompt, 6, api_name="/generate")
-            mime, typ = "video/mp4", "video"
-        else:
-            return {"type": "error", "backend": "hf", "text": "نوع وسائط غير معروف."}
-        with open(path, "rb") as f:
-            raw = f.read()
-        if not raw:
-            return {"type": "error", "backend": "hf", "text": "أعاد Hugging Face ملفاً فارغاً."}
-        return {"type": typ, "mime": mime, "b64": base64.b64encode(raw).decode("ascii"), "backend": "hf"}
-    except Exception as exc:
-        print(f"HF media route failed ({kind}, {type(exc).__name__}: {str(exc)[:140]})", flush=True)
-        return {"type": "error", "backend": "hf", "text": f"فشل مسار Hugging Face: {type(exc).__name__}. لم يتم التحويل تلقائياً إلى مسار آخر."}
-
+# Hugging Face generation implementation is preserved in quarantine/huggingface/modelscope-sham-app.py.disabled.
 
 def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
     """Run exactly the selected path: internal tokens, packaged donor weights, or direct Hugging Face Spaces. No silent fallback."""
     selected = (backend or "internal").strip().lower()
-    if selected not in ("internal", "ready", "hf"):
+    if selected not in ("internal", "ready"):
         return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
-    if selected == "hf":
-        return json.dumps(_generate_hf_media(kind.strip().lower(), prompt, scenes=scenes), ensure_ascii=False)
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
@@ -379,7 +348,7 @@ def generate_media(kind: str, prompt: str) -> str:
 def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "") -> str:
     """Select one media backend and optionally provide video shots and spoken narration."""
     label = (backend_label or "").strip()
-    backend = "ready" if label == "المسار البديل (أوزان محلية جاهزة)" else "hf" if label == "المسار الخارجي (Hugging Face)" else "internal"
+    backend = "ready" if label == "المسار البديل (أوزان محلية جاهزة)" else "internal"
     try:
         scenes = json.loads(scenes_json) if (scenes_json or "").strip() else []
         if not isinstance(scenes, list):
