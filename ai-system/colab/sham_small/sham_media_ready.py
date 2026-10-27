@@ -162,7 +162,7 @@ def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, na
                 "mime": "video/mp4",
                 "b64": base64.b64encode(clip).decode(),
                 "text": "مقطع شرائح سينمائي من أربع لقطات مولّدة محلياً مع تعليق صوتي؛ ليس توليد فيديو انتشارياً متصلاً.",
-                "frames": len(scenes),
+                "frames": len(shots),
             }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
     except Exception as exc:                                   # noqa: BLE001
