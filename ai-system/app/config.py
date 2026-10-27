@@ -162,7 +162,9 @@ CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/me
 # is enough) is all HF_TOKEN needs; HF_VIDEO_SPACE_ID is the Space's
 # own id in "username/space-name" form, created once (SDK: Gradio,
 # Hardware: ZeroGPU) per ai-system/huggingface-video/app.py.
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+# Prefer the new secret while preserving the legacy deployment key.
+# This keeps existing setups working during token rotation.
+HF_TOKEN = os.environ.get("HF_TOKEN1", "") or os.environ.get("HF_TOKEN", "")
 HF_VIDEO_SPACE_ID = os.environ.get("HF_VIDEO_SPACE_ID", "")
 # Owner spec, 2026-09-13: a free Hugging Face account is entitled to TWO
 # ZeroGPU Spaces and only one was ever used — see
