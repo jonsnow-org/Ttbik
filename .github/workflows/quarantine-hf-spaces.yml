@@ -1,0 +1,42 @@
+name: Pause quarantined Hugging Face media Spaces
+
+# One-time owner-requested pause. This pauses, never deletes, the two external
+# media Spaces. The legacy HF_TOKEN secret is retained as a fallback; no token is printed.
+on:
+  push:
+    branches:
+      - chore/quarantine-hf-media-live
+    paths:
+      - ".github/workflows/quarantine-hf-spaces.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pause-spaces:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pause the image and video Spaces without deleting them
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN1 || secrets.HF_TOKEN }}
+        run: |
+          set -eu
+          test -n "$HF_TOKEN" || { echo "::error::Neither HF_TOKEN1 nor HF_TOKEN is configured"; exit 1; }
+          python -m pip install --quiet huggingface_hub
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          failed = []
+          for repo_id in ("Novasy/nova-image-space", "Novasy/nova-video-space"):
+              try:
+                  api.pause_space(repo_id=repo_id)
+                  print(f"PAUSE_REQUESTED {repo_id}")
+              except Exception as exc:
+                  print(f"PAUSE_FAILED {repo_id}: {type(exc).__name__}: {str(exc)[:180]}")
+                  failed.append(repo_id)
+          if failed:
+              raise SystemExit("Could not pause: " + ", ".join(failed))
+          PY
