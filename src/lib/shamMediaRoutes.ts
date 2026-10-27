@@ -30,7 +30,12 @@ export async function generateShamMediaThroughRoute(
       return { ...reply, route };
     }
     const detail = reply?.text || (reply ? 'Studio returned type "' + reply.type + '" without a usable media file.' : shamLastFailure() || "The selected route returned no response.");
-    return { type: "error", route, text: detail };
+    // keep the Studio's typed reason (blank_image, noise_image, disk, unavailable, ...) so the caller can say WHY, and say plainly what the internal path is
+    const reason = reply?.type === "error" ? reply.reason : undefined;
+    const note = route === "sham_v2_internal" || route === "sham_v1"
+      ? (reason === "blank_image" || reason === "noise_image" ? "\n(مسار شام الداخلي لا يزال قيد التدريب ولا ينتج وسائط صالحة بعد؛ اختر «المسار الجاهز» من إعدادات الوسائط. لم يحدث تحويل تلقائي.)" : "")
+      : "";
+    return { type: "error", route, ...(reason ? { reason } : {}), text: detail + note };
   } catch (error) {
     return { type: "error", route, text: String((error as Error)?.message || error).slice(0, 300) };
   }

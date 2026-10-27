@@ -82,7 +82,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
   type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
-  text?: string; mime?: string; b64?: string; route?: string;
+  reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -130,7 +130,7 @@ export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => rep
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
   // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
-  const payload = api === "generate_media" || api === "generate_media_from_panel" ? payload0 : withMode(payload0);
+  const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0);
   const bases = shamBases();
   let last: string | null = null;
   for (let i = 0; i < bases.length; i++) {
@@ -148,21 +148,28 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
   return reply;
 }
 
+/** The two media paths a Sham Studio really has, by the exact label its panel API validates (ai-system/modelscope-sham/app.py PANEL_BACKENDS). */
+export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)", ready: "المسار البديل (أوزان محلية جاهزة)" } as const;
+export type ShamMediaBackend = keyof typeof SHAM_BACKEND_LABELS;
+
+/**
+ * Media on ONE explicit path, never a silent switch: "internal" = the model's own tokens + decoder (still training: usually refused by the quality gate), "ready" = the CPU
+ * SDXS-512 image / Piper speech / video-model path. Both go through the Studio's `generate_media_from_panel` (the old `generate_media` endpoint is not registered on the Studio,
+ * which made every internal call fail with HTTP 500). The Hugging Face route is gone (the owner's rule: no external providers).
+ */
 export async function shamGenerateMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
   timeoutMs = 55000,
-  backend: "internal" | "ready" | "hf" = "internal",
+  backend: ShamMediaBackend = "internal",
   opts: { scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply | null> {
-  const api = backend === "internal" ? "generate_media" : "generate_media_from_panel";
+  const api = "generate_media_from_panel";
+  if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const backend_label = backend === "ready" ? "المسار البديل (أوزان محلية جاهزة)" : "المسار الخارجي (Hugging Face)";
-  const payload = backend === "internal"
-    ? { kind, prompt }
-    : { kind, prompt, backend_label, scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
+  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";

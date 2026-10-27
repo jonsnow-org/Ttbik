@@ -949,7 +949,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
             return;
           }
           await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
-          await sendShamReply(bot, chatId, await shamGenerateMedia(kind, caption));
+          // the route chosen in the owner's panel, on the variant that route belongs to; nothing is switched silently (the old direct call used the broken internal endpoint)
+          const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
+          await sendShamReply(bot, chatId, await generateShamMediaThroughRoute(kind as "image" | "audio" | "video", caption));
           return;
         }
         await bot.api.sendMessage(chatId, cmd === "/start" || cmd === "/help" ? welcome : unavailable, { reply_markup: { remove_keyboard: true } }).catch(() => null);

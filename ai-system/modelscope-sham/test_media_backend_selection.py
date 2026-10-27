@@ -54,12 +54,24 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(result["backend"], "internal")
         self.make_media.assert_called_once()
 
-    def test_external_hf_label_is_neutralized_to_internal_route(self):
-        result = json.loads(
-            sham_app.generate_media_from_panel("image", "a tree", "المسار الخارجي (Hugging Face)")
-        )
-        self.assertEqual(result["backend"], "internal")
-        self.make_media.assert_called_once()
+    def test_unknown_or_removed_labels_are_an_explicit_error_not_a_silent_internal(self):
+        for label in ("المسار الخارجي (Hugging Face)", "", "whatever"):
+            result = json.loads(sham_app.generate_media_from_panel("image", "a tree", label))
+            self.assertEqual((result["type"], result["reason"]), ("error", "unknown_route"))
+        self.make_media.assert_not_called()
+
+    def test_client_labels_match_the_studio_enum(self):
+        """src/lib/shamStudio.ts SHAM_BACKEND_LABELS must be exactly the labels this Studio validates."""
+        ts = (Path(__file__).resolve().parents[2] / "src" / "lib" / "shamStudio.ts").read_text(encoding="utf-8")
+        for label in sham_app.PANEL_BACKENDS:
+            self.assertIn(label, ts)
+
+    def test_generate_media_endpoint_is_registered_in_the_ui(self):
+        """The Studio answered HTTP 500 for `generate_media` because it was not registered; the UI must expose every api the clients call."""
+        import inspect
+        src = inspect.getsource(sham_app.build_ui)
+        for api in ("generate_media_from_panel", "generate_media", "generate_any", "chat_auto", "status"):
+            self.assertIn(f'api_name="{api}"', src)
 
     def test_panel_can_select_internal_sham(self):
         result = json.loads(

@@ -360,10 +360,16 @@ def generate_media(kind: str, prompt: str) -> str:
     return _generate_media_with_backend(kind, prompt, backend)
 
 
+PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal", "المسار البديل (أوزان محلية جاهزة)": "ready"}     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
+
+
 def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "") -> str:
     """Select one media backend and optionally provide video shots and spoken narration."""
     label = (backend_label or "").strip()
-    backend = "ready" if label == "المسار البديل (أوزان محلية جاهزة)" else "internal"
+    # explicit enum: an unknown label is an error, never a silent "internal" (which would answer with the untrained decoder). The Hugging Face route no longer exists.
+    backend = PANEL_BACKENDS.get(label)
+    if backend is None:
+        return json.dumps({"type": "error", "reason": "unknown_route", "text": f"مسار الوسائط «{label[:60]}» غير معروف. المسارات المتاحة: " + " | ".join(PANEL_BACKENDS)}, ensure_ascii=False)
     try:
         scenes = json.loads(scenes_json) if (scenes_json or "").strip() else []
         if not isinstance(scenes, list):
@@ -499,6 +505,8 @@ def build_ui():
         api_name="generate_media_from_panel",
         flagging_mode="never",
     )
+    legacy = gr.Interface(generate_media, [gr.Textbox(label="kind"), gr.Textbox(label="prompt")], gr.Textbox(label="json"),
+                          api_name="generate_media", flagging_mode="never")      # registered again: older clients call it (it was missing => HTTP 500)
     read = gr.Interface(understand_media, [gr.Textbox(label="kind"), gr.Textbox(label="b64"), gr.Textbox(label="question"),
                                           gr.Textbox(label="teach"), gr.Number(label="num_frames", value=2)],
                         gr.Textbox(label="json"), api_name="understand_media", flagging_mode="never")
@@ -507,8 +515,8 @@ def build_ui():
     auto = gr.Interface(chat_auto, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
                         api_name="chat_auto", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, anyk, media, read, web, auto, st],
-                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"], title="شام — Sham")
+    return gr.TabbedInterface([chat, anyk, media, legacy, read, web, auto, st],
+                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "وسائط (واجهة قديمة)", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"], title="شام — Sham")
 
 
 if __name__ == "__main__":
