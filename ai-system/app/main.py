@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
 from app.concurrency import with_hard_deadline
-from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
+from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 # Without this, logger.info() calls throughout this file and council.py
 # (added 2026-09-06 to show which model actually answered each message)
@@ -36,6 +36,27 @@ from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRA
 # configured independently of this one.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
+
+def _hf_media_first() -> bool:
+    """Read the owner media-route preference; preserve current HF-first behavior if unavailable."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return True
+    try:
+        response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/sham_settings",
+            params={"key": "eq.hf_media_route_order", "select": "value", "limit": "1"},
+            headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY},
+            timeout=3,
+        )
+        if not response.ok:
+            logger.warning("media route preference lookup failed with HTTP %s; keeping Hugging Face first", response.status_code)
+            return True
+        rows = response.json()
+        return not (rows and rows[0].get("value") == "fallback_first")
+    except Exception:
+        logger.warning("media route preference lookup failed; keeping Hugging Face first", exc_info=True)
+        return True
+
 app = FastAPI(title="Nova AI")
 
 
@@ -1256,17 +1277,21 @@ def _process_image_gen_and_deliver(
         # flux-1-schnell is distilled to ~4 steps and supports no
         # negative prompt at all. See hf_image.py for why the scarcest
         # lane is deliberately spent first rather than last.
-        image_bytes = hf_image.generate_image(expanded_prompt)
+        image_bytes = hf_image.generate_image(expanded_prompt) if _hf_media_first() else None
         if image_bytes is not None:
             logger.info("image-gen: served by our own Hugging Face ZeroGPU Space (SD 3.5)")
-        else:
+        if image_bytes is None:
             image_bytes = cloudflare_ai.generate_image(expanded_prompt)
             if image_bytes is not None:
                 logger.info("image-gen: served by Cloudflare Workers AI (flux)")
         if image_bytes is None:
             image_bytes = council.generate_image(expanded_prompt)
             if image_bytes is not None:
-                logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")
+                logger.info("image-gen: served by ModelScope fallback")
+        if image_bytes is None and not _hf_media_first():
+            image_bytes = hf_image.generate_image(expanded_prompt)
+            if image_bytes is not None:
+                logger.info("image-gen: existing providers unavailable — served by Hugging Face ZeroGPU")
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -1425,6 +1450,12 @@ def _enqueue_real_video(
         # module's docstring) — fails soft to None either way, so the
         # Kaggle queue below still fires exactly as it always did the
         # moment this fast path can't answer.
+        if not _hf_media_first():
+            logger.info("video-gen: route switch selects the existing Kaggle queue before Hugging Face")
+            quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
+            _send_telegram_message(chat_id, "🎬 تم اختيار المسار الاحتياطي للفيديو؛ أُضيف الطلب إلى طابور توليد فيديو حقيقي وسيصلك هنا عند الانتهاء.")
+            return
+
         video_bytes = hf_video.generate_video(expanded_prompt, seconds)
         if video_bytes is not None:
             logger.info("video-gen: served by Hugging Face ZeroGPU (real motion, inline) for chat_id=%s", chat_id)
