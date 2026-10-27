@@ -11,6 +11,8 @@ on:
     paths:
       - "ai-system/colab/sham_small/sham_media_ready.py"
       - "ai-system/modelscope-sham/app.py"
+      - "ai-system/modelscope-sham/requirements.txt"
+      - "scripts/transplant/stage_sham_v2_studio.py"
       - ".github/workflows/sham-v2-media-weights.yml"
 
 concurrency:
