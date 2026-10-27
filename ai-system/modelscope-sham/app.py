@@ -305,6 +305,8 @@ def _busy_wait() -> float:
 def _generate_hf_media(kind: str, prompt: str, scenes: list[str] | None = None) -> dict:
     """Sham v2's explicit external route. It calls Hugging Face Spaces directly; it never calls Nova's backend."""
     import base64
+    if kind == "audio":
+        return {"type": "error", "backend": "hf", "text": "مسار Hugging Face الخارجي يدعم الصور والفيديو حالياً فقط؛ اختر أوزان شام الجاهزة للصوت العربي."}
     token = (os.environ.get("HF_TOKEN1") or os.environ.get("HF_TOKEN") or "").strip()
     if not token:
         return {"type": "error", "backend": "hf", "text": "مسار Hugging Face غير مهيأ: سر HF_TOKEN1 غير موجود في استوديو شام v2."}
@@ -319,8 +321,6 @@ def _generate_hf_media(kind: str, prompt: str, scenes: list[str] | None = None) 
             video_prompt = ". ".join(scenes or [])[:1500] or prompt[:1500]
             path = Client(space, hf_token=token).predict(video_prompt, 6, api_name="/generate")
             mime, typ = "video/mp4", "video"
-        elif kind == "audio":
-            return {"type": "error", "backend": "hf", "text": "مسار Hugging Face الخارجي يدعم الصور والفيديو حالياً فقط؛ اختر أوزان شام الجاهزة للصوت العربي."}
         else:
             return {"type": "error", "backend": "hf", "text": "نوع وسائط غير معروف."}
         with open(path, "rb") as f:
