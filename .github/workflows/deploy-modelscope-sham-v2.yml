@@ -11,6 +11,15 @@ on:
     paths:
       - "ai-system/modelscope-sham/**"
       - ".github/workflows/deploy-modelscope-sham-v2.yml"
+  # Re-deploy after the ready media bundle is copied into novaai2026/sham-v2.
+  # The first push-triggered deploy may start concurrently; this follow-up ensures
+  # the running Studio takes a snapshot that includes the completed media upload.
+  workflow_run:
+    workflows:
+      - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
+    types: [completed]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
 
 concurrency:
   group: deploy-modelscope-sham-v2
@@ -23,6 +32,7 @@ env:
 
 jobs:
   deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
