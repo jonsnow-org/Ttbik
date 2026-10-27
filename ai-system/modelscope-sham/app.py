@@ -305,7 +305,7 @@ def _busy_wait() -> float:
 # Hugging Face generation implementation is preserved in quarantine/huggingface/modelscope-sham-app.py.disabled.
 
 def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
-    """Run exactly the selected path: internal tokens, packaged donor weights, or direct Hugging Face Spaces. No silent fallback."""
+    """Run exactly the selected Sham-owned path: internal tokens or packaged donor weights. No silent fallback."""
     selected = (backend or "internal").strip().lower()
     if selected not in ("internal", "ready"):
         return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
