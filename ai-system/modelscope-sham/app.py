@@ -263,19 +263,31 @@ def _json_notice(text: str) -> str:
 
 
 def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
-    """JSON {"type": text|image|audio|notice, ...}: the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any)."""
+    """JSON {"type": text|image|audio|notice, ...}: the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any).
+
+    The Studio runs on CPU. Bound both generation length and lock waiting so a queued request
+    does not sit until the caller's ~90-second HTTP deadline and then report a misleading timeout.
+    SHAM_GENERATE_ANY_MAX_TOKENS can raise the default cap when the hardware is faster.
+    """
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
-    n = int(max(1, min(MAX_NEW_TOKENS, max_new_tokens)))
     try:
-        with _LOCK:
-            res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                                    serve._state["audio_tokenizer"], prompt, n)
+        token_cap = max(32, int(os.environ.get("SHAM_GENERATE_ANY_MAX_TOKENS", "96")))
+    except (TypeError, ValueError):
+        token_cap = 96
+    n = int(max(1, min(MAX_NEW_TOKENS, token_cap, max_new_tokens)))
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+                                                serve._state["audio_tokenizer"], prompt, n)
         return json.dumps(res, ensure_ascii=False)
     except Exception as exc:
         print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر توليد الرد الآن.")
+    finally:
+        _LOCK.release()
 
 
 def _busy() -> str:

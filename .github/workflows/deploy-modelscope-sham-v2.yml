@@ -5,6 +5,12 @@ name: "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat,
 
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/modelscope-sham/**"
+      - ".github/workflows/deploy-modelscope-sham-v2.yml"
 
 concurrency:
   group: deploy-modelscope-sham-v2
