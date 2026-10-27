@@ -3,7 +3,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
-import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
+import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
@@ -922,11 +922,12 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
 }
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
-  if (NOVA_PAUSED) {
+  // A call made inside shamVariant.run (the bot route always does) is a Sham chat: it takes Sham's path whatever the legacy-backend flag says (B-09).
+  if (NOVA_LEGACY_BACKEND_PAUSED || shamVariant.getStore()) {
     if (update.callback_query?.id && /^sham(ok|no)\|/.test(String(update.callback_query.data || ""))) {
       await handleShamCallback(bot, update.callback_query);                  // the user's tap on a write Sham asked about
     } else if (update.callback_query?.id) {
-      await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
+      await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_LEGACY_PAUSED_TEXT, show_alert: true }).catch(() => null);
     } else if (update.message?.chat?.id) {
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
@@ -998,7 +999,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         else await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
         return;
       }
-      await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
+      await bot.api.sendMessage(update.message.chat.id, NOVA_LEGACY_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     }
     return;
   }

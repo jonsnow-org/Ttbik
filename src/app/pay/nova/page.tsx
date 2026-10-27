@@ -1,5 +1,5 @@
 import NovaPayClient from "./NovaPayClient";
-import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
+import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 
 // Server component: fetches the live plan catalog from the FastAPI
 // backend (single source of truth — ai-system/app/quota.py's PLANS
@@ -31,11 +31,11 @@ async function fetchPlans(): Promise<Record<string, Plan>> {
 
 export default async function NovaPayPage(props: { searchParams: Promise<{ uid?: string; paid?: string }> }) {
   const searchParams = await props.searchParams;
-  if (NOVA_PAUSED) {
+  if (NOVA_LEGACY_BACKEND_PAUSED) {
     return (
       <main className="mx-auto max-w-md px-4 py-16 text-center" dir="rtl">
         <p className="text-4xl">⏸️</p>
-        <p className="mt-3 text-lg font-bold text-slate-800">{NOVA_PAUSED_TEXT}</p>
+        <p className="mt-3 text-lg font-bold text-slate-800">{NOVA_LEGACY_PAUSED_TEXT}</p>
         <p className="mt-2 text-sm text-slate-500">لا يمكن الاشتراك في «نوفا» حالياً.</p>
       </main>
     );

@@ -13,7 +13,6 @@ import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { handleCoderSections, shamContextFor } from "@/lib/coderSections";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
-import { NOVA_PAUSED } from "@/lib/novaPause";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
@@ -171,9 +170,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       } else if (botRow.template === "MEDICAL_BOT") {
         await handleMedicalBotUpdate(bot, botRow, body);
       } else if (botRow.template === "NOVA_BOT") {
-        // 2026-10-21: two sections while this bot speaks with Sham (Nova paused): the coder (default, src/lib/coderSections.ts) and Sham.
-        // In the Sham section — and whenever OPEN_CODER_STUDIO_URL is unset — every update goes to the existing handler exactly as before.
-        const coderHandled = NOVA_PAUSED ? await handleCoderSections(bot, botRow, body).catch((e) => { void reportError("bot:coder", e, { botId: botRow?.id }); return false; }) : false;
+        // Two sections: Nova (the coder engine, src/lib/coderSections.ts, the default) and Sham (old / v2). WHICH one answers is decided by the chat's own model inside
+        // handleCoderSections (it returns false for a Sham chat, or when OPEN_CODER_STUDIO_URL is unset). The legacy-backend flag (novaPause.ts) plays no part here (B-09).
+        const coderHandled = await handleCoderSections(bot, botRow, body).catch((e) => { void reportError("bot:coder", e, { botId: botRow?.id }); return false; });
         if (!coderHandled) {
           // Sham (old or new) answers on its OWN path: which Sham and the chat's thinking / accuracy / speed settings travel with the call, nothing of Nova's engine is used
           const ctx = await shamContextFor(body).catch(() => null);
