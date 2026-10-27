@@ -16,6 +16,8 @@ import tempfile
 import wave
 from pathlib import Path
 
+from media_quality import MediaQualityError, check_image, check_mp4, check_wav, classify_exception, quality_error
+
 _CACHE: dict = {"pipe": None, "voice": None, "video_pipe": None, "video_root": None}
 
 
@@ -106,14 +108,18 @@ def _speech_wav(root: Path, text: str) -> bytes:
     b = io.BytesIO()
     with wave.open(b, "wb") as w:
         _voice(root).synthesize_wav(text[:1500], w)
-    return b.getvalue()
+    data = b.getvalue()
+    check_wav(data)             # empty or silent audio is an error, never a reply
+    return data
 
 
 def _image(root: Path, prompt: str, size: int = 512, seed: int = 0):
     import torch
     size = max(256, min(768, int(size) // 64 * 64))
     gen = torch.Generator().manual_seed(int(seed))
-    return _pipe(root)(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
+    image = _pipe(root)(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
+    check_image(image)          # a black / constant / noise picture is an error, never a reply
+    return image
 
 
 def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0) -> bytes:
@@ -169,7 +175,9 @@ def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0)
     with tempfile.TemporaryDirectory() as d:
         target = Path(d) / "sham-v2-native-video.mp4"
         export_to_video(result.frames[0], str(target), fps=8)
-        return target.read_bytes()
+        data = target.read_bytes()
+    check_mp4(data)             # empty / frozen / blank video is an error, never a reply
+    return data
 
 
 def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, narration: str = "") -> dict:
@@ -196,8 +204,11 @@ def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, na
                 "text": "فيديو مولّد مباشرة من الوصف بنموذج Wan على CPU.",
             }
         return {"type": "error", "text": f"unknown kind {kind!r}"}
+    except MediaQualityError as exc:
+        return quality_error(exc.reason, exc.detail)
     except Exception as exc:                                   # noqa: BLE001
-        return {"type": "error", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        # one stable reason code (busy / disk / unavailable / timeout / failed) so clients show a clear message, not a blank picture
+        return {"type": "error", "reason": classify_exception(exc), "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 
 if __name__ == "__main__":

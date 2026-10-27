@@ -15,6 +15,18 @@ from urllib.request import Request, urlopen
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
 
+# the same content gate the Studio applies (ai-system/colab/sham_small/media_quality.py): a size check alone passes a black 512x512 PNG
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "colab", "sham_small"))
+from media_quality import MediaQualityError, check_image, check_mp4, check_wav  # noqa: E402
+
+
+def assert_content(kind: str, raw: bytes) -> dict:
+    """Raise RuntimeError unless the bytes are real media: not black / constant / noise, not silent, not an empty or frozen video."""
+    try:
+        return {"image": check_image, "audio": check_wav, "video": check_mp4}[kind](raw)
+    except MediaQualityError as exc:
+        raise RuntimeError(f"{kind}: content check failed ({exc.reason}: {exc.detail})") from exc
+
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 60):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
@@ -84,7 +96,8 @@ def media(kind: str, backend: str):
     expected = {"image": "image", "audio": "audio", "video": "video"}[kind]
     if value.get("type") != expected:
         raise RuntimeError(f"{backend}/{kind}: expected type {expected}, got {value.get('type')}")
-    print(f"PASS {backend}/{kind}: {len(raw)} bytes; mime={value.get('mime', 'unspecified')}")
+    stats = assert_content(kind, raw)
+    print(f"PASS {backend}/{kind}: {len(raw)} bytes; mime={value.get('mime', 'unspecified')}; content={stats}")
     return raw
 
 

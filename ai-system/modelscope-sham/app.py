@@ -285,12 +285,18 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     try:
         res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
                                                 serve._state["audio_tokenizer"], prompt, n)
-        return json.dumps(res, ensure_ascii=False)
+        return json.dumps(_vet(res), ensure_ascii=False)
     except Exception as exc:
         print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر توليد الرد الآن.")
     finally:
         _LOCK.release()
+
+
+def _vet(res):
+    """Quality gate at the Studio's exit: a blank / noise picture, silent audio or an empty video becomes a typed error (media_quality.py), never a reply."""
+    from media_quality import gate_reply
+    return gate_reply(res)
 
 
 def _busy() -> str:
@@ -337,6 +343,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
                 kind.strip().lower(), prompt
             )
+        result = _vet(result)
         if isinstance(result, dict):
             result.setdefault("backend", selected)
         return json.dumps(result, ensure_ascii=False)

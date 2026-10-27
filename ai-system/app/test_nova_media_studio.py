@@ -6,12 +6,12 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
-from app import nova_media_studio
+from app import media_fixtures, nova_media_studio
 
 
 class NovaMediaStudioTests(unittest.TestCase):
     def test_image_uses_nova_media_studio_and_returns_bytes(self):
-        raw = b"\x89PNG\r\n" + b"x" * 100
+        raw = media_fixtures.png()
         response_payload = {"type": "image", "b64": base64.b64encode(raw).decode()}
         post = Mock()
         post.return_value.raise_for_status = Mock()
@@ -32,7 +32,7 @@ class NovaMediaStudioTests(unittest.TestCase):
             ("audio", "speech", "مرحبا", {"text": "مرحبا"}),
             ("video", "video", "story", {"prompts": ["scene 1", "scene 2"], "narration": "صوت", "seconds": 3}),
         ):
-            raw = b"x" * 128
+            raw = {"audio": media_fixtures.wav, "video": media_fixtures.mp4_shell}[kind]()
             result_payload = {"type": kind, "b64": base64.b64encode(raw).decode()}
             post = Mock()
             post.return_value.raise_for_status = Mock()

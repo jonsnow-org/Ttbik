@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { vetMedia } from "@/lib/mediaQuality";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -98,6 +99,15 @@ export function parseShamReply(body: string): ShamReply | null {
   return null;
 }
 
+/** Every picture / sound / clip a Sham Studio returns passes the quality gate (src/lib/mediaQuality.ts): a blank, noise, silent or empty result becomes a typed
+ *  {type:"error", reason, text} instead of media. Replies finished later (`later`) are vetted too. */
+export async function vetShamReply(reply: ShamReply | null): Promise<ShamReply | null> {
+  if (!reply) return reply;
+  const out = (await vetMedia(reply)) as ShamReply;
+  if (Array.isArray(out.later)) out.later = (await Promise.all(out.later.map((r) => vetShamReply(r)))) as ShamReply[];
+  return out;
+}
+
 async function shamCallAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   try {
@@ -133,7 +143,7 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
 
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  const reply = body ? parseShamReply(body) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = `generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
   return reply;
 }
@@ -154,7 +164,7 @@ export async function shamGenerateMedia(
     ? { kind, prompt }
     : { kind, prompt, backend_label, scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
-  const reply = body ? parseShamReply(body) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
   return reply;
 }
@@ -163,7 +173,7 @@ export async function shamGenerateMedia(
 // generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
 export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? parseShamReply(body) : null;
+  return body ? vetShamReply(parseShamReply(body)) : null;
 }
 
 // chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
@@ -180,7 +190,7 @@ export async function shamChatMemory(
     { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
     timeoutMs,
   );
-  return body ? parseShamReply(body) : null;
+  return body ? vetShamReply(parseShamReply(body)) : null;
 }
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {
@@ -208,7 +218,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
     if (!event_id) { note(base, api, "no event id"); return { reply: null, failure: "http" }; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
-    const reply = parseShamReply(await res.text());
+    const reply = await vetShamReply(parseShamReply(await res.text()));
     if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
