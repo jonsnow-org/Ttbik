@@ -17,7 +17,7 @@ requests
 av
 # ready media weights inside Sham's repo (sham_media_ready.py): picture model + Arabic voice
 gradio_client
-diffusers
+diffusers>=0.33.0
 transformers
 accelerate
 safetensors
