@@ -34,8 +34,8 @@ jobs:
         env:
           PYTHONPATH: ai-system
         run: |
-          python -m unittest discover -s ai-system/app -p 'test_nova_media_studio.py' -v
-          python -m py_compile ai-system/app/nova_media_studio.py ai-system/app/test_nova_media_studio.py
+          python -m unittest discover -s ai-system/app -p 'test_nova_media_*.py' -v
+          python -m py_compile ai-system/app/nova_media_studio.py ai-system/app/nova_media_routing.py ai-system/app/test_nova_media_studio.py ai-system/app/test_nova_media_routing.py
 
   build:
     runs-on: ubuntu-latest
