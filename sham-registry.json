@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26 20:37 UTC",
+  "generated_at": "2026-10-27 00:35 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -68,7 +68,7 @@
     {
       "alias": "المرحلة الثالثة 5",
       "track": "chat_stage",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-26",
       "gpu": false,
@@ -77,7 +77,7 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-26",
       "gpu": false,
@@ -95,7 +95,7 @@
     {
       "alias": "دفتر المحادثة والمرمزات 1",
       "track": "chat_image_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-26",
       "gpu": false,
@@ -232,7 +232,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 719.2,
       "last_updated": "2026-10-26",
       "progress": {},
       "has_key_files": true
@@ -256,7 +256,7 @@
     {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 35.6,
       "last_updated": "2026-10-26",
       "progress": {
         "samples_consumed": 173944,
@@ -296,8 +296,8 @@
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-26",
+      "size_mb": 579.3,
+      "last_updated": "2026-10-27",
       "progress": {},
       "has_key_files": true
     },
@@ -431,7 +431,7 @@
       "chat_stage": {
         "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الثالثة 1"
       }
