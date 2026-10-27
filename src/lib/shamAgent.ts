@@ -8,7 +8,6 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamMediaRoute, type ShamMediaRoute } from "@/lib/shamExec";
 import { shamGenerateAny, shamNoteFailure, type ShamReply } from "@/lib/shamStudio";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -41,7 +40,7 @@ export async function shamAgentRun(opts: {
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
-  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // Sham's own media models (default: shamGenerateMedia)
+  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
