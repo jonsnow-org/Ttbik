@@ -577,6 +577,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [mediaRoute, setMediaRoute] = useState<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf">("sham_v2_ready");
+  const [mediaEnabled, setMediaEnabled] = useState<Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf", boolean>>({ sham_v1: false, sham_v2_internal: false, sham_v2_ready: true, sham_v2_hf: false });
   const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("fallback_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
@@ -588,7 +589,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
       setD(p);
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
-      void api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf" }>("sham_media").then((x) => setMediaRoute(x.route)).catch(() => null);
+      void api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf"; enabled: Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf", boolean> }>("sham_media").then((x) => { setMediaRoute(x.route); if (x.enabled) setMediaEnabled(x.enabled); }).catch(() => null);
       void api<{ order: "hf_first" | "fallback_first" }>("hf_media_route").then((x) => setHfMediaOrder(x.order)).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
@@ -621,6 +622,24 @@ export function PanelPage({ lang }: { lang: Lang }) {
       setMsg(ar ? "تم حفظ مسار وسائط شام." : "Sham media route saved.");
     } catch (err: any) {
       setMediaRoute(prev);
+      haptic("error");
+      setMsg(String(err?.message || err));
+    } finally {
+      setBusy("");
+    }
+  };
+  const toggleMediaRoute = async (route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf", enabled: boolean) => {
+    const prev = mediaEnabled;
+    setMediaEnabled({ ...prev, [route]: enabled });
+    setBusy("sham_media");
+    setMsg("");
+    try {
+      const r = await api<{ enabled: typeof mediaEnabled }>("sham_media", { enabledRoute: route, enabled });
+      if (r.enabled) setMediaEnabled(r.enabled);
+      haptic("success");
+      setMsg(ar ? "تم حفظ حالة المسار." : "Route enable state saved.");
+    } catch (err: any) {
+      setMediaEnabled(prev);
       haptic("error");
       setMsg(String(err?.message || err));
     } finally {
@@ -661,24 +680,25 @@ export function PanelPage({ lang }: { lang: Lang }) {
           </div>
         ))}
       </Section>
-      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "اختر مساراً واحداً نشطاً. لا ينتقل شام تلقائياً إلى مسار آخر عند الفشل. مسار Hugging Face يدعم الصور والفيديو؛ للصوت العربي استخدم الأوزان الجاهزة." : "Choose one active route. Sham never silently switches paths on failure. Hugging Face supports images and video; use ready weights for Arabic audio."}>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v1" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "sham_v1"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v1"); }} />}>
-          {ar ? "شام القديم — الاستوديو الأصلي" : "Sham v1 — original Studio"}
-        </Cell>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_internal" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "sham_v2_internal"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_internal"); }} />}>
-          {ar ? "شام v2 — مولّد الرموز الداخلي (تدريبه غير مثبت)" : "Sham v2 — internal token decoder (training unverified)"}
-        </Cell>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_ready" ? (ar ? "المسار النشط" : "Active route · recommended") : (ar ? "اختيار المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "sham_v2_ready"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_ready"); }} />}>
-          {ar ? "شام v2 — أوزان المانح الجاهزة (الافتراضي)" : "Sham v2 — ready donor weights (default)"}
-        </Cell>
-        <Cell Component="label" multiline subtitle={mediaRoute === "sham_v2_hf" ? (ar ? "المسار النشط" : "Active route") : (ar ? "اختيار المسار" : "Select route")}
-          after={<Switch checked={mediaRoute === "sham_v2_hf"} disabled={busy === "sham_media"} onChange={(e) => { if (e.currentTarget.checked) void chooseMediaRoute("sham_v2_hf"); }} />}>
-          {ar ? "شام v2 — مولّد Hugging Face الخارجي" : "Sham v2 — external Hugging Face generator"}
-        </Cell>
-        {busy === "sham_media" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ مسار الوسائط…" : "Saving media route…"}</Cell>}
+      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "فعّل أو أوقف كل مسار بشكل مستقل، ثم اختر المسار النشط. لا يوجد تحويل تلقائي عند الفشل. مسار Hugging Face يدعم الصور والفيديو؛ للصوت العربي استخدم الأوزان الجاهزة." : "Enable or disable each route independently, then choose the active route. No automatic fallback. Hugging Face supports images and video; use ready weights for Arabic audio."}>
+        <Select header={ar ? "المسار النشط" : "Active media route"} value={mediaRoute} onChange={(e) => void chooseMediaRoute(e.target.value as "sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf")}>
+          <option value="sham_v1">شام القديم / Sham v1</option>
+          <option value="sham_v2_internal">شام v2 — الداخلي / v2 internal</option>
+          <option value="sham_v2_ready">شام v2 — أوزان جاهزة / v2 ready weights</option>
+          <option value="sham_v2_hf">شام v2 — Hugging Face</option>
+        </Select>
+        {([
+          ["sham_v1", ar ? "شام القديم — الاستوديو الأصلي" : "Sham v1 — original Studio"],
+          ["sham_v2_internal", ar ? "شام v2 — مولّد الرموز الداخلي" : "Sham v2 — internal token decoder"],
+          ["sham_v2_ready", ar ? "شام v2 — أوزان المانح الجاهزة (الموصى بها)" : "Sham v2 — ready donor weights (recommended)"],
+          ["sham_v2_hf", ar ? "شام v2 — مولّد Hugging Face الخارجي" : "Sham v2 — external Hugging Face generator"],
+        ] as const).map(([route, label]) => (
+          <Cell key={route} Component="label" multiline subtitle={mediaRoute === route ? (ar ? "المسار النشط" : "Active route") : (ar ? "مسار متاح" : "Available route")}
+            after={<Switch checked={Boolean(mediaEnabled[route])} disabled={busy === "sham_media"} onChange={(e) => void toggleMediaRoute(route, e.currentTarget.checked)} />}>
+            {label}
+          </Cell>
+        ))}
+        {busy === "sham_media" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ إعدادات مسارات شام…" : "Saving Sham route settings…"}</Cell>}
       </Section>
       <Section header={ar ? "مولّد نوفا الخارجي" : "Nova external media generator"} footer={ar ? "هذا المفتاح يخص نوفا فقط: الصور عبر نموذج نوفا الذي نملكه، والفيديو عبر طابور نموذجنا المدرّب. عند التفعيل تُجرّب مساحات Hugging Face وCloudflare الخارجية أولًا؛ وإذا فشلت ولا يتحول إلى شام." : "Nova only: images use Nova's own ModelScope-hosted model; video uses our trained-model queue. When enabled, Hugging Face and Cloudflare external generators are tried first, with no automatic fallback to Sham."}>
         <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "مولّد نوفا الخارجي مفعّل" : "Nova external generator enabled") : (ar ? "مولّد نوفا الداخلي" : "Nova internal generator")}
