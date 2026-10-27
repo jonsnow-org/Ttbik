@@ -1,5 +1,0 @@
-name: "Deploy Hugging Face Video Space (QUARANTINED)"
-# Disabled by owner request. Original workflow preserved at quarantine/huggingface/deploy-hf-video-space.yml.disabled
-# No push, schedule, or manual trigger is registered here.
-on: {}
-jobs: {}
