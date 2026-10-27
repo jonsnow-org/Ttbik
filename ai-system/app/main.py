@@ -1296,22 +1296,6 @@ def _process_image_gen_and_deliver(
             if image_bytes is not None:
                 logger.info("image-gen: external route disabled; served by our own ModelScope image model")
         if image_bytes is None:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")
-        else:
-            image_bytes = cloudflare_ai.generate_image(expanded_prompt)
-            if image_bytes is not None:
-                logger.info("image-gen: admin route preference served by Cloudflare Workers AI (flux)")
-            if image_bytes is None:
-                image_bytes = council.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: admin route preference served by ModelScope fallback")
-            if image_bytes is None:
-                image_bytes = hf_image.generate_image(expanded_prompt)
-                if image_bytes is not None:
-                    logger.info("image-gen: existing providers unavailable — served by Hugging Face ZeroGPU Space")
-        if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
             # after a code push (this endpoint is new), not a missing
