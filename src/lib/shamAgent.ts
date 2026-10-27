@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
 import { SHAM_NEEDS_OK, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamMediaOrder } from "@/lib/shamExec";
+import { shamMediaRoute, type ShamMediaRoute } from "@/lib/shamExec";
 import { shamGenerateAny, shamGenerateMedia, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
@@ -72,21 +72,40 @@ export async function shamAgentRun(opts: {
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600));
     return r ? { kind: "reply", reply: r, used: usedNow, steps: stepNow } : { kind: "none", used: usedNow, steps: stepNow };
   };
-  // Two media paths, in the order the owner chose in the Mini App panel (shamMediaOrder): the shared media Studio (nova-media-server, ready trained models) and
-  // Sham's own weights (its Studio). The first is tried; only a technical failure (no answer, error, busy, loading) moves on to the second.
+  // Three independently selectable paths: the original Sham Studio, Sham v2's donor-weight Studio,
+  // and the dedicated Media Studio. The panel-selected route runs first; only an unavailable or
+  // failed route falls through to the remaining configured routes.
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> => {
     const total = Math.min(240000, Math.max(20000, left() - 3000));
     const nm = await import("@/lib/novaMedia");
-    const reserve = nm.novaMediaEnabled();
-    const order = reserve ? await shamMediaOrder() : "own_first";
-    const good = (r: ShamReply | null): r is ShamReply => Boolean(r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64);
-    const viaStudio = async (ms: number): Promise<ShamReply | null> => { const r = await nm.novaMakeMedia(k, pr, { timeoutMs: ms }); return r && r.type !== "error" ? (r as ShamReply) : null; };
-    const first = order === "reserve_first" ? "studio" : "own";
-    const a = first === "studio" ? await viaStudio(Math.max(20000, Math.min(150000, total - 60000))) : await shamGenerateMedia(k, pr, reserve ? Math.max(20000, Math.min(150000, total - 60000)) : total);
-    if (good(a)) return a;
-    if (!reserve) return a;
-    const b = first === "studio" ? await shamGenerateMedia(k, pr, Math.max(20000, total - 20000)) : await viaStudio(Math.max(20000, total - 20000));
-    return good(b) ? b : (a || b);
+    const selected = await shamMediaRoute();
+    const order: ShamMediaRoute[] =
+      selected === "sham_v1" ? ["sham_v1", "sham_v2", "nova_media"] :
+      selected === "nova_media" ? ["nova_media", "sham_v2", "sham_v1"] :
+      ["sham_v2", "sham_v1", "nova_media"];
+    const good = (r: ShamReply | null): r is ShamReply =>
+      Boolean(r && (r.type === "image" || r.type === "audio" || r.type === "video") && r.b64);
+    const started = Date.now();
+    let last: ShamReply | null = null;
+    for (let i = 0; i < order.length; i++) {
+      const remaining = total - (Date.now() - started);
+      if (remaining < 8000) break;
+      const reserveMs = (order.length - i - 1) * 20000;
+      const capMs = i === 0 ? 150000 : i === 1 ? 90000 : 240000;
+      const timeoutMs = Math.max(8000, Math.min(capMs, remaining - reserveMs));
+      let reply: ShamReply | null = null;
+      if (order[i] === "nova_media") {
+        if (!nm.novaMediaEnabled()) continue;
+        const result = await nm.novaMakeMedia(k, pr, { timeoutMs });
+        reply = result ? (result as ShamReply) : null;
+      } else {
+        const variant = order[i] === "sham_v1" ? "v1" : "v2";
+        reply = await shamVariant.run(variant, () => shamGenerateMedia(k, pr, timeoutMs));
+      }
+      if (good(reply)) return reply;
+      if (reply) last = reply;
+    }
+    return last;
   };
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
