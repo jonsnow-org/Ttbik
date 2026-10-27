@@ -11,6 +11,7 @@ import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { isAccuracy } from "@/lib/coderAgent";
+import { modelSettings, modelReady } from "@/lib/coderModels";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -101,7 +102,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const owner = user.tier === "owner";
       return {
         tier: user.tier,
-        settings: { model: st.model || "coder", think: st.think, accuracy: isAccuracy(st.accuracy) ? st.accuracy : "balanced", lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => owner || (m.visible && modelReady(m))).map((m) => [m.id, modelSettings(st, m.id)])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -111,12 +113,20 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "settings": {
       const st = await loadState(chatId, db);
-      if (typeof body.think === "boolean") st.think = body.think;
-      if (isAccuracy(body.accuracy)) st.accuracy = body.accuracy;
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
+      }
+      // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
+      if (typeof body.think === "boolean" || isAccuracy(body.accuracy) || typeof body.media === "boolean") {
+        const { listModels, setModelSettings, canonModelId } = await import("@/lib/coderModels");
+        const target = canonModelId(typeof body.for === "string" ? body.for : st.model) || "coder";
+        const known = await listModels(db);
+        const m = known.find((x) => x.id === target);
+        if (!m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+        const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: isAccuracy(body.accuracy) ? body.accuracy : undefined, media: typeof body.media === "boolean" ? body.media : undefined });
+        if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;

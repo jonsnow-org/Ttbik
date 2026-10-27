@@ -18,7 +18,7 @@ import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, listModels, modelReady, novaModelOf } from "@/lib/coderModels";
+import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, type ModelSettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -46,7 +46,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string; agentResult?: AgentResult };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult };
 export type { Db };
 export { coderChatKey };
 
@@ -648,7 +648,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
   else if (st.messages.length) await ensureThread(chatId, st, db);
   if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
-  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
+  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model, perModel: st.perModel };
   if (target) {
     next.threadId = target.id;
     next.messages = target.messages || [];
@@ -1189,7 +1189,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const prompt = String(a.prompt || "").trim().slice(0, 600);
             const nm = await import("@/lib/novaMedia");
             const { vetMedia } = await import("@/lib/mediaQuality");
-            if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
+            if (modelSettings(st, novaModelOf(st.model)).media === false) out = "error: media generation is switched off for this model in the app settings. Nothing was made; tell the user how to switch it on (Settings → Media generation).";
+            else if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
             else if (!nm.novaMediaEnabled()) out = "error: Nova's media Studio is not connected here. Nothing was made or sent; tell the user so, do not say it was made.";
             else {
               const r0 = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => nm.novaMakeMedia(kind, prompt, { timeoutMs: 240000 }));
@@ -1554,7 +1555,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         run.logged = 0;
         // With deeper thinking a small model sometimes writes its whole answer (or its tool call) inside the thinking part, which the server hands back as "no text":
         // the same step is asked again with thinking off, for the rest of this run, before anything else is tried.
-        if ((st.think || run.stall.level >= 2) && !run.thinkOff) {
+        if ((modelSettings(st, novaModelOf(st.model)).think || run.stall.level >= 2) && !run.thinkOff) {
           run.thinkOff = true;
           await taskEvent(run.id, "info", "🔁 انتهت الخطوة بلا نص مع التفكير الأعمق؛ أعيدها بدونه.", db);
           await saveState(chatId, st, db, slot);
@@ -1751,7 +1752,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
     }
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
-    const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
+    const nset = modelSettings(st, novaModelOf(st.model));                  // this model's OWN thinking / speed / media switches
+    const accuracy: Accuracy = nset.accuracy;
     if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
@@ -1788,7 +1790,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (st.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (nset.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -1936,7 +1938,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, perModel: main.perModel, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
   await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title, surface: "app" }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
@@ -1984,10 +1986,10 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   const st = await loadState(chatId, db);
-  const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
-  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy, think: Boolean(st.think), thinkCap: thinkCapFor(accuracy) } };
+  const set = modelSettings(st, st.model === "sham_v2" ? "sham_v2" : "sham");          // the chosen Sham's own switches (old and new Sham each have theirs)
+  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media } };
 }

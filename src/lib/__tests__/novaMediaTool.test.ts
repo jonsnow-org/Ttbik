@@ -105,4 +105,18 @@ describe("the make_media tool in a Nova task", () => {
     const st = await loadState(CHAT, db);
     expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/not connected/);
   });
+
+  it("with Media generation switched off for Nova in the app settings, make_media makes and sends nothing", async () => {
+    const good = b64(await png("gradient", 256));
+    const { urls } = net([{ type: "done", job: "j1", text: "", tool_calls: [call("m", "make_media", { kind: "image", prompt: "a rabbit" })] }, { type: "done", job: "j2", text: "الوسائط متوقفة.", tool_calls: [] }], [{ type: "image", b64: good }]);
+    const db = fakeDb();
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn();
+    await saveState(CHAT, { ...st0("ارسم", run("r4")), perModel: { coder: { media: false } } } as any, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect((api as any).sendPhoto).not.toHaveBeenCalled();
+    expect(urls.some((u) => u.startsWith("https://media.test"))).toBe(false);
+    const st = await loadState(CHAT, db);
+    expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/switched off/);
+  });
 });

@@ -949,6 +949,10 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
             await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
             return;
           }
+          if (shamModeCtx.getStore()?.media === false) {          // this Sham's own "media generation" switch (Mini App → settings) is off
+            await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
+            return;
+          }
           await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
           // the route chosen in the owner's panel, on the variant that route belongs to; nothing is switched silently (the old direct call used the broken internal endpoint)
           const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");

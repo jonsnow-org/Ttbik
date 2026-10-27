@@ -122,3 +122,28 @@ export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, mode
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios
   return true;
 }
+
+// ---------------------------------------------------------------- per-model settings (Mini App → settings): strictly the selected model's own
+/** Thinking, speed (accuracy) and media generation are set PER MODEL: changing one model's switches never changes another's. */
+export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "precise"; media: boolean };
+export type PerModelState = { model?: string; think?: boolean; accuracy?: string; perModel?: Record<string, Partial<ModelSettings>> };
+const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x === "balanced" || x === "precise";
+/** The effective settings of one model. Nova (id "coder") also honours the old single global switches until it has its own entry; every other model starts from the defaults. */
+export function modelSettings(st: PerModelState, id: string | undefined): ModelSettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const pm = st.perModel?.[mid] || {};
+  const legacy = mid === DEFAULT_MODEL_ID;
+  return {
+    think: typeof pm.think === "boolean" ? pm.think : legacy ? Boolean(st.think) : false,
+    accuracy: isAcc(pm.accuracy) ? pm.accuracy : legacy && isAcc(st.accuracy) ? st.accuracy : "balanced",
+    media: typeof pm.media === "boolean" ? pm.media : true,
+  };
+}
+/** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
+export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
+  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
+  const cur = modelSettings(st, mid);
+  const next: ModelSettings = { think: typeof patch.think === "boolean" ? patch.think : cur.think, accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: typeof patch.media === "boolean" ? patch.media : cur.media };
+  st.perModel = { ...(st.perModel || {}), [mid]: next };
+  return next;
+}

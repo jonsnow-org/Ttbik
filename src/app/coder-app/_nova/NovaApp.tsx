@@ -820,9 +820,10 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   return (
     <div className="n-page">
       <div className="n-ph" lang={lang}><h1>{n.navSettings}</h1></div>
-      <Card title={n.g_nova}>
+      <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
         <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.think} aria-label={n.s_think} onChange={(e) => set({ think: e.currentTarget.checked })} /></span>} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
+        <Row icon="🎞️" title={n.s_media} sub={n.s_mediaSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.media !== false} aria-label={n.s_media} onChange={(e) => set({ media: e.currentTarget.checked })} /></span>} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
       </Card>
       <Card title={n.g_profile}>
@@ -856,7 +857,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
-      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
+      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={() => { reloadModels(); void reload(); }} onClose={() => setPop(null)} />
     </div>
   );
 }

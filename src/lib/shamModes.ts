@@ -9,7 +9,7 @@
 // ai-system/colab/sham_small/sham_studio_chat.py (hot code). A Studio that does not have that code yet would show the line to the model, so the header is sent only to the new
 // Studio, or to the old one once SHAM_MODES=on says its hot code has the reader.
 
-export type ShamMode = { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; temperature?: number };
+export type ShamMode = { accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; temperature?: number; media?: boolean };
 
 export type ShamKnobs = { maxNewFactor: number; corrections: number; temperature: number; thinkTokens: number; header: string; note: string };
 
