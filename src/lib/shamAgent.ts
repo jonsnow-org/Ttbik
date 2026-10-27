@@ -40,7 +40,7 @@ export async function shamAgentRun(opts: {
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
-  media?: (kind: "image" | "audio" | "video", prompt: string) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
+  media?: (kind: "image" | "audio" | "video", prompt: string, opts?: { scenes?: string[]; narration?: string }) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
