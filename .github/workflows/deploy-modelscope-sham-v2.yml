@@ -83,10 +83,9 @@ jobs:
           git diff --cached --quiet && echo "no change" || git commit -m "sham v2: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
-      - name: Set and verify the Studio model/token secrets (never print values)
+      - name: Set and verify the Studio model/token secrets (never print values; no external media tokens)
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
-          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
           set -eu
@@ -115,12 +114,6 @@ jobs:
           set_secret MODELSCOPE_API_TOKEN "$T"
           set_secret MODELSCOPE_TOKEN "$T"
           set_secret SHAM_MS_MODEL "novaai2026/sham-v2"
-          if [ -n "${HF_TOKEN1:-}" ]; then
-            set_secret HF_TOKEN1 "$HF_TOKEN1"
-            echo "HF_TOKEN1 provisioned for Sham v2 external media route"
-          else
-            echo "::notice::HF_TOKEN1 is not configured as a GitHub Actions secret; Sham v2 HF route will report not configured."
-          fi
           rm -f secret.json secret-response.json
 
       - name: Deploy and show status
