@@ -16,7 +16,6 @@
       "nova-test/media-samples": false
     }
   },
-  "ignoreCommand": "sh scripts/vercel-ignore.sh",
   "crons": [
     {
       "path": "/api/media-cleanup",
