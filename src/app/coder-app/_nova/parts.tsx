@@ -577,7 +577,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [mediaRoute, setMediaRoute] = useState<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf">("sham_v2_ready");
-  const [mediaEnabled, setMediaEnabled] = useState<Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf", boolean>>({ sham_v1: false, sham_v2_internal: false, sham_v2_ready: true, sham_v2_hf: false });
+  const [mediaEnabled, setMediaEnabled] = useState<Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready" | "sham_v2_hf", boolean>>({ sham_v1: true, sham_v2_internal: false, sham_v2_ready: true, sham_v2_hf: false });
   const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("fallback_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
