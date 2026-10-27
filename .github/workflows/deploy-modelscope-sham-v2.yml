@@ -154,6 +154,5 @@ jobs:
       - name: Live text and media smoke tests
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
         run: python ai-system/supervision/sham_v2_media_smoke.py
