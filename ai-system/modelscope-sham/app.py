@@ -473,6 +473,8 @@ def build_ui():
                 label="مسار وسائط شام — اختر المسار لكل طلب",
                 info="الأساسي يستخدم مفكك شام نفسه. البديل يعمل فقط إذا كانت أوزانه المحلية موجودة."
             ),
+            gr.Textbox(label="مشاهد الفيديو بصيغة JSON (اختياري)", value="[]"),
+            gr.Textbox(label="التعليق الصوتي (اختياري)", value=""),
         ],
         gr.Textbox(label="النتيجة (JSON)"),
         api_name="generate_media_from_panel",
