@@ -71,6 +71,18 @@ class LocalMediaReadinessTests(unittest.TestCase):
             self.assertEqual(video_fn.call_args.args[2], "a fox in the forest")
             self.assertEqual(video_fn.call_args.kwargs["seconds"], 1.5)
 
+    def test_video_uses_user_supplied_scenes_and_narration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scenes = ["wide shot of a rabbit", "close-up of the rabbit", "rabbit hopping"]
+            narration = "أرنب صغير يقفز في الحديقة"
+            with patch.object(sham_media_ready, "_video", return_value=b"mp4-bytes") as video_fn:
+                video = make(root, "video", "a rabbit in a garden", scenes=scenes, narration=narration)
+            self.assertEqual(video["type"], "video")
+            self.assertEqual(video["frames"], len(scenes))
+            self.assertEqual(video_fn.call_args.args[1], scenes)
+            self.assertEqual(video_fn.call_args.args[2], narration)
+
     def test_invalid_requests_fail_without_loading_models(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
