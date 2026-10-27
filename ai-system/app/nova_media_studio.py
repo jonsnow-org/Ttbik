@@ -1,7 +1,7 @@
 """Client for Nova's dedicated ModelScope media Studio.
 
 This module belongs only to Nova. It does not call either Sham Studio.
-The Studio provides SDXS images, Piper speech, and slideshow videos.
+The Studio provides SDXS images, Piper speech, and native Wan diffusion video when a local checkpoint and CUDA GPU are configured.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def generate_media(
     *,
     scenes: list[str] | None = None,
     narration: str = "",
-    timeout: int = 240,
+    timeout: int = 900,
 ) -> bytes | None:
     """Generate media on Nova's own Studio; return bytes or None on a real error."""
     selected = (kind or "").strip().lower()
@@ -55,11 +55,10 @@ def generate_media(
     elif selected == "audio":
         payload = {"text": (prompt or "")[:1500]}
     else:
-        shot_prompts = [str(p).strip()[:300] for p in (scenes or []) if str(p).strip()][:6]
         payload = {
-            "prompts": shot_prompts or [(prompt or "")[:300]],
-            "narration": (narration or "")[:1500],
+            "prompt": (prompt or "")[:800],
             "seconds": 3,
+            "seed": 0,
         }
     try:
         submit = requests.post(
@@ -76,7 +75,7 @@ def generate_media(
         result = requests.get(
             f"{base}/gradio_api/call/{api}/{event_id}",
             headers=headers,
-            timeout=max(30, min(int(timeout), 600)),
+            timeout=max(30, min(int(timeout), 900)),
         )
         result.raise_for_status()
         body = _parse_sse(result.text)
