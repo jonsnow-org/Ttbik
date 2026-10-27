@@ -1198,7 +1198,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                 if (r?.b64 && r.type === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png"), a.prompt ? { caption: prompt.slice(0, 200) } : {}); out = `made by ${who} and sent to the user as a picture`; }
                 else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav"), { caption: prompt.slice(0, 200) }); out = `made by ${who} and sent to the user as a sound file`; }
                 else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4"), { caption: (r.text || prompt).slice(0, 200) }); out = `made by ${who} and sent to the user as a short video`; }
-                else out = `error: ${who} made nothing this time (${r?.type || "no answer"}${r?.text ? `: ${String(r.text).slice(0, 120)}` : ""})`;
+                else out = `error: selected route ${who} failed for ${kind} (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). No automatic route switch was performed.`;
               }
             }
           } else {
