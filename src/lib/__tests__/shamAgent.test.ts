@@ -84,6 +84,27 @@ describe("Sham's own agent loop", () => {
       ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"قطة"}}</tool_call>')]) });
     expect(r).toMatchObject({ kind: "reply", reply: { type: "image" } });
   });
+  it("passes requested video scenes and narration through make_media", async () => {
+    const tools = shamToolDefs(false);
+    const calls: unknown[] = [];
+    const r = await shamAgentRun({
+      text: "اصنع فيديو لأرنب",
+      ctx,
+      tools,
+      budgetMs: 60000,
+      media: async (kind, prompt, opts) => {
+        calls.push({ kind, prompt, opts });
+        return { type: "video", b64: "AAAA", route: "sham_v2" } as any;
+      },
+      ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"video","prompt":"أرنب في حديقة","scenes":["لقطة واسعة","لقطة قريبة"],"narration":"الأرنب يقفز"}}</tool_call>')]),
+    });
+    expect(r).toMatchObject({ kind: "reply", reply: { type: "video", route: "sham_v2" } });
+    expect(calls).toEqual([{
+      kind: "video",
+      prompt: "أرنب في حديقة",
+      opts: { scenes: ["لقطة واسعة", "لقطة قريبة"], narration: "الأرنب يقفز" },
+    }]);
+  });
   it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
     const tools = shamToolDefs(false);
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
