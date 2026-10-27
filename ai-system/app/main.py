@@ -1312,10 +1312,12 @@ def _process_image_gen_and_deliver(
             # result, the raw SSE lines too (see that function), so the
             # next failure is diagnosable from Render's own logs instead
             # of guessed at again.
-            _send_telegram_message(
-                chat_id,
-                "تعذّر توليد الصورة هذه المرة — إما أن التوليد الفعلي (بلا معالج رسومي GPU) أخذ وقتاً أطول من المتوقع، أو حدث خطأ غير متوقع. حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).",
+            failure_text = (
+                "تعذّر توليد الصورة عبر مولّد نوفا الخارجي المختار (Hugging Face / Cloudflare). لم أتحول تلقائياً إلى المولّد الداخلي؛ لم يُخصم الطلب. أوقف الأداة الخارجية من لوحة التحكم لاستخدام مولّد نوفا الداخلي."
+                if _external_media_enabled()
+                else "تعذّر توليد الصورة عبر مولّد نوفا الداخلي هذه المرة. لم يُخصم الطلب؛ حاول مرة أخرى لاحقاً."
             )
+            _send_telegram_message(chat_id, failure_text)
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
         # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو والصوت"):
