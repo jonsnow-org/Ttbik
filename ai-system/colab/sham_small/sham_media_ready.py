@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import shutil
 import tempfile
 import wave
 from pathlib import Path
@@ -128,6 +129,14 @@ def _video(root: Path, prompts: list[str], narration: str, seconds: float = 3.0)
         else:
             model_dir = root / "wan"
             if not (model_dir / "model_index.json").is_file():
+                # Wan's full Diffusers snapshot is about 17.6 GB; do not fill/crash a small CPU Studio trying to fetch it.
+                free_bytes = shutil.disk_usage(root.parent).free
+                required_bytes = 20 * (1024 ** 3)
+                if free_bytes < required_bytes:
+                    raise RuntimeError(
+                        f"native-video-unavailable: CPU mode needs at least 20 GiB free disk for local Wan weights; "
+                        f"only {free_bytes / (1024 ** 3):.1f} GiB is free. Set SHAM_VIDEO_MODEL_DIR to an existing local checkpoint."
+                    )
                 # Download weights only. Generation remains local to Sham v2's own Studio process.
                 from modelscope import snapshot_download
                 model_dir = Path(snapshot_download(
