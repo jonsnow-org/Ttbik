@@ -266,13 +266,13 @@ async function settingsTable(db: Db): Promise<void> {
 export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder> {
   try {
     await settingsTable(db);
-    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_order'`);
-    return r[0]?.value === "own_first" ? "own_first" : "reserve_first";
-  } catch { return "reserve_first"; }
+    const r = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_order_v2'`);
+    return r[0]?.value === "reserve_first" ? "reserve_first" : "own_first";
+  } catch { return "own_first"; }
 }
 export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb): Promise<void> {
   await settingsTable(db);
-  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_order', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
+  await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_order_v2', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, order);
 }
 
 // Priority for the new Hugging Face ZeroGPU image/video Spaces versus the established fallback providers.
