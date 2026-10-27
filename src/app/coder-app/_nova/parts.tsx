@@ -577,6 +577,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [mediaOrder, setMediaOrder] = useState<"reserve_first" | "own_first">("reserve_first");
+  const [hfMediaOrder, setHfMediaOrder] = useState<"hf_first" | "fallback_first">("hf_first");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -588,6 +589,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
       void api<{ order: "reserve_first" | "own_first" }>("sham_media").then((x) => setMediaOrder(x.order)).catch(() => null);
+      void api<{ order: "hf_first" | "fallback_first" }>("hf_media_route").then((x) => setHfMediaOrder(x.order)).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -645,6 +647,14 @@ export function PanelPage({ lang }: { lang: Lang }) {
           after={<Switch checked={mediaOrder === "reserve_first"} onChange={async (e) => { const order = e.currentTarget.checked ? "reserve_first" : "own_first"; setMediaOrder(order); const r = await api<{ order: "reserve_first" | "own_first" }>("sham_media", { order }); setMediaOrder(r.order); haptic("success"); }} />}>
           {ar ? "الاحتياط أولاً" : "Reserve first"}
         </Cell>
+      </Section>
+      <Section header={ar ? "مسار توليد الصور والفيديو (Hugging Face)" : "Image & video generation route (Hugging Face)"} footer={ar ? "مفعّل: جرّب مساحات ZeroGPU أولاً ثم المسارات الاحتياطية. مطفأ: استخدم المسارات الحالية أولاً؛ الفيديو ينتقل إلى طابور Kaggle، والصور إلى Cloudflare ثم ModelScope." : "On: try the ZeroGPU Spaces first, then fall back. Off: use existing providers first; video goes to the Kaggle queue and images to Cloudflare then ModelScope."}>
+        <Cell Component="label" multiline subtitle={hfMediaOrder === "hf_first" ? (ar ? "مساحات Hugging Face أولاً للصور والفيديو" : "Hugging Face Spaces first for images and video") : (ar ? "المسارات الحالية أولاً" : "Existing providers first")}
+          after={<Switch checked={hfMediaOrder === "hf_first"} disabled={busy === "hf_media_route"} onChange={async (e) => { const order = e.currentTarget.checked ? "hf_first" : "fallback_first"; const prev = hfMediaOrder; setHfMediaOrder(order); setBusy("hf_media_route"); setMsg(""); try { const r = await api<{ order: "hf_first" | "fallback_first" }>("hf_media_route", { order }); setHfMediaOrder(r.order); haptic("success"); setMsg(ar ? "تم حفظ مسار توليد الوسائط." : "Media route saved."); } catch (err: any) { setHfMediaOrder(prev); haptic("error"); setMsg(String(err?.message || err)); } finally { setBusy(""); } }} />}>
+          {ar ? "تفضيل مساحات الصور والفيديو الجديدة" : "Prefer the new image/video Spaces"}
+        </Cell>
+        {busy === "hf_media_route" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ المسار…" : "Saving route…"}</Cell>}
+        {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
