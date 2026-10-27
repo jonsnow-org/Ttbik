@@ -82,8 +82,8 @@ export async function shamAgentRun(opts: {
     }
     return { kind: "text", text: "Selected media route " + (r?.route || "unknown") + " did not return a usable file (" + (r?.text || r?.type || "no answer") + "). No automatic route switch was performed.", used: usedNow, steps: stepNow };
   };
-  const defaultMedia = async (k: "image" | "audio" | "video", pr: string): Promise<ShamReply | null> =>
-    generateShamMediaThroughRoute(k, pr, { timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)) });
+  const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string } = {}): Promise<ShamReply | null> =>
+    generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)) });
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
