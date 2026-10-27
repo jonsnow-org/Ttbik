@@ -16,6 +16,7 @@ requests
 # sham_media_load: any sound / video format (mp3, m4a, opus, webm, mp4)
 av
 # ready media weights inside Sham's repo (sham_media_ready.py): picture model + Arabic voice
+gradio_client
 diffusers
 transformers
 accelerate
