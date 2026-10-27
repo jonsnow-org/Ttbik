@@ -389,6 +389,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (body.order === "own_first" || body.order === "reserve_first") await setShamMediaOrder(body.order, db);
       return { order: await shamMediaOrder(db) };
     }
+    case "hf_media_route": {                    // owner switch: Hugging Face ZeroGPU vs existing image/video fallback routes
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { hfMediaRouteOrder, setHfMediaRouteOrder } = await import("@/lib/shamExec");
+      if (body.order === "hf_first" || body.order === "fallback_first") await setHfMediaRouteOrder(body.order, db);
+      return { order: await hfMediaRouteOrder(db) };
+    }
     case "panel_action": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { panelAction } = await import("@/lib/coderPanel");
