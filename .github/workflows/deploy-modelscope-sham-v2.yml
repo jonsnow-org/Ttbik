@@ -5,12 +5,6 @@ name: "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat,
 
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - "ai-system/modelscope-sham/**"
-      - ".github/workflows/deploy-modelscope-sham-v2.yml"
   # Re-deploy after the ready media bundle is copied into novaai2026/sham-v2.
   # The first push-triggered deploy may start concurrently; this follow-up ensures
   # the running Studio takes a snapshot that includes the completed media upload.
@@ -165,3 +159,10 @@ jobs:
           done
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
+
+      - name: Live text and media smoke tests
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+        run: python ai-system/supervision/sham_v2_media_smoke.py
