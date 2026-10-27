@@ -72,7 +72,14 @@ _STEPS = 28
 _GUIDANCE = 4.5
 _SIZE = 1024
 
-pipe = StableDiffusion3Pipeline.from_pretrained(_MODEL_ID, torch_dtype=torch.bfloat16)
+# Gated model access is authenticated with the Space runtime secret. Set HF_TOKEN
+# in the Space's Settings -> Variables and secrets (never in repository files).
+_HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
+pipe = StableDiffusion3Pipeline.from_pretrained(
+    _MODEL_ID,
+    torch_dtype=torch.bfloat16,
+    token=_HF_TOKEN or None,
+)
 
 
 @spaces.GPU(duration=100)
