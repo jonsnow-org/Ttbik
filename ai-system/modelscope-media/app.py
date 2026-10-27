@@ -30,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 REPO = os.environ.get("MEDIA_MODEL_REPO", "novaai2026/nova-media-models")
 STATE = {"phase": "starting", "error": "", "images": 0, "speech": 0, "videos": 0, "last_s": 0.0}
 _LOCK = threading.Lock()
-_MODELS = {"pipe": None, "voice": None, "root": None}
+_MODELS = {"pipe": None, "voice": None, "root": None, "video_pipe": None, "video_root": None}
 
 
 def _token() -> str:
@@ -90,23 +90,64 @@ def _make_image(prompt: str, size: int, seed: int):
     return _pipe()(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
 
 
-def _make_video(prompts: list[str], narration: str, seconds: float) -> bytes:
-    import imageio_ffmpeg
-    ff = imageio_ffmpeg.get_ffmpeg_exe()
-    seconds = max(1.5, min(6.0, float(seconds or 3)))
+def _video_pipe():
+    """Load a real text-to-video diffusion model from local ModelScope weights, never a remote inference API."""
+    if _MODELS["video_pipe"] is not None:
+        return _MODELS["video_pipe"]
+    import torch
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "native-video-unavailable: Wan2.1 requires a CUDA GPU; this Studio is currently CPU-only. "
+            "No slideshow or external generator will be used."
+        )
+    local_dir = os.environ.get("NOVA_VIDEO_MODEL_DIR", "").strip()
+    if not local_dir:
+        raise RuntimeError(
+            "native-video-unavailable: set NOVA_VIDEO_MODEL_DIR to a locally mounted Wan2.1-T2V-1.3B "
+            "Diffusers checkpoint. Model downloads are not performed during user requests."
+        )
+    model_dir = Path(local_dir).expanduser().resolve()
+    if not model_dir.is_dir() or not (model_dir / "model_index.json").is_file():
+        raise RuntimeError(f"native-video-unavailable: Diffusers checkpoint not found at {model_dir}")
+    from diffusers import WanPipeline
+    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    pipe = WanPipeline.from_pretrained(
+        str(model_dir),
+        torch_dtype=dtype,
+        local_files_only=True,
+    )
+    pipe.enable_model_cpu_offload()
+    _MODELS["video_pipe"] = pipe
+    _MODELS["video_root"] = str(model_dir)
+    return pipe
+
+
+def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
+    """Generate temporal motion with Wan diffusion; never assemble generated still images into a video."""
+    import torch
+    from diffusers.utils import export_to_video
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ValueError("native-video-unavailable: a text prompt is required")
+    seconds = max(2.0, min(5.0, float(seconds or 3)))
+    frames = max(33, min(81, int(round(seconds * 16 / 4)) * 4 + 1))
+    pipe = _video_pipe()
+    generator = torch.Generator(device="cuda").manual_seed(int(seed))
+    result = pipe(
+        prompt=prompt[:800],
+        negative_prompt="static image, frozen motion, slideshow, low quality, blurry, watermark, text",
+        height=480,
+        width=832,
+        num_frames=frames,
+        num_inference_steps=20,
+        guidance_scale=5.0,
+        generator=generator,
+    )
+    video_frames = result.frames[0]
     with tempfile.TemporaryDirectory() as d:
-        dd = Path(d)
-        for i, p in enumerate(prompts[:6]):
-            _make_image(p, 512, i).save(dd / f"f{i:02d}.png")
-        n = len(list(dd.glob("f*.png")))
-        audio = []
-        if narration.strip():
-            (dd / "a.wav").write_bytes(_speech_wav(narration))
-            audio = ["-i", str(dd / "a.wav")]
-        cmd = [ff, "-y", "-framerate", f"1/{seconds}", "-i", str(dd / "f%02d.png"), *audio, "-vf", "format=yuv420p,scale=512:512",
-               "-c:v", "libx264", "-r", "24", *(["-c:a", "aac", "-shortest"] if audio else []), "-movflags", "+faststart", str(dd / "o.mp4")]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
-        return (dd / "o.mp4").read_bytes()
+        target = Path(d) / "nova-native-video.mp4"
+        export_to_video(video_frames, str(target), fps=16)
+        return target.read_bytes()
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -120,10 +161,10 @@ def _run(kind: str, payload: dict) -> dict:
         elif kind == "speech":
             out = {"type": "audio", "b64": base64.b64encode(_speech_wav(str(payload.get("text", "")))).decode()}
         else:
-            prompts = [str(p) for p in (payload.get("prompts") or []) if str(p).strip()]
-            if not prompts:
-                return {"type": "error", "text": "prompts are required"}
-            out = {"type": "video", "b64": base64.b64encode(_make_video(prompts, str(payload.get("narration", "")), payload.get("seconds", 3))).decode(), "text": prompts[0][:120]}
+            prompt = str(payload.get("prompt", "")).strip()
+            out = {"type": "video", "b64": base64.b64encode(
+                _make_video(prompt, payload.get("seconds", 3), payload.get("seed", 0))
+            ).decode(), "text": prompt[:120]}
         STATE[{"image": "images", "speech": "speech", "video": "videos"}[kind]] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
         return out
@@ -149,7 +190,19 @@ def api_video(body: str) -> str:
 
 
 def api_status() -> str:
-    return json.dumps({**STATE, "repo": REPO, "cpus": os.cpu_count()})
+    try:
+        import torch
+        gpu = bool(torch.cuda.is_available())
+        gpu_name = torch.cuda.get_device_name(0) if gpu else None
+    except Exception:
+        gpu, gpu_name = False, None
+    video_dir = os.environ.get("NOVA_VIDEO_MODEL_DIR", "").strip()
+    video_ready = bool(gpu and video_dir and (Path(video_dir) / "model_index.json").is_file())
+    return json.dumps({
+        **STATE, "repo": REPO, "cpus": os.cpu_count(),
+        "video": {"engine": "WanPipeline", "ready": video_ready, "gpu": gpu, "gpu_name": gpu_name,
+                  "model_dir_configured": bool(video_dir), "mode": "native-diffusion-only"},
+    })
 
 
 def _warm() -> None:
