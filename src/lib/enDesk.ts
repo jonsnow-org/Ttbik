@@ -197,23 +197,94 @@ export const EN_ARTICLES: DeskItem[] = [
   },
   {
     slug: "why-live-desks-matter",
-    title: "Why live desks matter for breaking news",
-    dek: "A live desk updates as facts change. A static page does not.",
-    date: "2026-10-01",
+    title: "Why we embed official live desks instead of rebroadcasting",
+    dek: "The stream stays on the channel's player. We do not copy the signal.",
+    date: "2026-10-10",
     body: [
-      "When a story is moving, numbers and locations change. A live desk keeps the latest in one place instead of leaving old paragraphs on the page.",
-      "Check the timestamp and the source list. If both are missing, treat the page as a snapshot, not a live report.",
+      "A live news desk on this site is an official YouTube embed. The video leaves the channel's servers only when you open the player. Sham AI does not rebroadcast or store the stream.",
+      "If an embed stops, the Open on YouTube button goes to the channel's live page. That is the reliable source.",
     ],
     tool: "/en/news",
   },
 ];
 
+const EN_EVENT_ENTRIES: DeskItem[] = [
+  {
+    slug: "world-post-day-2026",
+    title: "World Post Day 2026",
+    dek: "9 October. Anniversary of the Universal Postal Union, founded in Bern in 1874.",
+    date: "2026-10-09",
+    body: [
+      "World Post Day is 9 October. The Universal Postal Union was established in Bern in 1874. The UN observance page is the source for the date and for the 2026 theme, one postal network.",
+      "It is not a public holiday in most countries and not a shipping sale.",
+    ],
+  },
+  {
+    slug: "world-mental-health-day-2026",
+    title: "World Mental Health Day 2026",
+    dek: "10 October. A public date run with the World Federation for Mental Health and marked by WHO. Not medical advice.",
+    date: "2026-10-10",
+    body: [
+      "World Mental Health Day is 10 October. The World Federation for Mental Health has used the date since 1992. WHO keeps a campaign page for the same day.",
+      "This card explains the date. It is not a diagnosis and not a treatment. Someone who needs urgent help should use a local emergency service.",
+    ],
+  },
+  {
+    slug: "international-day-of-the-girl-2026",
+    title: "International Day of the Girl 2026",
+    dek: "11 October. Declared by the General Assembly. The 2026 UN and UNICEF theme is ending child marriage.",
+    date: "2026-10-11",
+    body: [
+      "The International Day of the Girl Child is 11 October. The General Assembly set the date in resolution 66/170 on 19 December 2011.",
+      "The 2026 theme published by the UN and UNICEF is to end child marriage and invest in girls' rights. UNICEF's public estimate is that about one in five girls is married before 18.",
+    ],
+  },
+  {
+    slug: "disaster-risk-reduction-day-2026",
+    title: "International Day for Disaster Risk Reduction 2026",
+    dek: "13 October. A UN date about preparation, not a forecast of a named storm.",
+    date: "2026-10-13",
+    body: [
+      "The International Day for Disaster Risk Reduction is 13 October. The UN page is the source. The day is about reducing loss before a disaster, not about predicting one.",
+    ],
+  },
+  {
+    slug: "world-standards-day-2026",
+    title: "World Standards Day 2026",
+    dek: "14 October. A public date for the standards behind files, plugs, and web formats.",
+    date: "2026-10-14",
+    body: [
+      "World Standards Day is 14 October. It marks the work behind shared formats: image types, paper sizes, and the rules that let a file open on another machine.",
+      "For a tool site the useful part is practical. A QR code, a PDF invoice, and a JPEG all depend on a published format.",
+    ],
+  },
+  {
+    slug: "world-food-day-2026",
+    title: "World Food Day 2026",
+    dek: "16 October. Anniversary of the founding of the Food and Agriculture Organization in 1945.",
+    date: "2026-10-16",
+    body: [
+      "World Food Day is 16 October, the date FAO was founded in 1945. The FAO page is the source. The day is about hunger and farming, not a commodity price.",
+    ],
+  },
+  {
+    slug: "public-domain-day-2027",
+    title: "Public Domain Day 2027",
+    dek: "1 January. Works whose term ends enter the commons in many countries.",
+    date: "2027-01-01",
+    body: [
+      "Public Domain Day is 1 January. The list of works differs by country because copyright terms differ.",
+      "Do not copy a text into a tool page because a headline said it is free. Check the country and the year.",
+    ],
+  },
+];
 
-// Shared exports used by the English desk route pages.
-// Keep event entries sourced from the desk items explicitly tagged for event pages.
-export const EN_EVENTS: DeskItem[] = EN_NEWS.filter(
-  (item) => item.tool === "/en/events" || item.tool === "/en/events/upcoming",
-);
+
+// Shared exports used by the English desk route pages: the dated event cards above, plus any desk item explicitly tagged for the event pages.
+export const EN_EVENTS: DeskItem[] = [
+  ...EN_EVENT_ENTRIES,
+  ...EN_NEWS.filter((item) => (item.tool === "/en/events" || item.tool === "/en/events/upcoming") && !EN_EVENT_ENTRIES.some((e) => e.slug === item.slug)),
+];
 
 export function bySlug<T extends { slug: string }>(
   items: T[],

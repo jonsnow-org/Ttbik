@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import type { Db } from "@/lib/coderAuth";
 import { DEFAULT_PLANS, publicPlans, publicUsage, upsertPlan, usageSummary, getSubscription, limitMessage } from "@/lib/coderPlans";
 import { parseStarsPayload, preCheckoutCoder, recordCoderPayment, starsPayload } from "@/lib/coderStars";
-import { callbackUrl, CONNECTORS, connectorApi, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, linkWithToken, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, verifyConnectorState } from "@/lib/coderConnectors";
+import { callbackUrl, CONNECTORS, connectorApi, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, linkWithToken, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, testConnector, verifyConnectorState } from "@/lib/coderConnectors";
 
 function memDb(): Db & { conns: any[]; pays: Set<string> } {
   const plans = new Map<string, any>();
@@ -90,8 +90,8 @@ describe("connectors", () => {
     const db = memDb();
     let l = await listConnectors(USER, {}, db);
     expect(l.map((c) => [c.id, c.status, c.oauth])).toEqual([
-      ["github", "available", false], ["google_drive", "setup", false], ["gmail", "setup", false], ["notion", "available", false],
-      ["vercel", "available", false], ["supabase", "available", false], ["slack", "available", false], ["discord", "available", false],
+      ["github", "available", false], ["google_drive", "setup", false], ["google_calendar", "setup", false], ["gmail", "setup", false], ["notion", "available", false],
+      ["vercel", "available", false], ["supabase", "available", false], ["slack", "available", false], ["discord", "available", false], ["gitlab", "available", false],
     ]);
     expect(l.find((c) => c.id === "notion")?.token?.create).toMatch(/^https:\/\//);
     expect(JSON.stringify(l)).not.toMatch(/soon/);
@@ -125,6 +125,40 @@ describe("connectors", () => {
     expect(seen[0].auth).toBe("Bot discord.token.value");                                                // the stored scheme is used for API calls
     await disconnectConnector(USER, "notion", db, f);
     expect((await listConnectors(USER, {}, db)).find((c) => c.id === "notion")?.status).toBe("available");
+  });
+  it("Calendar needs the owner's Google app (setup until then); GitLab can be linked with a personal token at once and signs in once its app exists", async () => {
+    const db = memDb();
+    let list = await listConnectors(USER, {}, db);
+    expect(list.find((c) => c.id === "google_calendar")).toMatchObject({ status: "setup", oauth: false });
+    expect(list.find((c) => c.id === "gitlab")).toMatchObject({ status: "available", oauth: false });
+    expect(list.find((c) => c.id === "gitlab")?.token?.create).toMatch(/^https:\/\/gitlab\.com\//);
+    process.env.CODER_GOOGLE_CLIENT_ID = "gid";
+    process.env.CODER_GOOGLE_CLIENT_SECRET = "gsec";
+    process.env.CODER_GITLAB_CLIENT_ID = "lid";
+    process.env.CODER_GITLAB_CLIENT_SECRET = "lsec";
+    list = await listConnectors(USER, {}, db);
+    expect(list.find((c) => c.id === "google_calendar")).toMatchObject({ status: "available", oauth: true });
+    expect(list.find((c) => c.id === "gitlab")).toMatchObject({ status: "available", oauth: true });
+    expect(CONNECTORS.find((c) => c.id === "github")?.scope).toContain("admin:repo_hook");        // the schedule webhooks need it
+  });
+  it("links GitLab with a personal token, checked against the live identity endpoint", async () => {
+    const db = memDb();
+    const f: any = jest.fn(async (url: string, init?: any) => (url === "https://gitlab.com/api/v4/user" && init?.headers?.Authorization === "Bearer glpat-good-token-1" ? new Response(JSON.stringify({ username: "alice" })) : new Response("{}", { status: 401 })));
+    await expect(linkWithToken(USER, "gitlab", "glpat-bad-token-123", db, f)).rejects.toThrow(/rejected/);
+    expect(await linkWithToken(USER, "gitlab", "glpat-good-token-1", db, f)).toEqual({ label: "alice" });
+  });
+  it("validates a linked GitLab credential against its live identity endpoint", async () => {
+    process.env.CODER_GITLAB_CLIENT_ID = "lid";
+    process.env.CODER_GITLAB_CLIENT_SECRET = "lsec";
+    const db = memDb();
+    const u = new URL(connectorStartUrl(USER, "gitlab"));
+    const f: any = jest.fn(async (url: string, init?: any) => {
+      if (url === "https://gitlab.com/oauth/token" && init?.method === "POST") return { ok: true, json: async () => ({ access_token: "gitlab-secret", token_type: "Bearer", expires_in: 3600 }) };
+      if (url === "https://gitlab.com/api/v4/user") return { ok: true, json: async () => ({ username: "alice" }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    await finishConnector("gitlab", "code", u.searchParams.get("state")!, db, f);
+    expect(await testConnector(USER, "gitlab", {}, db, f)).toEqual({ ok: true, label: "alice", message: "الاتصال سليم: alice" });
   });
   it("state is signed, bound to the user and the service, and expires; PKCE challenge is S256 of the verifier", () => {
     const s = signConnectorState(USER, "vercel");
@@ -167,7 +201,7 @@ describe("connectors", () => {
   });
 });
 
-describe("groq: a model this key cannot use is skipped afterwards", () => {
+describe("groq: prefer the model known to work in production", () => {
   it("404 model_not_found is remembered; the next call goes straight to a working model", async () => {
     jest.resetModules();
     process.env.GROQ_API_KEY = "k";
@@ -181,8 +215,8 @@ describe("groq: a model this key cannot use is skipped afterwards", () => {
     });
     const err = jest.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await callGroq("s", "u", 50)).toBe("ok");
-    expect(seen).toHaveLength(5);
-    expect(groqSkipped()).toHaveLength(4);
+    expect(seen).toHaveLength(1);
+    expect(groqSkipped()).toHaveLength(0);
     seen.length = 0;
     expect(await callGroq("s", "u", 50)).toBe("ok");
     expect(seen).toEqual(["openai/gpt-oss-120b"]);

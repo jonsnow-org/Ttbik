@@ -56,3 +56,37 @@ describe("Studio status", () => {
     expect(await coderStatus(2000)).toMatchObject({ phase: "ready", queue: 0 });
   });
 });
+
+describe("queue priority is sent to the Studio", () => {
+  beforeEach(() => { process.env.OPEN_CODER_STUDIO_URL = "https://a.example"; process.env.CODER_STUDIO_BALANCE = "off"; });
+  const bodies = (sent: any[]) => sent.map((b) => (b ? JSON.parse(b) : null)).filter((b) => b && "messages" in b);
+  function recording(rejectPriority = false) {
+    const sent: any[] = [];
+    global.fetch = (async (u: any, init?: any) => {
+      const url = String(u);
+      if (url.includes("/call/v2/chat")) {
+        sent.push(init?.body);
+        if (rejectPriority && String(init?.body).includes("priority")) return new Response("unexpected input", { status: 422 });
+        return Response.json({ event_id: "e" });
+      }
+      return new Response(`data: ${JSON.stringify([JSON.stringify({ type: "pending", job: "j1" })])}\n`);
+    }) as typeof fetch;
+    return sent;
+  }
+  it("priority 1 is in the payload; no priority leaves the payload exactly as before (old Studios)", async () => {
+    const sent = recording();
+    await coderChat([{ role: "user", content: "hi" }], { waitS: 1, priority: 1 });
+    await coderChat([{ role: "user", content: "hi" }], { waitS: 1 });
+    const b = bodies(sent);
+    expect(b[0].priority).toBe(1);
+    expect("priority" in b[1]).toBe(false);
+  });
+  it("an old Studio that rejects the new field still answers: the call is repeated without it", async () => {
+    const sent = recording(true);
+    const o = await coderChat([{ role: "user", content: "hi" }], { waitS: 1, priority: 1 });
+    expect(o.reply?.job).toBe("j1");
+    const b = bodies(sent);
+    expect(b.length).toBe(2);
+    expect("priority" in b[1]).toBe(false);
+  });
+});

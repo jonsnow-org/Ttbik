@@ -29,10 +29,34 @@ export type PubPlan = { id: string; name: { ar: string; en: string }; price_labe
 export type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
 export type OwnPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars?: number | null; days?: number; active: boolean };
 export async function api<T = any>(op: string, body: Record<string, unknown> = {}): Promise<T> {
-  const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op, ...body }), cache: "no-store" });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(d.error || `HTTP ${r.status}`), { status: r.status });
-  return d as T;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const r = await fetch("/api/coder/app", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+      body: JSON.stringify({ op, ...body }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const d = await r.json().catch(() => null);
+    if (controller.signal.aborted) throw new Error("Request timed out");
+    if (!r.ok) throw Object.assign(new Error(d && typeof d.error === "string" ? d.error : `HTTP ${r.status}`), { status: r.status });
+    if (!d || typeof d !== "object" || Array.isArray(d)) {
+      throw new Error("أعاد الخادم استجابة غير صالحة. أعد المحاولة، وإذا تكرر الخطأ فتحقّق من سجل النشر.");
+    }
+    return d as T;
+  } catch (e) {
+    if (controller.signal.aborted) {
+      throw new Error("انتهت مهلة الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    }
+    if (e instanceof TypeError) {
+      throw new Error("تعذّر الاتصال بالخادم. تحقّق من الإنترنت وحالة النشر ثم أعد المحاولة.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 export const toDate = (iso: string) => new Date(iso.replace(" ", "T").replace(/\+00$/, "Z"));
 export function ago(iso: string | null, t: Str): string {
@@ -84,16 +108,24 @@ export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; li
     let stop = false;
     after.current = 0;
     setEvs(null);
+    let inFlight = false;
     const pull = async () => {
+      // A slow response must not overlap the next poll: overlapping requests can return the
+      // same cursor and append duplicate events to the timeline.
+      if (stop || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
       try {
         const d = await api<{ events: Ev[] }>("events", { runId, after: after.current });
         if (stop) return;
-        if (d.events.length) {
-          after.current = d.events[d.events.length - 1].id;
-          setEvs((x) => [...(x || []), ...d.events]);
+        const events = Array.isArray(d.events) ? d.events.filter((e) => Number.isFinite(e.id) && e.id > after.current) : [];
+        if (events.length) {
+          after.current = events[events.length - 1].id;
+          setEvs((x) => [...(x || []), ...events]);
         } else setEvs((x) => x || []);
       } catch {
         setEvs((x) => x || []);
+      } finally {
+        inFlight = false;
       }
     };
     void pull();
@@ -118,17 +150,29 @@ export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; li
 
 export function PendingBanner({ p, t, cats, lang, onDone }: { p: Pending; t: Str; cats: Cat[]; lang: Lang; onDone: () => void }) {
   const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
   const label = (p.categories || []).map((c) => cats.find((x) => x.id === c)?.label[lang]).filter(Boolean).join(" · ") || p.reason;
   const act = async (answer: "yes" | "all" | "no") => {
+    if (busy) return;
     setBusy(answer);
+    setError("");
     haptic(answer === "no" ? "warning" : "success");
-    try { await api("resolve", { runId: p.runId, nonce: p.nonce, answer }); } finally { setBusy(""); onDone(); }
+    try {
+      await api("resolve", { runId: p.runId, nonce: p.nonce, answer });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذّر تنفيذ الإجراء. أعد المحاولة.");
+      haptic("error");
+    } finally {
+      setBusy("");
+    }
   };
   return (
     <Banner type="section" before={<Emoji c="⚠️" />} header={`${t.needsYou}${p.title ? ` · ${p.title}` : ""}`} subheader={label} description={p.summary.slice(0, 300)}>
-      <Button size="s" loading={busy === "yes"} disabled={!!busy} onClick={() => act("yes")}>{t.approve}</Button>
-      <Button size="s" mode="bezeled" loading={busy === "all"} disabled={!!busy} onClick={() => act("all")}>{t.approveAll}</Button>
-      <Button size="s" mode="plain" loading={busy === "no"} disabled={!!busy} onClick={() => act("no")}>{t.deny}</Button>
+      {error && <Caption>{error}</Caption>}
+      <Button size="s" loading={busy === "yes"} disabled={!!busy} onClick={() => void act("yes")}>{t.approve}</Button>
+      <Button size="s" mode="bezeled" loading={busy === "all"} disabled={!!busy} onClick={() => void act("all")}>{t.approveAll}</Button>
+      <Button size="s" mode="plain" loading={busy === "no"} disabled={!!busy} onClick={() => void act("no")}>{t.deny}</Button>
     </Banner>
   );
 }
@@ -306,7 +350,7 @@ export const BRAND_SVG: Record<string, string> = {
 };
 export function BrandIcon({ c }: { c: ConnView }) {
   const path = BRAND_SVG[c.id];
-  const glyph: Record<string, string> = { google_drive: "▲", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉" };
+  const glyph: Record<string, string> = { google_drive: "▲", google_calendar: "▦", gitlab: "◆", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉" };
   return (
     <div aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: c.color, color: "#fff", display: "grid", placeItems: "center" }}>
       {path ? <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d={path} /></svg> : <span style={{ fontWeight: 900, fontSize: 18 }}>{glyph[c.id] || c.name[0]}</span>}
@@ -317,6 +361,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   const [list, setList] = useState<{ connectors: ConnView[]; mcp: McpView[]; presets?: McpPresetView[] } | null>(null);
   const [waiting, setWaiting] = useState("");
   const [busy, setBusy] = useState("");
+  const [testing, setTesting] = useState("");
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [adv, setAdv] = useState(false);
   const [mcp, setMcp] = useState({ url: "", token: "", label: "" });
@@ -356,12 +402,28 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
     setBusy(c.id);
     try { await api("connector_disconnect", { id: c.id }); haptic("success"); await load(); reload(); } finally { setBusy(""); }
   };
+  const test = async (c: ConnView) => {
+    setTesting(c.id); setMsg("");
+    try {
+      const r = await api<{ ok: boolean; label?: string; message: string }>("connector_test", { id: c.id });
+      setTestResults((old) => ({ ...old, [c.id]: (r.ok ? "✓ " : "⚠ ") + r.message }));
+      haptic(r.ok ? "success" : "error");
+    } catch (e: any) { setTestResults((old) => ({ ...old, [c.id]: "⚠ " + e.message })); haptic("error"); } finally { setTesting(""); }
+  };
   if (!list) return <Loading />;
   const gh = list.connectors.find((c) => c.id === "github");
+  // two groups instead of one long list: development & deployment, then work & productivity (anything else lands in the second)
+  const DEV = ["github", "gitlab", "vercel", "supabase"];
+  const visible = list.connectors.filter((c) => c.status !== "setup" || me.tier === "owner");
+  const groups = [
+    { title: lang === "ar" ? "التطوير والنشر" : "Development & deployment", items: visible.filter((c) => DEV.includes(c.id)) },
+    { title: lang === "ar" ? "العمل والإنتاجية" : "Work & productivity", items: visible.filter((c) => !DEV.includes(c.id)) },
+  ].filter((g) => g.items.length);
   return (
     <List>
-      <Section header={t.tabConnectors} footer={t.connectorsHint}>
-        {list.connectors.filter((c) => c.status !== "setup" || me.tier === "owner").map((c) => {
+      {groups.map((group, gi) => (
+      <Section key={group.title} header={gi === 0 ? `${t.tabConnectors} · ${group.title}` : group.title} footer={gi === 0 ? t.connectorsHint : undefined}>
+        {group.items.map((c) => {
           const link = async () => {
             const token = (tokens[c.id] || "").trim();
             if (!token) return;
@@ -372,8 +434,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
             <div key={c.id}>
               <Cell multiline before={<BrandIcon c={c} />}
                 titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
-                subtitle={<span dir="auto">{c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang]}</span>}
-                after={c.status === "connected" ? (c.source === "owner-env" ? undefined : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>)
+                subtitle={<span dir="auto">{testResults[c.id] || (c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang])}</span>}
+                after={c.status === "connected" ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}><Button size="s" mode="gray" loading={testing === c.id} onClick={() => void test(c)}>{lang === "ar" ? "اختبار" : "Test"}</Button>{c.source === "owner-env" ? null : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>}</div>
                   : <Button size="s" mode={open === c.id ? "gray" : "filled"} loading={busy === c.id} onClick={() => { haptic("select"); setOpen(open === c.id ? "" : c.id); setMsg(""); }}>{c.status === "setup" ? t.setupBtn : t.connect}</Button>}>
                 {c.name}
               </Cell>
@@ -402,6 +464,7 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
           );
         })}
       </Section>
+      ))}
       {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
       {!!list.presets?.length && (
         <Section header={t.mcpReady} footer={t.mcpReadyHint}>

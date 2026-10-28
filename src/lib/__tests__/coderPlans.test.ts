@@ -1,4 +1,4 @@
-import { terminalAllowed, addUsage, checkLimit, DEFAULT_PLANS, estimateTokens, limitMessage, listPlans, setSubscription, upsertPlan, usageSummary, WINDOW_MS } from "@/lib/coderPlans";
+import { queuePriority, terminalAllowed, addUsage, checkLimit, DEFAULT_PLANS, estimateTokens, limitMessage, listPlans, setSubscription, upsertPlan, usageSummary, WINDOW_MS } from "@/lib/coderPlans";
 import type { Db } from "@/lib/coderAuth";
 
 function plansDb(): Db & { usage: any[] } {
@@ -100,5 +100,23 @@ describe("plans and usage", () => {
     await setSubscription(7, "free", null, "manual", db);
     expect(await terminalAllowed(7, db)).toBe(false);
     saved === undefined ? delete process.env.SUPER_ADMIN_TELEGRAM_ID : (process.env.SUPER_ADMIN_TELEGRAM_ID = saved);
+  });
+});
+
+describe("queue priority", () => {
+  it("Pro and the owner get priority in the Studio queue; Free, Plus and expired Pro do not", async () => {
+    const db = plansDb();
+    await upsertPlan(DEFAULT_PLANS.find((p) => p.id === "pro")!, db);
+    await upsertPlan(DEFAULT_PLANS.find((p) => p.id === "plus")!, db);
+    await setSubscription(21, "pro", 30, "stars", db);
+    await setSubscription(22, "plus", 30, "stars", db);
+    expect(await queuePriority(21, db)).toBe(1);
+    expect(await queuePriority(OWNER, db)).toBe(1);
+    expect(await queuePriority(22, db)).toBe(0);
+    expect(await queuePriority(24, db)).toBe(0);                       // no subscription = Free
+  });
+  it("a database failure never blocks a request: no priority", async () => {
+    const bad = { exec: async () => { throw new Error("db down"); }, query: async () => { throw new Error("db down"); } } as any;
+    expect(await queuePriority(25, bad)).toBe(0);
   });
 });

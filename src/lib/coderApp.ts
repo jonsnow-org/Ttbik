@@ -549,6 +549,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         throw e;
       }
     }
+    case "connector_test": {
+      const c = await import("@/lib/coderConnectors");
+      const id = String(body.id || "");
+      if (!c.connectorById(id)) throw new AppError(404, "unknown connector");
+      const ownerToken = user.tier === "owner" ? (process.env.CODER_GITHUB_TOKEN || "").trim() : "";
+      return await c.testConnector(chatId, id, { ownerToken }, db, deps.fetchImpl || globalThis.fetch);
+    }
     case "connector_disconnect": {
       const c = await import("@/lib/coderConnectors");
       if (!c.connectorById(String(body.id || ""))) throw new AppError(404, "unknown connector");

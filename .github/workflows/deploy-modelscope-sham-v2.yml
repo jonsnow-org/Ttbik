@@ -159,6 +159,8 @@ jobs:
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
 
+      - name: Install what the content checks need (numpy, pillow; ffmpeg ships on the runner)
+        run: python3 -m pip install -q numpy pillow
       - name: Live text and media smoke tests
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}

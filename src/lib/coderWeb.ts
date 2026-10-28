@@ -33,9 +33,29 @@ export function privateIp(ip: string): boolean {
     const [a, b] = ip.split(".").map(Number);
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
-  const x = ip.toLowerCase();
-  if (x.startsWith("::ffff:")) return privateIp(x.slice(7));
-  return x === "::" || x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe8") || x.startsWith("fe9") || x.startsWith("fea") || x.startsWith("feb") || x.startsWith("ff");
+  const g = v6Groups(ip);
+  if (!g) return true;                                   // not an address we can read: never treat it as public
+  const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  const head = g.slice(0, 5).every((n) => n === 0);
+  if (head && g[5] === 0xffff) return privateIp(v4(g[6], g[7]));                                  // ::ffff:a.b.c.d  (new URL() prints it as ::ffff:7f00:1)
+  if (g.slice(0, 6).every((n) => n === 0)) return g[6] === 0 && g[7] <= 1 ? true : privateIp(v4(g[6], g[7]));   // ::, ::1, ::a.b.c.d (IPv4-compatible)
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((n) => n === 0)) return privateIp(v4(g[6], g[7])); // NAT64 64:ff9b::/96
+  if (g[0] === 0x2002) return privateIp(v4(g[1], g[2]));                                          // 6to4 2002:a.b.c.d::/48
+  const f = g[0];
+  return (f & 0xfe00) === 0xfc00 || (f & 0xffc0) === 0xfe80 || (f & 0xffc0) === 0xfec0 || (f & 0xff00) === 0xff00; // fc00::/7, fe80::/10, fec0::/10, ff00::/8
+}
+/** The eight 16-bit groups of an IPv6 address (handles "::" and a dotted IPv4 tail), or null. */
+function v6Groups(ip: string): number[] | null {
+  let x = ip.toLowerCase().replace(/^\[|\]$/g, "").replace(/%.*$/, "");
+  if (isIP(x) !== 6) return null;
+  const dot = x.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (dot) x = x.slice(0, dot.index) + ((+dot[1] << 8) | +dot[2]).toString(16) + ":" + ((+dot[3] << 8) | +dot[4]).toString(16);
+  const [l, r] = x.split("::");
+  const left = l ? l.split(":") : [], right = r === undefined ? [] : r ? r.split(":") : [];
+  const fill = r === undefined ? 0 : 8 - left.length - right.length;
+  if (fill < 0 || (r === undefined && left.length !== 8)) return null;
+  const all = [...left, ...Array(fill).fill("0"), ...right].map((h) => parseInt(h, 16));
+  return all.length === 8 && all.every((n) => Number.isFinite(n)) ? all : null;
 }
 export type UrlCheck = { ok: true; url: URL } | { ok: false; why: string };
 export async function checkUrl(raw: string, resolve: (h: string) => Promise<string[]> = defaultResolve): Promise<UrlCheck> {

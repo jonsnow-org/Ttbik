@@ -161,3 +161,49 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
     global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_MODELSCOPE_URL;
   });
 });
+
+describe("one end-to-end time limit per call", () => {
+  const realFetch = global.fetch;
+  const env = { ...process.env };
+  afterEach(() => { global.fetch = realFetch; process.env = { ...env }; });
+  const hang = (calls: string[]) => (async (u: any, init?: any) => {
+    calls.push(String(u));
+    return new Promise<Response>((_, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "TimeoutError" }))));
+  }) as typeof fetch;
+  it("a slow submit leaves only the remaining time for the result (not a second full limit)", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    let n = 0;
+    global.fetch = (async (u: any, init?: any) => {
+      n++;
+      if (n === 1) { await new Promise((r) => setTimeout(r, 700)); return Response.json({ event_id: "e" }); }
+      return new Promise<Response>((_, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "TimeoutError" }))));
+    }) as typeof fetch;
+    const t0 = Date.now();
+    expect(await shamGenerate("hi", 10, 1200)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(1700);                 // 1200 limit in total, not 700 + 1200
+  });
+  it("several Studios in the pool share one limit: the second is not started with a fresh full limit", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_MODELSCOPE_URL = "https://a.test,https://b.test";
+    const calls: string[] = [];
+    global.fetch = hang(calls);
+    const t0 = Date.now();
+    expect(await shamGenerateAny("hi", 10, 1600)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2300);                 // one 1600 ms limit, not two
+    expect(calls.length).toBe(1);                               // the first one used all of it: no second attempt
+  });
+  it("a Studio that refuses at once still hands the call to the next one with the time that is left", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_MODELSCOPE_URL = "https://a.test,https://b.test";
+    const hits: string[] = [];
+    global.fetch = (async (u: any) => {
+      const url = String(u); hits.push(url);
+      if (url.startsWith("https://a.test") || (hits.length > 0 && hits[0].startsWith("https://a.test") && false)) return new Response("no", { status: 500 });
+      if (url.includes("/call/v2/")) return Response.json({ event_id: "e" });
+      return new Response('event: complete\ndata: [' + JSON.stringify(JSON.stringify({ type: "text", text: "from b" })) + ']\n');
+    }) as typeof fetch;
+    const seen = new Set<string>();
+    for (let i = 0; i < 2; i++) { const r = await shamGenerateAny("hi", 10, 5000); if (r?.type === "text") seen.add(r.text || ""); }
+    expect([...seen]).toEqual(["from b"]);
+  });
+});

@@ -460,7 +460,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
 }
 
 // ---------------------------------------------------------------- Home
-const CAT: Record<string, "cat_dev" | "cat_prod"> = { github: "cat_dev", vercel: "cat_dev", supabase: "cat_dev", gmail: "cat_prod", google_drive: "cat_prod", notion: "cat_prod", slack: "cat_prod", discord: "cat_prod" };
+const CAT: Record<string, "cat_dev" | "cat_prod"> = { github: "cat_dev", gitlab: "cat_dev", vercel: "cat_dev", supabase: "cat_dev", gmail: "cat_prod", google_drive: "cat_prod", google_calendar: "cat_prod", notion: "cat_prod", slack: "cat_prod", discord: "cat_prod" };
 function useBilling(on: boolean) {
   const [b, setB] = useState<Billing | null>(null);
   const load = useCallback(() => api<Billing>("billing").then(setB).catch(() => null), []);
@@ -501,10 +501,25 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
   const [live, setLive] = useState<Threads | null>(null);
   const [pop, setPop] = useState<Anchor>(null);
   const pill = useRef<HTMLButtonElement>(null);
+  const liveLoading = useRef(false);
   const loadConns = useCallback(() => api<{ connectors: ConnView[] }>("connectors").then((d) => setConns(d.connectors)).catch(() => setConns((x) => x || [])), []);
-  const loadLive = useCallback(() => api<Threads>("threads", { limit: 1 }).then(setLive).catch(() => api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 10 })
-    .then((d) => setLive({ threads: [], current: null, currentEmpty: true, live: d.tasks.filter((x) => x.status === "running" || x.status === "waiting"), runs: [], pending: d.pending }))
-    .catch(() => null)), []);
+  const loadLive = useCallback(async () => {
+    // The home screen refreshes on a timer and on app focus; never stack slow requests.
+    if (liveLoading.current || document.visibilityState !== "visible") return;
+    liveLoading.current = true;
+    try {
+      try {
+        setLive(await api<Threads>("threads", { limit: 1 }));
+      } catch {
+        const d = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 10 });
+        setLive({ threads: [], current: null, currentEmpty: true, live: d.tasks.filter((x) => x.status === "running" || x.status === "waiting"), runs: [], pending: d.pending });
+      }
+    } catch {
+      // Keep the last good snapshot on transient network/API errors.
+    } finally {
+      liveLoading.current = false;
+    }
+  }, []);
   useEffect(() => {
     void loadConns();
     void loadLive();
@@ -604,10 +619,18 @@ function Chats({ c }: { c: Ctx }) {
   useEffect(() => {
     api<Models>("models").then((m) => setAvail((m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en })))).catch(() => null);
   }, [lang]);
+  const loading = useRef(false);
   const load = useCallback(async () => {
-    try { setD(await api<Threads>("threads", { limit: 40 })); setErr(""); }
-    catch (e: any) {
-      try { const x = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 30 }); setFallback(x.tasks); setErr(""); } catch { setErr(e.message); }
+    if (loading.current || document.visibilityState !== "visible") return;
+    loading.current = true;
+    try {
+      try { setD(await api<Threads>("threads", { limit: 40 })); setFallback(null); setErr(""); }
+      catch (e: any) {
+        try { const x = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 30 }); setFallback(x.tasks); setErr(""); }
+        catch { setErr(e instanceof Error ? e.message : "تعذّر تحميل المحادثات."); }
+      }
+    } finally {
+      loading.current = false;
     }
   }, []);
   useEffect(() => {
@@ -799,7 +822,14 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
   const [err, setErr] = useState("");
   const [name, setName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { try { setD(await api("thread", { id })); setErr(""); } catch (e: any) { setErr(e.message); } }, [id]);
+  const loading = useRef(false);
+  const load = useCallback(async () => {
+    if (loading.current || document.visibilityState !== "visible") return;
+    loading.current = true;
+    try { setD(await api("thread", { id })); setErr(""); }
+    catch (e: any) { setErr(e instanceof Error ? e.message : "تعذّر تحميل المحادثة."); }
+    finally { loading.current = false; }
+  }, [id]);
   useEffect(() => {
     void load();
     const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);

@@ -1,19 +1,18 @@
 name: Nova Media Studio Smoke Test
 
-# Live tests for Nova's own ModelScope media Studio. These calls never touch Sham and never send media to Telegram.
+# Live test of Nova's own ModelScope media Studio: a real image (pixel std), Arabic speech (audible samples) and a real AnimateDiff-Lightning
+# video (decoded, more than one frame, real motion). Nothing here touches Sham and nothing is sent to Telegram.
+# It fires on the same push as the Studio deploy, so it first WAITS until the Studio reports the new code (phase=ready and the AnimateDiff
+# video engine in its status); probing earlier hits the previous deploy (that is how the old run failed: no `speech` API yet).
 on:
-  workflow_dispatch:
-    inputs:
-      prompt:
-        description: "Image prompt"
-        required: false
-        default: "a rabbit playing in a green garden, cartoon style"
+  workflow_dispatch: {}
   push:
     branches:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - "ai-system/app/main.py"
       - "ai-system/app/nova_media_studio.py"
+      - "ai-system/app/nova_media_probe.py"
       - "ai-system/modelscope-media/app.py"
       - ".github/workflows/media-studio-probe.yml"
 
@@ -23,58 +22,29 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install requests
-      - name: Generate and validate an image, Arabic speech, and a short slideshow video
+      - name: Probe unit tests (no network)
+        run: |
+          python -m pip install numpy pillow imageio-ffmpeg
+          PYTHONPATH=ai-system/app python -m unittest ai-system/app/test_nova_media_probe.py
+      - name: Wait for the new Studio, then probe image, Arabic speech and AnimateDiff video (content checks)
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          PROMPT: ${{ inputs.prompt || 'a rabbit playing in a green garden, cartoon style' }}
-        run: |
-          python - <<'PY'
-          import base64, json, os, time, requests
-          base = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net"
-          headers = {"Authorization": "Bearer " + os.environ["MODELSCOPE_TOKEN"], "Content-Type": "application/json"}
-
-          def run(api, payload, expected, path):
-              started = time.time()
-              submit = requests.post(f"{base}/gradio_api/call/v2/{api}", headers=headers, json={"body": json.dumps(payload, ensure_ascii=False)}, timeout=30)
-              submit.raise_for_status()
-              event = submit.json().get("event_id")
-              if not event:
-                  raise RuntimeError(f"{api}: no event_id: {submit.text[:200]}")
-              response = requests.get(f"{base}/gradio_api/call/{api}/{event}", headers=headers, timeout=600)
-              response.raise_for_status()
-              for line in response.text.splitlines():
-                  if not line.startswith("data:"):
-                      continue
-                  value = json.loads(line[5:].strip())
-                  value = value[0] if isinstance(value, list) and value else value
-                  result = json.loads(value) if isinstance(value, str) else value
-                  print(api, "type=", result.get("type"), "seconds=", round(time.time()-started, 1), "detail=", str(result.get("text", ""))[:120])
-                  if result.get("type") != expected or not result.get("b64"):
-                      raise RuntimeError(f"{api}: expected {expected} media, got {str(result)[:300]}")
-                  raw = base64.b64decode(result["b64"])
-                  if len(raw) < 128:
-                      raise RuntimeError(f"{api}: suspiciously small payload ({len(raw)} bytes)")
-                  open(path, "wb").write(raw)
-                  print("PASS", api, path, len(raw), "bytes")
-                  return
-              raise RuntimeError(f"{api}: no SSE data event received")
-
-          run("image", {"prompt": os.environ["PROMPT"], "size": 512, "seed": 17}, "image", "probe.png")
-          run("speech", {"text": "مرحباً، هذا اختبار صوتي لاستوديو نوفا."}, "audio", "probe.wav")
-          run("video", {"prompts": ["A rabbit playing in a green garden", "A close-up of the rabbit in the grass"], "narration": "أرنب صغير يلعب في الحديقة الخضراء.", "seconds": 3}, "video", "probe.mp4")
-          PY
+          NOVA_MEDIA_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
+          READY_TIMEOUT: "2400"
+          PROBE_OUT: ${{ runner.temp }}
+        run: python ai-system/app/nova_media_probe.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: nova-media-smoke
+          name: nova-media-probe
           path: |
-            probe.png
-            probe.wav
-            probe.mp4
+            ${{ runner.temp }}/probe.png
+            ${{ runner.temp }}/probe.wav
+            ${{ runner.temp }}/probe.mp4
           if-no-files-found: ignore
