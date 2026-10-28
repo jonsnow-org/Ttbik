@@ -144,7 +144,11 @@ export async function shamAgentRun(opts: {
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: ShamAsk = opts.agentAsk || (!opts.ask && v2
-    ? ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAgentStep(p, n, t)))
+    ? ((p, n, t) => shamModeCtx.run(effMode, async () => {
+        // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
+        const structured = await shamGenerateAgentStep(p, n, t);
+        return structured || shamGenerateAny(p, n, t);
+      }))
     : rawAsk);
   const stepAsk: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAgentAsk(p, n, t); };
   const unpackToolReply = (reply: ShamReply | null): { text: string; calls: CoderToolCall[] } => {
@@ -324,7 +328,7 @@ export async function shamAgentRun(opts: {
     const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
     if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, opts.tools)) && recoveries < 2 && left() > 10000) {
       recoveries++;
-      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة بالصيغة <tool_call>{"name": "...", "arguments": {...}}</tool_call>، أو اسأل المستخدم بـ ask_user إن كانت المعلومة ناقصة.\nشام:`, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
       if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again); }
     }
     const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
