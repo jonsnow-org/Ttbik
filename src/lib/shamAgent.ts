@@ -40,10 +40,10 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s
 // Normalize Arabic punctuation/diacritics so the echo guard catches the same question with small formatting changes.
 const normaliseChatText = (s: string): string => String(s || "")
   .normalize("NFKC")
-  .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, "")
-  .replace(/^(?:المستخدم|شام(?:\\s*v?2)?|assistant|user)\\s*[:：]\\s*/i, "")
+  .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+  .replace(/^(?:المستخدم|شام(?:\s*v?2)?|assistant|user)\s*[:：]\s*/i, "")
   .replace(/[؟?!.,،؛:："']/g, "")
-  .replace(/\\s+/g, " ")
+  .replace(/\s+/g, " ")
   .trim()
   .toLocaleLowerCase("ar");
 
@@ -87,6 +87,7 @@ export async function shamAgentRun(opts: {
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // every model call is a real "thinking" phase on the card
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
+  const v2 = shamVariant.getStore() === "v2";
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];
   const messages: CoderMessage[] = opts.resume ? [...opts.resume] : [];
@@ -106,14 +107,14 @@ export async function shamAgentRun(opts: {
     }).slice(-3);
     const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
     const historyText = usableHistory.length
-      ? `سياق مختصر للمحادثة السابقة:\\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\\nشام: ${clip(h.a, 260)}`).join("\\n")}`
+      ? `سياق مختصر للمحادثة السابقة:\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\nشام: ${clip(h.a, 260)}`).join("\n")}`
       : "";
     const directPrompt = [
       "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. إذا سألك عن قدراتك، اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة.",
       historyText,
       `رسالة المستخدم الحالية: ${opts.text}`,
       "اكتب الجواب فقط، من دون بادئة «المستخدم» أو «شام»."
-    ].filter(Boolean).join("\\n\\n");
+    ].filter(Boolean).join("\n\n");
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     let waited = 0;
     while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
@@ -126,7 +127,7 @@ export async function shamAgentRun(opts: {
     }
     if (direct?.type === "text" && isQuestionEcho(String(direct.text || ""), opts.text, recentQuestions) && left() > 4000) {
       opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال بدلاً من الإجابة.");
-      const retryPrompt = `أنت شام. اكتب إجابة جديدة عن السؤال التالي، لا تكرر نص السؤال أو أي سؤال سابق. اذكر قدراتك أو المعلومة المطلوبة مباشرة، وإذا لم تعرف فقل ذلك بوضوح.\\nالسؤال: ${opts.text}\\nالإجابة الجديدة:`;
+      const retryPrompt = `أنت شام. اكتب إجابة جديدة عن السؤال التالي، لا تكرر نص السؤال أو أي سؤال سابق. اذكر قدراتك أو المعلومة المطلوبة مباشرة، وإذا لم تعرف فقل ذلك بوضوح.\nالسؤال: ${opts.text}\nالإجابة الجديدة:`;
       direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
     }
     if (direct?.type === "text") {
@@ -141,7 +142,6 @@ export async function shamAgentRun(opts: {
   }
 
   // the old body has a ~384-token window; the new body (Qwen3, Studio with SHAM_LIMITS=open) holds ~1200 prompt tokens (~3.6 chars/token): a longer conversation, longer tool results
-  const v2 = shamVariant.getStore() === "v2";
   const lim = v2 ? { turns: 8, turnChars: 900, maxChars: 4600 } : { turns: 6, turnChars: 400, maxChars: 3600 };
   const toolClip = v2 ? 2600 : 1800;
   let recoveries = 0;
