@@ -2,6 +2,12 @@ name: Sham v2 live capability smoke test
 
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ai-system/supervision/sham_v2_chat_smoke.py
+      - .github/workflows/sham-v2-chat-smoke.yml
   workflow_run:
     workflows:
       - "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat, own media tokens; a NEW Studio, the current Sham Studio is not touched)"
