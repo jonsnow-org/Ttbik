@@ -27,7 +27,8 @@ jobs:
           PROBE_OUT: ${{ runner.temp }}
         run: |
           cd athar
-          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/*.live.ts' 2>&1 | grep -E "LIVE_|✓|✕|Tests:|Expected|Received|●" | cut -c1-600
+          set -o pipefail
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/*.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-500 | head -80
       - uses: actions/upload-artifact@v4
         if: always()
         with:
