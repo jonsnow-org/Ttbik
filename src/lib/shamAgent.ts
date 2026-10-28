@@ -95,14 +95,17 @@ function isRepeatedPriorAnswer(answer: string, history: { q: string; a: string }
   });
 }
 
-function isNonAnswerBoilerplate(answer: string, question: string): boolean {
-  if (!isCapabilityQuestion(question)) return false;
+function isIdentityBoilerplate(answer: string): boolean {
   const a = normaliseChatText(answer);
   const identityOnly = /(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)/i.test(a);
   if (!identityOnly) return false;
-  // The stock identity is not an answer to a capability question unless it goes on to
-  // state a concrete ability or answer the yes/no question.
+  // It is not boilerplate if the model goes on to answer the user's actual question
+  // with a concrete ability or a yes/no answer plus substance.
   return !/(?:استطيع|أستطيع|يمكنني|اقدر|أقدر|لدي خبرة|عندي خبرة|اجيد|أجيد|برمج|كود|تصحيح|كتابة|تحليل|بحث|شرح|اصنع|أصنع|توليد|صورة|ملف)/i.test(a);
+}
+
+function isNonAnswerBoilerplate(answer: string, question: string): boolean {
+  return isCapabilityQuestion(question) && isIdentityBoilerplate(answer);
 }
 
 export async function shamAgentRun(opts: {
@@ -158,6 +161,7 @@ export async function shamAgentRun(opts: {
       return q.length >= 2 && a.length >= 2 && q !== a &&
         !isQuestionEcho(h.a, h.q, []) &&
         !isNonAnswerBoilerplate(h.a, h.q) &&
+        !(isCapabilityQuestion(opts.text) && isIdentityBoilerplate(h.a)) &&
         !isRepeatedPriorAnswer(h.a, allHistory.slice(0, index));
     }).slice(-3);
     const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
