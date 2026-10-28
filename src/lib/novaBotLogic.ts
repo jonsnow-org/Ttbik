@@ -984,7 +984,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: detailedReply ? 95000 : 50000, askMs: detailedReply ? 85000 : 44000, maxNew: Math.min(shamReplyTokens(), detailedReply ? 320 : 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: detailedReply ? 95000 : 50000, askMs: detailedReply ? 85000 : 44000, maxNew: Math.min(shamReplyTokens(), detailedReply ? 320 : 160), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, card);
 }
 
