@@ -30,7 +30,7 @@ jobs:
           python-version: "3.11"
       - name: Probe unit tests (no network)
         run: |
-          python -m pip install numpy pillow
+          python -m pip install numpy pillow imageio-ffmpeg
           PYTHONPATH=ai-system/app python -m unittest ai-system/app/test_nova_media_probe.py
       - name: Wait for the new Studio, then probe image, Arabic speech and AnimateDiff video (content checks)
         env:
