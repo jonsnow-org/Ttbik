@@ -27,6 +27,33 @@ describe("composite read tools", () => {
     expect(out).not.toMatch(/=== e ===/);
     expect(await run("github_read_files", { repo: "o/r", paths: [] })).toMatch(/^error/);
   });
+  it("github_repo_audit returns a read-only map of key files in one tool step", async () => {
+    const seen: string[] = [];
+    const auditGh = async (_method: string, path: string) => {
+      seen.push(path);
+      if (path.includes("/git/trees/")) return { status: 200, data: { tree: [
+        { type: "blob", path: "README.md" }, { type: "blob", path: "package.json" },
+        { type: "blob", path: "tsconfig.json" }, { type: "blob", path: ".github/workflows/ci.yml" },
+        { type: "blob", path: "src/app/page.tsx" }, { type: "blob", path: "prisma/schema.prisma" },
+        { type: "blob", path: "src/lib/example.test.ts" }, { type: "blob", path: "src/lib/service.ts" },
+      ] } };
+      if (path === "/repos/o/r") return { status: 200, data: { full_name: "o/r", default_branch: "main", language: "TypeScript" } };
+      if (path.includes("/contents/")) {
+        const file = decodeURIComponent(path.split("/contents/")[1].split("?")[0]);
+        return { status: 200, data: { content: b64("readable source for " + file), sha: "abcdef123" } };
+      }
+      return { status: 404, data: { message: "nf" } };
+    };
+    const audit = await runTool({ id: "audit", type: "function", function: { name: "github_repo_audit", arguments: JSON.stringify({ repo: "o/r" }) } }, { gh: auditGh, addNote: () => undefined } as any);
+    expect(audit).toContain("READ-ONLY REPOSITORY AUDIT");
+    expect(audit).toMatch(/=== README.md ===[\s\S]*readable source for README.md/);
+    expect(audit).toContain("=== package.json ===");
+    expect(audit).toContain("=== .github/workflows/ci.yml ===");
+    expect(audit).toContain("=== src/app/page.tsx ===");
+    expect(audit).toContain("=== prisma/schema.prisma ===");
+    expect(audit).toContain("=== src/lib/example.test.ts ===");
+    expect(seen.filter((path) => path.includes("/contents/")).length).toBeGreaterThanOrEqual(5);
+  });
 });
 
 describe("tools Nova was missing", () => {

@@ -4,8 +4,8 @@
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { historyChars } from "@/lib/coderContext";
-import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
-import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
+import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 
@@ -17,12 +17,14 @@ const s = (description: string) => ({ type: "string", description });
 const n = (description: string) => ({ type: "number", description });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): CoderTool => ({ type: "function", function: { name, description, parameters } });
 const REPO = s("owner/name, e.g. jonsnow-org/Ttbik");
+const delegateAvailable = (): boolean => agentsEnabled() && maxParallelAgentsForStudios(coderStudioUrls().length) > 0;
 
 export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_whoami", "Who the GitHub token belongs to.", obj({})),
   tool("github_list_repos", "List repositories the token can access.", obj({ owner: s("optional org or user") })),
   tool("github_repo_info", "Repository facts: default branch, description, visibility, open issues.", obj({ repo: REPO }, ["repo"])),
   tool("github_repo_scan", "ONE call that gives the lay of a repository: facts, top-level folders and files, the README start and the main manifest (package.json / pyproject / requirements). Use it first on an unfamiliar repo instead of several separate calls.", obj({ repo: REPO }, ["repo"])),
+  tool("github_repo_audit", "Read-only initial audit in ONE call: repository facts + file tree + up to 8 key file excerpts selected from README, manifest, config, entry points, schema, CI and tests. Use first for a broad project review; follow up on specific files for a complete audit.", obj({ repo: REPO, ref: s("branch / commit, optional") }, ["repo"])),
   tool("github_read_files", "Read up to 4 text files of one repository in ONE call (the start of each). Use it when you already know which files you need.", obj({ repo: REPO, paths: { type: "array", items: { type: "string" }, description: "file paths, at most 4" }, ref: s("branch / sha") }, ["repo", "paths"])),
   tool("github_list_files", "List files of a repository (recursive tree, or one folder).", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a text file. Use start_line/end_line for big files.", obj({ repo: REPO, path: s("file path"), ref: s("branch / sha"), start_line: n("1-based"), end_line: n("inclusive") }, ["repo", "path"])),
@@ -109,7 +111,7 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand up to 5 independent jobs to agents that work in parallel; each returns a short report. role worker = your full tools and permission settings (deletes / merges / main-branch writes are asked of the user), may start 2 read-only helpers; reader = read-only (default); tester (max 1) = runs tests in its own VM. Each task must be a complete standalone instruction. An agent starting its own helpers gives helper + arg instead of free text.",
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand independent jobs to agents in parallel only when they are genuinely separable. The runner caps the number to available Nova Studios and disables delegation with one Studio. Each returns a short report. role worker = full tools and user permission checks; reader = read-only (default); tester (max 1) = runs tests in its own VM. A worker may start at most one read-only helper at a time. Each task must be a complete standalone instruction.",
   obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
@@ -119,7 +121,7 @@ export function agentToolDefs(github: boolean, role: AgentRole = "reader"): Code
 export function coderTools(github: boolean, connectors = false): CoderTool[] {
   const base = github ? [...GITHUB_TOOLS, ...COMMON_TOOLS] : COMMON_TOOLS;
   const all = connectors ? [...base, ...CONNECTOR_TOOLS] : base;
-  return agentsEnabled() ? [...all, DELEGATE_TOOL] : all;
+  return delegateAvailable() ? [...all, DELEGATE_TOOL] : all;
 }
 
 // Tool groups the model loads itself (load_tools). Measured on the coder Studio (2 vCPU, ~40 prompt tokens/s): the 40 tool schemas are
@@ -210,13 +212,13 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
   if (mode === "off") return coderTools(github, connectors);
   const groups = toolGroups(github, connectors);
   if (!toolGroupsLazy()) {
-    const all = [ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).flatMap((g) => groups[g])];
+    const all = [ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).flatMap((g) => groups[g])];
     return compactOn() ? all.map(compactTool) : all;
   }
   const loaded = loadedGroups(msgs, groups);
   for (const g of keep) if (groups[g]) loaded.add(g);                       // groups used before a segment break stay loaded (the new context starts empty)
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
-  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
+  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
 }
 
 export type Accuracy = "fast" | "balanced" | "precise";
@@ -694,7 +696,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     }
     if (name !== "github_whoami" && name !== "github_list_repos" && name !== "github_search_repos" && !repoOk(a.repo)) return "error: repo must be owner/name";
     const R = `/repos/${a.repo}`;
-    if (name === "github_repo_scan" || name === "github_read_files") {
+    if (name === "github_repo_scan" || name === "github_read_files" || name === "github_repo_audit") {
       // composite reads: the independent GitHub calls inside run together and come back as one compact report (fewer slow model steps)
       const sub = (n: string, args: Record<string, unknown>) => runTool({ id: `${call.id || "c"}_${n}`, type: "function", function: { name: n, arguments: JSON.stringify(args) } }, ctx);
       if (name === "github_read_files") {
@@ -702,6 +704,40 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         if (!paths.length) return "error: paths is required (1 to 4 files)";
         const outs = await Promise.all(paths.map((path) => sub("github_read_file", { repo: a.repo, path, ...(a.ref ? { ref: a.ref } : {}), end_line: 400 })));
         return clip(outs.map((o, i) => `=== ${paths[i]} ===\n${o.slice(0, Number(process.env.CODER_READ_FILES_CHARS) || 3000)}`).join("\n\n"));
+      }
+      if (name === "github_repo_audit") {
+        const [info, top] = await Promise.all([
+          sub("github_repo_info", { repo: a.repo }),
+          sub("github_list_files", { repo: a.repo, path: "", ...(a.ref ? { ref: a.ref } : {}) }),
+        ]);
+        const files = top.split("\n").slice(1).map((p) => p.trim()).filter((p) => p && !/^error\b/i.test(p));
+        const picks: string[] = [];
+        const take = (predicate: (p: string) => boolean) => {
+          if (picks.length >= 8) return;
+          const path = files.find(predicate);
+          if (path && !picks.includes(path)) picks.push(path);
+        };
+        take((p) => /^README(?:\.md)?$/i.test(p));
+        const manifests = ["package.json", "pyproject.toml", "requirements.txt", "go.mod", "Cargo.toml", "pom.xml", "Gemfile", "composer.json"];
+        for (const manifest of manifests) {
+          if (picks.some((p) => manifests.includes(p))) break;
+          take((p) => p === manifest);
+        }
+        take((p) => /^(?:tsconfig\.json|next\.config\.[^/]+|vite\.config\.[^/]+|webpack\.config\.[^/]+|Dockerfile|docker-compose\.ya?ml)$/.test(p));
+        take((p) => /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(p));
+        take((p) => /^(?:src\/)?(?:app|pages)\/(?:layout|page|index)\.(?:tsx?|jsx?)$/.test(p));
+        take((p) => /^(?:src\/)?(?:main|index|server|app)\.(?:tsx?|jsx?|py)$/.test(p));
+        take((p) => /^(?:prisma\/schema\.prisma|schema\.sql|drizzle\.config\.[^/]+|src\/db\/schema\.[^/]+)$/.test(p));
+        take((p) => /(?:^|\/)(?:__tests__|tests|test)\//i.test(p) || /\.(?:test|spec)\.[^.]+$/i.test(p));
+        take((p) => /^(?:src|app|lib|server)\/.*\.(?:ts|tsx|js|jsx|py|go|rs)$/i.test(p) && !/(?:^|\/)(?:__tests__|tests|test)\//i.test(p));
+        take((p) => /\.(?:ts|tsx|js|jsx|py|go|rs)$/i.test(p));
+        const dirs = [...new Set(files.filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].slice(0, 35);
+        const excerpts = await Promise.all(picks.map(async (path) => {
+          const body = await sub("github_read_file", { repo: a.repo, path, ...(a.ref ? { ref: a.ref } : {}), end_line: 80 });
+          const max = /^README/i.test(path) ? 1250 : /(?:package\.json|pyproject\.toml|requirements\.txt)$/.test(path) ? 1250 : /(?:workflow|test|spec)/i.test(path) ? 950 : 1050;
+          return "=== " + path + " ===\n" + body.slice(0, max);
+        }));
+        return clip("READ-ONLY REPOSITORY AUDIT (initial map; excerpts, not every line)\n" + info + "\nTree: " + (top.split("\n")[0] || "unavailable") + "\nTop-level folders: " + (dirs.join(", ") || "-") + "\nSelected key paths: " + (picks.join(", ") || "none") + "\n\n" + excerpts.join("\n\n"), RESULT_MAX);
       }
       const [info, top] = await Promise.all([sub("github_repo_info", { repo: a.repo }), sub("github_list_files", { repo: a.repo, path: "" })]);
       const files = top.split("\n").slice(1);

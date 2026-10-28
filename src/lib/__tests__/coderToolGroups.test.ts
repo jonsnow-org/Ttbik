@@ -1,9 +1,30 @@
 import { coderTools, coderToolsFor, loadedGroups, runTool, toolGroups } from "@/lib/coderAgent";
+import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
 
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
 
-beforeAll(() => { process.env.CODER_TOOL_GROUPS = "lazy"; });
-afterAll(() => { delete process.env.CODER_TOOL_GROUPS; });
+const oldPrimary = process.env.OPEN_CODER_STUDIO_URL;
+const oldReplicas = process.env.OPEN_CODER_STUDIO_URLS;
+beforeAll(() => {
+  process.env.CODER_TOOL_GROUPS = "lazy";
+  process.env.OPEN_CODER_STUDIO_URL = "https://coder.test";
+  process.env.OPEN_CODER_STUDIO_URLS = "https://coder2.test,https://coder3.test,https://coder4.test,https://coder5.test";
+});
+afterAll(() => {
+  delete process.env.CODER_TOOL_GROUPS;
+  if (oldPrimary === undefined) delete process.env.OPEN_CODER_STUDIO_URL; else process.env.OPEN_CODER_STUDIO_URL = oldPrimary;
+  if (oldReplicas === undefined) delete process.env.OPEN_CODER_STUDIO_URLS; else process.env.OPEN_CODER_STUDIO_URLS = oldReplicas;
+});
+
+describe("agent capacity follows actual Nova Studio count", () => {
+  it("does not start agents on one Studio and avoids nested overbooking", () => {
+    expect(maxParallelAgentsForStudios(0)).toBe(0);
+    expect(maxParallelAgentsForStudios(1)).toBe(0);
+    expect(maxParallelAgentsForStudios(2)).toBe(2);
+    expect(maxParallelAgentsForStudios(5)).toBe(5);
+    expect(maxParallelAgentsForStudios(5, true)).toBe(1);
+  });
+});
 
 describe("fixed tool list (default)", () => {
   beforeAll(() => { delete process.env.CODER_TOOL_GROUPS; });
@@ -13,6 +34,7 @@ describe("fixed tool list (default)", () => {
     const b = coderToolsFor(true, false, [{ role: "user", content: "y" }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "web_search", arguments: "{}" } }] } as any], ["web"]);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect(names(a).slice(0, 2)).toEqual(["ask_user", "delegate"]);
+    expect(names(a)).toContain("github_repo_audit");
     expect(names(a)).not.toContain("load_tools");
     expect(names(a)).toEqual(expect.arrayContaining(["github_write_files", "sandbox_exec", "web_search", "memory_note", "schedule_create", "make_media"]));
   });
