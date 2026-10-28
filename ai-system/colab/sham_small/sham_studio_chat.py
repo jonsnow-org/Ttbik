@@ -121,6 +121,19 @@ def split_modes(prompt: str) -> tuple[str, dict]:
 QWEN3_SYSTEM = os.environ.get("SHAM_QWEN3_SYSTEM", "أنت شام، مساعد ذكي صنعه فريقنا. أجب بلغة المستخدم بوضوح ودقة.")
 
 
+def _qwen3_system_prompt() -> str:
+    """Read the dedicated V2 prompt at request time so hot updates cannot leave a stale prompt cached."""
+    return (os.environ.get("SHAM_QWEN3_SYSTEM") or QWEN3_SYSTEM).strip()
+
+
+def _uses_qwen3_chat(model) -> bool:
+    """V2's dedicated wrapper sets SHAM_QWEN3_SYSTEM. Use the donor's chat template even if old checkpoint metadata is missing.
+    V1 never sets that marker and keeps its own dialogue format."""
+    return getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3" or bool(
+        os.environ.get("SHAM_QWEN3_SYSTEM", "").strip()
+    )
+
+
 def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
     """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on). No canned text: whatever the model writes is the answer.
     temperature 0 = greedy. think_tokens > 0 = the body may write a thought first (at most that many tokens; cut and closed if it runs on), which is then removed:
@@ -129,7 +142,7 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
     end = tokenizer.encode("<|im_end|>")[-1]
     close = tokenizer.encode("</think>")
     think = think_tokens if (think_tokens > 0 and len(close) == 1) else 0
-    system = f"<|im_start|>system\n{QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    system = f"<|im_start|>system\n{_qwen3_system_prompt()}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
     text = system + ("" if think else "<think>\n\n</think>\n\n")
     ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
     sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
@@ -156,11 +169,16 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
     ways can be compared on the same question."""
     prompt, modes = split_modes(prompt)
     stripped = prompt.strip()
-    if getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3" and not stripped.startswith("#"):
-        return qwen3_chat(model, tokenizer, prompt, max_new_tokens, temperature=modes.get("temp", 0.0), think_tokens=modes.get("think", 0))
     if stripped == "#info":
+        cfg = getattr(model, "cfg", None)
+        chat_format = str(getattr(cfg, "chat_format", "") or "غير مسجل")
+        qwen3 = _uses_qwen3_chat(model)
+        system_source = "مخصص لـ Sham v2" if os.environ.get("SHAM_QWEN3_SYSTEM", "").strip() else "الافتراضي"
         return (f"sham_studio_chat فعّال | حوار={_on('SHAM_STUDIO_CHAT')} بحث={_on('SHAM_STUDIO_SEARCH')} تاريخ={_on('SHAM_STUDIO_DATE')} | "
+                f"قالب النموذج={chat_format} | مسار Qwen3={'فعّال' if qwen3 else 'غير مستخدم'} | prompt={system_source} | "
                 f"التاريخ في السياق الآن: {build_user_text('', today).splitlines()[0] if _on('SHAM_STUDIO_DATE') else '—'}")
+    if _uses_qwen3_chat(model) and not stripped.startswith("#"):
+        return qwen3_chat(model, tokenizer, prompt, max_new_tokens, temperature=modes.get("temp", 0.0), think_tokens=modes.get("think", 0))
     if stripped.startswith("#raw "):
         return raw_continuation(model, tokenizer, stripped[5:], max_new_tokens)
     if not _on("SHAM_STUDIO_CHAT"):

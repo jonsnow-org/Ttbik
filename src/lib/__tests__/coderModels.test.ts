@@ -13,6 +13,28 @@ function modelsDb(): Db {
 }
 
 describe("coder models", () => {
+  it("migrates legacy hidden Sham v2 to public once when the Studio token is configured", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    process.env.MODELSCOPE_API_TOKEN = "test-token";
+    try {
+      const db = modelsDb();
+      await db.exec(
+        "INSERT INTO coder_models (id, data) VALUES ($1, $2::jsonb)",
+        "sham_v2",
+        JSON.stringify({ name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, price_stars: null, visible: false }),
+      );
+      const first = await listModels(db);
+      expect(first.find((m) => m.id === "sham_v2")).toMatchObject({ visible: true, publicRolloutVersion: 1 });
+      expect(publicModels(first, "sham_v2").map((m) => m.id)).toContain("sham_v2");
+      expect(effectiveModel(first, "sham_v2", false).id).toBe("sham_v2");
+      await updateModel("sham_v2", { visible: false }, db);
+      const second = await listModels(db);
+      expect(second.find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 1 });
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);

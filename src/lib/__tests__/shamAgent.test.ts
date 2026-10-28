@@ -40,6 +40,29 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).toContain("رسالة المستخدم الحالية:");
     expect(seen[0]).not.toContain("الأدوات المتاحة لك");
   });
+  it("Sham v2 includes this user's active tool inventory and retries a generic answer", async () => {
+    const seen: string[] = [];
+    const activeTools = [
+      { type: "function", function: { name: "web_search", description: "Search the public web", parameters: { type: "object", properties: {}, required: [] } } },
+      { type: "function", function: { name: "github_read_file", description: "Read a file from an authorized repository", parameters: { type: "object", properties: {}, required: [] } } },
+    ] as any;
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "ما هي الأدوات المتاحة لديك والتي تستطيع استدعاءها؟",
+      ctx, tools: activeTools, budgetMs: 30000,
+      ask: script([
+        say("أنا شام، مساعد ذكي صنعه فريقنا."),
+        say("الأدوات المتاحة هنا: web_search للبحث في الويب و github_read_file لقراءة ملف مستودع مصرح به."),
+      ], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text" });
+    expect(r.kind === "text" ? r.text : "").toContain("web_search");
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("قائمة الأدوات الفعلية المفعّلة");
+    expect(seen[0]).toContain("github_read_file");
+    expect(seen[0]).not.toContain("delete_repository");
+    expect(seen[1]).toContain("قائمة الأدوات الفعلية المفعّلة");
+  });
+
   it("Sham v2 retries its repeated stock identity answer and does not feed that answer back as context", async () => {
     const seen: string[] = [];
     const stock = "أنا شام، مساعد ذكي صنعه فريقنا. أجيب بلغة المستخدم بوضوح ودقة.";

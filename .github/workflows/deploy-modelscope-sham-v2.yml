@@ -11,6 +11,7 @@ on:
     paths:
       - ai-system/modelscope-sham/**
       - ai-system/colab/sham_small/sham_media_ready.py
+      - ai-system/colab/sham_small/sham_studio_chat.py
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/sham_native_tools.py
       - scripts/transplant/stage_sham_v2_studio.py

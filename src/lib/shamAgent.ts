@@ -55,6 +55,31 @@ function isCapabilityQuestion(text: string): boolean {
   return /^(?:هل\s+(?:(?:لديك|عندك|عندكم)\s+(?:خبرة|معرفة|قدرة|مهارة|إمكانية|امكانية)|(?:تستطيع|تقدر|يمكنك|تجيد|تعرف|تتقن|تملك|تعمل))|(?:ما|ماذا)\s+(?:(?:الذي\s+)?(?:تتقن|تستطيع|تقدر|تفعل|تجيد|وظيفتك|قدراتك|خبرتك)|(?:هي\s+)?وظيفتك)|(?:أنت|انت)\s+(?:ماذا|ما|ماهي|ما\s+هي)\s*(?:تستطيع|تتقن|وظيفتك|قدراتك)?)/i.test(t);
 }
 
+function isToolInventoryQuestion(text: string): boolean {
+  const t = normaliseChatText(text);
+  const asksAboutTools = /(?:أدوات|الأدوات|الادوات|ادوات|tools?|tooling|استدعاء|تستدعي)/i.test(t);
+  const asksAvailability = /(?:متاح|متوفر|لديك|عندك|يمكنك|تستطيع|تقدر|استدعاء|تستدعي|تنفيذ|مهام)/i.test(t);
+  return asksAboutTools && asksAvailability;
+}
+
+function activeToolInventoryText(tools: CoderTool[]): string {
+  const lines: string[] = [];
+  let size = 0;
+  for (const tool of tools) {
+    const name = String(tool.function?.name || "").trim();
+    if (!name) continue;
+    const description = String(tool.function?.description || "").replace(/\s+/g, " ").trim();
+    const line = `- ${name}${description ? `: ${clip(description, 72)}` : ""}`;
+    if (size + line.length > 2200 && lines.length) break;
+    lines.push(line);
+    size += line.length;
+  }
+  return [
+    "قائمة الأدوات الفعلية المفعّلة في هذه المحادثة فقط؛ لا تذكر أداة غير موجودة في هذه القائمة:",
+    lines.length ? lines.join("\n") : "- لا توجد أدوات تنفيذ مفعّلة في هذه الجلسة.",
+  ].join("\n");
+}
+
 function editSimilarity(a: string, b: string): number {
   if (!a || !b) return 0;
   const max = Math.max(a.length, b.length);
@@ -184,7 +209,10 @@ export async function shamAgentRun(opts: {
   // Wrapping "المستخدم: ... / شام:" plus the full tool schema inside one Qwen3 user turn
   // caused the model to echo the serialized question instead of answering it. Keep agent/tool
   // routing for code, execution, media, and fresh-fact requests.
-  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text) || isToolInventoryQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+    const toolInventoryQuestion = isToolInventoryQuestion(opts.text);
+    const toolNames = opts.tools.map((tool) => normaliseChatText(String(tool.function?.name || ""))).filter(Boolean);
+    const toolInventoryText = toolInventoryQuestion ? activeToolInventoryText(opts.tools) : "";
     const allHistory = opts.history || [];
     const usableHistory = allHistory.filter((h, index) => {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
@@ -199,15 +227,24 @@ export async function shamAgentRun(opts: {
       ? `سياق مختصر للمحادثة السابقة:\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\nشام: ${clip(h.a, 260)}`).join("\n")}`
       : "";
     const directPrompt = [
-      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. لا ترد بتعريف عام مثل «أنا شام، مساعد ذكي» إلا إذا سُئلت عن هويتك. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة.",
+      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. لا ترد بتعريف عام مثل «أنا شام، مساعد ذكي» إلا إذا سُئلت عن هويتك. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
       historyText,
+      toolInventoryText,
       `رسالة المستخدم الحالية: ${opts.text}`,
       "اكتب الجواب فقط، من دون بادئة «المستخدم» أو «شام»."
     ].filter(Boolean).join("\n\n");
+    const toolInventoryBad = (answer: string) => {
+      if (!toolInventoryQuestion) return false;
+      const normalised = normaliseChatText(answer);
+      return toolNames.length
+        ? !toolNames.some((name) => normalised.includes(name))
+        : !/(?:لا توجد|لا أملك|غير متاحة|لا أستطيع تأكيد)/i.test(answer);
+    };
     const directBad = (answer: string) =>
       isQuestionEcho(answer, opts.text, recentQuestions) ||
       isRepeatedPriorAnswer(answer, opts.history || []) ||
-      isNonAnswerBoilerplate(answer, opts.text);
+      isNonAnswerBoilerplate(answer, opts.text) ||
+      toolInventoryBad(answer);
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     let waited = 0;
     while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
@@ -224,6 +261,7 @@ export async function shamAgentRun(opts: {
         "أنت شام. حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
         "لا تكرر نص السؤال أو أي سؤال سابق، ولا تعد تعريف نفسك بعبارة «أنا شام، مساعد ذكي»، ولا تكرر جواباً سابقاً.",
         "أجب عن السؤال المحدد مباشرة. إن كان يسأل عن خبرتك أو قدراتك، ابدأ بنعم أو لا عند الحاجة ثم اذكر قدرة عملية محددة. لا تدّعِ شيئاً غير صحيح.",
+        toolInventoryText,
         `السؤال الحالي: ${opts.text}`,
         "الإجابة الجديدة:"
       ].join("\n");
