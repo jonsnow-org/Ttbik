@@ -143,14 +143,18 @@ export async function shamAgentRun(opts: {
   const v2 = shamVariant.getStore() === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
-  const rawAgentAsk: ShamAsk = opts.agentAsk || (!opts.ask && v2
-    ? ((p, n, t) => shamModeCtx.run(effMode, async () => {
-        // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
-        const structured = await shamGenerateAgentStep(p, n, t);
-        return structured || shamGenerateAny(p, n, t);
-      }))
-    : rawAsk);
-  const stepAsk: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAgentAsk(p, n, t); };
+  const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
+    opts.agentAsk || (!opts.ask && v2
+      ? ((p, n, t, activeTools = opts.tools) => shamModeCtx.run(effMode, async () => {
+          // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
+          const structured = await shamGenerateAgentStep(p, activeTools, n, t);
+          return structured || shamGenerateAny(p, n, t);
+        }))
+      : rawAsk);
+  const stepAsk = (p: string, n: number, t: number, activeTools: CoderTool[] = opts.tools): Promise<ShamReply | null> => {
+    opts.onStep?.({ type: "think" });
+    return rawAgentAsk(p, n, t, activeTools);
+  };
   const unpackToolReply = (reply: ShamReply | null): { text: string; calls: CoderToolCall[] } => {
     if (reply?.type === "tool_calls") {
       return {
@@ -298,7 +302,7 @@ export async function shamAgentRun(opts: {
     const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
-    let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+    let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {
       const info = opts.queueNote ? await opts.queueNote(q).catch(() => null) : null;
@@ -311,7 +315,7 @@ export async function shamAgentRun(opts: {
     if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
     if (reply.type === "tool_call_error" && left() > 6000) {
       opts.onEvent?.("info", "استدعاء الأداة لم يجتز فحص الصيغة؛ طلبت من شام تصحيحه ولم أنفّذ شيئاً.");
-      const retry = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\n[تصحيح من المحرك] لم يُنفّذ أي استدعاء. أعد بناء استدعاء واحد لأداة موجودة في القائمة بصيغة JSON صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      const retry = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\n[تصحيح من المحرك] لم يُنفّذ أي استدعاء. أعد بناء استدعاء واحد لأداة موجودة في القائمة بصيغة JSON صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
       if (retry) reply = retry;
     }
     if (reply.type === "tool_call_error") return { kind: "text", text: "تعذّر إنشاء استدعاء أداة صالح بعد إعادة المحاولة؛ لم تُنفّذ أي أداة. أعد المحاولة أو اطلب المهمة بصياغة أوضح.", used, steps: steps + 1 };
@@ -324,7 +328,7 @@ export async function shamAgentRun(opts: {
       if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
       const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : "";
       if (!note) break;
-      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
       if (!again || (again.type !== "text" && again.type !== "tool_calls")) break;
       text = String(again.text || "");
       p = unpackToolReply(again);
@@ -333,7 +337,7 @@ export async function shamAgentRun(opts: {
     const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
     if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, opts.tools)) && recoveries < 2 && left() > 10000) {
       recoveries++;
-      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
       if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again); }
     }
     const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
