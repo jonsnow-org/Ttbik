@@ -7,6 +7,15 @@ const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say> | { type: "image"; b64: string } | null>, seen: string[] = []): ShamAsk => async (prompt) => { seen.push(prompt); return (answers.shift() ?? null) as any; };
 
 describe("Sham's own agent loop", () => {
+  it("keeps v1 and v2 on their separate ModelScope Studio routes", () => {
+    const v1 = shamVariant.run("v1", () => shamBases());
+    const v2 = shamVariant.run("v2", () => shamBases());
+    expect(DEFAULT_URL).toContain("sham-v1");
+    expect(DEFAULT_V2_URL).toContain("sham-v2");
+    expect(v1.every((url) => /sham-v1/i.test(url) && !/sham-v2|nova-inference-server|coder-inference/i.test(url))).toBe(true);
+    expect(v2.every((url) => /sham-v2/i.test(url) && !/sham-v1|nova-inference-server|coder-inference/i.test(url))).toBe(true);
+  });
+
   it("Sham v2 sends ordinary conversation as a direct chat prompt without the serialized tool transcript", async () => {
     const seen: string[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
@@ -30,6 +39,22 @@ describe("Sham's own agent loop", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toContain("رسالة المستخدم الحالية:");
     expect(seen[0]).not.toContain("الأدوات المتاحة لك");
+  });
+  it("Sham v2 retries its repeated stock identity answer and does not feed that answer back as context", async () => {
+    const seen: string[] = [];
+    const stock = "أنا شام، مساعد ذكي صنعه فريقنا. أجيب بلغة المستخدم بوضوح ودقة.";
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "هل لديك خبرة في الكود؟",
+      history: [{ q: "من أنت؟", a: stock }],
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(stock), say("نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه." });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[0]).not.toContain(stock);
+    expect(seen[1]).toContain("لا تكرر نص السؤال");
+    expect(seen[1]).toContain("لا تعد تعريف نفسك");
   });
   it("Sham v2 rejects near-echo answers with a small word change", async () => {
     const seen: string[] = [];
