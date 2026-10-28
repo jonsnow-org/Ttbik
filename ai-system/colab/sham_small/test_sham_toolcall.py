@@ -57,7 +57,7 @@ class ToolCallEnvelopeTests(unittest.TestCase):
         # A name in old transcript text still cannot run unless the active tool list permits it.
         self.assertIsNone(extract_tool_call(call, prompt, ["fetch_page"]))
         self.assertEqual(extract_tool_call(call, prompt, ["web_search"])["name"], "web_search")
-        fenced = '```json\\n{"name":"web_search","arguments":{"query":"weather"}}\\n```'
+        fenced = '```json\n{"name":"web_search","arguments":{"query":"weather"}}\n```'
         self.assertEqual(extract_tool_call(fenced, prompt)["name"], "web_search")
         bare = '{"name":"web_search","arguments":{"query":"weather"}}'
         self.assertEqual(extract_tool_call(bare, prompt)["arguments"]["query"], "weather")
