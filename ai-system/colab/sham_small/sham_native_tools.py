@@ -20,11 +20,24 @@ def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | 
 
     repaired = repair_call(raw)
     match = re.search(re.escape(OPEN_TAG) + r"\s*([\s\S]*?)\s*" + re.escape(CLOSE_TAG), repaired)
-    if not match:
-        return None
+    payload_text = ""
+    remainder = ""
+    if match:
+        payload_text = match.group(1).strip()
+        remainder = (repaired[:match.start()] + repaired[match.end():]).strip()
+    else:
+        # Normalize fenced/bare JSON calls into the same structured envelope.
+        fenced = re.search(r"\x60{3}(?:json)?\s*([\s\S]*?)\s*\x60{3}", repaired, re.IGNORECASE)
+        if fenced:
+            payload_text = fenced.group(1).strip()
+            remainder = (repaired[:fenced.start()] + repaired[fenced.end():]).strip()
+        elif repaired.startswith("{") and repaired.endswith("}"):
+            payload_text = repaired
+        else:
+            return None
 
     try:
-        payload = json.loads(match.group(1).strip())
+        payload = json.loads(payload_text)
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict):
@@ -46,5 +59,4 @@ def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | 
     if not isinstance(arguments, dict):
         return None
 
-    remainder = (repaired[:match.start()] + repaired[match.end():]).strip()
     return {"name": name, "arguments": arguments, "text": remainder}
