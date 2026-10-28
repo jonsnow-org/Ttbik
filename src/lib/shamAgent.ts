@@ -9,7 +9,7 @@
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
 import { shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
-import { resolveProfile } from "@/lib/modes";
+import { needsFreshFacts, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -35,6 +35,24 @@ export type ShamStepEvent = { type: "think" } | { type: "queue"; text: string } 
 export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Promise<ShamReply | null>;
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
+
+// Qwen3/Sham v2 is chat-tuned, not trained to consume Sham's serialized tool transcript as one user utterance.
+// Normalize Arabic punctuation/diacritics so the echo guard catches the same question with small formatting changes.
+const normaliseChatText = (s: string): string => String(s || "")
+  .normalize("NFKC")
+  .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, "")
+  .replace(/^(?:المستخدم|شام(?:\\s*v?2)?|assistant|user)\\s*[:：]\\s*/i, "")
+  .replace(/[؟?!.,،؛:："']/g, "")
+  .replace(/\\s+/g, " ")
+  .trim()
+  .toLocaleLowerCase("ar");
+
+function isQuestionEcho(answer: string, current: string, recentQuestions: string[]): boolean {
+  const a = normaliseChatText(answer);
+  if (!a) return true;
+  const candidates = [current, ...recentQuestions].map(normaliseChatText).filter((x) => x.length >= 8);
+  return candidates.some((q) => a === q || (a.length >= 16 && (a.startsWith(q) || q.startsWith(a)) && Math.min(a.length, q.length) / Math.max(a.length, q.length) >= 0.88));
+}
 
 export async function shamAgentRun(opts: {
   text: string;
@@ -76,6 +94,52 @@ export async function shamAgentRun(opts: {
     for (const h of (opts.history || []).slice(-4)) { messages.push({ role: "user", content: h.q }, { role: "assistant", content: h.a }); }
     messages.push({ role: "user", content: opts.text });
   }
+
+  // Everyday Sham v2 conversation must go to its chat-tuned Qwen3 prompt directly.
+  // Wrapping "المستخدم: ... / شام:" plus the full tool schema inside one Qwen3 user turn
+  // caused the model to echo the serialized question instead of answering it. Keep agent/tool
+  // routing for code, execution, media, and fresh-fact requests.
+  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial") && !needsFreshFacts(opts.text)) {
+    const usableHistory = (opts.history || []).filter((h) => {
+      const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
+      return q.length >= 2 && a.length >= 2 && q !== a && !isQuestionEcho(h.a, h.q, []);
+    }).slice(-3);
+    const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
+    const historyText = usableHistory.length
+      ? `سياق مختصر للمحادثة السابقة:\\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\\nشام: ${clip(h.a, 260)}`).join("\\n")}`
+      : "";
+    const directPrompt = [
+      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. إذا سألك عن قدراتك، اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة.",
+      historyText,
+      `رسالة المستخدم الحالية: ${opts.text}`,
+      "اكتب الجواب فقط، من دون بادئة «المستخدم» أو «شام»."
+    ].filter(Boolean).join("\\n\\n");
+    let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
+    let waited = 0;
+    while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
+      waited++;
+      const info = opts.queueNote ? await opts.queueNote(waited).catch(() => null) : null;
+      opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${waited})`);
+      opts.onStep?.({ type: "queue", text: info || `في الدور (محاولة ${waited})` });
+      await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 2500));
+      direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
+    }
+    if (direct?.type === "text" && isQuestionEcho(String(direct.text || ""), opts.text, recentQuestions) && left() > 4000) {
+      opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال بدلاً من الإجابة.");
+      const retryPrompt = `أنت شام. اكتب إجابة جديدة عن السؤال التالي، لا تكرر نص السؤال أو أي سؤال سابق. اذكر قدراتك أو المعلومة المطلوبة مباشرة، وإذا لم تعرف فقل ذلك بوضوح.\\nالسؤال: ${opts.text}\\nالإجابة الجديدة:`;
+      direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
+    }
+    if (direct?.type === "text") {
+      const answer = String(direct.text || "").trim();
+      if (answer && !isQuestionEcho(answer, opts.text, recentQuestions)) return { kind: "text", text: answer, used, steps: 1 };
+      // Never store/send the repeated question as if it were an answer.
+      return { kind: "text", text: "لم يتمكن شام من صياغة إجابة مختلفة هذه المرة. أعد المحاولة بعد قليل.", used, steps: 2 };
+    }
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
+    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
+    return { kind: "none", used, steps: 0 };
+  }
+
   // the old body has a ~384-token window; the new body (Qwen3, Studio with SHAM_LIMITS=open) holds ~1200 prompt tokens (~3.6 chars/token): a longer conversation, longer tool results
   const v2 = shamVariant.getStore() === "v2";
   const lim = v2 ? { turns: 8, turnChars: 900, maxChars: 4600 } : { turns: 6, turnChars: 400, maxChars: 3600 };
