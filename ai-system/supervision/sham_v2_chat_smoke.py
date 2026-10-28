@@ -71,7 +71,15 @@ def check_answer(answer: str) -> None:
         raise RuntimeError("v2 returned an empty text answer")
     ratio = min(len(actual), len(question)) / max(len(actual), len(question))
     similarity = difflib.SequenceMatcher(None, actual, question).ratio()
-    if actual == question or (ratio >= 0.72 and similarity >= 0.84) or (question in actual and len(actual) < len(question) + 18):
+    prefix = " ".join(actual.split()[: len(question.split()) + 6])
+    prefix_ratio = min(len(prefix), len(question)) / max(len(prefix), len(question))
+    prefix_similarity = difflib.SequenceMatcher(None, prefix, question).ratio()
+    if (
+        actual == question
+        or question in actual
+        or (ratio >= 0.72 and similarity >= 0.84)
+        or (prefix_ratio >= 0.68 and prefix_similarity >= 0.80)
+    ):
         raise RuntimeError(f"v2 echoed the user's question instead of answering: {answer[:180]!r}")
     stock_identity = re.search(r"(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)", actual[:90])
     if stock_identity:
