@@ -16,6 +16,15 @@ import runpy
 
 os.environ["SHAM_TEXT_VOCAB"] = "151936"          # the donor's own text vocabulary (Qwen3); Sham's image / audio / special ranges sit above it
 os.environ["SHAM_MS_MODEL"] = "novaai2026/sham-v2"
+# This system prompt is set ONLY in Sham v2's own wrapper, not Sham v1's Studio.
+# It tells the Qwen3 donor to answer the actual question and avoid its repeated stock self-introduction.
+os.environ["SHAM_QWEN3_SYSTEM"] = (
+    "أنت شام. أجب عن رسالة المستخدم الحالية مباشرة وباللغة التي كتب بها. "
+    "لا تكرر السؤال أو تنسخه بدل الإجابة، ولا تكرر جواباً سابقاً. "
+    "لا تستخدم عبارة «أنا شام، مساعد ذكي» إلا إذا سُئلت صراحة عن هويتك. "
+    "إذا سُئلت عن قدراتك أو خبرتك، أجب عن القدرة المطلوبة مباشرة، ثم اذكر أمثلة عملية محددة. "
+    "لا تدّعِ قدرات أو إنجازات غير حقيقية. إذا لم تعرف، فقل ذلك بوضوح."
+)
 # The Qwen3 body is NOT the small model the Studio's conservative limits were written for. Without these the Studio keeps only the last 384 prompt tokens, cuts every answer
 # at 96 new tokens and breaks every tool call / code file in the middle (reproduced on CPU, see PR). setdefault: a value set in the Studio's settings still wins.
 os.environ.setdefault("SHAM_LIMITS", "open")                    # prompt window 1200 tokens, answers up to 768 (modelscope-sham/app.py, sham_studio_chat.py)
