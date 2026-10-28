@@ -82,12 +82,28 @@ def _download() -> Path:
     os.environ["TQDM_DISABLE"] = "1"                         # no progress bars in the log
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
-    tok = _token()
-    if tok:
-        HubApi().login(tok)
-    _say(f"downloading {MODEL_ID}")
-    with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
-        path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache)))
+    # Both secrets hold the same account token, but a Studio can also carry a platform-injected MODELSCOPE_API_TOKEN: try each distinct candidate until the private repo opens.
+    cands = []
+    for name in ("MODELSCOPE_TOKEN", "MODELSCOPE_API_TOKEN"):
+        v = os.environ.get(name, "").strip()
+        if v and v not in [c[1] for c in cands]:
+            cands.append((name, v))
+    _say("tokens: " + (", ".join(f"{n} (length {len(v)})" for n, v in cands) or "none") + f"; model id {MODEL_ID}")     # names and lengths only, never a value
+    path = None
+    last_exc = None
+    for name, tok in (cands or [("none", "")]):
+        try:
+            if tok:
+                HubApi().login(tok)
+            _say(f"downloading {MODEL_ID} (with {name})")
+            with open(os.devnull, "w") as quiet, contextlib.redirect_stderr(quiet):       # bars that ignore TQDM_DISABLE write to stderr
+                path = Path(snapshot_download(MODEL_ID, cache_dir=str(cache)))
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            _say(f"download with {name} failed: {type(exc).__name__}: {str(exc)[:100]}")
+    if path is None:
+        raise last_exc if last_exc else RuntimeError("no model path")
     _say("download finished")
     return path
 
