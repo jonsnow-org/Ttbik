@@ -2,25 +2,24 @@ name: Nova Media Studio Smoke Test
 
 # Live test of Nova's own ModelScope media Studio: a real image (pixel std), Arabic speech (audible samples) and a real AnimateDiff-Lightning
 # video (decoded, more than one frame, real motion). Nothing here touches Sham and nothing is sent to Telegram.
-# It fires on the same push as the Studio deploy, so it first WAITS until the Studio reports the new code (phase=ready and the AnimateDiff
-# video engine in its status); probing earlier hits the previous deploy (that is how the old run failed: no `speech` API yet).
+# It runs AFTER the deploy workflow of the Nova media Studio has finished (workflow_run), never on the same push: a probe that races the deploy hits the
+# previous container (the failed runs 40611229256 / 40613962929: "no 'video' API: still OLD code" while the Studio was being rebuilt). It still WAITS until
+# the Studio reports phase=ready and the AnimateDiff video engine, then checks the CONTENT of each result.
 on:
   workflow_dispatch: {}
-  push:
+  workflow_run:
+    workflows:
+      - "Deploy the Nova media Studio (image, Arabic speech, real AnimateDiff-Lightning video on a free CPU Studio)"
+    types: [completed]
     branches:
       - claude/free-services-marketplace-h6rwk2
-    paths:
-      - "ai-system/app/main.py"
-      - "ai-system/app/nova_media_studio.py"
-      - "ai-system/app/nova_media_probe.py"
-      - "ai-system/modelscope-media/app.py"
-      - ".github/workflows/media-studio-probe.yml"
 
 permissions:
   contents: read
 
 jobs:
   probe:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
