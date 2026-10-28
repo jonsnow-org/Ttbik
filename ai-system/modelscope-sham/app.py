@@ -357,7 +357,8 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
             return json.dumps({"type": "tool_call_error", "text": "قائمة الأدوات تحتوي أسماء مكررة."}, ensure_ascii=False)
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
         raw = _studio_chat().studio_generate(model, tok, str(prompt or ""), n, search_fn=None)
-        from sham_toolcall import OPEN_TAG, extract_tool_call
+        from sham_toolcall import OPEN_TAG
+        from sham_native_tools import extract_tool_call
 
         call = extract_tool_call(raw, str(prompt or ""), active_names)
         if call:
