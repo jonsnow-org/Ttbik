@@ -93,6 +93,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("schedule_list", "List the user's scheduled tasks (id, title, when, next run, status).", obj({})),
   tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
+  tool("plan", "Write or UPDATE the task's TODO list (call it first for any non-trivial task, and again when a step is done or the plan changes). Each item: a short step and its status. The list is kept for the whole task and shown back to you.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -125,6 +126,13 @@ export function coderTools(github: boolean, connectors = false): CoderTool[] {
 // ~4,700 of a ~5,300-token first step, ~2 of its ~2.3 minutes; the system text alone is ~600 tokens. So a step carries only
 // load_tools (one short schema) plus the groups this conversation has already used; the model picks a group when it needs one and its
 // tools are there from the next step. CODER_TOOL_GROUPS=off sends every tool on every step (the earlier behaviour).
+/** The TODO list of the `plan` tool: [{step, status}] -> "☐ / ◐ / ☑ n. step" lines (max 12 items); "" when nothing usable. */
+export function renderPlan(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
+  const rows = items.slice(0, 12).map((x) => (x && typeof x === "object" ? (x as { step?: unknown; status?: unknown }) : null)).filter((x): x is { step?: unknown; status?: unknown } => Boolean(x && String(x.step || "").trim()));
+  return rows.map((x, i) => `${mark[String(x.status)] || "☐"} ${i + 1}. ${String(x.step).trim().slice(0, 160)}`).join("\n");
+}
 export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
@@ -141,7 +149,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     computer: [...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
-    memory: by(["recall", "memory_note", "memory_save", "memory_search", "memory_forget"]),
+    memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
@@ -233,7 +241,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Identity: you are Nova AI, with your own identity. If asked who you are or who made you, answer simply: \"I'm Nova AI\" (in the user's language). Never say you were made, trained or built by the Sham team or by any other company or model, never name a base model or model family, and do not discuss training details.",
     "Messages marked [new message from the user while you were working] arrive in the middle of a task. Treat them like a colleague interrupting: say in one short line that you got it, answer a question right away if it is one, fold a changed instruction into the plan, and keep going with the task without restarting or stopping.",
     "Work like a senior engineer on a real project, in a loop:",
-    "1. PLAN: for any non-trivial task first write a short numbered plan (save it with memory_note).",
+    "1. PLAN: for any non-trivial task first write a short numbered plan (write it with the plan tool: a TODO list you update as steps finish).",
     "2. ACT: use the tools one step at a time. Read the relevant files before changing them; never guess file contents or APIs.",
     "READING RULE: never describe a file, folder or project from its name. When asked what files contain or do, read them first (github_read_files takes up to 4 files in one call; github_repo_scan gives a repository's lay in one call) and say only what you read. Answer EVERY part of the request in the form and length asked (\"five lines\" = five lines, \"each file\" = one line per file); before you finish, check each part was answered, and say plainly what you could not check.",
     "ASK FIRST: if the request does not name what to work on (which repository, project, file, site or document), or only asks \"can you ...?\", do NOT search, clone or pick something yourself: say in one or two sentences what you can do and ask ONE question with ask_user (which repository? which file?). Never report on work done on something the user did not name as if it were theirs.",
@@ -583,6 +591,12 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!ok.length) return `error: no such tool group (${want.join(", ") || "none given"}); groups: ${known.join(", ")}`;
       return `loaded: ${ok.join(", ")}. Their tools are ready now.${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
     }
+    if (name === "plan") {
+      const text = renderPlan(a.items);
+      if (!text) return "error: items must be a non-empty list of { step, status }";
+      ctx.addNote(`PLAN\n${text}`.slice(0, 1500));
+      return text;
+    }
     if (name === "memory_note") {
       ctx.addNote(String(a.text || "").slice(0, 1500));
       return "saved";
@@ -929,7 +943,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
   sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
-  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
+  sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };

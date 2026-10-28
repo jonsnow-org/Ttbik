@@ -126,6 +126,7 @@ function rawLabel(name: string, args?: unknown): string {
     case "view_image": return "النظر إلى صورة";
     case "view_video": return "النظر إلى لقطات فيديو";
     case "send_file": return `إرسال ملف ${short(a.path)}`;
+    case "plan": return "تحديث خطة المهمة";
     case "memory_save": case "memory_note": return "حفظ في الذاكرة";
     case "memory_search": case "recall": return "بحث في الذاكرة";
     case "memory_forget": return "نسيان ذكرى";

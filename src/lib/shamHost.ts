@@ -1,8 +1,9 @@
 // THE ONLY FILE where Sham meets the platform services it runs on (web access, the VM driver, limits, memory, schedules, the user's connections).
 // Sham's own modules (sham*.ts) never import Nova's engine or tools; they call this adapter through the ShamHost interface (shamExec.ts).
 // A boundary test (shamBoundary.test.ts) fails if any other sham*.ts file imports a coder* / openCoder* / nova* module, or any Nova module imports Sham's.
-import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
-import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
+import { deepResearch, fetchPage, formatResearch, formatSearch, safeRequest, webSearch } from "@/lib/coderWeb";
+import { bankAdd, bankRecall } from "@/lib/coderBank";
+import { readSandboxFile, runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 import { prismaDb as platformDb, resolveConnections, tierFor, coderChatKey, type Db as PlatformDb } from "@/lib/coderAuth";
 import { checkLimit, addUsage } from "@/lib/coderPlans";
 import { connectedIds, connectorApi, mcpRequest } from "@/lib/coderConnectors";
@@ -22,8 +23,10 @@ export const shamHost: ShamHost = {
       return { ok: p.ok, url: p.url, error: p.error, text: p.ok ? `${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}` : "" };
     },
     research: async (q, o) => formatResearch(await deepResearch(q, o), 24000),
+    request: async (method, url, o) => { const r = await safeRequest(method, url, o); return `HTTP ${r.status}${r.type ? ` ${r.type.split(";")[0]}` : ""}${r.location ? ` → ${r.location}` : ""}\n${r.body}`; },
   },
-  sandbox: { has: (n) => SANDBOX_TOOLS.has(n), run: (name, args, c) => runSandboxTool(name, args, { ...c, db: d(c.db) }) },
+  bank: { add: (runId, chatKey, step, tool, label, body, db) => bankAdd(runId, chatKey, step, tool, label, body, d(db)), recall: (runId, chatKey, query, n, db) => bankRecall(runId, chatKey, query, n, d(db)) },
+  sandbox: { readFile: (c, p, cwd) => readSandboxFile(c, p, cwd), has: (n) => SANDBOX_TOOLS.has(n), run: (name, args, c) => runSandboxTool(name, args, { ...c, db: d(c.db) }) },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
     const connectors = (await connectedIds(chatId, d(db)).catch(() => [] as string[])).filter((x) => x !== "github");

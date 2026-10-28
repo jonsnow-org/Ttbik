@@ -891,6 +891,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
   if (!run) return;
   await shamVariant.run(run.variant, () => shamModeCtx.run(run.mode as never, async () => {
     const ctx = await shamToolCtx(chatId, botId);
+    ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= SHAM_LEGS;
     const card: Card | null = run.card?.msgId ? cardRestore(run.card) : null;
@@ -973,6 +974,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // ONE message, within seconds: the model's own understanding line + real progress; the answer later takes its place
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
+  ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
   await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
