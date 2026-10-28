@@ -997,7 +997,7 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
       const mem = await loadChatMemory(chatId, text);
       const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
       const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
-      await shamDeliver(bot, chatId, r, text, botId, 0, runId, null);
+      await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true);
     } catch (e) {
       const message = String((e as Error)?.message || e).slice(0, 300);
       await taskEvent(runId, "failed", message).catch(() => null);
