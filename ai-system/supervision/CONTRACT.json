@@ -710,6 +710,14 @@
       "reads": [],
       "writes": []
     },
+    "studio_logs": {
+      "file": ".github/workflows/studio-logs.yml",
+      "title": "قراءة حالة وسجل تشغيل أي استوديو للقراءة فقط (تشخيص)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "media_studio_probe": {
       "file": ".github/workflows/media-studio-probe.yml",
       "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",
