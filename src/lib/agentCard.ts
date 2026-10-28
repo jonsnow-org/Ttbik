@@ -43,8 +43,11 @@ export function beginStep(tl: Timeline, kind: StepKind, key: string, label: stri
 
 // ---- the model's own "understood" line
 export const NEUTRAL_ACK = "استلمت طلبك وأعمل عليه الآن.";
+const ARABIC = /[\u0600-\u06ff]/;
 export function understandingPrompt(request: string): string {
-  return `User request:\n${String(request || "").replace(/\s+/g, " ").trim().slice(0, 500)}\n\nIn the SAME language as the request, write ONE short sentence (max 18 words) saying what you understood the user wants and what you will do first. First person, plain words. Do not answer the request, do not use tools, do not quote the request.`;
+  const req = String(request || "").replace(/\s+/g, " ").trim().slice(0, 500);
+  const lang = ARABIC.test(req) ? "اكتب بالعربية فقط. " : "Write in the same language as the request. ";
+  return `${lang}User request:\n${req}\n\nIn the SAME language as the request, write ONE short sentence (max 18 words) saying what you understood the user wants and what you will do first. First person, plain words. Do not answer the request, do not use tools, do not quote the request. ${ARABIC.test(req) ? "الجواب جملة عربية واحدة قصيرة تبدأ بـ «فهمت» أو «سأ»." : ""}`.trim();
 }
 /** The model's line made safe for the card: one line, no thinking markup, no tool plan, not a copy of the request; null when it is not usable. */
 export function cleanUnderstanding(raw: string, request = ""): string | null {
@@ -53,6 +56,7 @@ export function cleanUnderstanding(raw: string, request = ""): string | null {
   t = t.replace(/^[\s"'«»*#>\-–—•]+|[\s"'«»]+$/g, "").replace(/\s+/g, " ").trim();
   t = t.split(/(?<=[.!؟?۔])\s/)[0] || t;                       // the first sentence only
   if (t.length < 6) return null;
+  if (ARABIC.test(request) && !ARABIC.test(t)) return null;      // the user wrote Arabic and the model answered in another language: the neutral line is better than that
   if (t.length > 160) t = `${t.slice(0, 157).trimEnd()}…`;
   const norm = (x: string) => x.replace(/[\s\p{P}]+/gu, "").toLowerCase();
   const r = norm(request);

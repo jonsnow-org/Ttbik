@@ -45,7 +45,8 @@ test("Sham v2: understanding line from the model, real steps from the agent loop
   const log: string[] = [];
   const request = `اقرأ الملف AGENTS.md من المستودع ${REPO} ولخّصه في سطرين`;
   const ctx = { chatId: 4242, db: { exec: async () => undefined, query: async () => [] }, githubToken: process.env.PROBE_GH_TOKEN || process.env.CODER_GITHUB_TOKEN || "", chatKey: "sham:4242", runId: "sham-4242", owner: true } as unknown as ShamCtx;
-  const snap = () => { const m = sent[0]?.text; if (m && log[log.length - 1] !== m) log.push(`--- ${stamp(t0)}\n${m}`); };
+  let lastKey = "";
+  const snap = () => { const m = sent[0]?.text; const key = String(m).replace(/· [\d.]+ث|منذ [\d.]+ث/g, ""); if (m && key !== lastKey) { lastKey = key; log.push(`--- ${stamp(t0)}\n${m}`); } };
   await shamVariant.run("v2", async () => {
     const card = await openCard(bot, 4242, request, { understand: shamUnderstand(request) });
     const steps = shamCardSteps(bot, 4242, card);
@@ -57,7 +58,7 @@ test("Sham v2: understanding line from the model, real steps from the agent loop
     const text = r.kind === "text" ? r.text : r.kind === "ask" ? r.question : `(${r.kind})`;
     await cardFinish(bot, 4242, card, text, async (p) => { await bot.api.sendMessage(4242, p); });
     log.push(`--- final ${stamp(t0)}\n${sent[0]?.text}`);
-    console.log("SHAM_RESULT", JSON.stringify({ kind: r.kind, used: r.used, steps: r.steps }));
+    console.log("SHAM_RESULT", JSON.stringify({ kind: r.kind, used: r.used, steps: r.steps, text: text.slice(0, 300) }));
   });
   console.log("SHAM_CARD_LOG\n" + log.join("\n"));
   expect(sent).toHaveLength(1);
