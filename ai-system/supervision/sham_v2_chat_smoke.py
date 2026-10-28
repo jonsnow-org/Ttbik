@@ -8,7 +8,8 @@ import os
 import re
 import time
 import unicodedata
-from urllib.error import URLError\nfrom urllib.request import Request, urlopen
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
