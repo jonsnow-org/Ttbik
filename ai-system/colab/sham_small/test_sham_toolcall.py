@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from sham_toolcall import CLOSE_TAG, OPEN_TAG, ToolCallGuard, repair_call, tool_names_from_prompt
+from sham_toolcall import CLOSE_TAG, OPEN_TAG, ToolCallGuard, extract_tool_call, repair_call, tool_names_from_prompt
 
 
 class _CharTokenizer:
@@ -42,6 +42,27 @@ class ToolCallEnvelopeTests(unittest.TestCase):
         prompt = "Tools:\n- github_read_file(repo, path) — reads\n- github_create_issue(repo, title) — creates\n- github_read_file(repo, path) — duplicate"
         self.assertEqual(tool_names_from_prompt(prompt), ["github_read_file", "github_create_issue"])
         self.assertEqual(tool_names_from_prompt("No tools here"), [])
+
+    def test_call_is_returned_as_a_structured_object_only_for_a_loaded_tool(self):
+        prompt = "Tools:\n- web_search(query) — searches\n- fetch_page(url) — reads"
+        call = '<tool_call>{"name":"web_search","arguments":{"query":"weather"}}</tool_call>'
+        self.assertEqual(
+            extract_tool_call(call, prompt),
+            {"name": "web_search", "arguments": {"query": "weather"}, "text": ""},
+        )
+        self.assertIsNone(
+            extract_tool_call('<tool_call>{"name":"delete_everything","arguments":{}}</tool_call>', prompt)
+        )
+
+    def test_structured_boundary_repairs_a_truncated_call_and_rejects_non_object_arguments(self):
+        prompt = "Tools:\n- sandbox_exec(command) — runs"
+        broken = '<tool_call>{"name":"sandbox_exec","arguments":{"command":"python -V"'
+        self.assertEqual(
+            extract_tool_call(broken, prompt),
+            {"name": "sandbox_exec", "arguments": {"command": "python -V"}, "text": ""},
+        )
+        wrong_args = '<tool_call>{"name":"sandbox_exec","arguments":["not","an","object"]}</tool_call>'
+        self.assertIsNone(extract_tool_call(wrong_args, prompt))
 
     def test_truncated_json_is_repaired_only_when_unambiguous(self):
         broken = '<tool_call>{"name": "github_read_file", "arguments": {"repo": "a/b", "path": "README.md"'

@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { needsFreshFacts, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -118,6 +118,8 @@ export async function shamAgentRun(opts: {
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
+  /** Test injection for the typed agent-step protocol; production v2 uses its dedicated Studio endpoint. */
+  agentAsk?: ShamAsk;
   media?: (kind: "image" | "audio" | "video", prompt: string, opts?: { scenes?: string[]; narration?: string }) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
@@ -138,10 +140,27 @@ export async function shamAgentRun(opts: {
   const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think || prof.thinkAct, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
-  const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // every model call is a real "thinking" phase on the card
-  const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const v2 = shamVariant.getStore() === "v2";
+  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
+  const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
+  const rawAgentAsk: ShamAsk = opts.agentAsk || (!opts.ask && v2
+    ? ((p, n, t) => shamModeCtx.run(effMode, async () => {
+        // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
+        const structured = await shamGenerateAgentStep(p, n, t);
+        return structured || shamGenerateAny(p, n, t);
+      }))
+    : rawAsk);
+  const stepAsk: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAgentAsk(p, n, t); };
+  const unpackToolReply = (reply: ShamReply | null): { text: string; calls: CoderToolCall[] } => {
+    if (reply?.type === "tool_calls") {
+      return {
+        text: String(reply.text || reply.message?.content || ""),
+        calls: (Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls || []) as CoderToolCall[],
+      };
+    }
+    return parseShamToolCalls(String(reply?.text || ""), opts.tools);
+  };
+  const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];
   const messages: CoderMessage[] = opts.resume ? [...opts.resume] : [];
@@ -274,37 +293,43 @@ export async function shamAgentRun(opts: {
     const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
-    let reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+    let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {
       const info = opts.queueNote ? await opts.queueNote(q).catch(() => null) : null;
       opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${q})`);
       opts.onStep?.({ type: "queue", text: info || `في الدور (محاولة ${q})` });
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
-      reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+      reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
     }
     if (opts.continuable && (reply?.type === "busy" || reply?.type === "loading")) return { kind: "more", messages, used, steps };
     if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
-    if (reply.type !== "text") return { kind: "reply", reply, used, steps };
+    if (reply.type === "tool_call_error" && left() > 6000) {
+      opts.onEvent?.("info", "استدعاء الأداة لم يجتز فحص الصيغة؛ طلبت من شام تصحيحه ولم أنفّذ شيئاً.");
+      const retry = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\n[تصحيح من المحرك] لم يُنفّذ أي استدعاء. أعد بناء استدعاء واحد لأداة موجودة في القائمة بصيغة JSON صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      if (retry) reply = retry;
+    }
+    if (reply.type === "tool_call_error") return { kind: "text", text: "تعذّر إنشاء استدعاء أداة صالح بعد إعادة المحاولة؛ لم تُنفّذ أي أداة. أعد المحاولة أو اطلب المهمة بصياغة أوضح.", used, steps: steps + 1 };
+    if (reply.type !== "text" && reply.type !== "tool_calls") return { kind: "reply", reply, used, steps };
     let text = String(reply.text || "");
-    let p = parseShamToolCalls(text, opts.tools);
+    let p = unpackToolReply(reply);
     // a wrong or incomplete call goes back to Sham with the reason (its own correction rounds, set by the user's accuracy mode)
     for (let fix = 0; fix < k.corrections && left() > 8000; fix++) {
       const problems = p.calls.map((c) => validateShamCall(c, opts.tools)).filter((e): e is string => Boolean(e));
       if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
       const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : "";
       if (!note) break;
-      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
-      if (!again || again.type !== "text" || !(again.text || "").trim()) break;
-      text = String(again.text);
-      p = parseShamToolCalls(text, opts.tools);
+      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      if (!again || (again.type !== "text" && again.type !== "tool_calls")) break;
+      text = String(again.text || "");
+      p = unpackToolReply(again);
     }
     // the last tool answered with an error and the model now writes prose with no call: give it the error back (twice at most) instead of ending the task on an apology
     const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
     if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, opts.tools)) && recoveries < 2 && left() > 10000) {
       recoveries++;
-      const again = await ask(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة بالصيغة <tool_call>{"name": "...", "arguments": {...}}</tool_call>، أو اسأل المستخدم بـ ask_user إن كانت المعلومة ناقصة.\nشام:`, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
-      if (again && again.type === "text" && (again.text || "").trim()) { text = String(again.text); p = parseShamToolCalls(text, opts.tools); }
+      const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again); }
     }
     const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
     if (!valid.length) {
