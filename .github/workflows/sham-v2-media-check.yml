@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       kinds:
-        description: "image,audio,video (comma separated)"
+        description: "image,audio (the chat Studio); video lives in the video Studio"
         required: false
-        default: "image,audio,video"
+        default: "image,audio"
 
 concurrency:
   group: sham-v2-ask

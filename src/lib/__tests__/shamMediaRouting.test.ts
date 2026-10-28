@@ -52,4 +52,25 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     expect(r.text).toMatch(/قيد التدريب/);
     expect(r.text).toMatch(/المسار الجاهز/);
   });
+  it("Sham v2 video goes to Sham v2's own video Studio (generate_video), never to the chat Studio or Nova's media Studio", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://nova-media.test";
+    delete process.env.SHAM_V2_VIDEO_URL;
+    const calls = studio({ type: "error", text: "no clip in this test" });
+    await generateShamMediaThroughRoute("video", "a red apple rotating");
+    expect(calls[0].url).toBe("https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net/gradio_api/call/v2/generate_video");
+    expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating" });
+    expect(calls.some((c) => c.url.includes("v2.test") || c.url.includes("nova-media") || c.url.includes("generate_media_from_panel"))).toBe(false);
+  });
+  it("Sham v2 image and speech stay on the chat Studio; Sham v1 video is not rerouted", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
+    const good = b64(await png("gradient"));
+    const calls = studio({ type: "image", b64: good });
+    await generateShamMediaThroughRoute("image", "a red apple");
+    expect(calls[0].url).toBe("https://v2.test/gradio_api/call/v2/generate_media_from_panel");
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v1");
+    const c2 = studio({ type: "error", text: "x" });
+    await generateShamMediaThroughRoute("video", "a clip");
+    expect(c2[0].url).toBe("https://v1.test/gradio_api/call/v2/generate_media_from_panel");
+  });
 });

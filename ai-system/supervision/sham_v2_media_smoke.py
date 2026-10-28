@@ -140,6 +140,11 @@ def main() -> int:
             return 1
         print(f"PASS text generation: {text_answer.strip()[:160]}")
 
+    if "video" in only and os.environ.get("SMOKE_LOCAL_VIDEO", "").strip() != "1":
+        # The chat Studio (8 GB RAM, text model resident) cannot carry the video pipeline: it died with HTTP 502 after sampling. Video is served and verified by Sham v2's own
+        # video Studio (.github/workflows/deploy-modelscope-sham-v2-video.yml, ai-system/app/sham_v2_video_probe.py).
+        only = [k for k in only if k != "video"]
+        print("NOTE video: served by Sham v2's own video Studio (verified by its deploy workflow); not called on the chat Studio")
     for kind in only:
         started = time.time()
         media(kind, "ready")

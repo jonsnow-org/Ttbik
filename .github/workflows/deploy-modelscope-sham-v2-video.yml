@@ -1,0 +1,154 @@
+name: "Deploy the Sham v2 video Studio (real AnimateDiff-Lightning text-to-video on a free CPU Studio of its own)"
+
+# A Studio of its own (sham-v2-video-server), free CPU hardware only, private. The weights (epiCRealism + AnimateDiff-Lightning) are fetched from ModelScope by the Studio itself.
+# Sham v2's chat Studio cannot carry the video pipeline in its 8 GB RAM (HTTP 502 after sampling). Independent of Nova. Uses MODELSCOPE_TOKEN; nothing secret is printed.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ai-system/modelscope-sham-video/**
+      - ai-system/colab/sham_small/cpu_video.py
+      - ai-system/colab/sham_small/media_quality.py
+      - ai-system/app/sham_v2_video_probe.py
+      - .github/workflows/deploy-modelscope-sham-v2-video.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-modelscope-sham-v2-video
+  cancel-in-progress: false
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  REPO: sham-v2-video-server
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Account, free hardware and existing Studio (read-only)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -u
+          api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
+          echo "user:";      api /users/me | python3 -c "import json,sys;d=json.load(sys.stdin);x=d.get('data') or d.get('Data') or d;print({k:x.get(k) for k in ('username','name','level') if isinstance(x,dict)})" || true
+          echo "hardware:";  api "/studios/hardware?sdk_type=gradio" | tee hw.json | head -c 3000; echo
+          echo "sdk:";       api "/studios/sdk-versions?sdk_type=gradio" | tee sdk.json | head -c 1500; echo
+          code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          echo "studio http $code"; head -c 1500 studio.json; echo
+          echo "STUDIO_HTTP=$code" >> "$GITHUB_ENV"
+
+      - name: Create the Studio if missing (private, free CPU)
+        if: env.STUDIO_HTTP != '200'
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          HW=$(python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("hw.json"))
+          except Exception:
+              d = {}
+          items = d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items, dict):
+              items = items.get("items") or items.get("hardware") or []
+          free = [i for i in items if isinstance(i, dict) and str(i.get("resource_type", "")).lower() != "paid" and not str(i.get("name", "")).startswith("paid/")]
+          cpu = [i for i in free if "cpu" in str(i.get("name", "")).lower()]
+          pick = (cpu or free or [{"name": "platform/2v-cpu-16g-mem"}])[-1]
+          print(pick.get("name"))
+          PY
+          )
+          echo "hardware pick: $HW"
+          case "$HW" in paid/*) echo "refusing paid hardware"; exit 1;; esac
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create http $code"; head -c 2000 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above: quota / verification / one-Studio limit)"; exit 1; }
+
+      - name: Push the app into the Studio repo
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          git config --global user.name "sham video CI"
+          git config --global user.email "ci@sham-video.local"
+          git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
+          cp ai-system/modelscope-sham-video/app.py ai-system/modelscope-sham-video/requirements.txt ai-system/colab/sham_small/cpu_video.py ai-system/colab/sham_small/media_quality.py ms-studio/
+          cd ms-studio
+          git add app.py requirements.txt cpu_video.py media_quality.py
+          git diff --cached --quiet && echo "no change" || git commit -m "sham-v2-video: app (${GITHUB_SHA::8})"
+          git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
+
+      - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          pip install -q modelscope
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          api.login(os.environ["MODELSCOPE_TOKEN"])
+          sid, tok = "novaai2026/sham-v2-video-server", os.environ["MODELSCOPE_TOKEN"]
+          try:
+              api.add_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
+          except Exception as e:                       # already there: replace it
+              print("add:", type(e).__name__, str(e)[:120].replace(tok, "***"))
+              api.update_studio_secret(sid, "MODELSCOPE_API_TOKEN", tok)
+          print("studio secret set")
+          PY
+
+      - name: Deploy and show status
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1500; echo
+          API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
+          for i in $(seq 1 40); do
+            sleep 30
+            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
+            echo "$(date -u +%H:%M:%S) studio: $st"
+            case "$st" in
+              *ail*|*rror*|*topped*)
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                exit 1;;
+              Running|running)
+                for j in $(seq 1 20); do
+                  ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                  [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
+                  echo "$out" | grep -q 'phase[^,]*ready' && exit 0
+                  if echo "$out" | grep -q 'phase[^,]*error'; then
+                    echo "::error::the Studio is running but the model server is in the error phase"
+                    curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                    exit 1
+                  fi
+                  sleep 30
+                done
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                echo "::error::the model server was not ready in time"
+                exit 1;;
+            esac
+          done
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+          exit 1
+
+      - name: Install what the content checks need
+        run: python3 -m pip install -q numpy pillow imageio-ffmpeg
+      - name: Real clip from the Studio (frames > 1, motion)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PROBE_OUT: ${{ runner.temp }}
+          READY_TIMEOUT: "1800"
+        run: python ai-system/app/sham_v2_video_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sham-v2-video
+          path: ${{ runner.temp }}/sham_v2_video.mp4
+          if-no-files-found: ignore
