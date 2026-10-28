@@ -967,7 +967,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
   useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz" | "force" | "policy">("");
   const isSham = s.model === "sham" || s.model === "sham_v2" || s.model === "sham_loop";
   const [known, setKnown] = useState<Record<string, string> | null>(null);
   useEffect(() => {
@@ -998,6 +998,8 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   const TZS = ["Asia/Damascus", "Asia/Riyadh", "Asia/Baghdad", "Asia/Amman", "Asia/Beirut", "Asia/Dubai", "Africa/Cairo", "Africa/Casablanca", "Europe/Istanbul", "UTC"];
   const tzItems = [...new Set([deviceTz, ...TZS].filter(Boolean))].map((z) => ({ id: z, label: z, sub: z === deviceTz ? (lang === "ar" ? "منطقة جهازك" : "Your device's zone") : undefined }));
   const acc = s.accuracy || "balanced";
+  const pol = s.policy || (s.think ? "always" : "adaptive");     // the thinking policy of the selected model (src/lib/modes.ts)
+  const forcedNow = (s.forced || {})[s.model === "nova" ? "coder" : s.model] as "fast" | "balanced" | "precise" | undefined;   // the owner's forced mode for this model (all users), if any
   const themeLabel = { auto: n.th_auto, light: n.th_light, black: n.th_black, oled: n.th_oled }[mode];
   const planLabel = owner ? `∞ ${n.unlimitedOwner}` : b ? b.usage.plan.name[lang] : "…";
   const gh = me.connections.github;
@@ -1005,8 +1007,10 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
     <div className="n-page">
       <div className="n-ph" lang={lang}><h1>{n.navSettings}</h1></div>
       <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
-        <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.think} aria-label={n.s_think} onChange={(e) => set({ think: e.currentTarget.checked })} /></span>} />
+        <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} value={n[`pol_${pol}` as "pol_adaptive"]} onClick={() => setSheet("policy")} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
+        <Row icon="🪄" title={n.s_auto} sub={n.s_autoSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.auto !== false} aria-label={n.s_auto} onChange={(e) => set({ auto: e.currentTarget.checked })} /></span>} />
+        {owner && <Row icon="🔒" title={n.s_force} sub={n.s_forceSub} value={forcedNow ? tx(t, `acc_${forcedNow}`) : n.force_none} onClick={() => setSheet("force")} />}
         <Row icon="🎞️" title={n.s_media} sub={n.s_mediaSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.media !== false} aria-label={n.s_media} onChange={(e) => set({ media: e.currentTarget.checked })} /></span>} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
       </Card>
@@ -1052,6 +1056,11 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         items={[{ id: "ar" as Lang, label: "العربية" }, { id: "en" as Lang, label: "English" }]} />
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
+      <Options open={sheet === "policy"} title={n.s_think} value={pol} onClose={closeSheet} onPick={(v) => set({ policy: v as "adaptive" | "always" | "never", think: v === "always" })}
+        items={(["adaptive", "always", "never"] as const).map((x) => ({ id: x as string, label: n[`pol_${x}` as "pol_adaptive"], sub: n[`pol_${x}Sub` as "pol_adaptiveSub"] }))} />
+      <Options open={sheet === "force"} title={n.s_force} value={forcedNow || ""} onClose={closeSheet}
+        onPick={async (v) => { try { const d = await api<{ forced: Record<string, string> }>("mode_force", { for: s.model, mode: v || "" }); setS({ ...s, forced: d.forced }); haptic("success"); } catch { haptic("error"); } }}
+        items={[{ id: "", label: n.force_none, sub: n.force_noneSub }, ...(["fast", "balanced", "precise"] as const).map((a) => ({ id: a as string, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))]} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={() => { reloadModels(); void reload(); }} onClose={() => setPop(null)} />
     </div>

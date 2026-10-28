@@ -8,7 +8,9 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAny, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { resolveProfile } from "@/lib/modes";
+import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
@@ -57,9 +59,14 @@ export async function shamAgentRun(opts: {
   const now = opts.now || Date.now;
   const t0 = now();
   const left = () => opts.budgetMs - (now() - t0);
-  const k = shamKnobs(opts.mode, shamVariant.getStore());
+  // ONE mode system (src/lib/modes.ts): this request's class (greeting / chat / code / agent / media) and the user's mode + Auto decide the answer budget, sampling, correction
+  // rounds and whether the body writes a thought first. A greeting or a media request never thinks; the user's "thinking" switch applies to code / agent work, first step.
+  const variant = shamVariant.getStore();
+  const prof = resolveProfile({ model: variant === "v2" ? "sham_v2" : "sham", pref: opts.mode?.accuracy, auto: opts.mode?.auto, thinkSwitch: opts.mode?.think, policy: opts.mode?.policy, text: opts.text, force: forcedMode(variant === "v2" ? "sham_v2" : "sham"), canThink: variant === "v2" });
+  const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think || prof.thinkAct, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
+  const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamGenerateAny(p, n, t));
+  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // every model call is a real "thinking" phase on the card
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
@@ -130,7 +137,10 @@ export async function shamAgentRun(opts: {
 
   for (; steps < maxSteps; steps++) {
     if (left() < 6000) break;
-    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, opts.tools, lim)}` : shamToolConversation(messages, opts.tools, lim);
+    // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
+    const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
+    const toolsNow = bare ? [] : opts.tools;
+    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {

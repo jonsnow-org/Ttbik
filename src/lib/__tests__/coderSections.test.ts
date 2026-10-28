@@ -241,7 +241,7 @@ describe("sections and the loop", () => {
     const calls = studio([{ type: "done", job: "j1", text: "ok", tool_calls: [] }]);
     const db = memDb();
     const { bot } = fakeBot();
-    await saveState(777, { mode: "coder", think: false, messages: [{ role: "user", content: "hi" }], notes: "", inbox: [], run: { id: "r3", chain: "c3", sent: 0, step: 0, lease: Date.now() } }, db);
+    await saveState(777, { mode: "coder", think: false, messages: [{ role: "user", content: "list the files of my repo" }], notes: "", inbox: [], run: { id: "r3", chain: "c3", sent: 0, step: 0, lease: Date.now() } }, db);
     await drive(bot, botRow, 777, "c3", db, 40000);
     const tools = JSON.parse(calls.find((c) => c.url.includes("/call/v2/chat"))!.body.tools).map((t: any) => t.function.name);
     expect(tools).not.toContain("github_write_files");

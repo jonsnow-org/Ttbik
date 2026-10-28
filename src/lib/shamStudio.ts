@@ -36,7 +36,8 @@ export function shamBases(): string[] {
   const v2 = shamVariant.getStore() === "v2";
   const configured = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
   // nova-inference-server belongs to Nova. Ignore stale environment values rather than reconnecting Sham to Nova.
-  const raw = configured.filter((x) => !/nova-inference-server/i.test(x));
+  // Each Sham uses only its own Studios: v1 never reaches a v2 Studio, v2 never a v1 or a Nova (coder-inference-*) Studio. (The v2 overflow is added later by orderV2 on purpose.)
+  const raw = configured.filter((x) => !/nova-inference-server|coder-inference/i.test(x) && !(v2 ? /sham-v1/i : /sham-v2/i).test(x));
   const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
   const k = rotate++ % Math.max(1, bases.length);
   const rotated = [...bases.slice(k), ...bases.slice(0, k)];
