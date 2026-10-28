@@ -16,7 +16,7 @@ import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, 
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
-import { resolveProfile, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
+import { resolveProfile, type ReqClass } from "@/lib/modes";
 import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -2005,7 +2005,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
     if (lite) {
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
-      messages.splice(0, messages.length, { role: "system", content: NOVA_LITE_SYSTEM }, ...plain);
+      messages.splice(0, messages.length, { role: "system", content: prof.liteSystem }, ...plain);
     }
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);

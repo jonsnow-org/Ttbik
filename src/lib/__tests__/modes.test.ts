@@ -1,5 +1,5 @@
 // ONE mode system for every model (src/lib/modes.ts, docs/MODES.md): classification, the mode table, thinking rules, Nova's real loop, Sham's agent, the owner's force.
-import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM } from "@/lib/modes";
+import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM, NOVA_CODE_SYSTEM } from "@/lib/modes";
 import { _setForcedForTests, forcedMode, refreshForced } from "@/lib/modeForce";
 import { drive, saveState, loadState, type Db } from "@/lib/coderSections";
 import { shamAgentRun } from "@/lib/shamAgent";
@@ -98,7 +98,15 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(p({ model: "nova", text: "مرحبا" })).toMatchObject({ lite: true, maxTokens: 200 });
     expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ lite: false, maxTokens: 450 });
     expect(p({ model: "nova", text: "اكتب دالة بايثون" }).maxTokens).toBe(0);
-    expect(p({ model: "sham_v2", text: "مرحبا" }).lite).toBe(false);
+    expect(p({ model: "sham_v2", text: "مرحبا" }).lite).toBe(true);                                   // Sham v2: no tool block for a greeting either
+  });
+  it("plain code writing is answered without the tool list in fast / balanced; precise and repo / run requests keep every tool", () => {
+    expect(p({ model: "nova", pref: "balanced", text: "اكتب دالة بايثون تعكس النص" }).lite).toBe(true);
+    expect(p({ model: "nova", pref: "fast", text: "اكتب دالة بايثون تعكس النص" }).lite).toBe(true);
+    expect(p({ model: "nova", pref: "precise", text: "اكتب دالة بايثون تعكس النص" }).lite).toBe(false);
+    expect(p({ model: "nova", pref: "balanced", text: "اكتب دالة بايثون ثم شغّلها واختبرها" }).lite).toBe(false);
+    expect(p({ model: "nova", pref: "balanced", text: "اقرأ README في octocat/Hello-World" }).lite).toBe(false);
+    expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(false);
   });
   it("the old Sham body cannot think", () => { expect(p({ model: "sham", pref: "precise", thinkSwitch: true, text: "اكتب دالة بايثون" }).think).toBe(false); });
   it("explicit settings of each mode", () => {
@@ -137,11 +145,20 @@ describe("Nova's real loop uses the profile", () => {
     await drive(bot, botRow, CHAT, "c", db, 40000);
     expect(chats(calls)[0].body.tools).not.toBe("");
   });
-  it("code with the thinking switch: thought on the FIRST step only; later steps do not think", async () => {
+  it("plain code writing: the code system text, no tools, no answer cap", async () => {
+    const calls = studio([{ type: "done", job: "j1", text: "```python\ndef f(): pass\n```", tool_calls: [] }]);
+    const db = memDb(); const { bot } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, accuracy: "balanced", messages: [{ role: "user", content: "اكتب دالة بايثون تعكس النص" }], notes: "", inbox: [], run: { id: "r1c", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    const first = chats(calls)[0].body;
+    expect(first.tools).toBe(""); expect(first.think).toBe(""); expect(first.max_tokens).toBe(0);
+    expect(JSON.parse(first.messages)[0].content).toBe(NOVA_CODE_SYSTEM);
+  });
+  it("agent work with the thinking switch: thought on the FIRST step only; later steps do not think", async () => {
     const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };
     const calls = studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }, { type: "done", job: "j2", text: "انتهيت.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", think: true, accuracy: "balanced", messages: [{ role: "user", content: "اكتب دالة بايثون تعكس النص" }], notes: "", inbox: [], run: { id: "r2", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", think: true, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const c = chats(calls);
     expect(c.length).toBeGreaterThanOrEqual(2);
@@ -170,9 +187,15 @@ describe("Sham's agent uses the same profile", () => {
     await shamVariant.run(variant, () => shamAgentRun({ text, ctx, tools: shamToolDefs(false, false), budgetMs: 20000, mode, ask: async (p, n) => { prompts.push(p); maxNews.push(n); return { type: "text", text: "تمام" } as any; }, maxSteps: 1 }));
     return { prompts, maxNews };
   }
-  it("a greeting with thinking on: the note is the fast one", async () => {
+  it("a greeting with thinking on: the note is the fast one, and the prompt has no tool block", async () => {
     const r = await run("مرحبا", { accuracy: "precise", think: true });
     expect(r.prompts[0]).toContain("المستخدم يفضّل جواباً سريعاً");
+    expect(r.prompts[0]).not.toContain("الأدوات المتاحة");
+  });
+  it("agent work keeps the tool block; precise code too", async () => {
+    expect((await run("اقرأ README في مستودع octocat/Hello-World", {})).prompts[0]).toContain("الأدوات المتاحة");
+    expect((await run("اكتب دالة بايثون تعكس النص", { accuracy: "precise" })).prompts[0]).toContain("الأدوات المتاحة");
+    expect((await run("اكتب دالة بايثون تعكس النص", { accuracy: "balanced" })).prompts[0]).not.toContain("الأدوات المتاحة");
   });
   it("the header of the real Studio call: no thought for a greeting, a short one for code with the switch", async () => {
     const seen: string[] = [];

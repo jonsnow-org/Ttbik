@@ -1,53 +1,68 @@
 name: Modes bench (Nova vs Sham v2 latency, quality; SDXS image settings)
 # Measures the SAME prompts (the bot's real system text, tool list and tool conversation) on one coder Studio (Nova) and on the Sham v2 Studio, and times SDXS image settings on a CPU
-# runner. Never prints the token. Manual, or a push that touches this file / scripts/modes-bench.
+# runner. Never prints the token. Manual (part = nova | sham | image | lite | all), or a push that touches scripts/modes-bench: then scripts/modes-bench/part.txt says which part.
 on:
   workflow_dispatch:
     inputs:
       studio:
         description: "Nova Studio number 1-5"
-        default: "2"
+        default: "4"
       part:
-        description: "nova | sham | image | all"
+        description: "nova | sham | image | lite (lite paths on Nova and Sham v2) | all"
         default: "all"
   push:
-    paths: ["scripts/modes-bench/**", ".github/workflows/modes-bench.yml"]
+    paths: ["scripts/modes-bench/**"]
 permissions:
   contents: read
 jobs:
   nova:
-    if: ${{ (github.event.inputs.part || 'all') == 'all' || github.event.inputs.part == 'nova' }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
     steps:
       - uses: actions/checkout@v7
-      - working-directory: scripts/modes-bench
+      - id: part
+        run: |
+          P="${{ github.event.inputs.part }}"; [ -z "$P" ] && P="$(tr -d '[:space:]' < scripts/modes-bench/part.txt)"
+          echo "P=$P" >> "$GITHUB_ENV"
+      - if: ${{ env.P == 'all' || env.P == 'nova' || env.P == 'lite' }}
+        working-directory: scripts/modes-bench
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
-        run: python3 nova_bench.py "${{ github.event.inputs.studio || '4' }}"
-      - uses: actions/upload-artifact@v4
+        run: PART="$([ "$P" = lite ] && echo lite)" python3 nova_bench.py "${{ github.event.inputs.studio || '4' }}"
+      - if: ${{ env.P == 'all' || env.P == 'nova' || env.P == 'lite' }}
+        uses: actions/upload-artifact@v4
         with: { name: nova-bench, path: scripts/modes-bench/nova_*.json }
   sham:
-    if: ${{ (github.event.inputs.part || 'all') == 'all' || github.event.inputs.part == 'sham' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      - working-directory: scripts/modes-bench
+      - run: |
+          P="${{ github.event.inputs.part }}"; [ -z "$P" ] && P="$(tr -d '[:space:]' < scripts/modes-bench/part.txt)"
+          echo "P=$P" >> "$GITHUB_ENV"
+      - if: ${{ env.P == 'all' || env.P == 'sham' || env.P == 'lite' }}
+        working-directory: scripts/modes-bench
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
-        run: python3 sham_bench.py
-      - uses: actions/upload-artifact@v4
-        with: { name: sham-bench, path: scripts/modes-bench/sham_v2.json }
+        run: PART="$([ "$P" = lite ] && echo bare)" python3 sham_bench.py
+      - if: ${{ env.P == 'all' || env.P == 'sham' || env.P == 'lite' }}
+        uses: actions/upload-artifact@v4
+        with: { name: sham-bench, path: scripts/modes-bench/sham_v2*.json }
   image:
-    if: ${{ (github.event.inputs.part || 'all') == 'all' || github.event.inputs.part == 'image' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - run: |
+          P="${{ github.event.inputs.part }}"; [ -z "$P" ] && P="$(tr -d '[:space:]' < scripts/modes-bench/part.txt)"
+          echo "P=$P" >> "$GITHUB_ENV"
+      - if: ${{ env.P == 'all' || env.P == 'image' }}
+        uses: actions/setup-python@v6
         with: { python-version: "3.12" }
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install diffusers transformers accelerate huggingface_hub pillow safetensors
-      - run: python scripts/modes-bench/image_bench.py img_out
-      - uses: actions/upload-artifact@v4
+      - if: ${{ env.P == 'all' || env.P == 'image' }}
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install diffusers transformers accelerate huggingface_hub pillow safetensors
+      - if: ${{ env.P == 'all' || env.P == 'image' }}
+        run: python scripts/modes-bench/image_bench.py img_out
+      - if: ${{ env.P == 'all' || env.P == 'image' }}
+        uses: actions/upload-artifact@v4
         with: { name: image-bench, path: img_out }

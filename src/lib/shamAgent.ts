@@ -102,7 +102,10 @@ export async function shamAgentRun(opts: {
 
   for (; steps < maxSteps; steps++) {
     if (left() < 6000) break;
-    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, opts.tools, lim)}` : shamToolConversation(messages, opts.tools, lim);
+    // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
+    const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
+    const toolsNow = bare ? [] : opts.tools;
+    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {

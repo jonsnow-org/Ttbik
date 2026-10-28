@@ -34,6 +34,21 @@ print("STATUS", json.dumps({k: v for k, v in call(BASE, "status", {}).items() if
 full = lambda user, extra=None: [{"role": "system", "content": SYS}, *(extra or []), {"role": "user", "content": user}]
 lite = lambda user, extra=None: [{"role": "system", "content": LITE_SYS}, *(extra or []), {"role": "user", "content": user}]
 T = FIX["tasks"]
+import os
+CODE_SYS = "You are Nova AI, an expert software engineer. Reply in the user's language (Arabic or English); code and identifiers stay in English.\nAnswer directly: the code in a fenced block with the language name, then a short explanation. No preamble."
+if os.environ.get("PART") == "lite":
+    run("warmup full-prompt (is it still cached?)", full("hi"), TOOLS, 1, "", limit=900)
+    run("greeting | lite", lite("مرحبا كيف حالك؟"), None, 200, "")
+    run("greeting | lite again", lite("شكرا لك"), None, 200, "")
+    run("greeting | FULL again right after lite (cache survives?)", full("أهلا"), TOOLS, 200, "")
+    run("code | code-lite (no tools)", [{"role": "system", "content": CODE_SYS}, {"role": "user", "content": T["code"]}], None, 0, "")
+    run("code | code-lite, think ON", [{"role": "system", "content": CODE_SYS}, {"role": "user", "content": T["code"]}], None, 0, "1")
+    run("code | FULL no think again (wrong tool? repeat)", full(T["code"]), TOOLS, 300, "")
+    run("code | FULL think ON cap 500 chars", full(T["code"]), TOOLS, 300, "1:500")
+    run("chat | FULL capped 450 tokens: factual question", full("اشرح لي ما هو Docker باختصار"), TOOLS, 450, "")
+    run("chat | lite factual question", lite("اشرح لي ما هو Docker باختصار"), None, 450, "")
+    json.dump(OUT, open(f"nova_{N}_lite.json", "w"), ensure_ascii=False, indent=1)
+    raise SystemExit(0)
 run("warmup full-prompt (cold read of system+tools)", full("hi"), TOOLS, 1, "", limit=900)
 run("chat | full prompt+tools | think OFF", full(T["chat"]), TOOLS, 300, "")
 run("chat | full prompt+tools | think ON (balanced cap)", full(T["chat"]), TOOLS, 400, "1")

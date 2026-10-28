@@ -24,6 +24,7 @@ export function normalizePref(x: unknown): Pref | undefined {
 
 // ---------------------------------------------------------------- classification of one request
 const GREETING = /^(?:(?:ال)?سلام(?: عليكم)?(?: ورحمة الله(?: وبركاته)?)?|مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|كيفك|كيف حالك|كيف حالك اليوم|شلونك|كيف الحال|شكرا|شكراً|شكرا لك|مشكور|تسلم|يعطيك العافية|ممتاز|رائع|الحمد لله|وداعا|مع السلامة|باي|من انت|من أنت|مين انت|ما اسمك|ما هو اسمك|who are you|what is your name|hi|hello|hey|hola|salam|thanks|thank you|thx|bye|good (?:morning|evening|night))(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
+const RUN_CUES = /شغّ?ل|شغل|نفّ?ذ|نفذ|جرّ?ب|جرب|اختبرها|اختبره|ثبّ?ت|ثبت|run it|run the|execute|install|sandbox|terminal|clone/i;
 const CODE_CUES = /```|\b(?:def|class|function|const|import|return|npm|pip|git|docker|sql|api|json|regex|bug|error|exception|stack ?trace|compile|test|unit test|refactor|lint|typescript|javascript|python|java|rust|golang|css|html|react|next\.?js|node)\b|كود|برمج|دالة|دوال|سكربت|سكريبت|خطأ|اخطاء|أخطاء|اصلح|أصلح|صحح|صلح|اختبار|اختبارات|ترجم الكود|حلل الكود|اشرح الكود|خوارزمية|قاعدة بيانات|استعلام/i;
 const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pull|branch|commit)\b|\b(?:repo|repository|pull request|pr|merge|branch|commit|push|deploy|workflow|ci|issue|issues|readme|refactor the)\b|مستودع|ريبو|دمج|فرع|كوميت|ارفع|رفع|انشر|نشر|طلب دمج|مشكلة في المستودع|اقرأ (?:الملف|الملفات|ملف)|كل الملفات|المشروع كله|ثم |وبعد ذلك|خطوة بخطوة|حلل المشروع|راجع المشروع|اجدول|جدول|ذكرني|كل يوم|كل اسبوع|ابحث|بحث عميق|research/i;
 
@@ -33,7 +34,7 @@ export function classifyRequest(text: string): ReqClass {
   if (!t) return "chat";
   if (detectMediaIntent(t)) return "media";
   if (t.length <= 60 && !t.includes("\n") && GREETING.test(t)) return "trivial";
-  if (AGENT_CUES.test(t) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
+  if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
   if (CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
 }
@@ -64,8 +65,11 @@ export type Profile = {
   /** Sham: multiplier of the answer budget, and correction rounds for a wrong tool call. */
   maxNewFactor: number;
   corrections: number;
-  /** Nova: answer this with the short system text and no tool list (greetings and thanks). */
+  /** Answer this with a short system text and NO tool list: greetings and thanks, and plain code writing / explaining in fast and balanced modes (measured: 5 s instead of 11 s; a right
+   *  answer in 23 s where the full 62-tool prompt without thinking called make_media for "write a Python function"). Precise mode and agent work keep every tool. */
   lite: boolean;
+  /** Nova: the system text of the lite path. */
+  liteSystem: string;
   /** One line added to the request: tells the model what the user wants. */
   note: string;
   /** Sham v2 pictures (Studio side, SDXS): pixel size and steps. */
@@ -126,7 +130,8 @@ export function resolveProfile(i: ProfileInput): Profile {
     temperature: TEMPERATURE[mode],
     maxNewFactor: mode === "fast" ? 0.6 : mode === "precise" ? 1.5 : 1,
     corrections: mode === "fast" ? 1 : mode === "precise" ? 3 : 2,
-    lite: !sham && klass === "trivial",
+    lite: klass === "trivial" || (klass === "code" && mode !== "precise"),
+    liteSystem: klass === "trivial" ? NOVA_LITE_SYSTEM : NOVA_CODE_SYSTEM,
     note: sham ? NOTE_SHAM[mode] : NOTE[mode],
     image,
   };
@@ -137,4 +142,11 @@ export const NOVA_LITE_SYSTEM = [
   "You are Nova AI, a friendly coding assistant. Reply in the user's language (Arabic or English), in one or two short sentences.",
   "Identity: you are Nova AI, with your own identity. If asked who you are or who made you, answer simply: \"I'm Nova AI\" (in the user's language). Never say you were made, trained or built by any team, company or model, never name a base model, and do not discuss training details.",
   "If the user asks for something that needs tools (code, files, GitHub, search), say you will do it and ask for the details; do not pretend to have done anything.",
+].join("\n");
+
+/** The Nova "lite" system text for plain code questions (no tools): the same text every time (Studio cache). */
+export const NOVA_CODE_SYSTEM = [
+  "You are Nova AI, an expert software engineer. Reply in the user's language (Arabic or English); code and identifiers stay in English.",
+  "Answer directly: the code in a fenced block with the language name, then a short explanation. No preamble. If something needs the user's repository, files or a computer to run, say what you need.",
+  "Identity: you are Nova AI, with your own identity. Never say you were made, trained or built by any team, company or model, never name a base model, and do not discuss training details.",
 ].join("\n");

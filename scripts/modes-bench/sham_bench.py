@@ -23,6 +23,19 @@ def run(label, prompt, mx, header=""):
 
 MODES = [("fast", 96, "[[sham temp=0.70]]\n"), ("balanced", 160, "[[sham temp=0.60]]\n"), ("balanced+think(400t)", 160, "[[sham temp=0.60 think=400]]\n"),
          ("precise", 240, "[[sham temp=0.20]]\n"), ("precise+think(1000t)", 240, "[[sham temp=0.20 think=1000]]\n")]
+import os
+bare = lambda t: f"المستخدم: {t}\nشام:"
+if os.environ.get("PART") == "bare":
+    run("warmup", bare("hi"), 8)
+    for i in range(3):
+        run(f"chat BARE (no tool block) balanced #{i+1}", bare("مرحبا كيف حالك؟"), 160, "[[sham temp=0.60]]\n")
+    run("chat BARE fast", bare("مرحبا كيف حالك؟"), 96, "[[sham temp=0.70]]\n")
+    run("code BARE balanced", bare(FIX["tasks"]["code"]), 160, "[[sham temp=0.60]]\n")
+    run("code BARE balanced max 320", bare(FIX["tasks"]["code"]), 320, "[[sham temp=0.60]]\n")
+    run("code BARE precise+think(500t)", bare(FIX["tasks"]["code"]), 240, "[[sham temp=0.20 think=500]]\n")
+    run("code WITH tool block balanced (reference)", FIX["sham"]["code"], 160, "[[sham temp=0.60]]\n")
+    json.dump(OUT, open("sham_v2_bare.json", "w"), ensure_ascii=False, indent=1)
+    raise SystemExit(0)
 run("warmup", FIX["sham"]["chat"], 8)
 for task in ("chat", "code", "github"):
     for name, mx, hdr in MODES:
