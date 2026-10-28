@@ -1171,6 +1171,7 @@ async function deliverSingle(bot: TelegramBot, chatId: number, text: string, run
   const from = Math.max(0, Math.min(text.length, run.botSent || 0));
   if (final) {
     const ranges = chunkRanges(text, from, true, 3800);
+    if (ranges.length > 1 && run.progress?.msgId && run.progress.mode !== "answer") await refreshCard(bot, chatId, run, "send", "جاري الإرسال");     // a long answer really is sent in several messages
     for (let i = 0; i < ranges.length; i++) {
       const [a, b] = ranges[i];
       const part = renderRange(text, a, b);

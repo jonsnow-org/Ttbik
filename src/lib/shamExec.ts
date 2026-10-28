@@ -45,6 +45,9 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("github_read_file", "Read a file from a repository (line window for big files).", obj({ repo: REPO, path: s("file path"), ref: s("branch"), start_line: n("1-based"), end_line: n("last line") }, ["repo", "path"])),
   tool("github_search_code", "Search code inside one repository.", obj({ repo: REPO, query: s("words to find") }, ["repo", "query"])),
   tool("github_repo_scan", "Overview of a repository: info, folders, README and manifests.", obj({ repo: REPO }, ["repo"])),
+  tool("github_prs", "List a repository's pull requests (state open|closed|all), or read ONE pull request (number): title, branches, state, description and its changed files.", obj({ repo: REPO, number: n("PR number: read this one"), state: s("open (default) | closed | all") }, ["repo"])),
+  tool("github_ci", "Check CI of a branch or commit: each check's result and, for a failed one, its error lines (file:line).", obj({ repo: REPO, ref: s("branch / commit, default = the default branch") }, ["repo"])),
+  tool("delegate", "Hand up to 3 INDEPENDENT read-only investigations (research, reading code, checking CI) to helper agents that work at the same time and report back. Each task must be a complete instruction. They cannot write, run commands or ask the user.", obj({ tasks: { type: "array", items: { type: "object", properties: { title: s("short name"), task: s("complete instruction") } }, description: "1 to 3 tasks: [{title, task}]" } }, ["tasks"])),
   tool("memory_save", "Remember a lasting fact, preference or decision about this user for later conversations. Never secrets.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repo") }, ["text"])),
   tool("memory_search", "Search what is remembered about this user.", obj({ query: s("what to look for"), repo: s("owner/name (optional)") }, ["query"])),
   tool("schedule_list", "List this user's scheduled tasks.", obj({})),
@@ -76,7 +79,7 @@ export function shamNeedsOk(call: CoderToolCall): boolean {
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
 const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
-const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_create_pr", "github_merge_pr", "sandbox_push"]);
+const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
@@ -141,6 +144,35 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
       const got = await Promise.all(picks.map((path) => githubTool(ctx, "github_read_file", { repo: a.repo, path, end_line: path.startsWith("README") ? 60 : 50 })));
       const d = info.data || {};
       return clip(`${d.full_name} | default ${d.default_branch} | ${d.language || "-"} | ${d.description || ""}\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, picks[i].startsWith("README") ? 2000 : 1200)}`).join("\n\n")}`);
+    }
+    case "github_prs": {
+      const num = Number(a.number);
+      if (num > 0) {
+        const [pr, files] = await Promise.all([gh(ctx, "GET", `${R}/pulls/${num}`), gh(ctx, "GET", `${R}/pulls/${num}/files?per_page=30`)]);
+        if (pr.status >= 300) return clip(`error ${pr.status}: ${pr.data?.message || "no such pull request"}`);
+        const d = pr.data;
+        return clip(`#${d.number} ${d.title} [${d.merged ? "merged" : d.state}${d.draft ? ", draft" : ""}] ${d.head?.ref} → ${d.base?.ref} by ${d.user?.login}\nmergeable: ${d.mergeable_state || "unknown"} | +${d.additions} -${d.deletions} in ${d.changed_files} files\n${String(d.body || "").slice(0, 700)}\n\nfiles:\n${(Array.isArray(files.data) ? files.data : []).map((f: any) => `${f.status} ${f.filename} (+${f.additions} -${f.deletions})`).join("\n")}`);
+      }
+      const state = ["open", "closed", "all"].includes(String(a.state)) ? String(a.state) : "open";
+      const r = await gh(ctx, "GET", `${R}/pulls?state=${state}&per_page=15`);
+      if (r.status >= 300) return clip(`error ${r.status}: ${r.data?.message}`);
+      return clip((r.data as any[]).map((d) => `#${d.number} ${d.title} [${d.draft ? "draft" : d.state}] ${d.head?.ref} → ${d.base?.ref} by ${d.user?.login}`).join("\n") || `no ${state} pull requests`);
+    }
+    case "github_ci": {
+      const ref = String(a.ref || (await defaultBranch(ctx, a.repo)));
+      const r = await gh(ctx, "GET", `${R}/commits/${encodeURIComponent(ref)}/check-runs?per_page=30`);
+      if (r.status >= 300) return clip(`error ${r.status}: ${r.data?.message || "no checks"}`);
+      const runs: any[] = r.data?.check_runs || [];
+      if (!runs.length) return `no checks on ${ref}`;
+      const lines = runs.map((c) => `${c.conclusion || c.status}: ${c.name}`);
+      const failed = runs.filter((c) => ["failure", "timed_out", "cancelled", "action_required"].includes(c.conclusion)).slice(0, 3);
+      const detail: string[] = [];
+      for (const c of failed) {
+        const an = await gh(ctx, "GET", `${R}/check-runs/${c.id}/annotations?per_page=5`);
+        const ann = (Array.isArray(an.data) ? an.data : []).map((x: any) => `${x.path}:${x.start_line} ${String(x.message || "").slice(0, 200)}`);
+        detail.push(`--- ${c.name}: ${String(c.output?.title || "").slice(0, 150)} ${String(c.output?.summary || "").slice(0, 300)}\n${ann.join("\n")}`.trim());
+      }
+      return clip(`${ref}\n${lines.join("\n")}${detail.length ? `\n\nfailed:\n${detail.join("\n")}` : ""}`);
     }
     case "github_create_pr": {
       const base = String(a.base || "").trim();

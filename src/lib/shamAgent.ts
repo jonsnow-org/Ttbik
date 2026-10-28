@@ -15,6 +15,9 @@ import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
 /** What Sham may use: its own tools (shamExec.ts). */
 export const SHAM_TOOL_NAMES = SHAM_TOOLS.map((t) => t.function.name);
+/** What a helper agent may use: reading and research only (no writes, no VM, no media, no user questions, no further delegation). Enforced here, not only in the prompt. */
+export const SHAM_HELPER_TOOLS: ReadonlySet<string> = new Set(["web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "memory_search"]);
+export const SHAM_HELPERS_MAX = 3;
 /** The tool definitions Sham is shown: GitHub ones only when this chat can use it. */
 export const shamToolDefs = shamTools;
 
@@ -98,6 +101,33 @@ export async function shamAgentRun(opts: {
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
 
+  /** delegate: up to 3 independent read-only investigations, each a small Sham agent loop of its own (3 steps, reading tools only), run at the same time; their reports come back as the tool result. */
+  const runDelegate = async (call: CoderToolCall): Promise<string> => {
+    let a: { tasks?: unknown; task?: unknown } = {};
+    try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
+    const raw: unknown[] = Array.isArray(a.tasks) ? a.tasks : a.task ? [a] : [];
+    const tasks = raw.map((x, i) => {
+      const o = (typeof x === "string" ? { task: x } : x) as { title?: unknown; task?: unknown } | null;
+      return { title: String(o?.title || `وكيل ${i + 1}`).slice(0, 60), task: String(o?.task || "").trim().slice(0, 700) };
+    }).filter((t) => t.task).slice(0, SHAM_HELPERS_MAX);
+    if (!tasks.length) return "error: delegate needs tasks: [{title, task}] with a complete instruction in each task.";
+    if (left() < 22000) return "error: not enough time left to delegate; do the check yourself with one tool.";
+    const helperTools = opts.tools.filter((t) => SHAM_HELPER_TOOLS.has(t.function.name));
+    if (!helperTools.length) return "error: no read-only tools are available for helpers.";
+    const budget = Math.min(70000, left() - 8000);
+    const reports = await Promise.all(tasks.map(async (t, i) => {
+      try {
+        const r = await shamAgentRun({ text: `[مهمة وكيل] ${t.task}\nاستعمل أدوات القراءة فقط ثم اكتب تقريراً قصيراً بما وجدته فعلاً (أسماء ملفات وأرقام حقيقية فقط). لا تخترع شيئاً.`, ctx: opts.ctx, tools: helperTools, budgetMs: budget, maxSteps: 3, maxNew, mode: opts.mode, ask: opts.ask, exec: opts.exec, now: opts.now, askMs: Math.min(opts.askMs ?? 30000, budget - 2000),
+          onEvent: (k, tx) => { if (k === "tool") opts.onEvent?.("info", `وكيل ${i + 1} «${t.title}»: ${tx.slice(0, 160)}`); } });
+        if (r.kind === "text") return { ...t, ok: true, text: r.text.slice(0, 900), used: r.used };
+        if (r.kind === "ask") return { ...t, ok: false, text: `needs information it cannot ask for: ${r.question.slice(0, 200)}`, used: r.used };
+        return { ...t, ok: false, text: "the helper did not finish in time", used: r.used };
+      } catch (e) { return { ...t, ok: false, text: `error: ${String((e as Error)?.message || e).slice(0, 200)}`, used: [] as string[] }; }
+    }));
+    opts.onEvent?.("info", `وصلت تقارير الوكلاء (${reports.filter((r) => r.ok).length}/${reports.length})`);
+    return reports.map((r, i) => `## وكيل ${i + 1}: ${r.title} — ${r.ok ? "DONE" : "NOT DONE"}${r.used.length ? ` (tools: ${r.used.join(", ")})` : ""}\n${r.text}`).join("\n\n");
+  };
+
   for (; steps < maxSteps; steps++) {
     if (left() < 6000) break;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, opts.tools, lim)}` : shamToolConversation(messages, opts.tools, lim);
@@ -162,7 +192,7 @@ export async function shamAgentRun(opts: {
       opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
       opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
       let result: string;
-      try { result = await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
+      try { result = c.function.name === "delegate" ? await runDelegate(c) : await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
       opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(String(result)) });
       opts.onEvent?.("info", clip(String(result), 300));
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), toolClip) } as CoderMessage);
