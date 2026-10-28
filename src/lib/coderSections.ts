@@ -41,7 +41,7 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
-  progress?: { msgId?: number; lines: string[]; phase?: string }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
+  progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
@@ -472,9 +472,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     }
     await addUsage(chatId, "tasks", 1, db);
   }
+  const freshRun = !st.run;
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
+  if (freshRun && st.run) await openCard(bot, chatId, st.run, content);          // ONE message, within seconds: "فهمت طلبك …" + the progress block; later edited into the live answer
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
@@ -1006,12 +1008,13 @@ function cardText(run: Run): string {
   const p = run.progress || { lines: [] as string[] };
   const shown = p.lines.slice(-12);
   const clock = localClock();
-  return `📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
+  return `${p.ack ? `${p.ack}\n\n` : ""}📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
 }
 /** Live refresh of the same card message while the model works (every few seconds): the chat shows each phase from start to end, like the app's log. Never sends a second card when an edit fails. */
 async function refreshCard(bot: TelegramBot, chatId: number, run: Run, phase: string): Promise<void> {
   if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
   const p = (run.progress ||= { lines: [] });
+  if (p.mode === "answer") return;                                      // the message is already the live answer: never put the progress card over it
   p.phase = phase;
   if (!p.msgId) {
     if (!p.lines.length) p.lines.push("بدأت المهمة");
@@ -1028,6 +1031,7 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
     return;
   }
   const p = (run.progress ||= { lines: [] });
+  if (p.mode === "answer") { run.progress = { lines: [] }; return progressLine(bot, chatId, run, line); }   // a tool step after an answer: a fresh card (the answer stays as it was)
   p.lines.push(line.slice(0, 300));
   const shown = p.lines.slice(-12);
   const text = cardText(run);
@@ -1056,6 +1060,97 @@ export function stripForeignScript(text: string, userText: string): string {
   return text.replace(FOREIGN_RX, "").replace(/ {2,}/g, " ");
 }
 
+// ---- ONE message per request (owner 2026-10-28): it opens within seconds with "فهمت طلبك …" + the progress block, and the SAME message is edited into the live streaming
+// answer (the card disappears when the answer starts). Never an understanding message plus a separate progress message. Edits are throttled (EDIT_EVERY_MS) for Telegram's
+// rate limits; only a long FINAL answer overflows into follow-up messages; media is sent separately.
+const singleMessageOn = () => (process.env.CODER_SINGLE_MESSAGE || "").toLowerCase() !== "off" && (process.env.CODER_PROGRESS_CARD || "").toLowerCase() !== "off";
+const EDIT_EVERY_MS = 2000;
+const TG_MAX = 4096;
+
+export { understoodLine } from "@/lib/singleMessage";
+import { understoodLine } from "@/lib/singleMessage";
+
+/** Opens the one message right when the request arrives. Idempotent. */
+export async function openCard(bot: TelegramBot, chatId: number, run: Run, request: string): Promise<void> {
+  if (!singleMessageOn() || chatId <= 0 || typeof (bot.api as any).editMessageText !== "function") return;
+  const p = (run.progress ||= { lines: [] });
+  if (p.msgId) return;
+  p.ack = understoodLine(request);
+  if (!p.lines.length) p.lines.push("بدأت المهمة");
+  p.phase = p.phase || "جارٍ انتظار أول مخرجات النموذج…";
+  const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
+  p.msgId = (m as any)?.message_id || undefined;
+}
+
+/** Puts `html` (or plain `text`) into the request's one message: edits it, or starts it when there is none yet. false = Telegram refused (nothing changed). */
+async function writeLive(bot: TelegramBot, chatId: number, run: Run, rich: string, plain: string): Promise<boolean> {
+  const api = bot.api as any;
+  const p = (run.progress ||= { lines: [] });
+  const body = rich.length <= TG_MAX ? rich : plain.slice(0, TG_MAX);
+  const opts = rich.length <= TG_MAX ? { parse_mode: "HTML", link_preview_options: { is_disabled: true } } : { link_preview_options: { is_disabled: true } };
+  if (!p.msgId) {
+    const m = await api.sendMessage(chatId, body, opts).catch(() => null);
+    if (!m) return false;
+    p.msgId = (m as any).message_id || undefined;
+    p.mode = "answer";
+    p.shown = body;
+    return Boolean(p.msgId);
+  }
+  if (p.shown === body) return true;
+  const edit = (o: object) => api.editMessageText(chatId, p.msgId, body, o).then(() => true).catch((e: any) => /not modified/i.test(String(e?.description || e?.message || e)));
+  const ok = (await edit(opts)) || (await edit({ link_preview_options: { is_disabled: true } }));
+  if (ok) { p.shown = body; p.mode = "answer"; }
+  return ok;
+}
+
+/**
+ * Single-message delivery. `final`: the last stretch is committed (the first chunk into the one message, the overflow of a very long answer as follow-up messages).
+ * Not final: the unsent tail streams into the one message at most every EDIT_EVERY_MS; a tail too long for one message is committed and the next stretch starts a new one.
+ * Returns false when this path does not apply (the caller uses the older draft / batch delivery).
+ */
+async function deliverSingle(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<boolean> {
+  if (!singleMessageOn() || chatId <= 0 || typeof (bot.api as any).editMessageText !== "function") return false;
+  const p = run.progress;
+  if (!p?.msgId) return false;                                          // no card was opened for this request: the older delivery
+  const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
+  const from = Math.max(0, Math.min(text.length, run.botSent || 0));
+  if (final) {
+    const ranges = chunkRanges(text, from, true, 3800);
+    for (let i = 0; i < ranges.length; i++) {
+      const [a, b] = ranges[i];
+      const part = renderRange(text, a, b);
+      if (!part.trim()) { run.botSent = b; continue; }
+      const html = markdownToTelegramHtml(part);
+      if (run.progress?.msgId && i === 0 && html.length <= TG_MAX) { if (!(await writeLive(bot, chatId, run, html, stripMarkdown(part)))) await sendRich(bot, chatId, part); }
+      else { if (run.progress?.msgId && i === 0) await (bot.api as any).deleteMessage?.(chatId, run.progress.msgId)?.catch?.(() => null); await sendRich(bot, chatId, part); }
+      run.progress = undefined;                                         // the one message is the answer now: it stays; a tool step later opens a new card
+      run.botSent = b;
+    }
+    run.botProgressAt = Date.now();
+    return true;
+  }
+  const unsent = text.length - from;
+  if (unsent <= 0 || !text.slice(from).trim()) return true;
+  if (unsent > 3300) {                                                  // too long for one message: finish this one, the rest goes on in a new one
+    const [first] = chunkRanges(text, from, false, 3000);
+    if (first) {
+      const part = renderRange(text, first[0], first[1]);
+      const html = markdownToTelegramHtml(part);
+      if (html.length <= TG_MAX && (await writeLive(bot, chatId, run, html, stripMarkdown(part)))) { run.progress = undefined; run.botSent = first[1]; }
+      else { await sendRich(bot, chatId, part); run.progress = undefined; run.botSent = first[1]; }
+    }
+    return true;
+  }
+  if (Date.now() - (run.progress?.at || 0) < EDIT_EVERY_MS) return true;
+  const tail = renderRange(text, from, text.length);
+  if (!tail.trim()) return true;
+  const html = markdownToTelegramHtml(tail);
+  const pp = (run.progress ||= { lines: [] });
+  pp.at = Date.now();
+  if (!(await writeLive(bot, chatId, run, html, stripMarkdown(tail)))) pp.at = Date.now() + 3000;   // refused / rate limited: wait a little longer
+  return true;
+}
+
 async function closeCard(bot: TelegramBot, chatId: number, run: Run | null | undefined, text: string, atEnd = false): Promise<void> {
   const mid = run?.progress?.msgId;
   if (!mid) return;
@@ -1079,7 +1174,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
       return;
     }
     const msgId = run.progress?.msgId;
-    if (!msgId) return;
+    if (!msgId || run.progress?.mode === "answer") return;
     const dots = ".".repeat((beat % 3) + 1);
     const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${localClock()}`;
     void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
@@ -1118,6 +1213,7 @@ async function commitMessages(bot: TelegramBot, chatId: number, text: string, ru
 
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
+  if (await deliverSingle(bot, chatId, text, run, final)) return;
   const from = Math.max(0, Math.min(text.length, run.botSent || 0));
   const unsent = text.length - from;
   if (unsent <= 0 || !text.slice(from).trim()) return;

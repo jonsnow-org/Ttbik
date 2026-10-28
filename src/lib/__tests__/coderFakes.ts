@@ -128,15 +128,17 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
 }
 
 export function fakeBot() {
-  const sent: { chat: number; text: string; extra?: any }[] = [];
+  // `sent` is what the chat SHOWS: a message edited in place shows its new text, a deleted one is gone (like Telegram); `edits` is the log of edit calls
+  const sent: { chat: number; text: string; extra?: any; id?: number }[] = [];
+  const edits: { chat: number; id: number; text: string }[] = [];
   let mid = 100;
   const api = {
-    sendMessage: jest.fn(async (chat: number, text: string, extra?: any) => { sent.push({ chat, text, extra }); return { message_id: ++mid }; }),
+    sendMessage: jest.fn(async (chat: number, text: string, extra?: any) => { const id = ++mid; sent.push({ chat, text, extra, id }); return { message_id: id }; }),
     sendChatAction: jest.fn(async () => ({})),
     answerCallbackQuery: jest.fn(async () => ({})),
     editMessageReplyMarkup: jest.fn(async () => ({})),
-    editMessageText: jest.fn(async () => ({})),
-    deleteMessage: jest.fn(async () => true),
+    editMessageText: jest.fn(async (chat: number, id: number, text: string, extra?: any) => { edits.push({ chat, id, text }); const m = sent.find((x) => x.chat === chat && x.id === id); if (m) { m.text = text; m.extra = extra; } return {}; }),
+    deleteMessage: jest.fn(async (chat: number, id: number) => { const i = sent.findIndex((x) => x.chat === chat && x.id === id); if (i >= 0) sent.splice(i, 1); return true; }),
   };
-  return { bot: { api } as any, sent, api };
+  return { bot: { api } as any, sent, api, edits };
 }

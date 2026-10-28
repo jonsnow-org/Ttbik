@@ -14,7 +14,7 @@ function studio(reply: object) {
   });
   return calls;
 }
-beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_URL = "https://v2.test"; process.env.SHAM_MODELSCOPE_URL = "https://v1.test"; });
+beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_URL = "https://v2.test"; process.env.SHAM_V2_OVERFLOW_URL = "off"; process.env.SHAM_MODELSCOPE_URL = "https://v1.test"; });
 
 describe("Sham media routing (the removed generate_media endpoint is never called)", () => {
   it("internal and ready both go to generate_media_from_panel with the Studio's exact label", async () => {
