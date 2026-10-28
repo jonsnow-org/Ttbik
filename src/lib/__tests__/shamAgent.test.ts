@@ -31,6 +31,22 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).toContain("رسالة المستخدم الحالية:");
     expect(seen[0]).not.toContain("الأدوات المتاحة لك");
   });
+  it("Sham v2 retries its repeated stock identity answer and does not feed that answer back as context", async () => {
+    const seen: string[] = [];
+    const stock = "أنا شام، مساعد ذكي صنعه فريقنا. أجيب بلغة المستخدم بوضوح ودقة.";
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "هل لديك خبرة في الكود؟",
+      history: [{ q: "من أنت؟", a: stock }],
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(stock), say("نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه." });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[0]).not.toContain(stock);
+    expect(seen[1]).toContain("لا تكرر نص السؤال");
+    expect(seen[1]).toContain("لا تعد تعريف نفسك");
+  });
   it("Sham v2 rejects near-echo answers with a small word change", async () => {
     const seen: string[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
