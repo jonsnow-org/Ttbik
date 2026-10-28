@@ -55,7 +55,7 @@ class ToolCallGuard:
         return kids or None
 
 
-def extract_tool_call(text: str, prompt: str) -> dict | None:
+def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | None = None) -> dict | None:
     """Turn the model's constrained call envelope into a typed function call.
 
     This is the Studio-side protocol boundary: callers receive a structured
@@ -78,7 +78,10 @@ def extract_tool_call(text: str, prompt: str) -> dict | None:
     if not isinstance(payload, dict):
         return None
     name = str(payload.get("name") or payload.get("tool") or "").strip()
-    if not name or name not in tool_names_from_prompt(prompt):
+    prompt_names = set(tool_names_from_prompt(prompt))
+    if available_tool_names is not None:
+        prompt_names.intersection_update(str(item).strip() for item in available_tool_names)
+    if not name or name not in prompt_names:
         return None
     arguments = payload.get("arguments", payload.get("args", payload.get("parameters", {})))
     if isinstance(arguments, str):
