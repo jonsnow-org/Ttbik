@@ -48,10 +48,11 @@ const normaliseChatText = (s: string): string => String(s || "")
   .toLocaleLowerCase("ar");
 
 // Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
-// are still conversation, not a request to edit/run code.
+// are still conversation, not a request to edit/run code. Keep regex escapes single;
+// double-escaping \s here silently stops matching ordinary Arabic spacing.
 function isCapabilityQuestion(text: string): boolean {
   const t = normaliseChatText(text);
-  return /^(?:هل\\s+(?:لديك|عندك|عندكم|تستطيع|تقدر|يمكنك|تجيد|تعرف|تتقن|تملك|تعمل)|(?:ما|ماذا)\\s+(?:الذي\\s+)?(?:تتقن|تستطيع|تقدر|تفعل|تجيد|وظيفتك|قدراتك|خبرتك)|(?:أنت|انت)\\s+(?:ماذا|ما|ماهي|ما هي)\\s*(?:تستطيع|تتقن|وظيفتك|قدراتك)?)/i.test(t);
+  return /^(?:هل\s+(?:(?:لديك|عندك|عندكم)\s+(?:خبرة|معرفة|قدرة|مهارة|إمكانية|امكانية)|(?:تستطيع|تقدر|يمكنك|تجيد|تعرف|تتقن|تملك|تعمل))|(?:ما|ماذا)\s+(?:(?:الذي\s+)?(?:تتقن|تستطيع|تقدر|تفعل|تجيد|وظيفتك|قدراتك|خبرتك)|(?:هي\s+)?وظيفتك)|(?:أنت|انت)\s+(?:ماذا|ما|ماهي|ما\s+هي)\s*(?:تستطيع|تتقن|وظيفتك|قدراتك)?)/i.test(t);
 }
 
 function editSimilarity(a: string, b: string): number {
@@ -79,6 +80,29 @@ function isQuestionEcho(answer: string, current: string, recentQuestions: string
     if (ratio >= 0.72 && editSimilarity(a, q) >= 0.84) return true;
     return a.length >= 16 && (a.startsWith(q) || q.startsWith(a)) && ratio >= 0.88;
   });
+}
+
+// Qwen3 sometimes repeats its previous self-introduction instead of answering a new question.
+// Compare only substantial answers so short valid replies ("نعم", "لا") are not suppressed.
+function isRepeatedPriorAnswer(answer: string, history: { q: string; a: string }[]): boolean {
+  const a = normaliseChatText(answer);
+  if (a.length < 18) return false;
+  return history.slice(-5).some((h) => {
+    const previous = normaliseChatText(h.a);
+    if (previous.length < 18) return false;
+    const ratio = Math.min(a.length, previous.length) / Math.max(a.length, previous.length);
+    return a === previous || (ratio >= 0.88 && editSimilarity(a, previous) >= 0.9);
+  });
+}
+
+function isNonAnswerBoilerplate(answer: string, question: string): boolean {
+  if (!isCapabilityQuestion(question)) return false;
+  const a = normaliseChatText(answer);
+  const identityOnly = /(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)/i.test(a);
+  if (!identityOnly) return false;
+  // The stock identity is not an answer to a capability question unless it goes on to
+  // state a concrete ability or answer the yes/no question.
+  return !/(?:استطيع|أستطيع|يمكنني|اقدر|أقدر|لدي خبرة|عندي خبرة|اجيد|أجيد|برمج|كود|تصحيح|كتابة|تحليل|بحث|شرح|اصنع|أصنع|توليد|صورة|ملف)/i.test(a);
 }
 
 export async function shamAgentRun(opts: {
@@ -142,6 +166,10 @@ export async function shamAgentRun(opts: {
       `رسالة المستخدم الحالية: ${opts.text}`,
       "اكتب الجواب فقط، من دون بادئة «المستخدم» أو «شام»."
     ].filter(Boolean).join("\n\n");
+    const directBad = (answer: string) =>
+      isQuestionEcho(answer, opts.text, recentQuestions) ||
+      isRepeatedPriorAnswer(answer, opts.history || []) ||
+      isNonAnswerBoilerplate(answer, opts.text);
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     let waited = 0;
     while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
@@ -152,16 +180,22 @@ export async function shamAgentRun(opts: {
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 2500));
       direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     }
-    if (direct?.type === "text" && isQuestionEcho(String(direct.text || ""), opts.text, recentQuestions) && left() > 4000) {
-      opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال بدلاً من الإجابة.");
-      const retryPrompt = `أنت شام. اكتب إجابة جديدة عن السؤال التالي، لا تكرر نص السؤال أو أي سؤال سابق. اذكر قدراتك أو المعلومة المطلوبة مباشرة، وإذا لم تعرف فقل ذلك بوضوح.\nالسؤال: ${opts.text}\nالإجابة الجديدة:`;
+    if (direct?.type === "text" && directBad(String(direct.text || "")) && left() > 4000) {
+      opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
+      const retryPrompt = [
+        "أنت شام. حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
+        "لا تكرر السؤال، ولا تعد تعريف نفسك بعبارة «أنا شام، مساعد ذكي»، ولا تكرر جواباً سابقاً.",
+        "أجب عن السؤال المحدد مباشرة. إن كان يسأل عن خبرتك أو قدراتك، ابدأ بنعم أو لا عند الحاجة ثم اذكر قدرة عملية محددة. لا تدّعِ شيئاً غير صحيح.",
+        `السؤال الحالي: ${opts.text}`,
+        "الإجابة الجديدة:"
+      ].join("\\n");
       direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
     }
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
-      if (answer && !isQuestionEcho(answer, opts.text, recentQuestions)) return { kind: "text", text: answer, used, steps: 1 };
-      // Never store/send the repeated question as if it were an answer.
-      return { kind: "text", text: "لم يتمكن شام من صياغة إجابة مختلفة هذه المرة. أعد المحاولة بعد قليل.", used, steps: 2 };
+      if (answer && !directBad(answer)) return { kind: "text", text: answer, used, steps: 1 };
+      // Never send/store a question echo, a repeated previous answer, or the stock identity in place of an answer.
+      return { kind: "text", text: "لم يقدّم شام إجابة فعلية عن السؤال هذه المرة. لم أعرض النص المكرر كأنه إجابة؛ أعد المحاولة بعد قليل.", used, steps: 2 };
     }
     if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
     if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
