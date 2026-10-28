@@ -46,6 +46,7 @@ export async function shamAgentRun(opts: {
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
   onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
+  queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
   continuable?: boolean;                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
 }): Promise<ShamAgentResult> {
   const now = opts.now || Date.now;
@@ -96,6 +97,14 @@ export async function shamAgentRun(opts: {
     if (left() < 6000) break;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, opts.tools, lim)}` : shamToolConversation(messages, opts.tools, lim);
     let reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+    // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
+    for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {
+      const info = opts.queueNote ? await opts.queueNote(q).catch(() => null) : null;
+      opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${q})`);
+      await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
+      reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
+    }
+    if (opts.continuable && (reply?.type === "busy" || reply?.type === "loading")) return { kind: "more", messages, used, steps };
     if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
     if (reply.type !== "text") return { kind: "reply", reply, used, steps };
     let text = String(reply.text || "");

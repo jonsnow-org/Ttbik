@@ -467,16 +467,32 @@ function useBilling(on: boolean) {
   useEffect(() => { if (on) void load(); }, [on, load]);
   return { b, load };
 }
+/** The owner's load switch: media smaller, free-plan limits lower, visible queue, overflow Studios first (server: src/lib/pressureMode.ts). */
+function PressureCard({ n }: { n: NStr }) {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => { api<{ on: boolean }>("pressure", {}).then((d) => setOn(d.on)).catch(() => null); }, []);
+  return (
+    <Card>
+      <div className="n-token">
+        <div className="n-body"><div className="n-lbl">{n.pressureTitle}</div><div className="n-sub">{n.pressureDesc}</div></div>
+        <button type="button" className={`n-btn${on ? " n-on" : ""}`} aria-pressed={Boolean(on)} disabled={on === null} onClick={async () => { haptic("medium"); try { const d = await api<{ on: boolean }>("pressure", { on: !on }); setOn(d.on); haptic("success"); } catch { haptic("error"); } }}>{on ? n.pressureOn : n.pressureOff}</button>
+      </div>
+    </Card>
+  );
+}
 function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
   const { n, lang, owner } = c;
   if (owner) {
     return (
-      <Card className="n-raise">
-        <div className="n-token">
-          <div className="n-body"><div className="n-lbl">{n.yourPlan}</div><div className="n-big"><span aria-hidden="true">∞</span>{n.unlimitedOwner}</div></div>
-          <span className="n-chip n-on">{n.ownerChip}</span>
-        </div>
-      </Card>
+      <>
+        <Card className="n-raise">
+          <div className="n-token">
+            <div className="n-body"><div className="n-lbl">{n.yourPlan}</div><div className="n-big"><span aria-hidden="true">∞</span>{n.unlimitedOwner}</div></div>
+            <span className="n-chip n-on">{n.ownerChip}</span>
+          </div>
+        </Card>
+        <PressureCard n={n} />
+      </>
     );
   }
   const u = b?.usage;

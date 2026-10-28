@@ -27,7 +27,10 @@ describe("Sham media fast lane", () => {
     const photo = calls.find((c) => c.m === "sendPhoto")!;
     expect(photo).toBeTruthy();
     expect(photo.a[2]).toBeUndefined();                                    // no caption at all
-    expect(calls.some((c) => c.m === "sendMessage")).toBe(false);          // one reply
+    const msgs = calls.filter((c) => c.m === "sendMessage");
+    expect(msgs).toHaveLength(1);                                          // the ONE message: "فهمت طلبك" (opened at once) ...
+    expect(msgs[0].a[1]).toMatch(/^✅ فهمت طلبك/);
+    expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });
   it("a failed route says so plainly and sends nothing", async () => {
     routeReply = { type: "error", text: "disk" };
@@ -35,7 +38,8 @@ describe("Sham media fast lane", () => {
     const { bot: b, calls } = bot();
     expect(await shamMediaFastLane(b, 77, "ارسم قطة سوداء")).toBe(true);
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(false);
-    expect(calls.find((c) => c.m === "sendMessage")!.a[1]).toMatch(/تعذّر إنشاء الصورة/);
+    expect(calls.filter((c) => c.m === "sendMessage")).toHaveLength(1);    // still ONE message: the failure is written into it
+    expect(calls.find((c) => c.m === "editMessageText")!.a[2]).toMatch(/تعذّر إنشاء الصورة/);
   });
   it("other messages are left to the model", async () => {
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");

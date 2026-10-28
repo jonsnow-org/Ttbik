@@ -3,7 +3,7 @@ import type { Lang } from "../i18n";
 
 const ar = {
   navHome: "الرئيسية", navChats: "المحادثات", navSchedules: "الجدولة", navSettings: "الإعدادات",
-  hi: "أهلاً، {name}!", welcome: "أهلاً بك", getPro: "احصل على Pro", ownerChip: "المالك", unlimitedOwner: "غير محدود",
+  hi: "أهلاً، {name}!", welcome: "أهلاً بك", getPro: "احصل على Pro", ownerChip: "المالك", pressureTitle: "وضع الضغط", pressureDesc: "عند التفعيل: وسائط أصغر، حدود أقل للخطة المجانية، وطابور ظاهر مع الترتيب، وخوادم التحويل أولاً.", pressureOn: "مفعّل", pressureOff: "متوقف", unlimitedOwner: "غير محدود",
   yourPlan: "خطتك", usedPct: "{p}٪ مستخدم هذا الأسبوع", topUp: "شحن", planOk: "ضمن خطتك",
   runningNow: "يعمل الآن", stopAll: "إيقاف الكل", ch_all: "الكل", highlights: "أبرز الميزات", isNew: "جديد",
   h_ask: "اسأل نوفا", h_askSub: "ارجع إلى الدردشة واكتب طلبك", h_gh: "اربط GitHub", h_ghSub: "ليعمل نوفا على مستودعاتك", h_repo: "المستودع", h_repoSub: "المستودع الافتراضي لمهامك",
@@ -28,7 +28,7 @@ const ar = {
 };
 const en: typeof ar = {
   navHome: "Home", navChats: "Chats", navSchedules: "Schedules", navSettings: "Settings",
-  hi: "Hi, {name}!", welcome: "Welcome", getPro: "Get Pro", ownerChip: "Owner", unlimitedOwner: "Unlimited",
+  hi: "Hi, {name}!", welcome: "Welcome", getPro: "Get Pro", ownerChip: "Owner", pressureTitle: "Pressure mode", pressureDesc: "When on: smaller media, lower free-plan limits, a visible queue with position, overflow Studios first.", pressureOn: "On", pressureOff: "Off", unlimitedOwner: "Unlimited",
   yourPlan: "Your plan", usedPct: "{p}% used this week", topUp: "Top up", planOk: "Within your plan",
   runningNow: "Running now", stopAll: "Stop all", ch_all: "All", highlights: "Highlights", isNew: "NEW",
   h_ask: "Ask Nova", h_askSub: "Back to the chat to write your request", h_gh: "Connect GitHub", h_ghSub: "So Nova can work on your repos", h_repo: "Repository", h_repoSub: "Default repo for your tasks",

@@ -2,6 +2,7 @@
 //   Free: 3 pictures + 3 videos a day (owner's rule, 2026-10-28). Plus / Pro get more. The owner is exempt.
 // The day is the calendar day in Europe/Istanbul (it renews at midnight there). A slot is RESERVED before the Studio is called (one atomic UPDATE, so
 // two requests at once cannot both take the last slot) and handed back when nothing was made, so only a successful, vetted result is ever counted.
+import { pressureLimit } from "@/lib/pressureMode";
 import { prismaDb, tierFor, type Db } from "@/lib/coderAuth";
 import { coderChatKey } from "@/lib/coderAuth";
 import { getSubscription } from "@/lib/coderPlans";
@@ -35,7 +36,7 @@ export async function reserveMedia(chatId: number | string, kind: MediaKind, db:
   if (tierFor(Number(chatId)) === "owner") return { ok: true, owner: true, used: 0, limit: -1, planId: "owner" };
   let planId = "free";
   try { planId = (await getSubscription(chatId, db)).plan_id; } catch { /* free */ }
-  const limit = mediaLimit(planId, kind);
+  const limit = pressureLimit(mediaLimit(planId, kind), planId);              // pressure mode (owner switch): the free plan's media limit is halved
   if (limit <= 0) return { ok: false, used: 0, limit: 0, planId, kind };
   try {
     await ensureTables(db);

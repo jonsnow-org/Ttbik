@@ -90,6 +90,7 @@ describe("thinking / accuracy / speed are real for Sham", () => {
 
 
 import { shamModeCtx, shamThink } from "@/lib/shamStudio";
+process.env.SHAM_V2_OVERFLOW_URL = "off";   // the overflow Studio (shamPool.ts) has its own tests; here its status call would be taken for the model call
 
 describe("Sham's own path applies the chat's settings to every call", () => {
   it("the new Studio gets the header and a scaled answer budget; the old one gets only the scaled budget (until SHAM_MODES=on)", async () => {
