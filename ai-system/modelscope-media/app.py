@@ -456,11 +456,25 @@ def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_name
     prof = cv_profile()
     pipe = cv_pipe(root, env_names)
     frames = max(8, min(prof["max_frames"], int(round(float(seconds or 2) * prof["fps"]))))
+    keep = __import__("os").environ.get("CPU_VIDEO_KEEP", "") == "1"
+    # The sampling result stays as latents; unless the pipeline is kept, the UNet and text encoder (~2 GB) are dropped BEFORE the float32 VAE decode, and the frames are decoded one at a time.
+    # (The Sham v2 Studio holds a text model too, with ~1.4 GB RAM free: the all-in-one decode killed the Studio right after the 4 sampling steps: 502.)
     out = pipe(prompt=prompt[:300], guidance_scale=1.0, num_inference_steps=4, num_frames=frames, height=prof["side"], width=prof["side"],
-               generator=torch.Generator(device="cpu").manual_seed(int(seed)))
-    data = cv_encode_mp4(out.frames[0], prof["fps"])
-    if __import__("os").environ.get("CPU_VIDEO_KEEP", "") != "1":
-        del pipe, out
+               generator=torch.Generator(device="cpu").manual_seed(int(seed)), output_type="latent")
+    latents = out.frames
+    del out
+    if not keep:
+        import gc
+        pipe.unet = None
+        pipe.text_encoder = None
+        gc.collect()
+    with torch.inference_mode():
+        video = pipe.decode_latents(latents, decode_chunk_size=1)
+        pil_frames = pipe.video_processor.postprocess_video(video=video, output_type="pil")[0]
+    del video, latents
+    data = cv_encode_mp4(pil_frames, prof["fps"])
+    if not keep:
+        del pipe
         cv_release()
     return data
 # --- cpu_video END ---

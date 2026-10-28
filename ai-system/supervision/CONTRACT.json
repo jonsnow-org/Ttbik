@@ -718,6 +718,14 @@
       "reads": [],
       "writes": []
     },
+    "deploy_sham_v2_video": {
+      "file": ".github/workflows/deploy-modelscope-sham-v2-video.yml",
+      "title": "نشر استوديو فيديو شام v2 الخاص (AnimateDiff على CPU) واختباره بمقطع حقيقي",
+      "kind": "workflow",
+      "accelerator": "CPU (ModelScope Studio)",
+      "reads": [],
+      "writes": []
+    },
     "media_studio_probe": {
       "file": ".github/workflows/media-studio-probe.yml",
       "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",

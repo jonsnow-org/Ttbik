@@ -7,6 +7,8 @@ import { vetMedia } from "@/lib/mediaQuality";
 
 const DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net";
 const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
+// Sham v2's own video Studio (ai-system/modelscope-sham-video/app.py): the 8 GB chat Studio cannot carry the video pipeline (it died with HTTP 502 right after sampling).
+const DEFAULT_V2_VIDEO_URL = "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net";
 
 /** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
 export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
@@ -172,6 +174,16 @@ export async function shamGenerateMedia(
 ): Promise<ShamReply | null> {
   const api = "generate_media_from_panel";
   if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
+  if (kind === "video" && backend === "ready" && shamVariant.getStore() === "v2" && shamStudioEnabled()) {
+    // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
+    const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
+    const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
+    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: 2, seed: 0 }) }, timeoutMs);
+    const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+    if (body && !reply) lastFailure = "generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
+    if (!body && !lastFailure) lastFailure = "generate_video: the Sham v2 video Studio did not answer";
+    return reply;
+  }
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
