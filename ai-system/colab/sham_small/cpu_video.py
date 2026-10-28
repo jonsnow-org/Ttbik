@@ -50,17 +50,25 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     return None
 
 
+CV_HF_LEAN_BASE = "stable-diffusion-v1-5/stable-diffusion-v1-5"      # the same SD-1.5 family, published with fp16 files: ~2.1 GB instead of 4.3 GB
+_CV_LEAN_FILES = ["model_index.json", "scheduler/scheduler_config.json", "feature_extractor/preprocessor_config.json", "tokenizer/*", "text_encoder/config.json",
+                  "unet/config.json", "vae/config.json", "text_encoder/model.fp16.safetensors", "unet/diffusion_pytorch_model.fp16.safetensors", "vae/diffusion_pytorch_model.fp16.safetensors"]
+CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
+
+
 def cv_fetch_weights(root):
-    """Download the (open) weights once into <root>/video_animatediff: ModelScope first (the Studio's own network), Hugging Face as the fallback. Weights only; all inference stays local."""
+    """Download the (open) weights once into <root>/video_animatediff. With >= 6 GiB free: epiCRealism (fp32 files) from ModelScope, Hugging Face as the fallback. With less
+    (a small Studio disk): the fp16 SD-1.5 base (Hugging Face) + the 0.9 GB adapter, ~2.9 GiB in total. Weights only; all inference stays local."""
     import shutil as _sh
     from pathlib import Path as _P
     dest = _P(root) / "video_animatediff"
     dest.mkdir(parents=True, exist_ok=True)
     free = _sh.disk_usage(dest).free
-    if free < 6 * 1024 ** 3:
-        raise RuntimeError(f"native-video-unavailable: the video model needs about 6 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
+    if free < CV_LEAN_NEED:
+        raise RuntimeError(f"native-video-unavailable: the video model needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
+    lean = free < CV_FULL_NEED
     errors = []
-    for source in ("modelscope", "huggingface"):
+    for source in (("huggingface",) if lean else ("modelscope", "huggingface")):
         try:
             if source == "modelscope":
                 from modelscope import snapshot_download
@@ -68,8 +76,15 @@ def cv_fetch_weights(root):
                 snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
             else:
                 from huggingface_hub import snapshot_download as hf_download
-                hf_download(CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-                hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+                hf_download(CV_HF_LEAN_BASE if lean else CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_LEAN_FILES if lean else _CV_BASE_FILES)
+                if lean:                                            # the adapter is the same file on ModelScope; use it first, it is closer to the Studio
+                    try:
+                        from modelscope import snapshot_download
+                        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+                    except Exception:  # noqa: BLE001
+                        hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+                else:
+                    hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
             found = cv_find_weights(root)
             if found:
                 return found

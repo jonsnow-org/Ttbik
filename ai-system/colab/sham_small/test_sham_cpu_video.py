@@ -119,5 +119,45 @@ class RealGeneration(unittest.TestCase):
         self.assertGreaterEqual(info["frames"], 8)
 
 
+class SmallDiskFetch(unittest.TestCase):
+    """The Sham v2 Studio had 3.2 GiB free (deploy run 40611229169: 'needs about 6 GiB'): the fetch now has a lean fp16 path that fits."""
+
+    def _run(self, free_gib):
+        import shutil
+        import sys
+        import types
+        calls = []
+        hf = types.ModuleType("huggingface_hub")
+        hf.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("hf", repo, tuple(allow_patterns)))
+        ms = types.ModuleType("modelscope")
+        ms.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("ms", repo, tuple(allow_patterns)))
+        usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(free_gib * 1024 ** 3))
+        with tempfile.TemporaryDirectory() as d, patch.dict(sys.modules, {"huggingface_hub": hf, "modelscope": ms}), \
+                patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", return_value=("base", "adapter")):
+            return cpu_video.cv_fetch_weights(d), calls
+
+    def test_small_disk_uses_fp16_base_and_fits(self):
+        found, calls = self._run(3.2)
+        self.assertEqual(found, ("base", "adapter"))
+        base = [c for c in calls if c[1] == cpu_video.CV_HF_LEAN_BASE]
+        self.assertEqual(len(base), 1)
+        self.assertTrue(all("fp16" in p or "/" not in p or p.endswith("config.json") or p.endswith("*") or p.endswith(".json") for p in base[0][2]))
+        self.assertFalse(any(p in base[0][2] for p in ("unet/*.safetensors", "text_encoder/*.safetensors", "vae/*.safetensors")))
+        self.assertTrue(any(c[0] == "ms" and c[1] == cpu_video.CV_MS_ADAPTER for c in calls))
+        sizes = 1719125304 + 246144864 + 167335342 + 907702248      # real file sizes of the four weight files
+        self.assertLess(sizes + 100 * 1024 ** 2, 3.2 * 1024 ** 3)
+
+    def test_big_disk_keeps_the_realistic_base(self):
+        _, calls = self._run(20)
+        self.assertEqual(calls[0][:2], ("ms", cpu_video.CV_MS_BASE))
+
+    def test_too_little_disk_is_refused_clearly(self):
+        with self.assertRaises(RuntimeError) as cm:
+            self._run(2.0)
+        self.assertIn("native-video-unavailable", str(cm.exception))
+        self.assertIn("2.0 GiB", str(cm.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()
