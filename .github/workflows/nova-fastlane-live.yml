@@ -4,6 +4,11 @@ name: Nova fast lane live check (real Studios, nothing sent to Telegram)
 # Nova's REAL media Studio, for «قم بتوليد صورة فرس ابيض». Proves the live path end to end; the picture is uploaded as an artifact. Read-only for every real system.
 on:
   workflow_dispatch:
+    inputs:
+      text:
+        description: "the user's message"
+        required: false
+        default: "قم بتوليد صورة اسد"
 
 permissions:
   contents: read
@@ -24,7 +29,8 @@ jobs:
       - name: Run the live fast-lane check
         env:
           MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          NOVA_MEDIA_STUDIO_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
+          # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
+          PROBE_TEXT: ${{ inputs.text }}
           OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
           PROBE_OUT: ${{ runner.temp }}
         run: |

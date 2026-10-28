@@ -5,8 +5,13 @@ import { pressureOn, pressureMedia } from "@/lib/pressureMode";
 import { vetMedia } from "@/lib/mediaQuality";
 export type MediaReply = { type: string; b64?: string; text?: string; reason?: string };
 
+/** Nova's own media Studio. The env var overrides it ("off" switches media off); without it the known Studio is used, so a runtime that lacks the variable (2026-10-28 15:33: Nova said
+ *  "the media Studio is not connected in this session" to the owner) still works. Tests have no default (they never reach the network by accident). */
+export const DEFAULT_NOVA_MEDIA_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
 export function novaMediaUrl(): string {
-  return (process.env.NOVA_MEDIA_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  const v = (process.env.NOVA_MEDIA_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  if (/^(off|none|0)$/i.test(v)) return "";
+  return v || (process.env.NODE_ENV === "test" ? "" : DEFAULT_NOVA_MEDIA_URL);
 }
 export const novaMediaEnabled = (): boolean => Boolean(novaMediaUrl());
 
@@ -31,13 +36,21 @@ export function parseMediaSse(body: string): MediaReply | null {
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number } = {},
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void } = {},
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
   let last: MediaReply | null = null;
+  const deadline = Date.now() + (opts.timeoutMs ?? 240000);
   for (let seed = 0; seed < attempts; seed++) {
     last = await novaMakeMediaOnce(kind, prompt, opts, seed);
+    // the Studio does ONE job at a time and answers {"type":"busy"} (or "loading" while it starts): the request waits in line and asks again instead of failing
+    for (let q = 1; last && (last.type === "busy" || last.type === "loading") && Date.now() + 20000 < deadline && q <= 40; q++) {
+      opts.onWait?.(q);
+      await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
+      last = await novaMakeMediaOnce(kind, prompt, { ...opts, timeoutMs: Math.max(30000, deadline - Date.now()) }, seed);
+    }
+    if (last && (last.type === "busy" || last.type === "loading")) return { type: "error", reason: "busy", text: kind === "image" ? "استوديو الوسائط مشغول بطلبات أخرى ولم يتفرّغ في الوقت المتاح" : "استوديو الوسائط مشغول بطلبات أخرى ولم يتفرّغ في الوقت المتاح" };
     if (!last || last.type !== "error" || !/^(blank_image|noise_image)$/.test(String(last.reason || ""))) return last;
   }
   return last;

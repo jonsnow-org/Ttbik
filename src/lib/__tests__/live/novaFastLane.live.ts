@@ -9,6 +9,8 @@ import { pgDb } from "../pgDb";
 
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
 jest.setTimeout(900000);
+(process.env as any).NODE_ENV = "production";            // as on the server: the built-in default media Studio applies when NOVA_MEDIA_STUDIO_URL is not set
+const TEXT = process.env.PROBE_TEXT || "قم بتوليد صورة اسد";
 
 test("'قم بتوليد صورة فرس ابيض' -> a real, non-blank picture, no caption, no 'unavailable' text", async () => {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
@@ -24,7 +26,7 @@ test("'قم بتوليد صورة فرس ابيض' -> a real, non-blank picture,
     return { message_id: 1 };
   };
   const t0 = Date.now();
-  await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: "قم بتوليد صورة فرس ابيض" } }, db);
+  await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: TEXT } }, db);
   const t = Date.now();
   while (Date.now() - t < 600000 && !photos.length && !sent.some((s) => /تعذّر/.test(s.text))) await new Promise((r) => setTimeout(r, 1000));
   console.log("LIVE_RESULT", JSON.stringify({ photos: photos.map((p) => ({ bytes: p.bytes, caption: p.caption ?? null, secs: Math.round((p.at - t0) / 1000) })), texts: sent.map((s) => s.text.slice(0, 120)) }));

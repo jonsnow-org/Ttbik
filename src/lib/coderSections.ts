@@ -495,12 +495,20 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const intent = detectMediaIntent(content);
   if (!intent) return false;
   const nm = await import("@/lib/novaMedia");
-  if (!nm.novaMediaEnabled() || modelSettings(st, novaModelOf(st.model)).media === false) return false;   // the model tells the user how to switch it on
+  // never left to the model (it invented "the media Studio is not connected in this session"): a switched-off model / missing Studio is a precise, deterministic answer
+  if (modelSettings(st, novaModelOf(st.model)).media === false || !nm.novaMediaEnabled()) {
+    const why = !nm.novaMediaEnabled() ? "استوديو الوسائط غير مفعّل في إعدادات الخادم (NOVA_MEDIA_STUDIO_URL=off)." : "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).";
+    st.messages.push({ role: "user", content }, { role: "assistant", content: why });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, why);
+    return true;
+  }
   const runId = randomUUID().slice(0, 12);
   st.messages.push({ role: "user", content });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
-  later(() => fastMedia(bot, chatId, runId, intent, content, db).catch(async (e) => { await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
+  const card = await openMsgCard(realBot(bot) as never, chatId, content);        // ONE message: understood + progress (queue notes); the picture / video goes separately
+  later(() => fastMedia(bot, chatId, runId, intent, content, db, card).catch(async (e) => { await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة (خطأ داخلي). أعد المحاولة بعد قليل.").catch(() => false); await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
   return true;
 }
 
@@ -526,7 +534,7 @@ async function englishMediaPrompt(subject: string, original: string): Promise<st
   return mf.glossaryPrompt(subject);
 }
 
-async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent: { kind: "image" | "video"; subject: string }, content: string, db: Db): Promise<void> {
+async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent: { kind: "image" | "video"; subject: string }, content: string, db: Db, card?: MsgCard | null): Promise<void> {
   const { kind } = intent;
   const rb = realBot(bot);
   const beat = setInterval(() => void taskTouch(runId, db), 20000);
@@ -547,15 +555,16 @@ async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent
         await taskEvent(runId, "info", `🖼️ ${kind}: ${prompt}`, db);
         const nm = await import("@/lib/novaMedia");
         const { vetMedia } = await import("@/lib/mediaQuality");
-        const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000 });
+        const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, onWait: (n) => { void cardNote(realBot(bot) as never, chatId, card, `⏳ استوديو الوسائط يخدم طلباً آخر — طلبك في الدور وسيبدأ تلقائياً (محاولة ${n})`); void taskEvent(runId, "info", `⏳ media Studio busy, waiting in line (${n})`, db).catch(() => null); } });
         const r = (await vetMedia(r0)) as typeof r0;                    // the last gate before Telegram
         if (r?.b64 && r.type === "image" && kind === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); delivered = true; }
         else if (r?.b64 && r.type === "video" && kind === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); delivered = true; }
+        if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
         if (delivered) { result = kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع."; }
-        else { say = `تعذّر إنشاء ${kind === "image" ? "الصورة" : "المقطع"} هذه المرة (${r?.text ? String(r.text).slice(0, 120) : "لا نتيجة"}). لم يُرسل شيء ولم يُحسب من حصتك. أعد المحاولة بعد قليل.`; result = "failed"; }
+        else { say = `تعذّر إنشاء ${kind === "image" ? "الصورة" : "المقطع"} هذه المرة (${r?.text ? String(r.text).slice(0, 120) : r ? `${r.type || "?"}${r.reason ? `/${r.reason}` : ""}` : "لا رد من الاستوديو"}). لم يُرسل شيء ولم يُحسب من حصتك. أعد المحاولة بعد قليل.`; result = "failed"; }
       }
     }
-    if (say) await send(bot, chatId, say);
+    if (say && !(await cardSay(realBot(bot) as never, chatId, card, say))) await send(bot, chatId, say);
   } finally {
     clearInterval(beat);
     if (reserved && !delivered) await mq.releaseMedia(chatId, kind, db).catch(() => null);
@@ -1070,7 +1079,7 @@ const EDIT_EVERY_MS = 2000;
 const TG_MAX = 4096;
 
 export { understoodLine } from "@/lib/singleMessage";
-import { understoodLine } from "@/lib/singleMessage";
+import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, type Card as MsgCard } from "@/lib/singleMessage";
 
 /** Opens the one message right when the request arrives. Idempotent. */
 export async function openCard(bot: TelegramBot, chatId: number, run: Run, request: string): Promise<void> {
