@@ -27,6 +27,7 @@ import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
+import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -42,7 +43,7 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
-  progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
+  progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string; startedAt?: number; steps?: Step[]; cardAt?: number }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
@@ -483,7 +484,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
-  if (freshRun && st.run) await openCard(bot, chatId, st.run, content);          // ONE message, within seconds: "فهمت طلبك …" + the progress block; later edited into the live answer
+  if (freshRun && st.run) await openCard(bot, chatId, st.run, content, db);          // ONE message, within seconds: date + time, the model's own understanding line, then real steps; later edited into the live answer
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
@@ -512,7 +513,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   st.messages.push({ role: "user", content });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
-  const card = await openMsgCard(realBot(bot) as never, chatId, content);        // ONE message: understood + progress (queue notes); the picture / video goes separately
+  const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });        // ONE message: the model's understanding + real steps (queue notes); the picture / video goes separately
   later(() => fastMedia(bot, chatId, runId, intent, content, db, card).catch(async (e) => { await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة (خطأ داخلي). أعد المحاولة بعد قليل.").catch(() => false); await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
   return true;
 }
@@ -554,14 +555,21 @@ async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent
     else {
       reserved = true;
       await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+      const rbm = realBot(bot) as never;
+      const needsModel = !/^[\x00-\x7f]+$/.test(intent.subject);               // an English subject needs no model call: no such step is shown for it
+      if (needsModel) await cardTool(rbm, chatId, card, "كتابة وصف إنجليزي للصورة");
       const prompt = await englishMediaPrompt(intent.subject, content);
+      if (needsModel) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) { say = "تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة."; result = "no prompt"; }
       else {
         await taskEvent(runId, "info", `🖼️ ${kind}: ${prompt}`, db);
         const nm = await import("@/lib/novaMedia");
         const { vetMedia } = await import("@/lib/mediaQuality");
+        await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
         const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, onWait: (n) => { void cardNote(realBot(bot) as never, chatId, card, `⏳ استوديو الوسائط يخدم طلباً آخر — طلبك في الدور وسيبدأ تلقائياً (محاولة ${n})`); void taskEvent(runId, "info", `⏳ media Studio busy, waiting in line (${n})`, db).catch(() => null); } });
         const r = (await vetMedia(r0)) as typeof r0;                    // the last gate before Telegram
+        await cardStepDone(rbm, chatId, card, Boolean(r?.b64));
+        if (r?.b64 && (r.type === "image" || r.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
         if (r?.b64 && r.type === "image" && kind === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); delivered = true; }
         else if (r?.b64 && r.type === "video" && kind === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); delivered = true; }
         if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
@@ -1019,28 +1027,39 @@ export function localClock(now: Date = new Date(), tz: string = defaultTz()): st
   return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
 }
 
-/** The progress card: the tool steps so far (✅ done, ▶️ current) and, under them, the live state of the model (reading %, thinking, writing, queue) with the time of the last update. */
+/** The ack the model wrote after the card was opened (same process only); the persisted run picks it up on its next render. */
+const lateAck = new Map<string, string>();
+/** The progress card (agentCard.ts): date + time, the model's own understanding line, then REAL steps with their clock time and duration (a model phase, a tool with its path / command, sending). */
 function cardText(run: Run): string {
-  const p = run.progress || { lines: [] as string[] };
-  const shown = p.lines.slice(-12);
-  const clock = localClock();
-  return `${p.ack ? `${p.ack}\n\n` : ""}📋 التقدم${run.step ? ` · الخطوة ${run.step + 1}` : ""}\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n${p.phase ? `⏳ ${p.phase}` : "🔄 جارٍ..."}\n🕒 ${clock}`.slice(0, 4000);
+  const p = (run.progress ||= { lines: [] });
+  p.startedAt ||= Date.now();
+  p.steps ||= [];
+  if (!p.ack && lateAck.has(run.id)) p.ack = lateAck.get(run.id);
+  return renderTimeline({ startedAt: p.startedAt, ack: p.ack, steps: p.steps });
 }
-/** Live refresh of the same card message while the model works (every few seconds): the chat shows each phase from start to end, like the app's log. Never sends a second card when an edit fails. */
-async function refreshCard(bot: TelegramBot, chatId: number, run: Run, phase: string): Promise<void> {
+const cardGapMs = (): number => (process.env.CODER_CARD_GAP_MS !== undefined ? Number(process.env.CODER_CARD_GAP_MS) : 1200);
+/** Edits the card from the run's steps; at most every cardGapMs() (Telegram rate limits: the next event or the 5 s refresh carries whatever was skipped). */
+async function pushCard(bot: TelegramBot, chatId: number, run: Run, force = false): Promise<void> {
+  const p = run.progress;
+  if (!p || p.mode === "answer" || (process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
+  if (!force && Date.now() - (p.cardAt || 0) < cardGapMs()) return;
+  p.cardAt = Date.now();
+  if (p.msgId) { await (bot.api as any).editMessageText(chatId, p.msgId, cardText(run)).catch(() => null); return; }
+  const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
+  p.msgId = (m as any)?.message_id || undefined;
+}
+/** A real phase of the model (thinking, writing, queued, reading the prompt…): a state the Studio reported. The same key only refreshes its label. */
+async function refreshCard(bot: TelegramBot, chatId: number, run: Run, key: string, label: string): Promise<void> {
   if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
   const p = (run.progress ||= { lines: [] });
   if (p.mode === "answer") return;                                      // the message is already the live answer: never put the progress card over it
-  p.phase = phase;
-  if (!p.msgId) {
-    if (!p.lines.length) p.lines.push("بدأت المهمة");
-    const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
-    p.msgId = (m as any)?.message_id || undefined;
-    return;
-  }
-  await (bot.api as any).editMessageText(chatId, p.msgId, cardText(run)).catch(() => null);
+  p.startedAt ||= Date.now(); p.steps ||= [];
+  p.phase = label;
+  const changed = beginStep({ startedAt: p.startedAt, steps: p.steps }, "phase", key, label);
+  await pushCard(bot, chatId, run, changed);
 }
 
+/** A tool step the agent really started (label = what it does, with the path / command): it stays running until progressDone. */
 async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: string): Promise<void> {
   if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") {
     await send(bot, chatId, line);
@@ -1048,15 +1067,16 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   }
   const p = (run.progress ||= { lines: [] });
   if (p.mode === "answer") { run.progress = { lines: [] }; return progressLine(bot, chatId, run, line); }   // a tool step after an answer: a fresh card (the answer stays as it was)
-  p.lines.push(line.slice(0, 300));
-  const shown = p.lines.slice(-12);
-  const text = cardText(run);
-  if (p.msgId) {
-    const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
-    if (ok) return;
-  }
-  const m = await bot.api.sendMessage(chatId, text).catch(() => null);
-  p.msgId = (m as any)?.message_id || undefined;
+  p.startedAt ||= Date.now(); p.steps ||= [];
+  beginStep({ startedAt: p.startedAt, steps: p.steps }, "tool", "tool", line.replace(/^[^\p{L}\p{N}]+/u, ""));
+  await pushCard(bot, chatId, run, true);
+}
+/** The running tool step ended: ok or failed (the tool's own output decides, never a guess). */
+async function progressDone(bot: TelegramBot, chatId: number, run: Run, outs: string[]): Promise<void> {
+  const p = run.progress;
+  if (!p?.steps || p.mode === "answer") return;
+  endStep({ startedAt: p.startedAt || Date.now(), steps: p.steps }, !outs.some((o) => /^\s*(error|denied|not permitted|⚠️|❌)/i.test(String(o))));
+  await pushCard(bot, chatId, run);
 }
 
 /** The live progress card must never stay on "working…" after the task ended: it says so. */
@@ -1084,18 +1104,49 @@ const EDIT_EVERY_MS = 2000;
 const TG_MAX = 4096;
 
 export { understoodLine } from "@/lib/singleMessage";
-import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, type Card as MsgCard } from "@/lib/singleMessage";
+import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, cardTool, cardStepDone, cardPhase, type Card as MsgCard } from "@/lib/singleMessage";
 
-/** Opens the one message right when the request arrives. Idempotent. */
-export async function openCard(bot: TelegramBot, chatId: number, run: Run, request: string): Promise<void> {
+/** The model's own one-line understanding of the request: a tiny call on an idle Studio (40 tokens, thinking off, ~3 s cap). null = skip (one Studio only, tests, switched off). */
+function understandAsk(content: string): (() => Promise<string | null>) | null {
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_CARD_ACK !== "1") || (process.env.CODER_CARD_ACK || "").toLowerCase() === "off") return null;
+  if (coderStudioUrls().length < 2) return null;                       // a busy lone Studio must not be slowed by a side question
+  return async () => {
+    const messages: CoderMessage[] = [{ role: "user", content: understandingPrompt(content) }];
+    const o = await coderChat(messages, { maxTokens: 40, think: false, temperature: 0.3, waitS: 2, timeoutMs: 4000, fresh: true, tag: "ack" }).catch(() => null);
+    let r: CoderReply | null | undefined = o?.reply;
+    const until = Date.now() + 9000;
+    while (r?.type === "pending" && r.job && Date.now() < until) {
+      await new Promise((res) => setTimeout(res, 1000));
+      r = (await coderJobResult(r.job, 0, 4000).catch(() => null))?.reply;
+    }
+    if (r?.type === "pending" && r.job) { await coderCancel(r.job).catch(() => null); return null; }
+    return r?.type === "done" ? stripForeignScript(r.text || "", content) : null;
+  };
+}
+
+/** Opens the one message right when the request arrives (date + time + "received"), then asks the model for its own understanding line in parallel: it is edited in when it arrives. Idempotent. */
+export async function openCard(bot: TelegramBot, chatId: number, run: Run, request: string, db: Db = prismaDb): Promise<void> {
   if (!singleMessageOn() || chatId <= 0 || typeof (bot.api as any).editMessageText !== "function") return;
   const p = (run.progress ||= { lines: [] });
   if (p.msgId) return;
-  p.ack = understoodLine(request);
-  if (!p.lines.length) p.lines.push("بدأت المهمة");
-  p.phase = p.phase || "جارٍ انتظار أول مخرجات النموذج…";
+  p.startedAt = Date.now(); p.steps = [];
+  beginStep({ startedAt: p.startedAt, steps: p.steps }, "phase", "received", "استلام الطلب", p.startedAt);
   const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
   p.msgId = (m as any)?.message_id || undefined;
+  p.cardAt = Date.now();
+  const ask = p.msgId ? understandAsk(request) : null;
+  if (!ask) return;
+  const runId = run.id, msgId = p.msgId!;
+  const put = (line: string) => {
+    lateAck.set(runId, line);
+    void loadState(chatId, db).then(async (cur) => {                       // render from the latest saved state (the worker may already be further), never write it back
+      const r = cur.run;
+      if (r?.id !== runId || r.progress?.msgId !== msgId || r.progress.mode === "answer") return;
+      r.progress.ack = line;
+      await (bot.api as any).editMessageText(chatId, msgId, cardText(r)).catch(() => null);
+    }).catch(() => null);
+  };
+  void understandRequest(ask, request, { onLate: put }).then((line) => { if (line) put(line); });
 }
 
 /** Puts `html` (or plain `text`) into the request's one message: edits it, or starts it when there is none yet. false = Telegram refused (nothing changed). */
@@ -1132,6 +1183,7 @@ async function deliverSingle(bot: TelegramBot, chatId: number, text: string, run
   const from = Math.max(0, Math.min(text.length, run.botSent || 0));
   if (final) {
     const ranges = chunkRanges(text, from, true, 3800);
+    if (ranges.length > 1 && run.progress?.msgId && run.progress.mode !== "answer") await refreshCard(bot, chatId, run, "send", "جاري الإرسال");     // a long answer really is sent in several messages
     for (let i = 0; i < ranges.length; i++) {
       const [a, b] = ranges[i];
       const part = renderRange(text, a, b);
@@ -1191,9 +1243,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
     }
     const msgId = run.progress?.msgId;
     if (!msgId || run.progress?.mode === "answer") return;
-    const dots = ".".repeat((beat % 3) + 1);
-    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${localClock()}`;
-    void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
+    void (bot.api as any).editMessageText(chatId, msgId, cardText(run)).catch(() => null);      // the same card: the running step shows how long it has been going
   }, 8000);
   try {
     return await work();
@@ -1279,7 +1329,7 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
     // (one message when it fits 4096 characters, never fragments). If drafts are refused, the same text goes in readable batches.
     await deliverToChat(bot, chatId, text, run, final);
     // a plain answer (no tool ran): the "request received" card has nothing more to say, so it is removed instead of staying stuck
-    if (final && text.trim() && run.progress?.msgId && run.progress.lines.length <= 2) {
+    if (final && text.trim() && run.progress?.msgId && !(run.progress.steps || []).some((x) => x.kind === "tool")) {
       const mid = run.progress.msgId;
       run.progress = undefined;
       await (bot.api as any).deleteMessage?.(chatId, mid)?.catch?.(() => null);
@@ -1338,7 +1388,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         st.messages.push({ role: "tool", content: composeResults(await fitReports(d.titles.map((title, i) => ({ title, result: finished[i] })), async (t) => (await import("@/lib/coderMemory")).studioLlm(150000)([{ role: "user", content: `Condense this agent report to about half its length. Keep EVERY name, path, number, version, source and the whole NOT DONE and OUTPUT lines exactly; drop only repetition and filler. Keep the four labelled lines (JOB, DONE, NOT DONE, OUTPUT).\n\n${t}` }]))), tool_call_id: d.id, name: "delegate" });
         run.delegating = undefined;
         await taskEvent(run.id, "info", `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})${timedOut ? " — انتهت المهلة" : ""}.`, db);
-        await progressLine(ioBot, chatId, run, `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})`);
+        await progressDone(ioBot, chatId, run, finished.filter(Boolean).length ? [] : ["error: no agent report"]);
         await saveState(chatId, st, db, slot);
         continue;
       }
@@ -1372,7 +1422,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         const slots = await startAgents(bot, botRow, chatId, st, run, tasks, db);
         run.delegating = { id: call.id || "delegate", slots, titles: tasks.map((t) => t.title), at: Date.now() };
-        await progressLine(ioBot, chatId, run, `🧩 وكلاء (${tasks.length}): ${tasks.map((t) => t.title).join(" · ").slice(0, 120)}`);
+        await progressLine(ioBot, chatId, run, `تكليف ${tasks.length} ${tasks.length === 1 ? "وكيل" : "وكلاء"}: ${tasks.map((t) => t.title).join(" · ").slice(0, 100)}`);
         await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل: ${tasks.map((t) => `${t.title} [${t.role}]`).join(" | ")}`, db);
         await saveState(chatId, st, db, slot);
         continue;
@@ -1515,7 +1565,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         run.approved = (run.approved || []).filter((key) => key !== approvedKey);
         const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
         await taskEvent(run.id, "tool", toolLabel(call), db);
+        await progressLine(ioBot, chatId, run, stepLabel(call.function.name, call.function.arguments));
         const out = await withHeartbeat(ioBot, chatId, run, `تنفيذ بعد الموافقة: ${short}`, () => runTool(call, ctx));
+        await progressDone(ioBot, chatId, run, [out]);
         st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
         const seen = afterCall(run.stall, call, out, run.step);
@@ -1564,7 +1616,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
       const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
-      await progressLine(ioBot, chatId, run, short);
+      await progressLine(ioBot, chatId, run, stepLabel(call.function.name, call.function.arguments));
       await taskEvent(run.id, "tool", toolLabel(call), db);
       // Independent reads the model asked for in the same step (e.g. three files) run together instead of one after the other; each
       // one still passes the same checks (role, repeat guard, permissions). Writes and anything that needs a confirmation stay one by one.
@@ -1584,6 +1636,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       for (const b of batch.slice(1)) await taskEvent(run.id, "tool", toolLabel(b), db);
       const outs = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}${batch.length > 1 ? ` (+${batch.length - 1})` : ""}`, () => Promise.all(batch.map((b) => runTool(b, ctx))));
       run.queued = rest.slice(batch.length - 1);
+      await progressDone(ioBot, chatId, run, outs);
       for (let i = 0; i < batch.length; i++) {
         await bankAdd(run.id, coderChatKey(chatId), run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
         st.messages.push({ role: "tool", content: outs[i] + (i === batch.length - 1 ? progressNote(run) : ""), tool_call_id: batch[i].id, name: batch[i].function.name });
@@ -1677,9 +1730,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.progressAt = Date.now();
           const pf = r.prefill && Number(r.prefill.total) > 0 ? Math.min(99, Math.floor((Number(r.prefill.processed || 0) / Number(r.prefill.total)) * 100)) : -1;
           const readDone = Boolean(r.prefill && Number(r.prefill.total) > 0 && Number(r.prefill.processed) >= Number(r.prefill.total));
-          const phase = r.phase && r.phase !== "ready" ? `جارٍ التحضير (${r.phase})` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : Number(r.reasoning_len || 0) > 0 ? "جارٍ التفكير…" : readDone ? "جارٍ الكتابة…" : pf >= 0 ? `جارٍ قراءة المهمة… ${pf}%` : "جارٍ انتظار أول مخرجات النموذج";
+          // only states the Studio itself reported: its model phase, its queue position, its reasoning counter, its prompt-reading progress, whether text is coming
+          const [pkey, phase] = r.phase && r.phase !== "ready" ? ["prep", `جاري تجهيز النموذج (${r.phase})`] : r.queue_pos && r.queue_pos > 0 ? ["queue", `في الطابور، الترتيب ${r.queue_pos}`] : Number(r.reasoning_len || 0) > 0 && !r.total ? ["think", "جاري التفكير"] : Number(r.total || 0) > 0 || readDone ? ["write", "جاري الكتابة"] : pf >= 0 ? ["read", `جاري قراءة المهمة ${pf}%`] : ["wait", "في انتظار أول مخرجات النموذج"];
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
-          await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, phase);
+          await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, pkey, phase);
         }
         // once per job: how much of the prompt the Studio really had to read (the rest came from its cache) and on which Studio: the evidence for "does it read everything again?"
         if (r.prefill && Number(r.prefill.total) > 0 && run.pfLogged !== run.job) {
@@ -1908,9 +1962,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const queries = (drafted.length ? drafted : fallbackQueries(q)).slice(0, 6);
         await taskEvent(run.id, "info", `🔎 استعلامات البحث: ${queries.join(" | ")}`, db);
         const call = { id: "pre_research", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: q, ...(queries.length ? { queries } : {}) }) } };
-        await progressLine(ioBot, chatId, run, "بحث معمّق");
+        await progressLine(ioBot, chatId, run, stepLabel("deep_research", call.function.arguments));
         await taskEvent(run.id, "tool", toolLabel(call), db);
         const out = await withHeartbeat(ioBot, chatId, run, "بحث معمّق", () => runTool(call, ctx));
+        await progressDone(ioBot, chatId, run, [out]);
         st.messages.push({ role: "assistant", content: "", tool_calls: [call] }, { role: "tool", content: out, tool_call_id: call.id, name: "deep_research" });
         // "search GitHub" requests: the engine also asks GitHub itself (repositories by stars) and reads the top READMEs, so the report names real projects
         let ghFound = 0;
