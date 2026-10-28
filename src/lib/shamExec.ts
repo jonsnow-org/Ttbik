@@ -142,21 +142,21 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
       const ref = String(a.ref || "").trim();
       const maxChars = Math.max(150, Math.min(600, Number(a.max_chars_per_file) || 450));
       const results = await Promise.all(paths.map(async (path) => {
-        if (path.startsWith("/") || path.includes("\\\\") || path.split("/").some((part: string) => part === "." || part === "..")) {
-          return `=== ${path} ===\\nerror: path must stay inside the repository`;
+        if (path.startsWith("/") || path.includes("\\") || path.split("/").some((part: string) => part === "." || part === "..")) {
+          return \`=== \${path} ===\\nerror: path must stay inside the repository\`;
         }
         try {
-          const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-          const r = await gh(ctx, "GET", `${R}/contents/${enc(path)}${query}`);
+          const query = ref ? \`?ref=\${encodeURIComponent(ref)}\` : "";
+          const r = await gh(ctx, "GET", \`\${R}/contents/\${enc(path)}\${query}\`);
           if (r.status >= 300 || typeof r.data?.content !== "string") {
-            return `=== ${path} ===\\nerror ${r.status}: ${r.data?.message || "file is missing, binary, or too large for the Contents API"}`;
+            return \`=== \${path} ===\\nerror \${r.status}: \${r.data?.message || "file is missing, binary, or too large for the Contents API"}\`;
           }
           const lines = Buffer.from(r.data.content, "base64").toString("utf-8").split("\\n");
           const text = lines.join("\\n");
-          const excerpt = text.length > maxChars ? `${text.slice(0, maxChars)}\\n…[excerpt truncated; ${lines.length} lines]` : text;
-          return `=== ${path} (${lines.length} lines) ===\\n${excerpt}`;
+          const excerpt = text.length > maxChars ? \`\${text.slice(0, maxChars)}\\n…[excerpt truncated; \${lines.length} lines]\` : text;
+          return \`=== \${path} (\${lines.length} lines) ===\\n\${excerpt}\`;
         } catch (e) {
-          return `=== ${path} ===\\nerror: ${String((e as Error)?.message || e).slice(0, 120)}`;
+          return \`=== \${path} ===\\nerror: \${String((e as Error)?.message || e).slice(0, 120)}\`;
         }
       }));
       return clip(results.join("\\n\\n"), 2600);
