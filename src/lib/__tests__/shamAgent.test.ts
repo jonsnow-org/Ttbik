@@ -7,6 +7,15 @@ const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say> | { type: "image"; b64: string } | null>, seen: string[] = []): ShamAsk => async (prompt) => { seen.push(prompt); return (answers.shift() ?? null) as any; };
 
 describe("Sham's own agent loop", () => {
+  it("keeps v1 and v2 on their separate ModelScope Studio routes", () => {
+    const v1 = shamVariant.run("v1", () => shamBases());
+    const v2 = shamVariant.run("v2", () => shamBases());
+    expect(DEFAULT_URL).toContain("sham-v1");
+    expect(DEFAULT_V2_URL).toContain("sham-v2");
+    expect(v1.every((url) => /sham-v1/i.test(url) && !/sham-v2|nova-inference-server|coder-inference/i.test(url))).toBe(true);
+    expect(v2.every((url) => /sham-v2/i.test(url) && !/sham-v1|nova-inference-server|coder-inference/i.test(url))).toBe(true);
+  });
+
   it("Sham v2 sends ordinary conversation as a direct chat prompt without the serialized tool transcript", async () => {
     const seen: string[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
