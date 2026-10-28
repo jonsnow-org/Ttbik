@@ -376,7 +376,9 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
                 "tool_calls": tool_calls,
                 "message": {"role": "assistant", "content": call.get("text", ""), "tool_calls": tool_calls},
             }, ensure_ascii=False)
-        if OPEN_TAG in str(raw or "") or str(raw or "").lstrip().startswith('{"name"'):
+        raw_text = str(raw or "").strip()
+        fenced_call = raw_text.startswith(chr(96) * 3) and '"name"' in raw_text
+        if OPEN_TAG in raw_text or raw_text.startswith('{"name"') or fenced_call:
             return json.dumps({
                 "type": "tool_call_error",
                 "text": "ولّد شام استدعاء أداة غير مكتمل أو غير مسموح. لم تُنفّذ أي أداة؛ أعد المحاولة بصيغة صحيحة.",
