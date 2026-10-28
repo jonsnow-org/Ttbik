@@ -17,11 +17,11 @@ beforeEach(() => {
 describe("modelSettings (pure)", () => {
   it("defaults; a change touches only that model", () => {
     const st: any = {};
-    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true });
+    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true });
     setModelSettings(st, "sham_v2", { think: true, accuracy: "precise", media: false });
-    expect(modelSettings(st, "sham_v2")).toEqual({ think: true, accuracy: "precise", media: false });
-    expect(modelSettings(st, "sham")).toEqual({ think: false, accuracy: "balanced", media: true });
-    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true });
+    expect(modelSettings(st, "sham_v2")).toEqual({ think: true, accuracy: "precise", media: false, auto: true });
+    expect(modelSettings(st, "sham")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true });
+    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true });
   });
   it("Nova still honours the old single switches until it has its own entry; other models do not", () => {
     const st: any = { think: true, accuracy: "fast" };

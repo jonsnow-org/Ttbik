@@ -16,6 +16,8 @@ import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, 
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
+import { resolveProfile, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
+import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
@@ -45,6 +47,7 @@ export type Run = {
   progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
+  klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
 export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>> };
@@ -1968,6 +1971,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const nset = modelSettings(st, novaModelOf(st.model));                  // this model's OWN thinking / speed / media switches
     const accuracy: Accuracy = nset.accuracy;
+    // ONE mode system (src/lib/modes.ts): the request's class and the user's mode / Auto decide thinking, answer cap, temperature and the short "lite" path. The class is decided once per task.
+    await refreshForced(db).catch(() => null);
+    const lastUser = [...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"));
+    const prof = resolveProfile({ model: "nova", pref: accuracy, auto: nset.auto, thinkSwitch: nset.think, text: run.goal || String(lastUser?.content || ""), klass: run.agent ? "agentic" : run.klass, force: forcedMode(novaModelOf(st.model)) });
+    run.klass = prof.klass;
     if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
       st.messages.push({ role: "user", content: "[harness] This is your LAST step: do not call tools any more. Write the final report now from what you found." });
@@ -1979,7 +1987,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (!run.ctxStamped) {
       let k = st.messages.length - 1;
       while (k >= 0 && !(st.messages[k].role === "user" && !String(st.messages[k].content).startsWith("[harness]"))) k--;
-      const ctxText = [`Current date (UTC): ${new Date().toISOString().slice(0, 10)}.`, accuracyNote(accuracy), run.memory || "", st.repo ? `Default repository for this user: ${st.repo}` : "", st.notes ? `Your notes so far:\n${st.notes}` : ""].filter(Boolean).join("\n");
+      const ctxText = [`Current date (UTC): ${new Date().toISOString().slice(0, 10)}.`, prof.note, run.memory || "", st.repo ? `Default repository for this user: ${st.repo}` : "", st.notes ? `Your notes so far:\n${st.notes}` : ""].filter(Boolean).join("\n");
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
@@ -1991,11 +1999,19 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     };
     const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
     const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
+    // greetings / thanks (class "trivial"): the short system text, no tool list and only the plain conversation, so the reply comes in seconds instead of reading ~9k tokens of tools.
+    // Only on the first step of a task, never while a question is pending, and never when the last assistant turn was a tool call or a question.
+    const lastAsst = [...st.messages].reverse().find((m) => m.role === "assistant");
+    const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
+    if (lite) {
+      const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
+      messages.splice(0, messages.length, { role: "system", content: NOVA_LITE_SYSTEM }, ...plain);
+    }
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
-    const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
+    const temperature = run.stall.level >= 2 ? knobs.temperature : prof.temperature;
     await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً (تعليمات " + estimateTokens(String(messages[0].content || "")) + " + محادثة " + estimateTokens(messages.slice(1).map((m) => m.content || "").join("\n")) + ").", db);
     const modelStartedAt = Date.now();
     // The tool list sits at the very START of the prompt, so any change to it makes the Studio read the whole conversation again. Groups once used in this
@@ -2005,7 +2021,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (nset.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((prof.think && run.step === 0) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {

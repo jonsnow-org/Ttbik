@@ -8,7 +8,9 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAny, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { resolveProfile } from "@/lib/modes";
+import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
@@ -52,9 +54,14 @@ export async function shamAgentRun(opts: {
   const now = opts.now || Date.now;
   const t0 = now();
   const left = () => opts.budgetMs - (now() - t0);
-  const k = shamKnobs(opts.mode, shamVariant.getStore());
+  // ONE mode system (src/lib/modes.ts): this request's class (greeting / chat / code / agent / media) and the user's mode + Auto decide the answer budget, sampling, correction
+  // rounds and whether the body writes a thought first. A greeting or a media request never thinks; the user's "thinking" switch applies to code / agent work, first step.
+  const variant = shamVariant.getStore();
+  const prof = resolveProfile({ model: variant === "v2" ? "sham_v2" : "sham", pref: opts.mode?.accuracy, auto: opts.mode?.auto, thinkSwitch: opts.mode?.think, text: opts.text, force: forcedMode(variant === "v2" ? "sham_v2" : "sham"), canThink: variant === "v2" });
+  const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
+  const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const ask: ShamAsk = opts.ask || ((p, n, t) => shamGenerateAny(p, n, t));
+  const ask: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];

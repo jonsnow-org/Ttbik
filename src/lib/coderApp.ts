@@ -10,7 +10,7 @@ import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref
 import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
-import { isAccuracy } from "@/lib/coderAgent";
+import { normalizePref } from "@/lib/modes";
 import { modelSettings, modelReady, memorySettings, setMemorySettings } from "@/lib/coderModels";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
@@ -117,7 +117,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
-        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => owner || (m.visible && modelReady(m))).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => owner || (m.visible && modelReady(m))).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -140,13 +140,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (body.carry !== false && C.isChatModel(from) && C.isChatModel(to)) carried = await C.carryConversation(chatId, st, from, to, db).catch(() => 0);
       }
       // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
-      if (typeof body.think === "boolean" || isAccuracy(body.accuracy) || typeof body.media === "boolean") {
+      const accIn = normalizePref(body.accuracy);
+      if (typeof body.think === "boolean" || accIn || typeof body.media === "boolean" || typeof body.auto === "boolean") {
         const { listModels, setModelSettings, canonModelId } = await import("@/lib/coderModels");
         const target = canonModelId(typeof body.for === "string" ? body.for : st.model) || "coder";
         const known = await listModels(db);
         const m = known.find((x) => x.id === target);
         if (!m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
-        const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: isAccuracy(body.accuracy) ? body.accuracy : undefined, media: typeof body.media === "boolean" ? body.media : undefined });
+        const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: accIn, media: typeof body.media === "boolean" ? body.media : undefined, auto: typeof body.auto === "boolean" ? body.auto : undefined });
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save
@@ -466,6 +467,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const P = await import("@/lib/pressureMode");
       if (typeof body.on === "boolean") await P.setPressure(body.on, db);
       return { on: await P.refreshPressure(db, true) };
+    }
+    case "mode_force": {
+      // the owner's mode override (src/lib/modeForce.ts): { for: model id, mode: "fast" | "balanced" | "precise" | "" (clear) }; read-only without `mode`. Owner only.
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const F = await import("@/lib/modeForce");
+      const { canonModelId } = await import("@/lib/coderModels");
+      if (typeof body.mode === "string" || body.mode === null) {
+        const target = canonModelId(typeof body.for === "string" ? body.for : undefined) || "coder";
+        await F.setForcedMode(target, body.mode, db);
+      }
+      return { forced: await F.refreshForced(db, true) };
     }
     case "lessons": {
       // the owner's finished runs kept as training examples (coderLessons.ts): how many, and the JSON Lines to take
