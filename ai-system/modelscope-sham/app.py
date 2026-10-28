@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"          # Gradio's localhost self-check (same fix as the previous app in this Studio)
@@ -318,6 +319,61 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         _LOCK.release()
 
 
+def agent_step(prompt: str, max_new_tokens: float = 160) -> str:
+    """Sham v2's structured agent API.
+
+    Returns either {"type":"text","text":...}, or an assistant message containing
+    typed function calls. The model still chooses the action; this boundary only
+    packages a valid, loaded-tool call into a data structure. The web app's Sham
+    executor then validates the schema and permissions before execution.
+    """
+    if not (_V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1"):
+        return json.dumps({"type": "error", "text": "Structured agent execution is enabled only on Sham v2."}, ensure_ascii=False)
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    try:
+        token_cap = max(32, int(os.environ.get("SHAM_GENERATE_ANY_MAX_TOKENS", "768")))
+    except (TypeError, ValueError):
+        token_cap = 768
+    n = int(max(1, min(MAX_NEW_TOKENS, token_cap, max_new_tokens)))
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        tok, model = serve._state["text_tokenizer"], serve._state["model"]
+        raw = _studio_chat().studio_generate(model, tok, str(prompt or ""), n, search_fn=None)
+        from sham_toolcall import OPEN_TAG, extract_tool_call
+
+        call = extract_tool_call(raw, str(prompt or ""))
+        if call:
+            tool_calls = [{
+                "id": "call_" + uuid.uuid4().hex[:16],
+                "type": "function",
+                "function": {
+                    "name": call["name"],
+                    "arguments": json.dumps(call["arguments"], ensure_ascii=False, separators=(",", ":")),
+                },
+            }]
+            return json.dumps({
+                "type": "tool_calls",
+                "text": call.get("text", ""),
+                "tool_calls": tool_calls,
+                "message": {"role": "assistant", "content": call.get("text", ""), "tool_calls": tool_calls},
+            }, ensure_ascii=False)
+        if OPEN_TAG in str(raw or "") or str(raw or "").lstrip().startswith('{"name"'):
+            return json.dumps({
+                "type": "tool_call_error",
+                "text": "ولّد شام استدعاء أداة غير مكتمل أو غير مسموح. لم تُنفّذ أي أداة؛ أعد المحاولة بصيغة صحيحة.",
+                "raw": str(raw or "")[:240],
+            }, ensure_ascii=False)
+        return json.dumps({"type": "text", "text": str(raw or "").strip()}, ensure_ascii=False)
+    except Exception as exc:
+        print(f"agent_step failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return _json_notice("تعذّر إنشاء خطوة وكيل منظّمة الآن.")
+    finally:
+        _LOCK.release()
+
+
 def _vet(res):
     """Quality gate at the Studio's exit: a blank / noise picture, silent audio or an empty video becomes a typed error (media_quality.py), never a reply."""
     from media_quality import gate_reply
@@ -544,8 +600,15 @@ def build_ui():
     auto = gr.Interface(chat_auto, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
                         api_name="chat_auto", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, anyk, media, legacy, read, web, auto, st],
-                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "وسائط (واجهة قديمة)", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"], title="شام — Sham")
+    interfaces = [chat, anyk, media, legacy, read, web, auto, st]
+    labels = ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "وسائط (واجهة قديمة)", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"]
+    # Only the dedicated Sham v2 wrapper exposes this API; v1 keeps its existing Studio interface.
+    if _V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1":
+        agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=160)],
+                             gr.Textbox(label="structured agent result"), api_name="agent_step", flagging_mode="never")
+        interfaces.insert(1, agent)
+        labels.insert(1, "وكيل شام v2 (استدعاءات منظّمة)")
+    return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 
 if __name__ == "__main__":
