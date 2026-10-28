@@ -5,6 +5,7 @@
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
 import { prismaDb, type Db } from "@/lib/shamDb";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
+import { shamVariant } from "@/lib/shamStudio";
 
 /** What Sham needs from the platform it runs on (web access, the VM driver, limits, memory, schedules, the user's connections). Sham never imports Nova's modules:
  *  everything comes through this interface, implemented in ONE place (shamHost.ts), which is the only file where the two meet. */
@@ -46,6 +47,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("deep_research", "Research a question: several searches, many sources read, the best passages returned with numbered sources [n].", obj({ question: s("the question"), max_sources: n("default 10") }, ["question"])),
   tool("github_list_files", "List a repository's files (or one folder when `path` is given).", obj({ repo: REPO, path: s("folder, empty = all files"), ref: s("branch, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a file from a repository (line window for big files).", obj({ repo: REPO, path: s("file path"), ref: s("branch"), start_line: n("1-based"), end_line: n("last line") }, ["repo", "path"])),
+  tool("github_read_files", "Read up to four files from a repository in parallel in one tool call; useful for code review and multi-file debugging.", obj({ repo: REPO, paths: { type: "array", items: s("repository-relative file path"), description: "1 to 4 file paths" }, ref: s("branch or commit, optional"), max_chars_per_file: n("each file excerpt, default 450, max 600") }, ["repo", "paths"])),
   tool("github_search_code", "Search code inside one repository.", obj({ repo: REPO, query: s("words to find") }, ["repo", "query"])),
   tool("github_repo_scan", "Overview of a repository: info, folders, README and manifests.", obj({ repo: REPO }, ["repo"])),
   tool("github_prs", "List a repository's pull requests (state open|closed|all), or read ONE pull request (number): title, branches, state, description and its changed files.", obj({ repo: REPO, number: n("PR number: read this one"), state: s("open (default) | closed | all") }, ["repo"])),
@@ -86,11 +88,11 @@ export function shamNeedsOk(call: CoderToolCall): boolean {
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
 const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
-const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "sandbox_push"]);
+const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
-  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)));
+  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
@@ -131,6 +133,33 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
       const r = await gh(ctx, "GET", `${R}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
       const items = (r.data?.tree || []).filter((x: any) => x.type === "blob").map((x: any) => x.path);
       return clip(`${items.length} files${r.data?.truncated ? " (truncated)" : ""}\n${items.slice(0, 1500).join("\n")}`);
+    }
+    case "github_read_files": {
+      const paths = Array.isArray(a.paths)
+        ? [...new Set(a.paths.map((p: unknown) => String(p || "").trim()))].filter(Boolean).slice(0, 4)
+        : [];
+      if (!paths.length) return "error: paths must contain 1 to 4 repository-relative file paths";
+      const ref = String(a.ref || "").trim();
+      const maxChars = Math.max(150, Math.min(600, Number(a.max_chars_per_file) || 450));
+      const results = await Promise.all(paths.map(async (path) => {
+        if (path.startsWith("/") || path.includes("\\\\") || path.split("/").some((part: string) => part === "." || part === "..")) {
+          return `=== ${path} ===\\nerror: path must stay inside the repository`;
+        }
+        try {
+          const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+          const r = await gh(ctx, "GET", `${R}/contents/${enc(path)}${query}`);
+          if (r.status >= 300 || typeof r.data?.content !== "string") {
+            return `=== ${path} ===\\nerror ${r.status}: ${r.data?.message || "file is missing, binary, or too large for the Contents API"}`;
+          }
+          const lines = Buffer.from(r.data.content, "base64").toString("utf-8").split("\\n");
+          const text = lines.join("\\n");
+          const excerpt = text.length > maxChars ? `${text.slice(0, maxChars)}\\n…[excerpt truncated; ${lines.length} lines]` : text;
+          return `=== ${path} (${lines.length} lines) ===\\n${excerpt}`;
+        } catch (e) {
+          return `=== ${path} ===\\nerror: ${String((e as Error)?.message || e).slice(0, 120)}`;
+        }
+      }));
+      return clip(results.join("\\n\\n"), 2600);
     }
     case "github_read_file": {
       const r = await gh(ctx, "GET", `${R}/contents/${enc(String(a.path))}${a.ref ? `?ref=${encodeURIComponent(a.ref)}` : ""}`);
