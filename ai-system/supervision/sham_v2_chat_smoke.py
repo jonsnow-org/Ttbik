@@ -8,12 +8,12 @@ import os
 import re
 import time
 import unicodedata
-from urllib.request import Request, urlopen
+from urllib.error import URLError\nfrom urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
-QUESTION = "هل لديك خبرة في الكود؟"
+QUESTION = "ماهي خبراتك ومهاراتك مالذي تستطيع القيام به وماهي الادوات المتوفرة والمتاحة لديك والتي تستطيع استدعائها عندما تنفذ مهام"
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
@@ -47,15 +47,25 @@ def call(api: str, payload: dict, timeout: int = 180):
     event_id = submitted.get("event_id")
     if not event_id:
         raise RuntimeError(f"{api}: no event_id returned")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    last_error = ""
+    # Read the SSE stream line-by-line. res.read() can wait forever on a stream
+    # that keeps heartbeats alive, defeating the intended overall deadline.
+    while time.monotonic() < deadline:
         req = Request(f"{BASE}/gradio_api/call/{api}/{event_id}", headers={"Authorization": f"Bearer {TOKEN}"})
-        with urlopen(req, timeout=min(45, max(5, int(deadline - time.time())))) as res:
-            value = unwrap(res.read().decode("utf-8", errors="replace"))
-        if value is not None:
-            return value
-        time.sleep(2)
-    raise TimeoutError(f"{api}: timed out after {timeout}s")
+        try:
+            with urlopen(req, timeout=min(30, max(5, int(deadline - time.monotonic())))) as res:
+                while time.monotonic() < deadline:
+                    line = res.readline()
+                    if not line:
+                        break
+                    value = unwrap(line.decode("utf-8", errors="replace"))
+                    if value is not None:
+                        return value
+        except (TimeoutError, URLError, OSError) as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:100]}"
+        time.sleep(1)
+    raise TimeoutError(f"{api}: timed out after {timeout}s; last stream error: {last_error}")
 
 
 def norm(value: str) -> str:
@@ -81,6 +91,11 @@ def check_answer(answer: str) -> None:
         or (prefix_ratio >= 0.68 and prefix_similarity >= 0.80)
     ):
         raise RuntimeError(f"v2 echoed the user's question instead of answering: {answer[:180]!r}")
+    last_word = (actual.split() or [""])[-1]
+    if last_word in {"نموذ", "الادوا", "المتوف", "المتاح", "استدعا", "include", "includ", "availab", "capabilit"}:
+        raise RuntimeError(f"v2 answer appears cut off mid-word: {answer[-120:]!r}")
+    if len(answer) > 180 and not re.search(r"[.!؟?…؛:]$", answer.strip()):
+        raise RuntimeError(f"v2 long answer lacks a sentence ending and may be truncated: {answer[-120:]!r}")
     stock_identity = re.search(r"(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)", actual[:90])
     if stock_identity:
         raise RuntimeError(f"v2 started with its stock identity instead of answering the capability question: {answer[:180]!r}")
@@ -119,7 +134,7 @@ def main() -> int:
 
     last = None
     for attempt in range(3):
-        last = call("generate_any", {"prompt": QUESTION, "max_new_tokens": 120}, timeout=180)
+        last = call("generate_any", {"prompt": QUESTION, "max_new_tokens": 320}, timeout=240)
         if isinstance(last, str):
             try:
                 last = json.loads(last)
