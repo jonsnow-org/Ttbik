@@ -55,46 +55,6 @@ class ToolCallGuard:
         return kids or None
 
 
-def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | None = None) -> dict | None:
-    """Turn the model's constrained call envelope into a typed function call.
-
-    This is the Studio-side protocol boundary: callers receive a structured
-    {name, arguments, text} object, not a tool-call tag to parse themselves.
-    Only names present in the current prompt are accepted. Arguments must be a
-    JSON object; the execution service still performs its full schema and
-    permission validation before running anything.
-    """
-    raw = str(text or "").strip()
-    if not raw:
-        return None
-    repaired = repair_call(raw)
-    match = re.search(re.escape(OPEN_TAG) + r"\s*([\s\S]*?)\s*" + re.escape(CLOSE_TAG), repaired)
-    if not match:
-        return None
-    try:
-        payload = json.loads(match.group(1).strip())
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    name = str(payload.get("name") or payload.get("tool") or "").strip()
-    prompt_names = set(tool_names_from_prompt(prompt))
-    if available_tool_names is not None:
-        prompt_names.intersection_update(str(item).strip() for item in available_tool_names)
-    if not name or name not in prompt_names:
-        return None
-    arguments = payload.get("arguments", payload.get("args", payload.get("parameters", {})))
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-    if not isinstance(arguments, dict):
-        return None
-    remainder = (repaired[:match.start()] + repaired[match.end():]).strip()
-    return {"name": name, "arguments": arguments, "text": remainder}
-
-
 def repair_call(text: str) -> str:
     """Make the LAST <tool_call> body valid JSON when a small, certain fix does it (missing closing braces / quote / close tag). Anything else is returned untouched
     (the engine then sends the error back to the model)."""

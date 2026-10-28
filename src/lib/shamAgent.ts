@@ -335,12 +335,12 @@ export async function shamAgentRun(opts: {
     }
     // the last tool answered with an error and the model now writes prose with no call: give it the error back (twice at most) instead of ending the task on an apology
     const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
-    if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, opts.tools)) && recoveries < 2 && left() > 10000) {
+    if (lastMsg?.role === "tool" && /^error/i.test(String(lastMsg.content || "")) && !p.calls.some((c) => !validateShamCall(c, toolsNow)) && recoveries < 2 && left() > 10000) {
       recoveries++;
       const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
-      if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again); }
+      if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again, toolsNow); }
     }
-    const valid = p.calls.filter((c) => !validateShamCall(c, opts.tools));
+    const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
       const final = (p.text || text).trim();
       if (!final) shamNoteFailure(`the Studio answered with empty text (raw: ${JSON.stringify(text).slice(0, 80)})`);
