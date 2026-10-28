@@ -54,7 +54,7 @@ describe("classifyRequest", () => {
   it.each([
     ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"],
     ["قم بتوليد صورة أسد", "media"], ["make a short video of a rabbit", "media"],
-    ["ما هي عاصمة فرنسا؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["اكمل", "chat"],
+    ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["اكمل", "chat"],
     ["اكتب دالة بايثون تعكس النص", "code"], ["fix this bug: TypeError in my function", "code"], ["```js\nconst a = 1\n```\nما الخطأ؟", "code"],
     ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
   ])("%s -> %s", (text, klass) => { expect(classifyRequest(text as string)).toBe(klass); });
@@ -94,9 +94,9 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(a.think).toBe(true); expect(a.thinkCapChars).toBeLessThanOrEqual(2000);
     expect(p({ model: "nova", pref: "fast", text: "اكتب دالة بايثون" }).think).toBe(false);
   });
-  it("Nova: plain replies are capped, code and tool steps are not; only greetings use the lite path", () => {
+  it("Nova: plain replies are capped, code and tool steps are not; greetings, plain code and plain fast chat use the lite path", () => {
     expect(p({ model: "nova", text: "مرحبا" })).toMatchObject({ lite: true, maxTokens: 200 });
-    expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ lite: false, maxTokens: 450 });
+    expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ lite: true, maxTokens: 450 });
     expect(p({ model: "nova", text: "اكتب دالة بايثون" }).maxTokens).toBe(0);
     expect(p({ model: "sham_v2", text: "مرحبا" }).lite).toBe(true);                                   // Sham v2: no tool block for a greeting either
   });
@@ -106,7 +106,9 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(p({ model: "nova", pref: "precise", text: "اكتب دالة بايثون تعكس النص" }).lite).toBe(false);
     expect(p({ model: "nova", pref: "balanced", text: "اكتب دالة بايثون ثم شغّلها واختبرها" }).lite).toBe(false);
     expect(p({ model: "nova", pref: "balanced", text: "اقرأ README في octocat/Hello-World" }).lite).toBe(false);
-    expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(false);
+    expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(true);                       // plain question, fast by Auto: no tool list
+    expect(p({ model: "nova", text: "ما سعر الذهب اليوم؟" }).lite).toBe(false);                    // needs today's facts: the web tools stay
+    expect(p({ model: "nova", pref: "precise", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(false);     // a precise user gets a balanced chat WITH tools
   });
   it("the old Sham body cannot think", () => { expect(p({ model: "sham", pref: "precise", thinkSwitch: true, text: "اكتب دالة بايثون" }).think).toBe(false); });
   it("explicit settings of each mode", () => {
@@ -170,7 +172,7 @@ describe("Nova's real loop uses the profile", () => {
     let db = memDb(); let { bot } = fakeBot();
     await saveState(CHAT, { mode: "coder", think: true, accuracy: "balanced", messages: [{ role: "user", content: "ما هي عاصمة فرنسا؟" }], notes: "", inbox: [], run: { id: "r3", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
-    expect(chats(calls)[0].body).toMatchObject({ think: "", max_tokens: 450, temperature: 0.7 });
+    expect(chats(calls)[0].body).toMatchObject({ think: "", max_tokens: 450, temperature: 0.7, tools: "" });
     _setForcedForTests({ coder: "precise" });
     calls = studio([{ type: "done", job: "j2", text: "باريس.", tool_calls: [] }]); db = memDb(); ({ bot } = fakeBot());
     await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "ما هي عاصمة فرنسا؟" }], notes: "", inbox: [], run: { id: "r4", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
