@@ -110,11 +110,20 @@ describe("Sham v2 agent loop recovers from a tool error", () => {
   });
 });
 
-describe("the Studio wrapper opens the limits that cut tool calls in half", () => {
+describe("the Sham v2 Studio exposes its own structured agent protocol", () => {
   const src = readFileSync(join(__dirname, "../../../scripts/transplant/stage_sham_v2_studio.py"), "utf8");
-  it("sets SHAM_LIMITS=open and a 768-token generate_any cap, but never over a value the Studio already has", () => {
+  const app = readFileSync(join(__dirname, "../../../ai-system/modelscope-sham/app.py"), "utf8");
+  it("opens the larger v2 prompt/token limits and enables the structured endpoint only in the v2 wrapper", () => {
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_LIMITS", "open"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_GENERATE_ANY_MAX_TOKENS", "768"\)/);
+    expect(src).toMatch(/os\.environ\.setdefault\("SHAM_NATIVE_TOOL_CALLS", "1"\)/);
+    expect(src).toMatch(/os\.environ\.setdefault\("SHAM_TOOLCALL_GUARD", "1"\)/);
+  });
+  it("publishes the typed agent_step API only when the dedicated v2 Studio flag is enabled", () => {
+    expect(app).toMatch(/def agent_step\(/);
+    expect(app).toMatch(/api_name="agent_step"/);
+    expect(app).toMatch(/_V2 and os\.environ\.get\("SHAM_NATIVE_TOOL_CALLS", ""\)\.strip\(\) == "1"/);
+    expect(app).toMatch(/"type": "tool_calls"/);
   });
 });
 

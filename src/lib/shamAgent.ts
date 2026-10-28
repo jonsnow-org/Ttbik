@@ -12,7 +12,7 @@ import { shamGenerateAgentStep, shamGenerateAny, shamModeCtx, shamNoteFailure, s
 import { needsFreshFacts, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
-import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
+import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 
 /** What Sham may use: its own tools (shamExec.ts). */
@@ -155,7 +155,12 @@ export async function shamAgentRun(opts: {
     if (reply?.type === "tool_calls") {
       return {
         text: String(reply.text || reply.message?.content || ""),
-        calls: (Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls || []) as CoderToolCall[],
+        calls: (Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls || []).map((call) => {
+          try {
+            const args = JSON.parse(call.function.arguments || "{}");
+            return { ...call, function: { ...call.function, arguments: JSON.stringify(normaliseShamArgs(args)) } };
+          } catch { return call; }
+        }) as CoderToolCall[],
       };
     }
     return parseShamToolCalls(String(reply?.text || ""), opts.tools);
