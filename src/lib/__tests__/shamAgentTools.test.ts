@@ -26,6 +26,12 @@ describe("the tool list the model is shown", () => {
     expect(names).toContain("delegate");
     expect(names).toContain("sandbox_exec");
   });
+  it("the parallel GitHub batch reader is v2-only", () => {
+    const v1 = shamVariant.run("v1", () => shamTools(true, true).map((t) => t.function.name));
+    const v2 = shamVariant.run("v2", () => shamTools(true, true).map((t) => t.function.name));
+    expect(v1).not.toContain("github_read_files");
+    expect(v2).toContain("github_read_files");
+  });
   it("helpers can only use read tools that really exist", () => {
     const all = new Set(SHAM_TOOLS.map((t) => t.function.name));
     for (const n of SHAM_HELPER_TOOLS) expect(all.has(n)).toBe(true);
@@ -43,6 +49,17 @@ describe("github_prs and github_ci read the real API answers", () => {
   it("lists pull requests", async () => {
     const out = await run("github_prs", { repo: "o/r" }, api({ "/repos/o/r/pulls?state=open": [{ number: 7, title: "Fix login", state: "open", head: { ref: "fix/login" }, base: { ref: "main" }, user: { login: "sam" } }] }));
     expect(out).toBe("#7 Fix login [open] fix/login → main by sam");
+  });
+  it("reads several text files through parallel Contents API calls", async () => {
+    const file = (text: string) => ({ type: "file", encoding: "base64", content: Buffer.from(text, "utf-8").toString("base64") });
+    const out = await run("github_read_files", { repo: "o/r", paths: ["README.md", "src/a.ts"], ref: "main" }, api({
+      "/repos/o/r/contents/README.md?ref=main": file("# project"),
+      "/repos/o/r/contents/src/a.ts?ref=main": file("export const answer = 42;"),
+    }));
+    expect(out).toContain("=== README.md (1 lines) ===");
+    expect(out).toContain("# project");
+    expect(out).toContain("=== src/a.ts (1 lines) ===");
+    expect(out).toContain("export const answer = 42;");
   });
   it("reads one pull request with its files", async () => {
     const out = await run("github_prs", { repo: "o/r", number: 7 }, api({
