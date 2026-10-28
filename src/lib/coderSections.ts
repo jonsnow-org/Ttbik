@@ -7,6 +7,7 @@
 // job, sending finished parts (< 4096 chars each) as they come. Before the 60 s function limit it hands itself to /api/coder/continue
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
+import { stripOwnersExcuse } from "@/lib/coderMediaFast";
 import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
@@ -1725,7 +1726,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
       }
-      const text = stripForeignScript(r.text || "", String([...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || ""));
+      const text = stripOwnersExcuse(stripForeignScript(r.text || "", String([...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "")));
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= (Number(process.env.CODER_CARD_REFRESH_MS) || 5000)) {

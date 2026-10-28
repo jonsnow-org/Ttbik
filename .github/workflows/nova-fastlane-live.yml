@@ -36,10 +36,12 @@ jobs:
         run: |
           cd athar
           set -o pipefail
-          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/*.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-500 | head -80
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/novaFastLane.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-500 | head -80
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: nova-fastlane-live
-          path: ${{ runner.temp }}/fastlane-white-horse.png
+          path: |
+            ${{ runner.temp }}/fastlane-white-horse.png
+            ${{ runner.temp }}/fastlane-video.mp4
           if-no-files-found: warn

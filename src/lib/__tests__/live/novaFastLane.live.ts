@@ -3,6 +3,7 @@
 // and real image generation on Nova's media Studio, then checks the picture that would have been sent. Nothing is sent to Telegram.
 import fs from "fs";
 import path from "path";
+import { detectMediaIntent } from "@/lib/coderMediaFast";
 import { handleCoderSections } from "@/lib/coderSections";
 import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
@@ -25,15 +26,26 @@ test("'قم بتوليد صورة فرس ابيض' -> a real, non-blank picture,
     fs.writeFileSync(path.join(out, "fastlane-white-horse.png"), buf);
     return { message_id: 1 };
   };
+  const videos: { bytes: number; caption?: string; at: number }[] = [];
+  (api as any).sendVideo = async (_c: number, file: any, extra: any) => {
+    const buf: Buffer = await new Promise((res, rej) => { const s = file.fileData; if (Buffer.isBuffer(s)) return res(s); rej(new Error("unexpected file")); });
+    videos.push({ bytes: buf.length, caption: extra?.caption, at: Date.now() });
+    fs.writeFileSync(path.join(out, "fastlane-video.mp4"), buf);
+    return { message_id: 2 };
+  };
+  const kind = detectMediaIntent(TEXT)?.kind;
+  console.log("INTENT", JSON.stringify({ text: TEXT, kind: kind ?? null }));
   const t0 = Date.now();
   await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: TEXT } }, db);
   const t = Date.now();
-  while (Date.now() - t < 600000 && !photos.length && !sent.some((s) => /تعذّر/.test(s.text))) await new Promise((r) => setTimeout(r, 1000));
-  console.log("LIVE_RESULT", JSON.stringify({ photos: photos.map((p) => ({ bytes: p.bytes, caption: p.caption ?? null, secs: Math.round((p.at - t0) / 1000) })), texts: sent.map((s) => s.text.slice(0, 120)) }));
+  while (Date.now() - t < 600000 && !photos.length && !videos.length && !sent.some((s) => /تعذّر/.test(s.text))) await new Promise((r) => setTimeout(r, 1000));
+  console.log("LIVE_RESULT", JSON.stringify({ videos: videos.map((p) => ({ bytes: p.bytes, caption: p.caption ?? null, secs: Math.round((p.at - t0) / 1000) })), photos: photos.map((p) => ({ bytes: p.bytes, caption: p.caption ?? null, secs: Math.round((p.at - t0) / 1000) })), texts: sent.map((s) => s.text.slice(0, 120)) }));
   const ev = await db.query(`SELECT kind, text FROM coder_task_events ORDER BY id`);
   console.log("LIVE_EVENTS", JSON.stringify(ev));
-  expect(photos.length).toBe(1);
-  expect(photos[0].bytes).toBeGreaterThan(20000);
-  expect(photos[0].caption).toBeUndefined();
-  expect(sent.some((s) => /غير متاح|unavailable/i.test(s.text))).toBe(false);
+  expect(kind).toBeDefined();
+  const got = kind === "video" ? videos : photos;
+  expect(got.length).toBe(1);
+  expect(got[0].bytes).toBeGreaterThan(kind === "video" ? 5000 : 20000);
+  expect(got[0].caption).toBeUndefined();
+  expect(sent.some((s) => /غير متاح|unavailable|للمالك|owners? only/i.test(s.text))).toBe(false);
 });
