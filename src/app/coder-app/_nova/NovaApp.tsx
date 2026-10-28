@@ -514,6 +514,7 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
   const { b } = useBilling(!owner);
   const [conns, setConns] = useState<ConnView[] | null>(null);
   const [busy, setBusy] = useState("");
+  const [connError, setConnError] = useState("");
   const [live, setLive] = useState<Threads | null>(null);
   const [pop, setPop] = useState<Anchor>(null);
   const pill = useRef<HTMLButtonElement>(null);
@@ -545,10 +546,21 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
     return () => { document.removeEventListener("visibilitychange", on); clearInterval(iv); };
   }, [loadConns, loadLive]);
   const start = async (x: ConnView) => {
-    if (x.status !== "available") return;
+    if (x.status !== "available") {
+      setConnError(lang === "ar" ? `${x.name}: إعداد تسجيل الدخول غير مكتمل. افتح صفحة الموصلات لمعرفة المطلوب.` : `${x.name}: sign-in is not configured. Open Connectors for setup details.`);
+      return;
+    }
     haptic("medium");
+    setConnError("");
     setBusy(x.id);
-    try { const { url } = await api<{ url: string }>("connector_start", { id: x.id }); openExternal(url); } catch { haptic("error"); } finally { setBusy(""); }
+    try {
+      const { url } = await api<{ url: string }>("connector_start", { id: x.id });
+      if (!url || !url.startsWith("https://")) throw new Error("The connector did not return a valid HTTPS sign-in URL.");
+      openExternal(url);
+    } catch (e: any) {
+      haptic("error");
+      setConnError(`${x.name}: ${e?.message || (lang === "ar" ? "تعذّر بدء التوصيل." : "Could not start connection.")}`);
+    } finally { setBusy(""); }
   };
   const top = b ? Math.max(0, ...b.plans.map((p) => p.tier)) : 0;
   const cur = b?.plans.find((p) => p.current);
@@ -604,6 +616,10 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
                 : <button type="button" className="n-plus" aria-label={`${t.connect} ${x.name}`} disabled={busy === x.id} onClick={(e) => { e.stopPropagation(); void start(x); }}>{busy === x.id ? "…" : "+"}</button>} />
           ))}
         </Card>
+        {connError && <div role="alert" className="mt-2 rounded-xl border border-[var(--c-danger)]/40 bg-[var(--c-danger-soft)] px-3 py-2 text-sm text-[var(--c-danger)]" dir="auto">
+          <div>{connError}</div>
+          <button type="button" className="mt-2 font-semibold underline" onClick={() => { setConnError(""); open({ k: "connect" }); }}>{lang === "ar" ? "فتح إعدادات الموصلات" : "Open connector settings"}</button>
+        </div>}
         <Head lang={lang} title={n.can} />
         <Card>
           <Row icon="🐙" title={n.c_gh} sub={n.c_ghSub} onClick={() => open({ k: "connect" })} />
