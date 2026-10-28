@@ -26,6 +26,7 @@ export type ShamAgentResult =
   | { kind: "more"; messages: CoderMessage[]; used: string[]; steps: number }   // not finished inside this leg: the state goes to the next leg (the shared background runner)
   | { kind: "none"; used: string[]; steps: number };                          // the Studio did not answer in the time left
 
+export type ShamStepEvent = { type: "think" } | { type: "queue"; text: string } | { type: "tool_start"; name: string; args: string } | { type: "tool_end"; name: string; ok: boolean };
 export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Promise<ShamReply | null>;
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
@@ -45,6 +46,7 @@ export async function shamAgentRun(opts: {
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
   onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
+  onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
   continuable?: boolean;                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
@@ -54,7 +56,8 @@ export async function shamAgentRun(opts: {
   const left = () => opts.budgetMs - (now() - t0);
   const k = shamKnobs(opts.mode, shamVariant.getStore());
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const ask: ShamAsk = opts.ask || ((p, n, t) => shamGenerateAny(p, n, t));
+  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamGenerateAny(p, n, t));
+  const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // every model call is a real "thinking" phase on the card
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
   const used: string[] = [];
@@ -76,7 +79,9 @@ export async function shamAgentRun(opts: {
     const scenes = Array.isArray(a.scenes) ? a.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6) : undefined;
     const narration = String(a.narration || "").trim().slice(0, 1500) || undefined;
     opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
+    opts.onStep?.({ type: "tool_start", name: "make_media", args: JSON.stringify({ kind }) });
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600), { scenes, narration });
+    opts.onStep?.({ type: "tool_end", name: "make_media", ok: Boolean(r && r.type !== "error" && r.b64) });
     if (r?.type === "error") {
       opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " FAILED: " + String(r.text || "unknown error").slice(0, 220));
       return { kind: "text", text: "Media generation failed on selected route " + (r.route || "unknown") + ": " + (r.text || "no details") + ". No automatic route switch was performed.", used: usedNow, steps: stepNow };
@@ -101,6 +106,7 @@ export async function shamAgentRun(opts: {
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {
       const info = opts.queueNote ? await opts.queueNote(q).catch(() => null) : null;
       opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${q})`);
+      opts.onStep?.({ type: "queue", text: info || `في الدور (محاولة ${q})` });
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
       reply = await ask(prompt, maxNew, Math.min(opts.askMs ?? 30000, left() - 1000));
     }
@@ -154,8 +160,10 @@ export async function shamAgentRun(opts: {
     for (const c of valid.slice(0, 3)) {
       used.push(c.function.name);
       opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
+      opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
       let result: string;
       try { result = await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
+      opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(String(result)) });
       opts.onEvent?.("info", clip(String(result), 300));
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), toolClip) } as CoderMessage);
     }
