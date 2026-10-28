@@ -97,6 +97,31 @@ describe("Sham's own agent loop", () => {
     expect(ran).toEqual(["web_search"]);
     expect(seen[1]).toMatch(/نتيجة الأداة web_search:\nنتائج: مشمس/);                    // the second step shows Sham the result
   });
+  it("Sham v2 consumes structured function calls without parsing a tool-call tag in the web app", async () => {
+    const seen: string[] = [], ran: string[] = [];
+    const answers: any[] = [
+      {
+        type: "tool_calls",
+        text: "",
+        tool_calls: [{
+          id: "call_test_1",
+          type: "function",
+          function: { name: "web_search", arguments: JSON.stringify({ query: "weather" }) },
+        }],
+      },
+      say("وجدت نتائج الطقس في مخرجات البحث."),
+    ];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "ابحث عن الطقس الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 4,
+      agentAsk: async (prompt) => { seen.push(prompt); return answers.shift() ?? null; },
+      exec: async (call) => { ran.push(call.function.name); return "نتيجة بحث حقيقية: الجو مشمس."; },
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "وجدت نتائج الطقس في مخرجات البحث.", used: ["web_search"] });
+    expect(ran).toEqual(["web_search"]);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toMatch(/نتيجة الأداة web_search:\nنتيجة بحث حقيقية/);
+  });
+
   it("a wrong call goes back with the reason and the corrected one runs", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: any[] = [];
     const r = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000,
