@@ -319,13 +319,14 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         _LOCK.release()
 
 
-def agent_step(prompt: str, max_new_tokens: float = 160) -> str:
+def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160) -> str:
     """Sham v2's structured agent API.
 
+    The caller sends the active tool schemas separately from the text prompt.
     Returns either {"type":"text","text":...}, or an assistant message containing
-    typed function calls. The model still chooses the action; this boundary only
-    packages a valid, loaded-tool call into a data structure. The web app's Sham
-    executor then validates the schema and permissions before execution.
+    typed function calls. The model chooses the action; this boundary only packages
+    a call for a name present in both inputs. The web app validates the arguments and
+    permissions again before execution.
     """
     if not (_V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1"):
         return json.dumps({"type": "error", "text": "Structured agent execution is enabled only on Sham v2."}, ensure_ascii=False)
@@ -340,11 +341,25 @@ def agent_step(prompt: str, max_new_tokens: float = 160) -> str:
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
+        try:
+            supplied_tools = json.loads(tools_json or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return json.dumps({"type": "tool_call_error", "text": "قائمة الأدوات المرسلة من محرك Sham ليست JSON صالحاً."}, ensure_ascii=False)
+        if not isinstance(supplied_tools, list):
+            return json.dumps({"type": "tool_call_error", "text": "قائمة الأدوات يجب أن تكون مصفوفة."}, ensure_ascii=False)
+        active_names = []
+        for item in supplied_tools:
+            fn = item.get("function") if isinstance(item, dict) else None
+            name = fn.get("name") if isinstance(fn, dict) else None
+            if isinstance(name, str) and name.strip():
+                active_names.append(name.strip())
+        if len(active_names) != len(set(active_names)):
+            return json.dumps({"type": "tool_call_error", "text": "قائمة الأدوات تحتوي أسماء مكررة."}, ensure_ascii=False)
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
         raw = _studio_chat().studio_generate(model, tok, str(prompt or ""), n, search_fn=None)
         from sham_toolcall import OPEN_TAG, extract_tool_call
 
-        call = extract_tool_call(raw, str(prompt or ""))
+        call = extract_tool_call(raw, str(prompt or ""), active_names)
         if call:
             tool_calls = [{
                 "id": "call_" + uuid.uuid4().hex[:16],
@@ -604,7 +619,8 @@ def build_ui():
     labels = ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "وسائط (واجهة قديمة)", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"]
     # Only the dedicated Sham v2 wrapper exposes this API; v1 keeps its existing Studio interface.
     if _V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1":
-        agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=160)],
+        agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Textbox(label="active tool schemas JSON", value="[]"),
+                                             gr.Number(label="max_new_tokens", value=160)],
                              gr.Textbox(label="structured agent result"), api_name="agent_step", flagging_mode="never")
         interfaces.insert(1, agent)
         labels.insert(1, "وكيل شام v2 (استدعاءات منظّمة)")
