@@ -56,3 +56,15 @@ jobs:
       - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
       - run: npm ci
       - run: npm run build
+
+  lint:
+    # runs in parallel with build; errors fail it, warnings (React-Compiler rules, <a>/<img> advice) do not: see eslint.config.mjs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
