@@ -24,7 +24,7 @@ import {
 
 type Tab = "home" | "chats" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
-type ChatItem = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
+type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
@@ -613,11 +613,11 @@ function Chats({ c }: { c: Ctx }) {
   const [busy, setBusy] = useState(false);
   // each model has its own chat list: Nova, Sham, Sham v2 (the ones this person may use)
   const canon = (x?: string) => (x === "sham_loop" ? "sham" : x || "coder");
-  const [model, setModel] = useState<string>(canon(me.settings?.model));
-  const [avail, setAvail] = useState<{ id: string; name: string }[]>([{ id: "coder", name: "Nova AI" }]);
+  const [model, setModel] = useState<string>("all");           // ONE list of every conversation of every model; a model tab only filters it
+  const [avail, setAvail] = useState<{ id: string; name: string }[]>([{ id: "all", name: n.ch_all }, { id: "coder", name: "Nova AI" }]);
   const [bump, setBump] = useState(0);
   useEffect(() => {
-    api<Models>("models").then((m) => setAvail((m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en })))).catch(() => null);
+    api<Models>("models").then((m) => setAvail([{ id: "all", name: n.ch_all }, ...(m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en }))])).catch(() => null);
   }, [lang]);
   const loading = useRef(false);
   const load = useCallback(async () => {
@@ -642,7 +642,7 @@ function Chats({ c }: { c: Ctx }) {
     if (busy) return;
     setBusy(true);
     haptic("medium");
-    try { await api("chat_new", { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
+    try { await api("chat_new", model === "all" ? {} : { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
   const isLive = (s: string) => s === "running" || s === "waiting";
   return (
@@ -660,7 +660,7 @@ function Chats({ c }: { c: Ctx }) {
         </div>
       )}
       {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
-      {model === "coder" && me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
+      {me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
         <div style={{ margin: "0 0 16px", minHeight: 180 }}>
           <TerminalScreen lang={lang} compact />
         </div>
@@ -680,9 +680,9 @@ function Chats({ c }: { c: Ctx }) {
         )
         : !d ? <Loading /> : (
           <>
-            {model === "coder" && d.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={load} /></List></div>)}
-            <ChatsOfModel key={model} c={c} model={model} bump={bump} live={model === "coder" ? d.live : []} onNew={fresh} />
-            {model === "coder" && d.runs.length > 0 && (
+            {d.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={load} /></List></div>)}
+            <ChatsOfModel key={model} c={c} model={model} bump={bump} live={d.live} onNew={fresh} />
+            {d.runs.length > 0 && (
               <>
                 <Head lang={lang} title={t.scheduledRuns} />
                 <Card>{d.runs.map((x) => <Row key={x.run_id} icon={srcIcon(x.source)} title={x.title || "—"} sub={`${tx(t, `src_${x.source}`)} · ${ago(x.updated_at, t)}`} value={tx(t, `status_${x.status}`)} />)}</Card>
@@ -712,7 +712,15 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
   }, [load, bump, sel, q]);
   const del = async (spec: object, label: string) => {
     if (!(await guard(label))) return;
-    try { await api("chat_delete", { model, ...spec }); haptic("success"); setSel(null); setManage(false); void load(); } catch { haptic("error"); }
+    try {
+      if (model !== "all") await api("chat_delete", { model, ...spec });
+      else if ("ids" in spec) {                                                              // a selection across models: one delete per model
+        const by = new Map<string, string[]>();
+        for (const x of d?.items || []) if ((spec as { ids: string[] }).ids.includes(x.id)) by.set(x.model || "coder", [...(by.get(x.model || "coder") || []), x.id]);
+        for (const [m, ids] of by) await api("chat_delete", { model: m, ids });
+      } else for (const m of new Set((d?.items || []).map((x) => x.model || "coder"))) await api("chat_delete", { model: m, ...spec });
+      haptic("success"); setSel(null); setManage(false); void load();
+    } catch { haptic("error"); }
   };
   const isLive = (s: string) => s === "running" || s === "waiting";
   if (err && !d) return <Fail t={t} msg={err} retry={load} />;
@@ -728,7 +736,8 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
         after={running ? <span className="n-dot" aria-hidden="true" /> : undefined}
         onClick={() => {
           if (sel) { const m = new Set(sel); if (m.has(h.id)) m.delete(h.id); else m.add(h.id); setSel(m); return; }
-          open(model === "coder" ? { k: "thread", id: h.id, title: h.title || t.untitled } : { k: "chat", model, id: h.id, title: h.title || t.untitled, pinned: h.pinned, archived: h.archived });
+          const hm = h.model || model;
+          open(hm === "coder" ? { k: "thread", id: h.id, title: h.title || t.untitled } : { k: "chat", model: hm, id: h.id, title: h.title || t.untitled, pinned: h.pinned, archived: h.archived });
         }} />
     );
   };
@@ -761,7 +770,7 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
         <Card>
           <div className="n-empty">
             <div className="n-mark"><Mark size={52} color="var(--n-primary)" /></div>
-            <div style={{ marginBottom: 14 }}>{q ? n.ch_noMatch : model === "coder" ? t.noChats : n.ch_empty}</div>
+            <div style={{ marginBottom: 14 }}>{q ? n.ch_noMatch : t.noChats}</div>
             {!q && view === "exclude" && <button type="button" className="n-btn" onClick={onNew}>+ {n.startChat}</button>}
           </div>
         </Card>

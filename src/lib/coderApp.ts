@@ -305,6 +305,23 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const C = await import("@/lib/coderChats");
       const { listModels, canonModelId, chooseModel } = await import("@/lib/coderModels");
       const st = await loadState(chatId, db);
+      if (op === "chats" && body.model === "all") {
+        // ONE list for the person: every conversation of every model they may use (Telegram or app), each tagged with its model; any chat can be continued by selecting its model
+        await tidyBeforeList(chatId, st, db);
+        if (!st.threadId && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
+        const knownAll = await listModels(db);
+        const selected = canonModelId(st.model) || "coder";
+        const archivedAll = body.archived === "only" || body.archived === "include" ? body.archived : "exclude";
+        const limit = Number(body.limit) || 60;
+        const items: (Awaited<ReturnType<typeof C.chatList>>["items"][number] & { model: string })[] = [];
+        for (const m of knownAll) {
+          if (!C.isChatModel(m.id) || !(user.tier === "owner" || (m.visible && modelReady(m)))) continue;
+          const l = await C.chatList(chatId, st, m.id, { q: typeof body.q === "string" ? body.q : undefined, archived: archivedAll, limit }, db).catch(() => null);
+          if (l) for (const x of l.items) items.push({ ...x, model: m.id, current: x.current && m.id === selected });
+        }
+        items.sort((x, y) => Number(y.pinned) - Number(x.pinned) || String(y.updated_at).localeCompare(String(x.updated_at)));
+        return { model: "all", selected, items: items.slice(0, limit), current: st.threadId || null, currentEmpty: !st.messages.length };
+      }
       const model = canonModelId(typeof body.model === "string" ? body.model : st.model) || "coder";
       const known = await listModels(db);
       const m = known.find((x) => x.id === model);
@@ -315,7 +332,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         await tidyBeforeList(chatId, st, db);
         if (!st.threadId && model === "coder" && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
         const archived = body.archived === "only" || body.archived === "include" ? body.archived : "exclude";
-        return { model, selected: st.model || "coder", ...(await C.chatList(chatId, st, model, { q: typeof body.q === "string" ? body.q : undefined, archived, limit: Number(body.limit) || 60 }, db)) };
+        const one = await C.chatList(chatId, st, model, { q: typeof body.q === "string" ? body.q : undefined, archived, limit: Number(body.limit) || 60 }, db);
+        return { model, selected: st.model || "coder", ...one, items: one.items.map((x) => ({ ...x, model })) };
       }
       if (op === "chat_new" || op === "chat_open") {
         // continuing a chat of another model also selects that model (its tools, settings and connectors are the same user's)
