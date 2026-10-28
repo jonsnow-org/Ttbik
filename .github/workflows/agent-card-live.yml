@@ -31,4 +31,4 @@ jobs:
         run: |
           cd athar
           set -o pipefail
-          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/agentCard.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-600 | head -700
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/agentCard.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-600 | tail -400
