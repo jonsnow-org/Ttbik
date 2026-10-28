@@ -16,7 +16,8 @@ import sys
 import tempfile
 import time
 import wave
-from urllib.error import HTTPError
+from http.client import HTTPException
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 MIN_PIXEL_STD = 8.0
@@ -95,10 +96,12 @@ def _urllib(token: str):
         data = json.dumps(payload).encode() if payload is not None else None
         req = Request(url, data=data, method=method, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
         try:
-            with urlopen(req, timeout=60) as res:
+            with urlopen(req, timeout=90) as res:
                 return res.status, res.read().decode("utf-8", errors="replace")
         except HTTPError as exc:
             return exc.code, exc.read().decode("utf-8", errors="replace")[:200]
+        except (URLError, OSError, HTTPException) as exc:                          # a dropped connection / cut stream (a restarting Studio): code 0 = transient
+            return 0, type(exc).__name__
     return http
 
 
@@ -110,6 +113,8 @@ def _unwrap(body: str):
             except json.JSONDecodeError:
                 continue
             v = v[0] if isinstance(v, list) and v else v
+            if v is None:                                                       # "event: heartbeat / data: null": the result has not arrived yet, keep reading
+                continue
             if isinstance(v, str):
                 try:
                     return json.loads(v)
@@ -138,6 +143,8 @@ class Studio:
         end = self.now() + timeout
         while self.now() < end:
             code, text = self.http("GET", f"{self.base}/gradio_api/call/{api}/{event}")
+            if code in (404, 410):
+                raise ProbeError(f"{api}: the Studio no longer knows this job (it restarted while working on it)")
             value = _unwrap(text) if code == 200 else None
             if value is not None:
                 if not isinstance(value, dict):

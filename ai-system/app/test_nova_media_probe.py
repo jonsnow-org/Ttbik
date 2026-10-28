@@ -121,6 +121,15 @@ def payload_for(api):
     return {"type": {"image": "image", "speech": "audio"}.get(api, api), "b64": base64.b64encode(raw).decode()}
 
 
+class Sse(unittest.TestCase):
+    def test_heartbeat_before_the_result_is_skipped(self):
+        body = 'event: heartbeat\ndata: null\n\nevent: heartbeat\ndata: null\n\nevent: complete\ndata: ["{\\"type\\": \\"video\\", \\"b64\\": \\"QQ==\\"}"]\n\n'
+        self.assertEqual(P._unwrap(body), {"type": "video", "b64": "QQ=="})
+
+    def test_only_heartbeats_means_not_ready_yet(self):
+        self.assertIsNone(P._unwrap("event: heartbeat\ndata: null\n\n"))
+
+
 class Waiting(unittest.TestCase):
     def studio(self, http, **kw):
         t = [0.0]
@@ -157,6 +166,25 @@ class Waiting(unittest.TestCase):
         with self.assertRaises(P.ProbeError) as c:
             self.studio(http).wait_ready(timeout=10)
         self.assertNotIn("tok", str(c.exception).replace("token", ""))
+
+    def test_a_cut_connection_while_waiting_is_retried_not_a_crash(self):
+        inner = FakeStudio([{"phase": "ready"}])
+        state = {"cut": 2}
+        def flaky(method, url, payload=None):
+            if method == "GET" and "/call/image/" in url and state["cut"] > 0:
+                state["cut"] -= 1
+                return 0, "IncompleteRead"
+            return inner(method, url, payload)
+        out = self.studio(flaky).call("image", {"prompt": "x"})
+        self.assertEqual(out["type"], "image")
+        self.assertEqual(state["cut"], 0)
+
+    def test_a_job_the_studio_forgot_is_a_clear_error(self):
+        def gone(method, url, payload=None):
+            return (404, "gone") if method == "GET" else (200, '{"event_id":"e"}')
+        with self.assertRaises(P.ProbeError) as c:
+            self.studio(gone).call("video", {"prompt": "x"})
+        self.assertIn("restarted", str(c.exception))
 
     def test_call_returns_decoded_json(self):
         out = self.studio(FakeStudio([{"phase": "ready"}])).call("image", {"prompt": "x"})
