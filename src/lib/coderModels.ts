@@ -125,7 +125,7 @@ export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, mode
 
 // ---------------------------------------------------------------- per-model settings (Mini App → settings): strictly the selected model's own
 /** Thinking, speed (accuracy) and media generation are set PER MODEL: changing one model's switches never changes another's. */
-export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "precise"; media: boolean; auto: boolean };   // auto (default on) = each request picks its own mode from the user's preference (src/lib/modes.ts)
+export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "precise"; media: boolean; auto: boolean; policy: "adaptive" | "always" | "never" };   // auto (default on) = each request picks its own mode from the user's preference (src/lib/modes.ts)
 export type PerModelState = { model?: string; think?: boolean; accuracy?: string; perModel?: Record<string, Partial<ModelSettings>> };
 const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x === "balanced" || x === "precise";   // "accurate" is accepted as "precise" by the API (modes.ts normalizePref)
 /** The effective settings of one model. Nova (id "coder") also honours the old single global switches until it has its own entry; every other model starts from the defaults. */
@@ -138,13 +138,15 @@ export function modelSettings(st: PerModelState, id: string | undefined): ModelS
     accuracy: isAcc(pm.accuracy) ? pm.accuracy : legacy && isAcc(st.accuracy) ? st.accuracy : "balanced",
     media: typeof pm.media === "boolean" ? pm.media : true,
     auto: typeof pm.auto === "boolean" ? pm.auto : true,
+    // the thinking policy (src/lib/modes.ts): explicit when chosen; otherwise the old switch means "always", off means the adaptive default
+    policy: pm.policy === "adaptive" || pm.policy === "always" || pm.policy === "never" ? pm.policy : (typeof pm.think === "boolean" ? pm.think : legacy ? Boolean(st.think) : false) ? "always" : "adaptive",
   };
 }
 /** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
 export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
   const mid = canonModelId(id) || DEFAULT_MODEL_ID;
   const cur = modelSettings(st, mid);
-  const next: ModelSettings = { think: typeof patch.think === "boolean" ? patch.think : cur.think, accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: typeof patch.media === "boolean" ? patch.media : cur.media, auto: typeof patch.auto === "boolean" ? patch.auto : cur.auto };
+  const next: ModelSettings = { think: patch.policy ? patch.policy === "always" : typeof patch.think === "boolean" ? patch.think : cur.think, accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: typeof patch.media === "boolean" ? patch.media : cur.media, auto: typeof patch.auto === "boolean" ? patch.auto : cur.auto, policy: patch.policy ?? (typeof patch.think === "boolean" ? (patch.think ? "always" : "adaptive") : cur.policy) };
   st.perModel = { ...(st.perModel || {}), [mid]: next };
   return next;
 }

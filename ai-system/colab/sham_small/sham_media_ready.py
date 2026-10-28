@@ -113,9 +113,14 @@ def _speech_wav(root: Path, text: str) -> bytes:
     return data
 
 
-def _image(root: Path, prompt: str, size: int = 512, seed: int = 0):
+# Measured (scripts/modes-bench/image_bench.py, CPU, SDXS): 512 = 1.8 s, 640 = 2.7 s, 768 = 3.8 s per picture. 640 gives visibly more detail; 768 starts to repeat subjects (the model was trained at 512) and 2-3 steps DESTROY
+# the picture (SDXS is a one-step distilled model: noise), so the step count stays 1 and only the side moves, 512 -> 640.
+IMAGE_SIDE = int(os.environ.get("SHAM_IMAGE_SIDE", "640"))
+
+
+def _image(root: Path, prompt: str, size: int = 0, seed: int = 0):
     import torch
-    size = max(256, min(768, int(size) // 64 * 64))
+    size = max(256, min(704, (int(size) or IMAGE_SIDE) // 64 * 64))
     gen = torch.Generator().manual_seed(int(seed))
     image = _pipe(root)(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
     check_image(image)          # a black / constant / noise picture is an error, never a reply

@@ -1974,7 +1974,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // ONE mode system (src/lib/modes.ts): the request's class and the user's mode / Auto decide thinking, answer cap, temperature and the short "lite" path. The class is decided once per task.
     await refreshForced(db).catch(() => null);
     const lastUser = [...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"));
-    const prof = resolveProfile({ model: "nova", pref: accuracy, auto: nset.auto, thinkSwitch: nset.think, text: run.goal || String(lastUser?.content || ""), klass: run.agent ? "agentic" : run.klass, force: forcedMode(novaModelOf(st.model)) });
+    const prof = resolveProfile({ model: "nova", pref: accuracy, auto: nset.auto, thinkSwitch: nset.think, policy: nset.policy, text: run.goal || String(lastUser?.content || ""), klass: run.agent ? "agentic" : run.klass, force: forcedMode(novaModelOf(st.model)) });
     run.klass = prof.klass;
     if (run.agent && run.step >= agentMaxSteps(run.agentRole) - 1 && !run.agentWarned) {
       run.agentWarned = true;
@@ -2021,7 +2021,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((prof.think && run.step === 0) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -2217,10 +2217,10 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   const st = await loadState(chatId, db);
   const set = modelSettings(st, st.model === "sham_v2" ? "sham_v2" : "sham");          // the chosen Sham's own switches (old and new Sham each have theirs)
-  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, st.model === "sham_v2" ? "sham_v2" : "sham") } };
+  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, st.model === "sham_v2" ? "sham_v2" : "sham") } };
 }
