@@ -15,7 +15,9 @@ export function shamToolsEnabled(): boolean {
   return t === "on" || t === "1" || (process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open";
 }
 
-const FORMAT_LINE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن. وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.';
+const FORMAT_BASE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.';
+const FORMAT_ASK = " إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن.";
+const FORMAT_CODE = " وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.";
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
 /** Which tool fits which request (measured on the new body: it read a GitHub file with the VM tool, did not save a memory, and opened a PR instead of pushing). Shown only for tools that are loaded. */
@@ -26,20 +28,25 @@ const EXAMPLES: [string, string][] = [
   ["web_search", "معلومة حديثة ← web_search(query)"],
   ["sandbox_write_file", "كود يُكتب ويُجرَّب ← sandbox_write_file ثم sandbox_exec"],
   ["make_media", "صورة أو صوت أو فيديو ← make_media(kind, prompt)"],
+  ["delegate", "عدة تحقيقات مستقلة (قراءة/بحث/CI) تتم معاً ← delegate(tasks)"],
+  ["github_ci", "لماذا فشل الاختبار ← github_ci(repo)"],
 ];
 
-export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
-  const lines: string[] = [];
-  let used = 0;
-  for (const t of tools) {
+export function shamToolBlock(tools: CoderTool[], maxChars = 2600): string {
+  // EVERY tool is listed (2026-10-28: with connectors on, the old cut at 2400 characters silently dropped make_media and ask_user, which the model was then never shown):
+  // when the full lines are too long, the descriptions get shorter, never the list.
+  const line = (t: CoderTool, d: number) => {
     const f = t.function;
     const props = ((f.parameters as { properties?: Record<string, unknown> })?.properties || {}) as Record<string, unknown>;
     const req = new Set(((f.parameters as { required?: string[] })?.required || []) as string[]);
     const args = Object.keys(props).map((k) => (req.has(k) ? k : `${k}?`)).join(", ");
-    const line = `- ${f.name}(${args}) — ${String(f.description || "").split(/[.\n]/)[0].slice(0, 70)}`;
-    if (used + line.length > maxChars) break;
-    lines.push(line);
-    used += line.length;
+    const desc = d > 0 ? ` — ${String(f.description || "").split(/[.\n]/)[0].slice(0, d)}` : "";
+    return `- ${f.name}(${args})${desc}`;
+  };
+  let lines: string[] = [];
+  for (const d of [70, 48, 32, 18, 0]) {
+    lines = tools.map((t) => line(t, d));
+    if (lines.join("\n").length <= maxChars) break;
   }
   const has = new Set(tools.map((t) => t.function.name));
   const ex = EXAMPLES.filter(([n]) => has.has(n)).map(([, text]) => text);
@@ -49,7 +56,7 @@ export function shamToolBlock(tools: CoderTool[], maxChars = 2400): string {
     if (i >= 0) ex[i] += ' (repo="owner/name")';
     if (j >= 0) ex[j] += "؛ الاختبارات: python3 -m unittest -v f (اسم الوحدة بلا .py)";
   }
-  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_LINE}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
+  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_BASE}${has.has("ask_user") ? FORMAT_ASK : ""}${has.has("sandbox_exec") && has.has("sandbox_write_file") ? FORMAT_CODE : ""}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
 }
 
 /** Harmless spelling of an argument the model gets "almost" right is fixed here instead of failing the call: a GitHub URL / `.git` / trailing slash in `repo`. */

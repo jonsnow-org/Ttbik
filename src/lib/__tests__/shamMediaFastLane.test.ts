@@ -28,8 +28,9 @@ describe("Sham media fast lane", () => {
     expect(photo).toBeTruthy();
     expect(photo.a[2]).toBeUndefined();                                    // no caption at all
     const msgs = calls.filter((c) => c.m === "sendMessage");
-    expect(msgs).toHaveLength(1);                                          // the ONE message: "فهمت طلبك" (opened at once) ...
-    expect(msgs[0].a[1]).toMatch(/^✅ فهمت طلبك/);
+    expect(msgs).toHaveLength(1);                                          // the ONE message: the card (opened at once, with date + time) ...
+    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d\d:\d\d:\d\d\n💬 /);
+    expect(msgs[0].a[1]).not.toMatch(/فهمت طلبك/);                          // no canned echo of the request
     expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });
   it("a failed route says so plainly and sends nothing", async () => {

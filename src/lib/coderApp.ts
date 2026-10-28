@@ -11,7 +11,7 @@ import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { normalizePref, normalizeThinkPolicy } from "@/lib/modes";
-import { modelSettings, modelReady, memorySettings, setMemorySettings } from "@/lib/coderModels";
+import { modelSettings, modelUsableBy, memorySettings, setMemorySettings } from "@/lib/coderModels";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -117,7 +117,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
-        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => owner || (m.visible && modelReady(m))).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -147,7 +147,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const target = canonModelId(typeof body.for === "string" ? body.for : st.model) || "coder";
         const known = await listModels(db);
         const m = known.find((x) => x.id === target);
-        if (!m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+        if (!m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
         const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: accIn, policy: polIn, media: typeof body.media === "boolean" ? body.media : undefined, auto: typeof body.auto === "boolean" ? body.auto : undefined });
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
@@ -156,7 +156,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const { listModels, canonModelId } = await import("@/lib/coderModels");
         const target = canonModelId(typeof body.for === "string" ? body.for : st.model) || "coder";
         const m = (await listModels(db)).find((x) => x.id === target);
-        if (!m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+        if (!m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
         const b = body.memory as Record<string, unknown>;
         setMemorySettings(st, target, { remember: typeof b.remember === "boolean" ? b.remember : undefined, recall: typeof b.recall === "boolean" ? b.recall : undefined, save: typeof b.save === "boolean" ? b.save : undefined });
       }
@@ -172,7 +172,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const st = await loadState(chatId, db);
       const model = canonModelId(typeof body.model === "string" ? body.model : st.model);
       const m = (await listModels(db)).find((x) => x.id === model);
-      if ((model !== "sham" && model !== "sham_v2") || !m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+      if ((model !== "sham" && model !== "sham_v2") || !m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
       const M = await import("@/lib/shamMemory");
       if (body.forget === true) return { ok: await M.forgetFacts(chatId, db), facts: {} };
       return { facts: await M.shamFacts(chatId, db), enabled: M.shamMemoryEnabled() };
@@ -317,7 +317,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const limit = Number(body.limit) || 60;
         const items: (Awaited<ReturnType<typeof C.chatList>>["items"][number] & { model: string })[] = [];
         for (const m of knownAll) {
-          if (!C.isChatModel(m.id) || !(user.tier === "owner" || (m.visible && modelReady(m)))) continue;
+          if (!C.isChatModel(m.id) || !modelUsableBy(m, user.tier === "owner")) continue;
           const l = await C.chatList(chatId, st, m.id, { q: typeof body.q === "string" ? body.q : undefined, archived: archivedAll, limit }, db).catch(() => null);
           if (l) for (const x of l.items) items.push({ ...x, model: m.id, current: x.current && m.id === selected });
         }
@@ -328,7 +328,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const known = await listModels(db);
       const m = known.find((x) => x.id === model);
       // the same rule as the model picker: a user sees only the models the owner opened (Sham and Sham v2 are the owner's until their own switch is on)
-      if (!C.isChatModel(model) || !m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
+      if (!C.isChatModel(model) || !m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
       const id = String(body.id || "");
       if (op === "chats") {
         await tidyBeforeList(chatId, st, db);
@@ -373,6 +373,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const text = String(body.text || "").trim();
       if (!text) throw new AppError(400, "empty");
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
+      { // the owner's per-model switch holds for the Mini App too
+        const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
+        const stNow = await loadState(chatId, db);
+        const verdict = ensureUsableModel(stNow, await listModels(db), user.tier === "owner");
+        if (verdict === "blocked") throw new AppError(403, "model not available");
+        if (verdict === "moved") await saveState(chatId, stNow, db);
+      }
       // Do not create a fake task row: start the actual background agent so progress, output, stop and history all refer to one run.
       const { startAppTask } = await import("@/lib/coderSections");
       try {
@@ -559,6 +566,21 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         await S.setShamMediaOrder(body.order, db);
       }
       return { route: await S.shamMediaRoute(db), enabled: await S.shamMediaRouteEnabledMap(db), order: await S.shamMediaOrder(db) };
+    }
+    // the owner's media engine view: which engine makes image / speech / video for each model, and whether each Studio behind it is alive (src/lib/mediaEngines.ts)
+    case "media_status": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { mediaEngineStatus } = await import("@/lib/mediaEngines");
+      return await mediaEngineStatus(db, deps.fetchImpl || globalThis.fetch);
+    }
+    // choose Sham v2's / the old Sham's own media engine (each model has its own; Nova has none to choose)
+    case "media_engine": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const E = await import("@/lib/shamMediaEngine");
+      const model = body.model === "sham" || body.model === "sham_v2" ? body.model : null;
+      if (!model) throw new AppError(400, "model must be sham or sham_v2");
+      try { await E.setShamEngine(model, body.engine as never, db); } catch (e) { throw new AppError(400, String((e as Error).message)); }
+      return { model, engine: await E.shamEngine(model, db) };
     }
     case "hf_media_route": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");

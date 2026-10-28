@@ -7,10 +7,11 @@ describe("the shared one-message card", () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "قم بتوليد تقرير عن المشروع");
     expect(sent).toHaveLength(1);
-    expect(sent[0].text).toMatch(/^✅ فهمت طلبك: «قم بتوليد تقرير عن المشروع»/);
+    expect(sent[0].text).toMatch(/^🕒 .*\d\d:\d\d:\d\d\n💬 /);              // date + time, the neutral "received" line (the model's own line comes in later)
+    expect(sent[0].text).not.toMatch(/قم بتوليد تقرير/);                     // never an echo of the request
     expect(sent[0].text).toMatch(/📋 التقدم/);
     await cardNote(bot, 5, card, "قراءة الملفات", true);
-    expect(sent[0].text).toMatch(/▶️ قراءة الملفات/);
+    expect(sent[0].text).toMatch(/▶️ \d\d:\d\d:\d\d {2}قراءة الملفات/);
     await cardFinish(bot, 5, card, "هذا هو الجواب النهائي", async (p) => { await bot.api.sendMessage(5, p); });
     expect(sent).toHaveLength(1);                                          // never a second message for a short answer
     expect(sent[0].text).toBe("هذا هو الجواب النهائي");
@@ -38,7 +39,7 @@ describe("the shared one-message card", () => {
     expect(await openCard(bot, 5, "x")).toBeNull();
     delete process.env.CODER_SINGLE_MESSAGE;
     expect(sent).toHaveLength(0);
-    expect(understoodLine("")).toMatch(/فهمت طلبك/);
+    expect(understoodLine("")).toMatch(/فهمت طلبك/);                         // the old helper still exists, unused by the cards
   });
 });
 
@@ -70,12 +71,13 @@ describe("Nova: one message per request", () => {
     const db = fakeDb();
     await handleCoderSections(bot, botRow, { message: { chat: { id: 6161 }, text: "اشرح لي هذا المشروع بإيجاز" } }, db);
     expect(sent).toHaveLength(1);                                        // opened by the time the webhook returns: the instant line
-    expect(sent[0].text).toMatch(/^✅ فهمت طلبك: «اشرح لي هذا المشروع بإيجاز»/);
+    expect(sent[0].text).toMatch(/^🕒 /);
+    expect(sent[0].text).not.toMatch(/فهمت طلبك|اشرح لي هذا المشروع/);       // no canned echo
     expect(sent[0].text).toMatch(/📋 التقدم/);
     for (let i = 0; i < 80 && !/وتنتهي هنا/.test(sent[0]?.text || ""); i++) await new Promise((r) => setTimeout(r, 100));
     expect(sent).toHaveLength(1);                                        // ONE message the whole time
     expect(sent[0].text).toMatch(/الإجابة تبدأ هنا وتنتهي هنا/);
-    expect(sent[0].text).not.toMatch(/فهمت طلبك|📋/);                    // the card is gone: it IS the answer now
+    expect(sent[0].text).not.toMatch(/📋|🕒/);                           // the card is gone: it IS the answer now
     expect(edits.length).toBeGreaterThan(0);
   });
 });

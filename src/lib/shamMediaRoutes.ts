@@ -1,19 +1,19 @@
-import { shamMediaRoute, shamMediaRouteEnabled } from "@/lib/shamExec";
+import { shamMediaRoute } from "@/lib/shamExec";
+import { shamEngine, targetOf } from "@/lib/shamMediaEngine";
 import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
 export type ShamMediaKind = "image" | "audio" | "video";
 
-/** Run exactly the route selected in the owner's panel. Never auto-switch to another route. */
+/** Make the media on the engine the owner chose FOR THIS MODEL (Sham v2 and the old Sham each have their own; src/lib/shamMediaEngine.ts). Never auto-switch to another route.
+ *  A call outside any Sham chat (no model context) keeps the older single global route. */
 export async function generateShamMediaThroughRoute(
   kind: ShamMediaKind,
   prompt: string,
   opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply> {
-  const route = await shamMediaRoute();
+  const model = shamVariant.getStore();
+  const route = model ? targetOf(model === "v2" ? "sham_v2" : "sham", await shamEngine(model === "v2" ? "sham_v2" : "sham")).route : await shamMediaRoute();
   const timeoutMs = Math.min(240000, Math.max(8000, opts.timeoutMs ?? 240000));
-  if (!(await shamMediaRouteEnabled(route))) {
-    return { type: "error", route, text: `المسار المحدد ${route} متوقف من لوحة التحكم. فعّله أو اختر مساراً آخر؛ لم يحدث تحويل تلقائي.` };
-  }
   try {
     let reply: ShamReply | null;
     const variant = route === "sham_v1" ? "v1" : "v2";
@@ -33,7 +33,7 @@ export async function generateShamMediaThroughRoute(
     // keep the Studio's typed reason (blank_image, noise_image, disk, unavailable, ...) so the caller can say WHY, and say plainly what the internal path is
     const reason = reply?.type === "error" ? reply.reason : undefined;
     const note = route === "sham_v2_internal" || route === "sham_v1"
-      ? (reason === "blank_image" || reason === "noise_image" ? "\n(مسار شام الداخلي لا يزال قيد التدريب ولا ينتج وسائط صالحة بعد؛ اختر «المسار الجاهز» من إعدادات الوسائط. لم يحدث تحويل تلقائي.)" : "")
+      ? (reason === "blank_image" || reason === "noise_image" ? "\n(مسار شام الداخلي لا يزال قيد التدريب ولا ينتج وسائط صالحة بعد؛ غيّر «محرك الوسائط» لهذا النموذج إلى «الأوزان الجاهزة» من لوحة المالك. لم يحدث تحويل تلقائي.)" : "")
       : "";
     return { type: "error", route, ...(reason ? { reason } : {}), text: detail + note };
   } catch (error) {
