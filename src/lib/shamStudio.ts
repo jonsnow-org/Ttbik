@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ShamTool } from "@/lib/shamTypes";
 import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { vetMedia } from "@/lib/mediaQuality";
@@ -167,12 +168,12 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
 /** Ask Sham v2's dedicated Studio for one structured agent step. The Studio turns the model's
  * constrained call into a typed {type:"tool_calls", tool_calls:[...]} response; the app executor
  * still validates every argument and permission. This never routes to Sham v1 or Nova. */
-export async function shamGenerateAgentStep(prompt: string, maxNewTokens = 160, timeoutMs = 90000): Promise<ShamReply | null> {
+export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], maxNewTokens = 160, timeoutMs = 90000): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     lastFailure = "agent_step refused outside the Sham v2 variant";
     return null;
   }
-  const body = await shamCall("agent_step", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
+  const body = await shamCall("agent_step", { prompt, tools_json: JSON.stringify(tools), max_new_tokens: maxNewTokens }, timeoutMs);
   const reply = body ? parseShamReply(body) : null;
   if (reply?.type === "tool_calls") {
     const calls = Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls;
