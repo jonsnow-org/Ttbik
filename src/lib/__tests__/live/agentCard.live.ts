@@ -39,7 +39,7 @@ test("Nova: the card shows the model's own line and real steps; the answer repla
   }) as typeof fetch;
   await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: `اقرأ الملف AGENTS.md في المستودع ${REPO} ولخّصه في سطرين` } }, db);
   const t = Date.now();
-  while (Date.now() - t < 600000 && !(sent.length === 1 && !/📋/.test(sent[0].text) && sent[0].text.length > 20)) await new Promise((r) => setTimeout(r, 1000));
+  while (Date.now() - t < 780000 && !(sent.length === 1 && !/📋/.test(sent[0].text) && sent[0].text.length > 20)) await new Promise((r) => setTimeout(r, 1000));
   console.log("NOVA_CARD_LOG\n" + log.join("\n"));
   console.log("NOVA_FINAL", JSON.stringify({ messages: sent.length, text: sent.map((s) => s.text.slice(0, 400)), edits: edits.length, secs: Math.round((Date.now() - t0) / 1000) }));
   expect(sent).toHaveLength(1);

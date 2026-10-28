@@ -13,8 +13,11 @@ export interface ShamHost {
     search(q: string, o: { fetchImpl?: typeof fetch; limit: number }): Promise<string>;
     page(url: string, o: { fetchImpl?: typeof fetch; maxChars: number }): Promise<{ ok: boolean; text: string; error?: string; url: string }>;
     research(q: string, o: { fetchImpl?: typeof fetch; maxSources: number }): Promise<string>;
+    request(method: string, url: string, o: { fetchImpl?: typeof fetch; headers?: Record<string, string>; body?: string }): Promise<string>;
   };
-  sandbox: { has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
+  /** What this run already read (a file, a scan, CI logs, a page): kept per run so a later step can look it up again. Sham's own rows (`sham-<chat>` / `sham:<chat>`). */
+  bank: { add(runId: string, chatKey: string, step: number, tool: string, label: string, body: string, db: Db): Promise<void>; recall(runId: string, chatKey: string, query: string, n: number, db: Db): Promise<string> };
+  sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
@@ -26,7 +29,7 @@ let hostImpl: ShamHost | null = null;
 export const setShamHost = (h: ShamHost | null) => { hostImpl = h; };
 const host = async (): Promise<ShamHost> => hostImpl || (hostImpl = (await import("@/lib/shamHost")).shamHost);
 
-export type ShamCtx = { chatId: number; botId?: string; db: Db; githubToken: string | null; connectors?: string[]; chatKey: string; runId: string; owner: boolean; fetchImpl?: typeof fetch };
+export type ShamCtx = { sendFile?: (name: string, bytes: Buffer, caption?: string) => Promise<void>; chatId: number; botId?: string; db: Db; githubToken: string | null; connectors?: string[]; chatKey: string; runId: string; owner: boolean; fetchImpl?: typeof fetch };
 
 const RESULT_MAX = 7000;
 const clip = (x: unknown, max = RESULT_MAX) => { const t = typeof x === "string" ? x : JSON.stringify(x, null, 1); return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars]` : t; };
@@ -66,6 +69,9 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("sandbox_push", "Send the changes made in the VM back to GitHub: commit everything changed in the cloned folder and push it to `branch`. Never forced. The user is asked first.", obj({ repo: REPO, branch: s("branch to push to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
   tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Name `base` (the branch the user said); head must already hold the changes. The user is asked first.", obj({ repo: REPO, head: s("source branch"), base: s("target branch (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request. The user is asked first.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
+  tool("http_request", "Call a public HTTP API (GET / HEAD run at once; POST / PUT / PATCH / DELETE wait for the user's tap) and read the answer. For a plain page use fetch_page; for the user's linked services use connector_api. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers" }, body: s("request body text (JSON as a string)") }, ["url"])),
+  tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
+  tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
   tool("ask_user", "Ask the user a short question when something needed is unclear or missing. The round ends with the question.", obj({ question: s("the question") }, ["question"])),
 ];
@@ -75,6 +81,7 @@ export const SHAM_NEEDS_OK = new Set(["sandbox_push", "github_create_pr", "githu
 /** Does this call change something outside the chat? Those wait for the user's tap: the fixed write tools, an MCP call, and a connector call that is not a plain read. */
 export function shamNeedsOk(call: CoderToolCall): boolean {
   if (SHAM_NEEDS_OK.has(call.function.name)) return true;
+  if (call.function.name === "http_request") { try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; } }
   if (call.function.name !== "connector_api") return false;
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
@@ -194,7 +201,18 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
 const parse = (call: CoderToolCall): Record<string, any> => { try { const v = JSON.parse(call.function.arguments || "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
 
 /** Runs one of Sham's tools. `approved` must be true for a write (SHAM_NEEDS_OK): the loop never passes it on its own. */
+/** What a later `recall` can find again: the reads (files, scans, CI, pages, searches), not the writes. */
+const BANKED = new Set(["web_search", "fetch_page", "deep_research", "http_request", "github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "sandbox_read_file", "sandbox_search", "sandbox_exec", "sandbox_wait"]);
 export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
+  const out = await shamRunToolInner(call, ctx, approved);
+  if (BANKED.has(call.function.name) && !/^error/i.test(out) && ctx.runId && ctx.chatKey) {
+    const a = parse(call);
+    const label = `${call.function.name} ${String(a.path || a.url || a.query || a.repo || a.command || "").slice(0, 80)}`.trim();
+    void (async () => { try { await (await host()).bank.add(ctx.runId, ctx.chatKey, 0, call.function.name, label, out, ctx.db); } catch { /* the notes are best effort */ } })();
+  }
+  return out;
+}
+async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const name = call.function.name;
   const a = parse(call);
   try {
@@ -214,6 +232,24 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
       if (!(await H.limits.ok(ctx.chatId, "research", 1, ctx.db))) return "error: the weekly deep-research allowance is used up. Use web_search + fetch_page instead.";
       await H.limits.add(ctx.chatId, "research", 1, ctx.db);
       return await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Number(a.max_sources) || 10 });
+    }
+    if (name === "recall") return clip(await (await host()).bank.recall(ctx.runId, ctx.chatKey, String(a.query || ""), Number(a.count) || 3, ctx.db));
+    if (name === "http_request") {
+      if (!/^(GET|HEAD)$/i.test(String(a.method || "GET")) && !approved) return "error: this writes to an outside service: it runs only after the user taps «نفّذ».";
+      try {
+        const hdrs = a.headers && typeof a.headers === "object" ? (a.headers as Record<string, string>) : {};
+        return clip(await (await host()).web.request(String(a.method || "GET"), String(a.url || ""), { fetchImpl: ctx.fetchImpl, headers: hdrs, body: typeof a.body === "string" ? a.body : a.body ? JSON.stringify(a.body) : undefined }));
+      } catch (e) { return `error: ${String((e as Error)?.message || e).slice(0, 300)}`; }
+    }
+    if (name === "send_file") {
+      if (!ctx.sendFile) return "error: sending a file is not available here";
+      try {
+        const f = await (await host()).sandbox.readFile({ chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken }, String(a.path || ""), a.cwd ? String(a.cwd) : undefined);
+        if (!f) return "error: the file was not found in the VM (check the path first, e.g. with sandbox_search)";
+        if (f.bytes.length > 45 * 1024 * 1024) return "error: the file is too large for Telegram (45 MB at most)";
+        await ctx.sendFile(f.path.split("/").pop() || "file", f.bytes, a.caption ? String(a.caption).slice(0, 900) : undefined);
+        return `sent ${f.path} (${f.bytes.length} bytes) to the user`;
+      } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
     if (name === "memory_save" || name === "memory_search") {
       return await (await host()).memory(ctx.chatId, name, a, ctx.runId, ctx.db);
