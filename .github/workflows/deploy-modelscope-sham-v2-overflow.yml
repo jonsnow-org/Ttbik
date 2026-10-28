@@ -10,6 +10,7 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-sham/**
+      - ai-system/colab/sham_small/sham_native_tools.py
       - scripts/transplant/stage_sham_v2_studio.py
       - .github/workflows/deploy-modelscope-sham-v2-overflow.yml
 
