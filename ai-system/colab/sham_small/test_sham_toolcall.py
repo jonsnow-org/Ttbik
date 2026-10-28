@@ -19,7 +19,7 @@ class _CharTokenizer:
 
 class ToolCallEnvelopeTests(unittest.TestCase):
     def test_guard_constrains_tool_name_but_leaves_arguments_free(self):
-        prompt = "Tools:\\n- github_read_file(repo, path) — reads\\n- github_create_issue(repo, title) — creates"
+        prompt = "Tools:\n- github_read_file(repo, path) — reads\n- github_create_issue(repo, title) — creates"
         names = tool_names_from_prompt(prompt)
         tok = _CharTokenizer()
         guard = ToolCallGuard(tok, names)
