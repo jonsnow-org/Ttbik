@@ -460,7 +460,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
 }
 
 // ---------------------------------------------------------------- Home
-const CAT: Record<string, "cat_dev" | "cat_prod"> = { github: "cat_dev", vercel: "cat_dev", supabase: "cat_dev", gmail: "cat_prod", google_drive: "cat_prod", notion: "cat_prod", slack: "cat_prod", discord: "cat_prod" };
+const CAT: Record<string, "cat_dev" | "cat_prod"> = { github: "cat_dev", gitlab: "cat_dev", vercel: "cat_dev", supabase: "cat_dev", gmail: "cat_prod", google_drive: "cat_prod", google_calendar: "cat_prod", notion: "cat_prod", slack: "cat_prod", discord: "cat_prod" };
 function useBilling(on: boolean) {
   const [b, setB] = useState<Billing | null>(null);
   const load = useCallback(() => api<Billing>("billing").then(setB).catch(() => null), []);

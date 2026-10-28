@@ -14,7 +14,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { coderChatKey, decryptToken, deleteConnection, encryptToken, prismaDb, saveConnection, type Db } from "@/lib/coderAuth";
 
-export type ConnectorId = "github" | "google_drive" | "gmail" | "notion" | "vercel" | "supabase" | "slack" | "discord";
+export type ConnectorId = "github" | "google_drive" | "google_calendar" | "gmail" | "notion" | "vercel" | "supabase" | "slack" | "discord" | "gitlab";
 export type TokenSet = { access: string; refresh?: string; expiresAt?: number; extra?: Record<string, string> };
 type F = typeof fetch;
 export type ConnectorDef = {
@@ -74,6 +74,16 @@ export const CONNECTORS: ConnectorDef[] = [
     createUrl: "https://console.cloud.google.com/apis/credentials", whoami: googleWho, revoke: googleRevoke,
   },
   {
+    id: "google_calendar", name: "Google Calendar", color: "#4285F4",
+    desc: { ar: "قراءة تقويمك ومواعيدك", en: "Read your calendars and events" },
+    env: { id: "CODER_GOOGLE_CLIENT_ID", secret: "CODER_GOOGLE_CLIENT_SECRET" },
+    authUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token",
+    scope: "openid email https://www.googleapis.com/auth/calendar.readonly", pkce: true, clientAuth: "body", bodyFormat: "form",
+    extraAuth: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
+    apiBases: ["https://www.googleapis.com/calendar/v3/"], createUrl: "https://console.cloud.google.com/apis/credentials",
+    whoami: googleWho, revoke: googleRevoke,
+  },
+  {
     id: "gmail", name: "Gmail", color: "#EA4335",
     desc: { ar: "قراءة بريدك والبحث فيه", en: "Read and search your mail" },
     env: { id: "CODER_GOOGLE_CLIENT_ID", secret: "CODER_GOOGLE_CLIENT_SECRET" },
@@ -90,7 +100,7 @@ export const CONNECTORS: ConnectorDef[] = [
     scope: "", pkce: false, clientAuth: "basic", bodyFormat: "json", extraAuth: { owner: "user" },
     apiBases: ["https://api.notion.com/v1/"], apiHeaders: { "Notion-Version": "2022-06-28" }, createUrl: "https://www.notion.so/profile/integrations",
     readToken: (d) => (d?.access_token ? { access: d.access_token, refresh: d.refresh_token, extra: { workspace: String(d.workspace_name || "") } } : null),
-    whoami: async (t) => t.extra?.workspace || "",
+    whoami: async (t, f) => String((await json(await f("https://api.notion.com/v1/users/me", { headers: bearer(t, { "Notion-Version": "2022-06-28" }), signal: T() }).catch(() => null)))?.name || ""),
   },
   {
     id: "vercel", name: "Vercel", color: "#000000",
@@ -132,7 +142,7 @@ export const CONNECTORS: ConnectorDef[] = [
       const access = u?.access_token || d?.access_token;
       return d?.ok !== false && access ? { access, refresh: u?.refresh_token, expiresAt: u?.expires_in ? Date.now() + Number(u.expires_in) * 1000 : undefined, extra: { team: String(d?.team?.name || "") } } : null;
     },
-    whoami: async (t) => t.extra?.team || "",
+    whoami: async (t, f) => String((await json(await f("https://slack.com/api/auth.test", { headers: bearer(t), signal: T() }).catch(() => null)))?.team || ""),
     revoke: async (t, f) => void (await f("https://slack.com/api/auth.revoke", { method: "POST", headers: { Authorization: `Bearer ${t.access}`, "Content-Type": "application/x-www-form-urlencoded" }, signal: T() }).catch(() => null)),
   },
   {
@@ -147,6 +157,15 @@ export const CONNECTORS: ConnectorDef[] = [
       const d = CONNECTORS.find((x) => x.id === "discord")!;
       await f("https://discord.com/api/oauth2/token/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: t.access, client_id: cid(d), client_secret: csec(d) }), signal: T() }).catch(() => null);
     },
+  },
+  {
+    id: "gitlab", name: "GitLab", color: "#FC6D26",
+    desc: { ar: "مستودعات GitLab والمشاريع وعمليات CI", en: "GitLab repositories, projects and CI" },
+    env: { id: "CODER_GITLAB_CLIENT_ID", secret: "CODER_GITLAB_CLIENT_SECRET" },
+    authUrl: "https://gitlab.com/oauth/authorize", tokenUrl: "https://gitlab.com/oauth/token",
+    scope: "read_user read_api read_repository", pkce: true, clientAuth: "body", bodyFormat: "form",
+    apiBases: ["https://gitlab.com/api/v4/"], createUrl: "https://gitlab.com/-/profile/applications",
+    whoami: async (t, f) => String((await json(await f("https://gitlab.com/api/v4/user", { headers: bearer(t), signal: T() }).catch(() => null)))?.username || ""),
   },
 ];
 export const connectorById = (id: string) => CONNECTORS.find((c) => c.id === id) || null;
@@ -180,6 +199,11 @@ export const TOKEN_LINKS: Partial<Record<ConnectorId, TokenLink>> = {
     create: "https://api.slack.com/apps", placeholder: "xoxp-… / xoxb-…",
     help: { ar: "أنشئ تطبيقاً (From scratch)، وفي OAuth & Permissions أضف صلاحيات القراءة (channels:read, channels:history, users:read) ثم Install to Workspace وانسخ التوكن (xoxp للمستخدم أو xoxb للبوت).", en: "Create an app (From scratch), add read scopes (channels:read, channels:history, users:read) under OAuth & Permissions, Install to Workspace, and copy the token (xoxp user or xoxb bot)." },
     check: async (t, f) => { const r = await f("https://slack.com/api/auth.test", { method: "POST", headers: bearer(t), signal: T() }).catch(() => null); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.ok ? String(d.team || d.user || "Slack") : null; },
+  },
+  gitlab: {
+    create: "https://gitlab.com/-/user_settings/personal_access_tokens", placeholder: "glpat-…",
+    help: { ar: "أنشئ Personal Access Token بصلاحيات read_user وread_api وread_repository ثم الصقه هنا.", en: "Create a personal access token with read_user, read_api and read_repository, then paste it here." },
+    check: async (t, f) => { const r = await get("https://gitlab.com/api/v4/user", t, f); const d = r && r.ok ? await r.json().catch(() => null) : null; return d?.username ? String(d.username) : null; },
   },
   discord: {
     create: "https://discord.com/developers/applications", placeholder: "bot token", scheme: "Bot",
@@ -353,6 +377,24 @@ export async function listConnectors(chatId: number | string, opts: { githubOwne
     if (row && decryptToken(row.token_enc)) return { ...base, status: "connected" as const, label: row.login || "", source: "user-link" as const, since: row.updated_at ? String(row.updated_at) : null };
     return { ...base, status: oauth || tl ? ("available" as const) : ("setup" as const) };
   });
+}
+
+/** Live validation without exposing credentials to the client. */
+export async function testConnector(
+  chatId: number | string, id: string, opts: { ownerToken?: string } = {},
+  db: Db = prismaDb, f: F = globalThis.fetch,
+): Promise<{ ok: boolean; label?: string; message: string }> {
+  const d = connectorById(id);
+  if (!d) throw new ConnectorError("unknown connector");
+  const token = id === "github" && opts.ownerToken ? { access: opts.ownerToken } : await connectorToken(chatId, id, db, f).catch(() => null);
+  if (!token) return { ok: false, message: "لا يوجد حساب مربوط بهذا الموصل." };
+  try {
+    const label = (await d.whoami(token, f)).trim().slice(0, 120);
+    return label ? { ok: true, label, message: `الاتصال سليم: ${label}` }
+      : { ok: false, message: "لم ينجح التحقق من الصلاحية. أعد ربط الحساب أو راجع صلاحيات التطبيق." };
+  } catch {
+    return { ok: false, message: "تعذّر الوصول إلى الخدمة الآن. تحقق من الشبكة أو أعد ربط الحساب." };
+  }
 }
 
 /** Disconnect: ask the service to revoke (best effort), then delete the stored token. */

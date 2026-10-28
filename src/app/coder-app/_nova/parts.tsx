@@ -306,7 +306,7 @@ export const BRAND_SVG: Record<string, string> = {
 };
 export function BrandIcon({ c }: { c: ConnView }) {
   const path = BRAND_SVG[c.id];
-  const glyph: Record<string, string> = { google_drive: "▲", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉" };
+  const glyph: Record<string, string> = { google_drive: "▲", google_calendar: "▦", gitlab: "◆", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉" };
   return (
     <div aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: c.color, color: "#fff", display: "grid", placeItems: "center" }}>
       {path ? <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d={path} /></svg> : <span style={{ fontWeight: 900, fontSize: 18 }}>{glyph[c.id] || c.name[0]}</span>}
@@ -317,6 +317,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   const [list, setList] = useState<{ connectors: ConnView[]; mcp: McpView[]; presets?: McpPresetView[] } | null>(null);
   const [waiting, setWaiting] = useState("");
   const [busy, setBusy] = useState("");
+  const [testing, setTesting] = useState("");
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [adv, setAdv] = useState(false);
   const [mcp, setMcp] = useState({ url: "", token: "", label: "" });
@@ -356,12 +358,28 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
     setBusy(c.id);
     try { await api("connector_disconnect", { id: c.id }); haptic("success"); await load(); reload(); } finally { setBusy(""); }
   };
+  const test = async (c: ConnView) => {
+    setTesting(c.id); setMsg("");
+    try {
+      const r = await api<{ ok: boolean; label?: string; message: string }>("connector_test", { id: c.id });
+      setTestResults((old) => ({ ...old, [c.id]: (r.ok ? "✓ " : "⚠ ") + r.message }));
+      haptic(r.ok ? "success" : "error");
+    } catch (e: any) { setTestResults((old) => ({ ...old, [c.id]: "⚠ " + e.message })); haptic("error"); } finally { setTesting(""); }
+  };
   if (!list) return <Loading />;
   const gh = list.connectors.find((c) => c.id === "github");
+  // two groups instead of one long list: development & deployment, then work & productivity (anything else lands in the second)
+  const DEV = ["github", "gitlab", "vercel", "supabase"];
+  const visible = list.connectors.filter((c) => c.status !== "setup" || me.tier === "owner");
+  const groups = [
+    { title: lang === "ar" ? "التطوير والنشر" : "Development & deployment", items: visible.filter((c) => DEV.includes(c.id)) },
+    { title: lang === "ar" ? "العمل والإنتاجية" : "Work & productivity", items: visible.filter((c) => !DEV.includes(c.id)) },
+  ].filter((g) => g.items.length);
   return (
     <List>
-      <Section header={t.tabConnectors} footer={t.connectorsHint}>
-        {list.connectors.filter((c) => c.status !== "setup" || me.tier === "owner").map((c) => {
+      {groups.map((group, gi) => (
+      <Section key={group.title} header={gi === 0 ? `${t.tabConnectors} · ${group.title}` : group.title} footer={gi === 0 ? t.connectorsHint : undefined}>
+        {group.items.map((c) => {
           const link = async () => {
             const token = (tokens[c.id] || "").trim();
             if (!token) return;
@@ -372,8 +390,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
             <div key={c.id}>
               <Cell multiline before={<BrandIcon c={c} />}
                 titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
-                subtitle={<span dir="auto">{c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang]}</span>}
-                after={c.status === "connected" ? (c.source === "owner-env" ? undefined : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>)
+                subtitle={<span dir="auto">{testResults[c.id] || (c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang])}</span>}
+                after={c.status === "connected" ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}><Button size="s" mode="gray" loading={testing === c.id} onClick={() => void test(c)}>{lang === "ar" ? "اختبار" : "Test"}</Button>{c.source === "owner-env" ? null : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>}</div>
                   : <Button size="s" mode={open === c.id ? "gray" : "filled"} loading={busy === c.id} onClick={() => { haptic("select"); setOpen(open === c.id ? "" : c.id); setMsg(""); }}>{c.status === "setup" ? t.setupBtn : t.connect}</Button>}>
                 {c.name}
               </Cell>
@@ -402,6 +420,7 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
           );
         })}
       </Section>
+      ))}
       {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
       {!!list.presets?.length && (
         <Section header={t.mcpReady} footer={t.mcpReadyHint}>
