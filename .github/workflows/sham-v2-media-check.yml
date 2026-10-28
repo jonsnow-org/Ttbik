@@ -1,0 +1,43 @@
+name: Sham v2 media check (read-only)
+
+# يختبر وسائط شام v2 الحقيقية على استوديوه الخاص (صورة/كلام/فيديو) دون نشر شيء: نفس فحص المحتوى (غير أسود، غير صامت، إطارات>1 وحركة). للقراءة فقط.
+on:
+  workflow_dispatch:
+    inputs:
+      kinds:
+        description: "image,audio,video (comma separated)"
+        required: false
+        default: "image,audio,video"
+
+concurrency:
+  group: sham-v2-ask
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install what the content checks need
+        run: python3 -m pip install -q numpy pillow
+      - name: Real media from the Sham v2 Studio
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+          SMOKE_KINDS: ${{ inputs.kinds }}
+          SMOKE_SKIP_TEXT: "1"
+          SMOKE_OUT: ${{ runner.temp }}/sham-v2-media
+        run: python ai-system/supervision/sham_v2_media_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sham-v2-media
+          path: ${{ runner.temp }}/sham-v2-media
+          if-no-files-found: ignore

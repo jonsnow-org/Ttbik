@@ -702,6 +702,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_v2_media_check": {
+      "file": ".github/workflows/sham-v2-media-check.yml",
+      "title": "فحص وسائط شام v2 الحقيقية على استوديوه للقراءة فقط (صورة/كلام/فيديو)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "media_studio_probe": {
       "file": ".github/workflows/media-studio-probe.yml",
       "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",
