@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import types
@@ -103,6 +104,7 @@ class MediaBackendSelectionTests(unittest.TestCase):
         ready.make.assert_called_once_with(Path("/tmp/sham-v2-media"), "image", "a tree", scenes=[], narration="")
         self.make_media.assert_not_called()
 
+    @patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": "1"})
     @patch("media_quality.check_mp4", lambda data, **k: {"decoded": False})      # the fixture is a container shell; real decoding is covered in test_sham_media_quality
     def test_ready_backend_receives_video_scenes_and_narration(self):
         sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
@@ -150,6 +152,17 @@ class MediaBackendSelectionTests(unittest.TestCase):
             out = json.loads(sham_app.generate_any("ارسم قطة"))
         self.assertEqual((out["type"], out["reason"]), ("error", "blank_image"))
 
+    def test_chat_studio_refuses_video_without_loading_anything(self):
+        """Sham v2's chat Studio died (502) when it loaded the video pipeline next to the text model: video is the video Studio's job."""
+        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
+        ready = types.ModuleType("sham_media_ready")
+        ready.make = Mock()
+        with patch.dict(sys.modules, {"sham_media_ready": ready}), patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": ""}):
+            result = json.loads(sham_app.generate_media_from_panel("video", "a rabbit", "المسار البديل (أوزان محلية جاهزة)", "[]", ""))
+        self.assertEqual((result["type"], result["reason"]), ("error", "video_elsewhere"))
+        ready.make.assert_not_called()
+
+    @patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": "1"})
     def test_invalid_scenes_json_returns_explicit_error(self):
         sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
         result = json.loads(

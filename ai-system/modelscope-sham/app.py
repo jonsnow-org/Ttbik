@@ -121,6 +121,13 @@ def _refresh_media_assets(model_dir: Path) -> None:
         assets = inspect_ready_assets(model_dir)
         STATE["media_assets"] = assets
         STATE["media_root"] = assets["root"] if assets["ready"] else ""
+        if os.environ.get("SHAM_LOCAL_VIDEO", "") != "1" and assets.get("root"):
+            # video weights fetched here by the earlier in-process video path (~2.9 GiB of this Studio's ~9.8 GiB disk) are dead weight now: reclaim them
+            import shutil as _shutil
+            _old = Path(assets["root"]) / "video_animatediff"
+            if _old.is_dir():
+                _shutil.rmtree(_old, ignore_errors=True)
+                _say("removed the unused in-Studio video weights (video lives in the video Studio)")
         image_mb = assets.get("image_bytes", 0) / 2**20
         audio_mb = assets.get("audio_bytes", 0) / 2**20
         _say(f"media assets: ready={assets['ready']} image={image_mb:.1f} MiB audio={audio_mb:.1f} MiB reason={assets.get('reason', '')[:100]}")
@@ -330,6 +337,10 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
     elif STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
 
+    if selected == "ready" and kind.strip().lower() == "video" and os.environ.get("SHAM_LOCAL_VIDEO", "") != "1":
+        # The video pipeline needs 4-5.5 GB of RAM: loading it next to the text model killed this Studio (HTTP 502 right after sampling). Real video is Sham v2's own video Studio
+        # (sham-v2-video-server); the bot calls it directly. SHAM_LOCAL_VIDEO=1 brings the old in-process path back (a Studio with the RAM for it).
+        return json.dumps({"type": "error", "reason": "video_elsewhere", "text": "الفيديو يُصنع في استوديو الفيديو الخاص بشام v2، لا في استوديو المحادثة."}, ensure_ascii=False)
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
