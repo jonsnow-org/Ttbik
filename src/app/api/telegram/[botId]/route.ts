@@ -13,6 +13,7 @@ import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { handleCoderSections, shamContextFor } from "@/lib/coderSections";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { coderChatKey } from "@/lib/coderAuth";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
@@ -172,12 +173,25 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       } else if (botRow.template === "NOVA_BOT") {
         // Two sections: Nova (the coder engine, src/lib/coderSections.ts, the default) and Sham (old / v2). WHICH one answers is decided by the chat's own model inside
         // handleCoderSections (it returns false for a Sham chat, or when OPEN_CODER_STUDIO_URL is unset). The legacy-backend flag (novaPause.ts) plays no part here (B-09).
-        const coderHandled = await handleCoderSections(bot, botRow, body).catch((e) => { void reportError("bot:coder", e, { botId: botRow?.id }); return false; });
+        const routeChatId = body.message?.chat?.id ?? body.callback_query?.message?.chat?.id;
+        const coderHandled = await handleCoderSections(bot, botRow, body).catch(async (e) => {
+          void reportError("bot:coder", e, { botId: botRow?.id });
+          // Do not fall through to a different model when state resolution / the selected-model handler failed.
+          if (routeChatId) await bot.api.sendMessage(routeChatId, "⚠️ تعذّر التحقق من النموذج المختار بسبب خطأ مؤقت. لم أرسل رسالتك إلى نموذج بديل؛ أعد المحاولة بعد قليل.").catch(() => null);
+          return true;
+        });
         if (!coderHandled) {
-          // Sham (old or new) answers on its OWN path: which Sham and the chat's thinking / accuracy / speed settings travel with the call, nothing of Nova's engine is used
-          const ctx = await shamContextFor(body).catch(() => null);
+          // A false result is the explicit Sham path. Resolve it strictly; never default a missing context to Sham v1.
+          const ctx = await shamContextFor(body).catch((e) => { void reportError("bot:sham-context", e, { botId: botRow?.id }); return null; });
+          if (!ctx) {
+            if (routeChatId) await bot.api.sendMessage(routeChatId, "⚠️ تعذّر قراءة اختيار النموذج. لم أرسل رسالتك إلى نموذج آخر؛ أعد المحاولة بعد قليل.").catch(() => null);
+            return NextResponse.json({ status: "model_state_unavailable" });
+          }
+          if (routeChatId) console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "sham", variant: ctx.variant });
           const novaRow = botRow;                                  // narrowed here: the closures below would lose the null check
-          await shamVariant.run(ctx?.variant || "v1", () => shamModeCtx.run(ctx?.mode || {}, () => handleNovaBotUpdate(bot, novaRow, body)));
+          await shamVariant.run(ctx.variant, () => shamModeCtx.run(ctx.mode, () => handleNovaBotUpdate(bot, novaRow, body)));
+        } else if (routeChatId) {
+          console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "coder" });
         }
       } else if (botRow.template === "CONFESSION_BOT") {
         await handleConfessionBotUpdate(bot, botRow, body);
