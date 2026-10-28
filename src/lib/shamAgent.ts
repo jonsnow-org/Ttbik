@@ -47,11 +47,38 @@ const normaliseChatText = (s: string): string => String(s || "")
   .trim()
   .toLocaleLowerCase("ar");
 
+// Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
+// are still conversation, not a request to edit/run code.
+function isCapabilityQuestion(text: string): boolean {
+  const t = normaliseChatText(text);
+  return /^(?:هل\\s+(?:لديك|عندك|عندكم|تستطيع|تقدر|يمكنك|تجيد|تعرف|تتقن|تملك|تعمل)|(?:ما|ماذا)\\s+(?:الذي\\s+)?(?:تتقن|تستطيع|تقدر|تفعل|تجيد|وظيفتك|قدراتك|خبرتك)|(?:أنت|انت)\\s+(?:ماذا|ما|ماهي|ما هي)\\s*(?:تستطيع|تتقن|وظيفتك|قدراتك)?)/i.test(t);
+}
+
+function editSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const max = Math.max(a.length, b.length);
+  if (max > 320 || Math.abs(a.length - b.length) / max > 0.25) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = row;
+  }
+  return 1 - prev[b.length] / max;
+}
+
 function isQuestionEcho(answer: string, current: string, recentQuestions: string[]): boolean {
   const a = normaliseChatText(answer);
   if (!a) return true;
   const candidates = [current, ...recentQuestions].map(normaliseChatText).filter((x) => x.length >= 8);
-  return candidates.some((q) => a === q || (a.length >= 16 && (a.startsWith(q) || q.startsWith(a)) && Math.min(a.length, q.length) / Math.max(a.length, q.length) >= 0.88));
+  return candidates.some((q) => {
+    if (a === q) return true;
+    const ratio = Math.min(a.length, q.length) / Math.max(a.length, q.length);
+    if (ratio >= 0.72 && editSimilarity(a, q) >= 0.84) return true;
+    return a.length >= 16 && (a.startsWith(q) || q.startsWith(a)) && ratio >= 0.88;
+  });
 }
 
 export async function shamAgentRun(opts: {
@@ -100,7 +127,7 @@ export async function shamAgentRun(opts: {
   // Wrapping "المستخدم: ... / شام:" plus the full tool schema inside one Qwen3 user turn
   // caused the model to echo the serialized question instead of answering it. Keep agent/tool
   // routing for code, execution, media, and fresh-fact requests.
-  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial") && !needsFreshFacts(opts.text)) {
+  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
     const usableHistory = (opts.history || []).filter((h) => {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
       return q.length >= 2 && a.length >= 2 && q !== a && !isQuestionEcho(h.a, h.q, []);
