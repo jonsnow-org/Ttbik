@@ -823,7 +823,7 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
 }
 
 /** Sham's REAL agent events onto its card: thinking while a model call is in flight, each tool as it starts / ends (with its path / command), the queue when every Studio is busy. */
-function shamCardSteps(bot: TelegramBot, chatId: number, card: Card | null | undefined) {
+export function shamCardSteps(bot: TelegramBot, chatId: number, card: Card | null | undefined) {
   return (e: ShamStepEvent) => {
     if (e.type === "think") void cardPhase(bot, chatId, card, "think", "جاري التفكير");
     else if (e.type === "queue") void cardPhase(bot, chatId, card, "queue", e.text);
@@ -832,7 +832,7 @@ function shamCardSteps(bot: TelegramBot, chatId: number, card: Card | null | und
   };
 }
 /** The model's own one-line understanding for the card: Sham's Studio, a tiny text-only call (28 tokens, 3.5 s cap). Skipped while the owner's pressure mode is on (that call would take a slot from real work). */
-function shamUnderstand(text: string): (() => Promise<string | null>) | undefined {
+export function shamUnderstand(text: string): (() => Promise<string | null>) | undefined {
   if (pressureOn()) return undefined;
   return () => shamGenerate(understandingPrompt(text), 28, 3500);
 }
