@@ -1,11 +1,39 @@
 import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
+import { shamVariant } from "@/lib/shamStudio";
 
 const ctx = { chatId: 1, db: { exec: async () => undefined, query: async () => [] }, githubToken: null, chatKey: "sham:1", runId: "sham-1", owner: true } as unknown as ShamCtx;
 const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say> | { type: "image"; b64: string } | null>, seen: string[] = []): ShamAsk => async (prompt) => { seen.push(prompt); return (answers.shift() ?? null) as any; };
 
 describe("Sham's own agent loop", () => {
+  it("Sham v2 sends ordinary conversation as a direct chat prompt without the serialized tool transcript", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "ما الذي تتقنه وتستطيع القيام به؟", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("أستطيع مساعدتك في الشرح والبرمجة والبحث وتنظيم الأفكار.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "أستطيع مساعدتك في الشرح والبرمجة والبحث وتنظيم الأفكار." });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[0]).toContain("لا تكرر السؤال");
+    expect(seen[0]).not.toContain("الأدوات المتاحة لك");
+    expect(seen[0]).not.toContain("شام:");
+  });
+  it("Sham v2 retries a reply that echoes the current or a previous question", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "أنت ماذا تستطيع أن تفعل؟",
+      history: [{ q: "ما الذي تتقنه وتستطيع القيام به؟", a: "ما الذي تتقنه وتستطيع القيام به؟" }],
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("ما الذي تتقنه وتستطيع القيام به؟"), say("أستطيع شرح المواضيع والإجابة عن الأسئلة ومساعدتك في البرمجة.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "أستطيع شرح المواضيع والإجابة عن الأسئلة ومساعدتك في البرمجة." });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toContain("ما الذي تتقنه وتستطيع القيام به؟");
+    expect(seen[1]).toContain("لا تكرر نص السؤال");
+  });
+
   it("its own tool list: web, GitHub reading (only when the chat can read it), memory, schedules, ask_user; the VM tools", () => {
     const withGh = shamToolDefs(true).map((t) => t.function.name), without = shamToolDefs(false).map((t) => t.function.name);
     expect(withGh).toEqual(expect.arrayContaining(["web_search", "github_read_file", "memory_save", "schedule_create", "ask_user"]));
