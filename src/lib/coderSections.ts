@@ -505,9 +505,9 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const intent = detectMediaIntent(content);
   if (!intent) return false;
   const nm = await import("@/lib/novaMedia");
-  // never left to the model (it invented "the media Studio is not connected in this session"): a switched-off model / missing Studio is a precise, deterministic answer
-  if (modelSettings(st, novaModelOf(st.model)).media === false || !nm.novaMediaEnabled()) {
-    const why = !nm.novaMediaEnabled() ? "استوديو الوسائط غير مفعّل في إعدادات الخادم (NOVA_MEDIA_STUDIO_URL=off)." : "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).";
+  // never left to the model (it invented "the media Studio is not connected in this session"): a missing Studio is a precise, deterministic answer
+  if (!nm.novaMediaEnabled()) {
+    const why = "استوديو الوسائط غير مفعّل في إعدادات الخادم (NOVA_MEDIA_STUDIO_URL=off).";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
@@ -1458,8 +1458,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const prompt = String(a.prompt || "").trim().slice(0, 600);
             const nm = await import("@/lib/novaMedia");
             const { vetMedia } = await import("@/lib/mediaQuality");
-            if (modelSettings(st, novaModelOf(st.model)).media === false) out = "error: media generation is switched off for this model in the app settings. Nothing was made; tell the user how to switch it on (Settings → Media generation).";
-            else if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
+            if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
             else if (!nm.novaMediaEnabled()) out = "error: Nova's media Studio is not connected here. Nothing was made or sent; tell the user so, do not say it was made.";
             else {
               // open to EVERY user within the plan's daily quota (owner: unlimited); a slot is reserved first and handed back unless a vetted result was sent

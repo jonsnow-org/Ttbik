@@ -152,21 +152,23 @@ const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x 
 export function modelSettings(st: PerModelState, id: string | undefined): ModelSettings {
   const mid = canonModelId(id) || DEFAULT_MODEL_ID;
   const pm = st.perModel?.[mid] || {};
-  const legacy = mid === DEFAULT_MODEL_ID;
+  // Defaults for EVERY model and user: thinking "adaptive" (recommended), accuracy "balanced" (recommended), media always on, auto always on.
+  // Only a choice made in the per-model settings screen counts; the old single global switches (st.think / st.accuracy) and the old per-model `think` boolean are stale and ignored (2026-10-28).
+  const policy: ModelSettings["policy"] = pm.policy === "adaptive" || pm.policy === "always" || pm.policy === "never" ? pm.policy : "adaptive";
   return {
-    think: typeof pm.think === "boolean" ? pm.think : legacy ? Boolean(st.think) : false,
-    accuracy: isAcc(pm.accuracy) ? pm.accuracy : legacy && isAcc(st.accuracy) ? st.accuracy : "balanced",
-    media: typeof pm.media === "boolean" ? pm.media : true,
-    auto: typeof pm.auto === "boolean" ? pm.auto : true,
-    // the thinking policy (src/lib/modes.ts): explicit when chosen; otherwise the old switch means "always", off means the adaptive default
-    policy: pm.policy === "adaptive" || pm.policy === "always" || pm.policy === "never" ? pm.policy : (typeof pm.think === "boolean" ? pm.think : legacy ? Boolean(st.think) : false) ? "always" : "adaptive",
+    think: policy === "always",
+    accuracy: isAcc(pm.accuracy) ? pm.accuracy : "balanced",
+    media: true,                 // media generation is ALWAYS on for every model: a stored `false` (the old per-model switch, removed 2026-10-28) is ignored
+    auto: true,                  // the request class decides within the chosen accuracy (modes.ts); there is no separate switch any more
+    policy,
   };
 }
 /** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
 export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
   const mid = canonModelId(id) || DEFAULT_MODEL_ID;
   const cur = modelSettings(st, mid);
-  const next: ModelSettings = { think: patch.policy ? patch.policy === "always" : typeof patch.think === "boolean" ? patch.think : cur.think, accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: typeof patch.media === "boolean" ? patch.media : cur.media, auto: typeof patch.auto === "boolean" ? patch.auto : cur.auto, policy: patch.policy ?? (typeof patch.think === "boolean" ? (patch.think ? "always" : "adaptive") : cur.policy) };
+  const polNext = patch.policy || (typeof patch.think === "boolean" ? (patch.think ? "always" : "adaptive") : cur.policy);
+  const next: ModelSettings = { think: polNext === "always", accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: true, auto: true, policy: polNext };
   st.perModel = { ...(st.perModel || {}), [mid]: next };
   return next;
 }

@@ -142,13 +142,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
       const accIn = normalizePref(body.accuracy);
       const polIn = normalizeThinkPolicy(body.policy);
-      if (typeof body.think === "boolean" || polIn || accIn || typeof body.media === "boolean" || typeof body.auto === "boolean") {
+      if (typeof body.think === "boolean" || polIn || accIn || typeof body.auto === "boolean") {
         const { listModels, setModelSettings, canonModelId } = await import("@/lib/coderModels");
         const target = canonModelId(typeof body.for === "string" ? body.for : st.model) || "coder";
         const known = await listModels(db);
         const m = known.find((x) => x.id === target);
         if (!m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
-        const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: accIn, policy: polIn, media: typeof body.media === "boolean" ? body.media : undefined, auto: typeof body.auto === "boolean" ? body.auto : undefined });
+        const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: accIn, policy: polIn, auto: typeof body.auto === "boolean" ? body.auto : undefined });
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save

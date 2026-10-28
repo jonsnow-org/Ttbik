@@ -1009,9 +1009,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
       <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
         <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} value={n[`pol_${pol}` as "pol_adaptive"]} onClick={() => setSheet("policy")} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
-        <Row icon="🪄" title={n.s_auto} sub={n.s_autoSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.auto !== false} aria-label={n.s_auto} onChange={(e) => set({ auto: e.currentTarget.checked })} /></span>} />
         {owner && <Row icon="🔒" title={n.s_force} sub={n.s_forceSub} value={forcedNow ? tx(t, `acc_${forcedNow}`) : n.force_none} onClick={() => setSheet("force")} />}
-        <Row icon="🎞️" title={n.s_media} sub={n.s_mediaSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={s.media !== false} aria-label={n.s_media} onChange={(e) => set({ media: e.currentTarget.checked })} /></span>} />
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
       </Card>
       <Card title={`${n.m_title}: ${modelName(models, lang)}`}>

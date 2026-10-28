@@ -19,14 +19,18 @@ describe("modelSettings (pure)", () => {
     const st: any = {};
     expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
     setModelSettings(st, "sham_v2", { think: true, accuracy: "precise", media: false });
-    expect(modelSettings(st, "sham_v2")).toEqual({ think: true, accuracy: "precise", media: false, auto: true, policy: "always" });
+    expect(modelSettings(st, "sham_v2")).toEqual({ think: true, accuracy: "precise", media: true, auto: true, policy: "always" });   // a `media: false` patch is ignored: media is always on
     expect(modelSettings(st, "sham")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
     expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
   });
-  it("Nova still honours the old single switches until it has its own entry; other models do not", () => {
-    const st: any = { think: true, accuracy: "fast" };
-    expect(modelSettings(st, "coder")).toMatchObject({ think: true, accuracy: "fast" });
-    expect(modelSettings(st, "sham_v2")).toMatchObject({ think: false, accuracy: "balanced" });
+  it("stale legacy values are ignored: every model starts at thinking adaptive + accuracy balanced", () => {
+    const st: any = { think: true, accuracy: "fast", perModel: { coder: { think: true, auto: false, media: false } } };
+    for (const m of ["coder", "sham_v2"]) expect(modelSettings(st, m)).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
+  });
+  it("a choice made in the settings screen is kept (policy / accuracy)", () => {
+    const st: any = {}; setModelSettings(st, "sham_v2", { policy: "always", accuracy: "precise" });
+    expect(modelSettings(st, "sham_v2")).toMatchObject({ policy: "always", think: true, accuracy: "precise", auto: true });
+    expect(modelSettings(st, "coder")).toMatchObject({ policy: "adaptive", accuracy: "balanced" });
   });
 });
 
@@ -42,17 +46,17 @@ describe("Mini App settings op", () => {
     await appOp(o, "settings", { model: "sham" }, d);
     me = await appOp(o, "me", {}, d);
     expect(me.settings).toMatchObject({ model: "sham", think: false, accuracy: "balanced", media: true });     // old Sham: its own
-    expect(me.settings.perModel).toMatchObject({ coder: { think: true, accuracy: "fast", media: false }, sham_v2: { think: true, accuracy: "precise", media: true }, sham: { think: false, accuracy: "balanced", media: true } });
+    expect(me.settings.perModel).toMatchObject({ coder: { think: true, accuracy: "fast", media: true }, sham_v2: { think: true, accuracy: "precise", media: true }, sham: { think: false, accuracy: "balanced", media: true } });
     await appOp(o, "settings", { model: "coder" }, d);
     me = await appOp(o, "me", {}, d);
-    expect(me.settings).toMatchObject({ model: "coder", think: true, accuracy: "fast", media: false });        // back on Nova: exactly what was set there
+    expect(me.settings).toMatchObject({ model: "coder", think: true, accuracy: "fast", media: true });        // back on Nova: exactly what was set there
   });
 
   it("`for` edits another model's settings without switching to it", async () => {
     const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
     await appOp(o, "settings", { for: "sham", media: false }, d);
     const st = await loadState(OWNER, db);
-    expect(modelSettings(st, "sham").media).toBe(false);
+    expect(modelSettings(st, "sham").media).toBe(true);        // the switch was removed: no request can turn media off
     expect(st.model ?? "coder").toBe("coder");
   });
 
@@ -68,7 +72,7 @@ describe("Mini App settings op", () => {
     await appOp(o, "settings", { for: "sham", think: false, accuracy: "fast", media: false }, d);
     await appOp(o, "settings", { for: "sham_v2", think: true, accuracy: "precise", media: true }, d);
     await appOp(o, "settings", { model: "sham" }, d);
-    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: false } });
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
     await appOp(o, "settings", { model: "sham_v2" }, d);
     expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v2", mode: { think: true, accuracy: "precise", media: true } });
   });
@@ -97,5 +101,13 @@ describe("owner-only visibility with a per-model expose toggle", () => {
   it("a regular user cannot flip the toggle (model_update is owner only)", async () => {
     const db = fakeDb(); const { bot } = fakeBot();
     await expect(appOp(u, "model_update", { id: "sham", visible: true }, { db, bot, botRow })).rejects.toBeInstanceOf(AppError);
+  });
+});
+
+describe("media generation can never be switched off (any model, any stored value)", () => {
+  it("a stored legacy false is ignored for every model; the app settings payload and the API cannot turn it off", async () => {
+    const st: any = { perModel: { coder: { media: false }, sham: { media: false }, sham_v2: { media: false } } };
+    for (const id of ["coder", "sham", "sham_v2"]) expect(modelSettings(st, id).media).toBe(true);
+    for (const id of ["coder", "sham", "sham_v2"]) expect(setModelSettings(st, id, { media: false } as any).media).toBe(true);
   });
 });
