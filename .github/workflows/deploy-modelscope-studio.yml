@@ -18,13 +18,9 @@ name: Deploy ModelScope Studio
 # من المالك التأكد/الضغط يدوياً على إعادة النشر على ModelScope نفسها
 # عند أي شك، بدل الاعتماد على force_restart وحده.
 
+# 2026-10-28: the repo nova-inference-server is now Sham v2's OVERFLOW Studio (deploy-modelscope-sham-v2-overflow.yml). This legacy Nova deploy no longer runs on
+# push (it would overwrite the overflow app); it stays manual only and must not be dispatched while the overflow is in use.
 on:
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - "ai-system/modelscope-studio/**"
-      - ".github/workflows/deploy-modelscope-studio.yml"
   workflow_dispatch:
     inputs:
       force_restart:

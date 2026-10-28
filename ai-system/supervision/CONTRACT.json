@@ -718,6 +718,14 @@
       "reads": [],
       "writes": []
     },
+    "deploy_sham_v2_overflow": {
+      "file": ".github/workflows/deploy-modelscope-sham-v2-overflow.yml",
+      "title": "نشر شام v2 على استوديو الفائض (مستودع nova-inference-server المعاد توظيفه، CPU فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (ModelScope 16 GB)",
+      "reads": [],
+      "writes": []
+    },
     "studio_logs": {
       "file": ".github/workflows/studio-logs.yml",
       "title": "قراءة حالة وسجل تشغيل أي استوديو للقراءة فقط (تشخيص)",

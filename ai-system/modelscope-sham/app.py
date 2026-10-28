@@ -41,7 +41,7 @@ os.environ.setdefault("SHAM_SELF_LEARN_DIR", str(HERE / "_selflearn"))      # ex
 _OPEN = os.environ.get("SHAM_LIMITS", "").strip().lower() == "open"
 MAX_NEW_TOKENS = int(os.environ.get("SHAM_MAX_NEW_TOKENS", "768" if _OPEN else "200"))
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
-STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
+STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}   # status() also names "model" (MODEL_ID): the bot only sends Sham v2 traffic to an overflow Studio that reports sham-v2
 _LOCK = threading.Lock()
 HOT = HERE / "_hot"            # signed code synced from the model repo (studio_code/): new code reaches the Studio without a Redeploy click
 _PROC = {"p": None, "sig": ""}
@@ -238,6 +238,7 @@ def _worker() -> None:
 
 def status() -> str:
     msg = dict(STATE)
+    msg["model"] = MODEL_ID
     try:
         disk = shutil.disk_usage(HERE)
         msg["disk"] = {
