@@ -3,6 +3,9 @@ name: Sham v2 internal token generator check (read-only)
 # Owner question: would Sham v2's OWN token media generator ("شام الداخلي", not the donor ready weights) work? Downloads the checkpoint of novaai2026/sham-v2 (no media bundle), loads it like the Studio,
 # runs make_media for an image and a speech prompt on CPU, applies media_quality.check_*. Publishes nothing, changes no default, touches no Studio.
 on:
+  push:
+    branches: [ci/sham-v2-internal-check]       # only this branch, so it can run before the file reaches the default branch
+    paths: ["scripts/sham-internal-check/**"]
   workflow_dispatch:
     inputs:
       model:
@@ -28,7 +31,7 @@ jobs:
       - name: Internal generator, image + audio (+ video notice)
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODEL: ${{ inputs.model }}
+          MODEL: ${{ inputs.model || 'novaai2026/sham-v2' }}
           OUT: ${{ runner.temp }}/internal
         run: python scripts/sham-internal-check/run.py
       - uses: actions/upload-artifact@v4

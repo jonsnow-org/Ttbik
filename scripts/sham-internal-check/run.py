@@ -43,3 +43,4 @@ for kind, prompt, chk, ext in (("image", "a red apple on a white table", check_i
     res[kind] = r
 res["video"] = M.make_media(st["model"], st["text_tokenizer"], st["image_tokenizer"], st["audio_tokenizer"], "video", "x").get("text", "")[:160]
 done()
+# run
