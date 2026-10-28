@@ -6,6 +6,7 @@ import { taskStart, taskEvent, listTasks, taskEvents, stopTaskRow } from "@/lib/
 import { shamVariant } from "@/lib/shamStudio";
 import * as S from "@/lib/shamThreads";
 import * as N from "@/lib/coderThreads";
+import { setSubscription } from "@/lib/coderPlans";
 import { fakeBot } from "./coderFakes";
 import { pgDb, resetPg } from "./pgDb";
 
@@ -63,5 +64,14 @@ describe("cross-user isolation", () => {
     const d: any = pgDb(); await seed(d); const { bot } = fakeBot();
     const live: any = await appOp(ub, "tasks", { active: true }, { db: d, bot, botRow }).catch(() => ({ items: [] }));
     expect(JSON.stringify(live)).not.toMatch(/أحمد|aaaa-run-1/);
+  });
+  it("the app tells a free user there is no terminal; a paid user and the owner get it (decided server-side from the verified id)", async () => {
+    const d: any = pgDb(); const { bot } = fakeBot();
+    const feat = async (u: any) => ((await appOp(u, "me", {}, { db: d, bot, botRow })) as any).features.terminal;
+    expect(await feat(ua)).toBe(false);
+    await setSubscription(B, "plus", 30, "test", d);
+    expect(await feat(ub)).toBe(true);
+    expect(await feat({ chatId: 1, tier: "owner" })).toBe(true);
+    expect(await feat(ua)).toBe(false);                                               // the other free user is unchanged
   });
 });
