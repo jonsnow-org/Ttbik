@@ -19,6 +19,8 @@ jobs:
           node-version: "20"
       - name: Install test dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts && (cd athar && npm ci --no-audit --no-fund)
+      - name: Generate the Prisma client (types only, no database)
+        run: npx prisma generate
       - name: Run the live fast-lane check
         env:
           MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
