@@ -136,6 +136,17 @@ export async function listThreads(chatId: number | string, opts: { limit?: numbe
   }
 }
 
+/** A thread the user is talking in must be in the list: an open conversation that was hidden (a delete of the open chat that raced a running task) is shown again. */
+export async function unhideThread(chatId: number | string, id: string, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await ensureThreadTables(db);
+    const r = await db.query<{ id: string }>(`UPDATE coder_threads SET updated_at = updated_at, deleted_at = NULL WHERE id = $1 AND chat_key = $2 AND deleted_at IS NOT NULL RETURNING id`, id, coderChatKey(chatId));
+    return r.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function renameThread(chatId: number | string, id: string, title: string, db: Db = prismaDb): Promise<boolean> {
   const t = titleOf(title);
   if (!t) return false;

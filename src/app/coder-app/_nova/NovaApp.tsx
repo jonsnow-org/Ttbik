@@ -557,13 +557,13 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
         <PlanCard c={c} b={b} />
         {live && (live.pending.length > 0 || live.live.length > 0) && (
           <>
-            <Head lang={lang} title={n.runningNow} />
+            <Head lang={lang} title={n.runningNow} action={live.live.length > 0 ? <button type="button" className="n-link" onClick={async () => { haptic("warning"); try { await api("stop_all", {}); haptic("success"); } catch { haptic("error"); } void loadLive(); }}>{n.stopAll}</button> : undefined} />
             {live.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={loadLive} /></List></div>)}
             {live.live.length > 0 && (
               <Card>
                 {live.live.map((x) => (
                   <Row key={x.run_id} icon={srcIcon(x.source)} title={x.title || "—"} sub={`${tx(t, `status_${x.status}`)} · ${ago(x.updated_at, t)}`}
-                    after={<span className="n-dot" aria-hidden="true" />} onClick={() => (x.thread_id ? open({ k: "thread", id: x.thread_id, title: x.title }) : go("chats"))} />
+                    after={<><button type="button" className="n-link" aria-label={t.stop} onClick={async (e) => { e.stopPropagation(); haptic("warning"); try { await api("task_stop", { runId: x.run_id }); haptic("success"); } catch { haptic("error"); } void loadLive(); }}>⏹ {t.stop}</button><span className="n-dot" aria-hidden="true" /></>} onClick={() => (x.thread_id ? open({ k: "thread", id: x.thread_id, title: x.title }) : go("chats"))} />
                 ))}
               </Card>
             )}
