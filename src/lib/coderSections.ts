@@ -1209,6 +1209,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             else if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
             else if (!nm.novaMediaEnabled()) out = "error: Nova's media Studio is not connected here. Nothing was made or sent; tell the user so, do not say it was made.";
             else {
+              // open to EVERY user within the plan's daily quota (owner: unlimited); a slot is reserved first and handed back unless a vetted result was sent
+              const mq = await import("@/lib/coderMedia");
+              const slot = await mq.reserveMedia(chatId, kind, db);
+              if (!slot.ok) {
+                await send(ioBot, chatId, mq.mediaQuotaMessage(slot));
+                out = `error: the user's daily ${kind} quota is used up. The user was ALREADY told this (with how to upgrade); nothing was made. Do not retry and do not say media is for owners only: it is open to everyone within a daily quota.`;
+              } else {
+              let delivered = false;
+              try {
               const r0 = await withHeartbeat(ioBot, chatId, run, `جارٍ صنع ${kind === "image" ? "صورة" : kind === "audio" ? "صوت" : "مقطع"}`, () => nm.novaMakeMedia(kind, prompt, { timeoutMs: 240000 }));
               const r = (await vetMedia(r0)) as typeof r0;               // the last gate before Telegram: a blank / constant / noise picture, silent sound or empty clip is never sent
               const rb = realBot(bot);
@@ -1216,6 +1225,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
               else if (r?.b64 && r.type === "audio") { await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.wav")); out = "made by Nova's media Studio and sent to the user as a sound file"; }
               else if (r?.b64 && r.type === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); out = "made by Nova's media Studio and sent to the user as a short video"; }
               else out = `error: the ${kind} could not be made (${r?.text ? String(r.text).slice(0, 220) : r?.type || "no answer"}). NOTHING was sent to the user: tell them plainly that it failed; never say it was made.`;
+              delivered = !out.startsWith("error:");
+              } finally {
+                if (!delivered) await mq.releaseMedia(chatId, kind, db);          // nothing reached the user: it does not count against today's quota
+              }
+              }
             }
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
