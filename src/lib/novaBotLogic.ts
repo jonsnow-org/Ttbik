@@ -765,7 +765,7 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 
 // Sham's answer as the Telegram message it is: words, a picture or a sound (from the model's own tokens). A notice is plain text; nothing is added or retouched.
 
-async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
+export async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
   if (!reply) {
     // REVIEW (2026-10-14): was always "⏳ شام يتهيأ الآن…" for ANY missing answer (timeout, error, old Studio). Now an honest status line.
     const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
@@ -785,7 +785,15 @@ async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply 
     await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"), reply.text ? { caption: reply.text.slice(0, 1000) } : {}).catch(() => null);
   } else if (reply.text) {
     // a long answer arrives in several messages (Telegram allows ~4096 characters each) instead of being cut
-    for (let i = 0; i < Math.min(reply.text.length, 12000); i += 3500) await bot.api.sendMessage(chatId, reply.text.slice(i, i + 3500)).catch(() => null);
+    // (a report beyond ~24000 characters goes as a file: nothing is ever cut; chunks break at line ends and each stays under Telegram's 4096)
+    const full = reply.text;
+    if (full.length > 24000) await bot.api.sendDocument(chatId, new InputFile(Buffer.from(full, "utf8"), "report.txt")).catch(() => null);
+    else for (let i = 0; i < full.length;) {
+      let end = Math.min(full.length, i + 3800);
+      if (end < full.length) { const nl = full.lastIndexOf("\n", end - 1); if (nl > i + 1500) end = nl + 1; }
+      await bot.api.sendMessage(chatId, full.slice(i, end)).catch(() => null);
+      i = end;
+    }
   }
 }
 

@@ -181,3 +181,50 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
     expect((await listTasks(OWNER, { active: true, limit: 20 }, d)).length).toBe(0);
   });
 });
+
+describe("the background executor (terminal): the chat and the app are front-ends", () => {
+  const say = (text: string, from = FREE) => ({ message: { chat: { id: from }, from: { id: from, first_name: "Ali" }, text } });
+  it("media is made in the background: the webhook call returns at once, the picture arrives later (a dropped connection loses nothing)", async () => {
+    const good = b64(await png("gradient", 256));
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.startsWith("https://media.test")) { await wait(400); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "m1" }), { status: 200 }) : new Response(sse({ type: "image", b64: good }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "done", job: "j", text: "a white horse", tool_calls: [] }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("قم بتوليد صورة فرس ابيض"), db());
+    expect((api as any).sendPhoto).not.toHaveBeenCalled();                            // the request already returned; the work is the executor's
+    expect((await listTasks(FREE, { active: true, limit: 5 }, db())).length).toBe(1);   // visible in the shared task list (terminal) while it runs
+    expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
+  });
+  it("a command from the chat reaches a running task: a message joins its queue; /stop ends it", async () => {
+    const { bot } = fakeBot();
+    const st: any = await loadState(OWNER, db());
+    st.messages.push({ role: "user", content: "مهمة طويلة" });
+    st.run = { id: "longrun-1", chain: "c", sent: 0, logged: 0, step: 3, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", surface: "telegram" };
+    await saveState(OWNER, st, db());
+    await taskStart(OWNER, { runId: "longrun-1", slot: "", source: "interactive", title: "مهمة طويلة" }, db());
+    await handleCoderSections(bot, botRow, say("وأضف أيضاً هذا الطلب", OWNER), db());
+    expect((await loadState(OWNER, db())).inbox).toEqual(["وأضف أيضاً هذا الطلب"]);
+    await handleCoderSections(bot, botRow, say("/stop", OWNER), db());
+    await wait(100);
+    expect((await loadState(OWNER, db())).run).toBeNull();
+  });
+  it("a long report is delivered in chunks that respect Telegram's 4096 limit, in order, nothing cut (Sham's delivery)", async () => {
+    const { sendShamReply } = await import("@/lib/novaBotLogic");
+    const calls: string[] = [];
+    const tg: any = { api: { sendMessage: async (_c: number, t: string) => void calls.push(t) } };
+    const text = Array.from({ length: 900 }, (_, i) => `سطر ${i} من التقرير الطويل`).join("\n");
+    expect(text.length).toBeGreaterThan(9000);
+    await sendShamReply(tg, 1, { type: "text", text });
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(calls.every((c) => c.length <= 4096)).toBe(true);
+    expect(calls.join("")).toBe(text);                                                // nothing cut
+    const docs: any[] = [];
+    const tg2: any = { api: { sendMessage: async () => undefined, sendDocument: async (...a: any[]) => void docs.push(a) } };
+    await sendShamReply(tg2, 1, { type: "text", text: text + text });                 // beyond ~24k characters: the whole report as a file
+    expect(docs.length).toBe(1);
+  });
+});
