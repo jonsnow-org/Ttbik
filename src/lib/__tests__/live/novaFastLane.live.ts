@@ -4,8 +4,8 @@
 import fs from "fs";
 import path from "path";
 import { handleCoderSections } from "@/lib/coderSections";
-import { fakeBot } from "../__tests__/coderFakes";
-import { pgDb } from "../__tests__/pgDb";
+import { fakeBot } from "../coderFakes";
+import { pgDb } from "../pgDb";
 
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
 jest.setTimeout(900000);
