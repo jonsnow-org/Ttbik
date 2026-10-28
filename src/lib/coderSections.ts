@@ -458,6 +458,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await saveState(chatId, st, db);
     return true;
   }
+  if (!st.run && !images.length) {
+    // a plain "draw / generate a picture or a video of X" request: the fast lane (src/lib/coderMediaFast.ts) makes it without waiting for the general worker's decision
+    const fast = await mediaFastLane(bot, botRow, chatId, st, content, db);
+    if (fast) return true;
+  }
   if (!st.run) {
     // plan limit: tasks per rolling week (the owner has none)
     const lim = await checkLimit(chatId, "tasks", 1, db);
@@ -477,6 +482,88 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   // no second message in the chat: ONE reply per user message (the live-typing answer); the quick "understood" lane exists for the app terminal only
   return true;
+}
+
+/** Takes a clear media request out of the general worker's hands. False = not a media request (or media is off here): the normal path runs. */
+async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, content: string, db: Db): Promise<boolean> {
+  if (st.model && novaModelOf(st.model) === undefined) return false;                       // Sham / Sham v2 make media their own way
+  const { detectMediaIntent } = await import("@/lib/coderMediaFast");
+  const intent = detectMediaIntent(content);
+  if (!intent) return false;
+  const nm = await import("@/lib/novaMedia");
+  if (!nm.novaMediaEnabled() || modelSettings(st, novaModelOf(st.model)).media === false) return false;   // the model tells the user how to switch it on
+  const runId = randomUUID().slice(0, 12);
+  st.messages.push({ role: "user", content });
+  await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
+  await saveState(chatId, st, db);
+  later(() => fastMedia(bot, chatId, runId, intent, content, db).catch(async (e) => { await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
+  return true;
+}
+
+/** One tiny call on an idle Studio: the request as a short English picture prompt (the media models read English). */
+async function englishMediaPrompt(subject: string, original: string): Promise<string | null> {
+  const mf = await import("@/lib/coderMediaFast");
+  if (/^[\x00-\x7f]+$/.test(subject)) { const p = mf.cleanEnglishPrompt(subject); if (p) return p; }
+  const messages: CoderMessage[] = [
+    { role: "system", content: "You turn a user's request for a picture or a video into ONE short English prompt for an image model: max 25 words, describe only what is shown (subject, colours, setting, style). Output the prompt only, no quotes, no explanation." },
+    { role: "user", content: original.slice(0, 300) },
+  ];
+  try {
+    const o = await coderChat(messages, { maxTokens: 60, temperature: 0.2, waitS: 15, timeoutMs: 30000, fresh: true, tag: "media-prompt" });
+    let r: CoderReply | null | undefined = o?.reply;
+    for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
+    }
+    if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
+    const p = r?.type === "done" ? mf.cleanEnglishPrompt(r.text || "") : null;
+    if (p) return p;
+  } catch { /* the glossary below */ }
+  return mf.glossaryPrompt(subject);
+}
+
+async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent: { kind: "image" | "video"; subject: string }, content: string, db: Db): Promise<void> {
+  const { kind } = intent;
+  const rb = realBot(bot);
+  const beat = setInterval(() => void taskTouch(runId, db), 20000);
+  const mq = await import("@/lib/coderMedia");
+  let reserved = false;
+  let delivered = false;
+  let say = "";
+  let result = "";
+  try {
+    const slot = await mq.reserveMedia(chatId, kind, db);
+    if (!slot.ok) { say = mq.mediaQuotaMessage(slot); result = "quota"; }
+    else {
+      reserved = true;
+      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+      const prompt = await englishMediaPrompt(intent.subject, content);
+      if (!prompt) { say = "تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة."; result = "no prompt"; }
+      else {
+        await taskEvent(runId, "info", `🖼️ ${kind}: ${prompt}`, db);
+        const nm = await import("@/lib/novaMedia");
+        const { vetMedia } = await import("@/lib/mediaQuality");
+        const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000 });
+        const r = (await vetMedia(r0)) as typeof r0;                    // the last gate before Telegram
+        if (r?.b64 && r.type === "image" && kind === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); delivered = true; }
+        else if (r?.b64 && r.type === "video" && kind === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); delivered = true; }
+        if (delivered) { result = kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع."; }
+        else { say = `تعذّر إنشاء ${kind === "image" ? "الصورة" : "المقطع"} هذه المرة (${r?.text ? String(r.text).slice(0, 120) : "لا نتيجة"}). لم يُرسل شيء ولم يُحسب من حصتك. أعد المحاولة بعد قليل.`; result = "failed"; }
+      }
+    }
+    if (say) await send(bot, chatId, say);
+  } finally {
+    clearInterval(beat);
+    if (reserved && !delivered) await mq.releaseMedia(chatId, kind, db).catch(() => null);
+    await taskStatus(runId, delivered ? "done" : "failed", 1, db);
+    await taskEvent(runId, delivered ? "done" : "failed", delivered ? result : say || result, db);
+    const cur = await loadState(chatId, db).catch(() => null);
+    if (cur) {
+      cur.messages.push({ role: "assistant", content: delivered ? result : say || result });
+      await saveState(chatId, cur, db);
+      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(coderChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
+    }
+  }
 }
 
 /**

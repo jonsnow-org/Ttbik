@@ -74,6 +74,13 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
         t.tasks.push({ run_id: a[0], chat_key: a[1], slot: a[2], source: a[3], schedule_id: a[4], title: a[5], status: "running", steps: 0, thread_id: a[6] ?? null });
         return [{ run_id: a[0] }];
       }
+      if (sql.includes("SET updated_at = updated_at, deleted_at = NULL")) { const x = t.threads.find((r) => r.id === a[0] && r.chat_key === a[1] && r.deleted_at); if (x) x.deleted_at = null; return x ? [{ id: x.id }] : []; }
+      if (sql.includes("UPDATE coder_tasks SET status = 'failed'")) {          // reapStaleTasks: a test marks a task `stale: true` for "started long ago"
+        const gone = t.tasks.filter((r) => r.chat_key === a[0] && r.status === "running" && r.stale);
+        gone.forEach((r) => { r.status = "failed"; });
+        return gone.map((r) => ({ run_id: r.run_id }));
+      }
+      if (sql.includes("UPDATE coder_tasks SET status = 'stopped'")) { const x = t.tasks.find((r) => r.run_id === a[0] && r.chat_key === a[1] && (r.status === "running" || r.status === "waiting")); if (x) x.status = "stopped"; return x ? [{ run_id: x.run_id }] : []; }
       if (sql.includes("FROM coder_threads t")) return t.threads.filter((r) => !r.deleted_at && r.memory_due).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) })).slice(0, 1);
       if (sql.includes("FROM coder_threads WHERE id = $1")) return t.threads.filter((r) => r.id === a[0] && r.chat_key === a[1]).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) }));
       if (sql.includes("FROM coder_threads WHERE chat_key")) return t.threads.filter((r) => r.chat_key === a[0] && !r.deleted_at).slice().reverse().map((r) => ({ ...r, messages_count: r.messages.length }));

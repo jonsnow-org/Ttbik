@@ -192,13 +192,13 @@ export type OrphanTask = { run_id: string; chatId: number; botId: string; slot: 
 /**
  * Running tasks whose worker stopped beating (the server was replaced or killed mid-leg). Each one is CLAIMED by an atomic UPDATE of its
  * heartbeat, so two ticks (or a tick and a live runner) never resume the same run. A live runner beats every 15 s, so 90 s of silence
- * means it is gone. Tasks older than `maxAgeMs` are left to the normal "recovered as failed" path.
+ * means it is gone. Tasks that STARTED more than `maxAgeMs` ago are never claimed again (claiming bumped the heartbeat, so a dead run used to look alive for ever: it stayed in "running" for days) and are closed by reapStaleTasks.
  */
 export async function claimOrphanTasks(db: Db = prismaDb, staleMs = 90000, maxAgeMs = 30 * 60000): Promise<OrphanTask[]> {
   try {
     await ensureTaskTables(db);
     const rows = await db.query<{ run_id: string; chat_enc: string; bot_id: string; slot: string }>(
-      `UPDATE coder_tasks SET updated_at = now() WHERE status = 'running' AND chat_enc IS NOT NULL AND bot_id IS NOT NULL AND updated_at < now() - ($1 || ' milliseconds')::interval AND updated_at > now() - ($2 || ' milliseconds')::interval RETURNING run_id, chat_enc, bot_id, slot`,
+      `UPDATE coder_tasks SET updated_at = now() WHERE status = 'running' AND chat_enc IS NOT NULL AND bot_id IS NOT NULL AND updated_at < now() - ($1 || ' milliseconds')::interval AND started_at > now() - ($2 || ' milliseconds')::interval RETURNING run_id, chat_enc, bot_id, slot`,
       String(staleMs), String(maxAgeMs),
     );
     const out: OrphanTask[] = [];
@@ -221,4 +221,36 @@ export async function activeTaskCount(db: Db = prismaDb, freshMs = 90000): Promi
   } catch {
     return 0;       // unknown: never block a deploy
   }
+}
+
+/**
+ * Closes runs that can no longer be alive, so the app's "running now" list never keeps them for ever: a Sham run (its own short path) after 20 minutes, any other run after
+ * 60 minutes (a live Nova run beats every 15 s and finishes long before). Waiting runs (a question or approval for the user) are left alone. Judged by when the run STARTED:
+ * the heartbeat of a dead run used to be bumped by the orphan claim, which made it look fresh for days.
+ */
+export async function reapStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ run_id: string }>(
+      `UPDATE coder_tasks SET status = 'failed', updated_at = now(), finished_at = now()
+       WHERE chat_key = $1 AND archived_at IS NULL AND status = 'running'
+       AND ((run_id LIKE 'sham-%' AND started_at < now() - interval '20 minutes') OR started_at < now() - interval '60 minutes')
+       RETURNING run_id`,
+      coderChatKey(chatId),
+    );
+    for (const r of rows) await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, r.run_id, "failed", "أُغلقت المهمة تلقائياً: انتهت مدتها دون نتيجة.");
+    return rows.length;
+  } catch { return 0; }
+}
+
+/** Marks one running / waiting task as stopped in the history (the live Studio job of a Nova run is cancelled by stopRun first). */
+export async function stopTaskRow(chatId: number | string, runId: string, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await ensureTaskTables(db);
+    const r = await db.query<{ run_id: string }>(
+      `UPDATE coder_tasks SET status = 'stopped', updated_at = now(), finished_at = now() WHERE run_id = $1 AND chat_key = $2 AND status IN ('running','waiting') RETURNING run_id`,
+      runId, coderChatKey(chatId),
+    );
+    return r.length > 0;
+  } catch { return false; }
 }

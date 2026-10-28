@@ -89,6 +89,20 @@ async function pendings(chatId: number, db: Db) {
   return out;
 }
 
+/**
+ * Keeps the lists honest before they are read: runs that cannot be alive any more are closed (they used to stay in "running now" for days), and the conversation the user is
+ * talking in is never hidden (a delete of the open chat that raced a running task left new requests in a hidden thread: the Chats tab said "no chats" while Home showed them).
+ */
+async function tidyBeforeList(chatId: number, st: { threadId?: string | null }, db: Db): Promise<void> {
+  const { reapStaleTasks } = await import("@/lib/coderTasks");
+  await reapStaleTasks(chatId, db);
+  if (st.threadId) {
+    const T = await import("@/lib/coderThreads");
+    const row = await T.getThread(chatId, st.threadId, db);
+    if (row?.deleted_at) await T.unhideThread(chatId, st.threadId, db);
+  }
+}
+
 export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps): Promise<Json> {
   const db = deps.db || prismaDb;
   const { chatId } = user;
@@ -180,6 +194,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true, rules: (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r) };
     }
     case "tasks": {
+      await (await import("@/lib/coderTasks")).reapStaleTasks(chatId, db);
       const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
@@ -211,11 +226,26 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { stopRun } = await sections();
       return { ok: await stopRun(chatId, slot, String(body.runId || ""), db) };
     }
+    case "task_stop":
+    case "stop_all": {
+      // stops one running task (or every running one) from Home: a live Nova run is cancelled like /stop (its Studio job too), any other row is closed in the history
+      const { stopRun } = await sections();
+      const { stopTaskRow } = await import("@/lib/coderTasks");
+      const targets = op === "stop_all" ? await listTasks(chatId, { active: true, limit: 50 }, db) : (await listTasks(chatId, { active: true, limit: 50 }, db)).filter((t) => t.run_id === String(body.runId || ""));
+      let stopped = 0;
+      for (const t of targets) {
+        if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
+        if (!t.run_id.startsWith("sham-")) await stopRun(chatId, t.slot || "", t.run_id, db).catch(() => false);
+        if (await stopTaskRow(chatId, t.run_id, db)) stopped++;
+      }
+      return { ok: true, stopped };
+    }
     // ---------------------------------------------------------------- conversation threads (src/lib/coderThreads.ts)
     case "threads": {
       const T = await import("@/lib/coderThreads");
       const st = await loadState(chatId, db);
       if (!st.threadId && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
+      await tidyBeforeList(chatId, st, db);
       const threads = await T.listThreads(chatId, { limit: Number(body.limit) || 40, before: body.before || undefined }, db);
       const live = await listTasks(chatId, { active: true, limit: 20 }, db);
       // scheduled / event runs are not conversations: listed on their own
@@ -257,6 +287,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { hideThread } = await import("@/lib/coderThreads");
       const id = String(body.id || "");
       const st = await loadState(chatId, db);
+      // the open chat when nothing was said in it yet: it is already "a fresh chat" (never listed), hiding it would hide the conversation the next message goes to
+      if (st.threadId === id && !st.messages.length && !st.run) return { ok: true };
       if (st.threadId === id) await (await sections()).switchThread(chatId, st, null, db);
       if (!(await hideThread(chatId, id, db))) throw new AppError(404, "not found");
       return { ok: true };
@@ -280,6 +312,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!C.isChatModel(model) || !m || !(user.tier === "owner" || (m.visible && modelReady(m)))) throw new AppError(400, "model not available");
       const id = String(body.id || "");
       if (op === "chats") {
+        await tidyBeforeList(chatId, st, db);
         if (!st.threadId && model === "coder" && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
         const archived = body.archived === "only" || body.archived === "include" ? body.archived : "exclude";
         return { model, selected: st.model || "coder", ...(await C.chatList(chatId, st, model, { q: typeof body.q === "string" ? body.q : undefined, archived, limit: Number(body.limit) || 60 }, db)) };
