@@ -88,8 +88,12 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
+  type: "text" | "tool_calls" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
   reason?: string; text?: string; mime?: string; b64?: string; route?: string;
+  /** Structured assistant function calls returned by Sham v2's own agent_step endpoint. */
+  tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }>;
+  message?: { role?: "assistant"; content?: string; tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }> };
+  raw?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -158,6 +162,29 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
   const reply = body ? await vetShamReply(parseShamReply(body)) : null;
   if (body && !reply) lastFailure = `generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
   return reply;
+}
+
+/** Ask Sham v2's dedicated Studio for one structured agent step. The Studio turns the model's
+ * constrained call into a typed {type:"tool_calls", tool_calls:[...]} response; the app executor
+ * still validates every argument and permission. This never routes to Sham v1 or Nova. */
+export async function shamGenerateAgentStep(prompt: string, maxNewTokens = 160, timeoutMs = 90000): Promise<ShamReply | null> {
+  if (shamVariant.getStore() !== "v2") {
+    lastFailure = "agent_step refused outside the Sham v2 variant";
+    return null;
+  }
+  const body = await shamCall("agent_step", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
+  const reply = body ? parseShamReply(body) : null;
+  if (reply?.type === "tool_calls") {
+    const calls = Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls;
+    if (!calls?.length || calls.some((c) => !c || c.type !== "function" || !c.function?.name || typeof c.function.arguments !== "string")) {
+      lastFailure = "agent_step: malformed structured tool_calls envelope";
+      return { type: "tool_call_error", text: "استجابة استدعاء الأدوات المنظّمة غير صالحة؛ لم تُنفّذ أي أداة." };
+    }
+    return { ...reply, tool_calls: calls };
+  }
+  if (reply?.type === "tool_call_error" || reply?.type === "text" || reply?.type === "busy" || reply?.type === "loading" || reply?.type === "notice" || reply?.type === "error") return reply;
+  if (body) lastFailure = `agent_step: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
+  return null;
 }
 
 /** The two media paths a Sham Studio really has, by the exact label its panel API validates (ai-system/modelscope-sham/app.py PANEL_BACKENDS). */
