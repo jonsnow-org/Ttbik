@@ -11,6 +11,7 @@ on:
     paths:
       - ai-system/modelscope-sham/**
       - ai-system/colab/sham_small/sham_media_ready.py
+      - ai-system/colab/sham_small/cpu_video.py
       - scripts/transplant/stage_sham_v2_studio.py
       - .github/workflows/deploy-modelscope-sham-v2.yml
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.

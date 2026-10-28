@@ -1,0 +1,18 @@
+name: ModelScope Studios inventory (read-only)
+# Lists every Studio of the account (state, hardware) and each app's own status numbers (disk, memory, phase, queue). Prints no token, no user text. Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: unit tests
+        run: cd scripts/ops && python3 -m unittest test_studio_inventory
+      - name: inventory
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: python3 scripts/ops/studio_inventory.py

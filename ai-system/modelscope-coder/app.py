@@ -679,6 +679,12 @@ def status() -> str:
         mem = {"mem_total_gb": round(int(info["MemTotal"].split()[0]) / 1048576, 2), "mem_available_gb": round(int(info["MemAvailable"].split()[0]) / 1048576, 2)}
     except Exception:
         pass
+    try:      # the disk the model file lives on (GiB), for the capacity audit
+        import shutil
+        du = shutil.disk_usage(os.path.dirname(os.path.abspath(__file__)))
+        mem["disk"] = {"total_gb": round(du.total / 2 ** 30, 2), "used_gb": round(du.used / 2 ** 30, 2), "free_gb": round(du.free / 2 ** 30, 2)}
+    except Exception:
+        pass
     return json.dumps(dict(STATE, queue=q, active=active, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 

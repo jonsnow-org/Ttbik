@@ -517,10 +517,19 @@ def api_video(body: str) -> str:
     return json.dumps(_run("video", json.loads(body or "{}")))
 
 
+def _disk() -> dict:
+    """The Studio's disk in GiB (total / used / free of the volume that holds the weights), for the capacity audit."""
+    try:
+        d = shutil.disk_usage(HERE)
+        return {"total_gb": round(d.total / 2 ** 30, 2), "used_gb": round(d.used / 2 ** 30, 2), "free_gb": round(d.free / 2 ** 30, 2)}
+    except OSError:
+        return {}
+
+
 def api_status() -> str:
     ready = bool(_CV["pipe"] is not None or cv_find_weights(HERE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
     return json.dumps({
-        **STATE, "repo": REPO, "cpus": os.cpu_count(),
+        **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),
                   "mode": "native-diffusion-only", "note": "weights are fetched once on the first video request; 8 fps, 1-2 s clips"},
     })
