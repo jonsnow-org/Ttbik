@@ -53,6 +53,9 @@ class ToolCallEnvelopeTests(unittest.TestCase):
         self.assertIsNone(
             extract_tool_call('<tool_call>{"name":"delete_everything","arguments":{}}</tool_call>', prompt)
         )
+        # A name in old transcript text still cannot run unless the active tool list permits it.
+        self.assertIsNone(extract_tool_call(call, prompt, ["fetch_page"]))
+        self.assertEqual(extract_tool_call(call, prompt, ["web_search"])["name"], "web_search")
 
     def test_structured_boundary_repairs_a_truncated_call_and_rejects_non_object_arguments(self):
         prompt = "Tools:\n- sandbox_exec(command) — runs"
