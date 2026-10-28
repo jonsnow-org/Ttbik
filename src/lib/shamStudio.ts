@@ -7,10 +7,10 @@ import { orderV2, tracked } from "@/lib/shamPool";
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
 
-const DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net";
-const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
+export const DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net";
+export const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
 // Sham v2's own video Studio (ai-system/modelscope-sham-video/app.py): the 8 GB chat Studio cannot carry the video pipeline (it died with HTTP 502 right after sampling).
-const DEFAULT_V2_VIDEO_URL = "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net";
+export const DEFAULT_V2_VIDEO_URL = "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net";
 
 /** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
 export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
