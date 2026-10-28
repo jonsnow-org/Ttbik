@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import unittest
 
-from sham_toolcall import CLOSE_TAG, OPEN_TAG, ToolCallGuard, extract_tool_call, repair_call, tool_names_from_prompt
+from sham_toolcall import CLOSE_TAG, OPEN_TAG, ToolCallGuard, repair_call, tool_names_from_prompt
+from sham_native_tools import extract_tool_call
 
 
 class _CharTokenizer:
