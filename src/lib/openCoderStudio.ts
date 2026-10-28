@@ -288,28 +288,23 @@ export async function anyVisionStudio(capMs = 1500): Promise<boolean> {
 }
 
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
-export function coderChat(
+export async function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; priority?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
-  return coderCall(
-    "chat",
-    {
+  const base = {
       messages: JSON.stringify(wireMessages(messages)),
       tools: opts.tools?.length ? JSON.stringify(opts.tools) : "",
       max_tokens: opts.maxTokens ?? 0,
       think: opts.think ? (opts.thinkCap && opts.thinkCap !== 1200 ? `1:${Math.round(opts.thinkCap)}` : "1") : "",
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
-    },
-    opts.timeoutMs ?? (waitS + 12) * 1000,
-    opts.affinity,
-    opts.fresh,
-    opts.avoidHome,
-    opts.tag,
-    hasImages(messages),
-  );
+  };
+  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages));
+  if (!(opts.priority && opts.priority > 0)) return call(base);                       // no field at all: the payload is what every Studio already understands
+  const o = await call({ ...base, priority: 1 });                                     // Pro / owner: ahead in the Studio's queue
+  return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it
 }
 
 export function coderJobResult(job: string, offset = 0, timeoutMs = 10000): Promise<CoderOutcome> {

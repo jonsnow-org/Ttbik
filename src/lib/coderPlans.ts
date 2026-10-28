@@ -32,8 +32,20 @@ export const DEFAULT_PLANS: Plan[] = [
   { id: "pro", name: { ar: "برو", en: "Pro" }, price_label: "750⭐ / 30d", price_cents: null, currency: "USD", sort: 2, active: true, price_stars: 750, days: 30, daily_tokens: null,
     limits: { tasks: 120, steps: 5000, tokens: 1_500_000, sandbox_minutes: 400, research: 60, schedules: 15 } },
 ];
-/** Plans that are meant to get queue priority. Data only for now: the Studio's own queue is first-come-first-served and no priority is sent to it yet. */
+/** Plans that get queue priority: their requests go ahead of free ones in the Studio's one-at-a-time queue (ai-system/modelscope-coder: `priority`, bounded by
+ *  CODER_PRIORITY_BOOST_S so nobody starves). The owner always has it. */
 export const PRIORITY_PLANS = ["pro"];
+
+/** 1 for the owner and for an active subscription to a PRIORITY_PLANS plan, else 0. Never throws: a database problem means "no priority", never a failed request. */
+export async function queuePriority(chatId: number | string, db: Db = prismaDb): Promise<number> {
+  try {
+    if (tierFor(Number(chatId)) === "owner") return 1;
+    const sub = await getSubscription(chatId, db);
+    return PRIORITY_PLANS.includes(sub.plan_id) ? 1 : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /** Later: a payment integration implements this (checkout link for a plan, webhook that activates the subscription). None is wired now. */
 /** The terminal (live task logs, Mini App tab) is for the owner always and for paid plans only; the free plan does not see it (owner's order, 2026-10-26). */

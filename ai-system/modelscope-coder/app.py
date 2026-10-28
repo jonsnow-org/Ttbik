@@ -12,7 +12,8 @@ What it serves
       /gradio_api/call/v2/job_result       {job_id, offset}   long answers keep running after the HTTP call returns (job/detach)
       /gradio_api/call/v2/cancel           {job_id}
       /gradio_api/call/v2/status           {}                 phase, model, context, queue length
-  * one shared FIFO queue: one generation at a time on the CPU, every other request waits its turn (never refused).
+  * one shared queue: one generation at a time on the CPU, every other request waits its turn (never refused). First come first served, except that a
+    Pro / owner request (`priority` 1) goes ahead of free requests that arrived up to CODER_PRIORITY_BOOST_S (300 s) before it; nobody starves.
   * NO answer-length cap: max_tokens 0 (default) = generate until the model stops or the context (-c, default 65536) is full.
   * native tool calling (OpenAI `tools`, `--jinja` chat template): the bot's agent harness (src/lib/coderAgent.ts) runs the tools.
 
@@ -32,6 +33,7 @@ import hashlib
 import json
 import os
 import shutil
+import itertools
 import queue
 import socket
 import http.client
@@ -81,7 +83,19 @@ STATE = {**_cpu_info(), "vision": False, "phase": "starting", "detail": "", "mod
          "llama_build": LLAMA_BUILD, "error": "", "started_at": time.time(), "ready_at": 0}
 JOBS: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
 JOBS_LOCK = threading.Lock()
-QUEUE: "queue.Queue[str]" = queue.Queue()
+# One-at-a-time queue ordered by (arrival time minus the priority boost): a Pro / owner job (priority 1) is served ahead of free jobs that arrived
+# up to PRIORITY_BOOST_S before it, and a free job that waited longer than that is never starved. Items: (key, seq, job id).
+PRIORITY_BOOST_S = max(0.0, float(os.environ.get("CODER_PRIORITY_BOOST_S", "300") or 300))
+QUEUE: "queue.PriorityQueue[tuple]" = queue.PriorityQueue()
+_SEQ = itertools.count()
+
+
+def _job_key(job: dict) -> float:
+    return float(job.get("created", 0)) - (PRIORITY_BOOST_S if job.get("priority") else 0.0)
+
+
+def enqueue(jid: str) -> None:
+    QUEUE.put((_job_key(JOBS[jid]), next(_SEQ), jid))
 _PROC = {"p": None}
 _PATHS = {"model": "", "bindir": ""}
 _BENCH = {"running": False}
@@ -362,7 +376,7 @@ def _slot_after(job: dict) -> None:
             _slot_prune()
 
 
-# ---------------------------------------------------------------- jobs (shared FIFO queue, one generation at a time)
+# ---------------------------------------------------------------- jobs (shared queue, one generation at a time; FIFO, with a bounded boost for Pro / owner)
 # A job nobody polls any more (the bot gave up, or its task ended) must not hold the one-at-a-time queue for everyone else.
 ABANDON_S = max(60.0, float(os.environ.get("CODER_JOB_ABANDON_S", "180") or 180))
 JOB_MAX_S = max(300.0, float(os.environ.get("CODER_JOB_MAX_S", "1800") or 1800))
@@ -500,7 +514,7 @@ def _stream_once(job: dict) -> None:
 
 def _runner() -> None:
     while True:
-        jid = QUEUE.get()
+        jid = QUEUE.get()[-1]
         while _BENCH["running"]:
             time.sleep(1)                                              # a speed measurement (bench) has the box to itself
         job = JOBS.get(jid)
@@ -531,7 +545,8 @@ def _runner() -> None:
 def _queue_pos(jid: str) -> int:
     _purge()
     with JOBS_LOCK:
-        waiting = [k for k, j in JOBS.items() if j["status"] in ("queued", "running") and not j.get("cancel") and (k == jid or not _stale(j))]
+        live = [(k, j) for k, j in JOBS.items() if j["status"] in ("queued", "running") and not j.get("cancel") and (k == jid or not _stale(j))]
+        waiting = [k for k, j in sorted(live, key=lambda kj: (kj[1]["status"] != "running", _job_key(kj[1])))]      # the running job first, then the queue's own order
     return waiting.index(jid) if jid in waiting else -1
 
 
@@ -570,8 +585,8 @@ def _think_flag(think) -> "tuple[bool, int]":
     return on, (max(200, min(6000, n)) if n else 0)
 
 
-def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "", temperature: float = 0.6, wait_s: float = 20) -> str:
-    """Queue one chat completion; wait up to wait_s (max 50) for it, else answer pending + job id."""
+def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "", temperature: float = 0.6, wait_s: float = 20, priority: float = 0) -> str:
+    """Queue one chat completion; wait up to wait_s (max 50) for it, else answer pending + job id. priority > 0 (Pro / owner) goes ahead in the queue (bounded)."""
     try:
         msgs = json.loads(messages) if isinstance(messages, str) else messages
         tls = json.loads(tools) if isinstance(tools, str) and tools.strip() else (tools or [])
@@ -580,10 +595,11 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
     jid = uuid.uuid4().hex
     job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs),
-           "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time()}
+           "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time(),
+           "priority": 1 if _num(priority, 0) > 0 else 0}
     with JOBS_LOCK:
         JOBS[jid] = job
-    QUEUE.put(jid)
+    enqueue(jid)
     deadline = time.time() + max(0.0, min(50.0, _num(wait_s, 20)))
     while time.time() < deadline and job["status"] in ("queued", "running"):
         job["seen"] = time.time()                                  # its caller is still on the line
@@ -675,7 +691,7 @@ def build_ui():
     import gradio as gr
     tabs = [
         gr.Interface(chat, [gr.Textbox(label="messages"), gr.Textbox(label="tools"), gr.Number(label="max_tokens", value=0),
-                            gr.Textbox(label="think"), gr.Number(label="temperature", value=0.6), gr.Number(label="wait_s", value=20)],
+                            gr.Textbox(label="think"), gr.Number(label="temperature", value=0.6), gr.Number(label="wait_s", value=20), gr.Number(label="priority", value=0)],
                      gr.Textbox(label="json"), api_name=f"{PREFIX}chat", flagging_mode="never"),
         gr.Interface(job_result, [gr.Textbox(label="job_id"), gr.Number(label="offset", value=0)], gr.Textbox(label="json"),
                      api_name=f"{PREFIX}job_result", flagging_mode="never"),

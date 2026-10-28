@@ -22,7 +22,7 @@ import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, memory
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
-import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
+import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
@@ -1805,7 +1805,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (sticky.join(",") !== (st.groups || []).join(",")) st.groups = sticky;
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (nset.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: (nset.think || knobs.think) && !run.thinkOff, thinkCap: thinkCapFor(accuracy), accuracy, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
