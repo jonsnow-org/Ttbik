@@ -508,7 +508,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   st.messages.push({ role: "user", content });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
-  const card = await openMsgCard(realBot(bot) as never, chatId, content);        // ONE message: understood + progress (queue notes); the picture / video goes separately
+  const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });        // ONE message: the model's understanding + real steps (queue notes); the picture / video goes separately
   later(() => fastMedia(bot, chatId, runId, intent, content, db, card).catch(async (e) => { await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة (خطأ داخلي). أعد المحاولة بعد قليل.").catch(() => false); await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
   return true;
 }
@@ -550,14 +550,21 @@ async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent
     else {
       reserved = true;
       await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+      const rbm = realBot(bot) as never;
+      const needsModel = !/^[\x00-\x7f]+$/.test(intent.subject);               // an English subject needs no model call: no such step is shown for it
+      if (needsModel) await cardTool(rbm, chatId, card, "كتابة وصف إنجليزي للصورة");
       const prompt = await englishMediaPrompt(intent.subject, content);
+      if (needsModel) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) { say = "تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة."; result = "no prompt"; }
       else {
         await taskEvent(runId, "info", `🖼️ ${kind}: ${prompt}`, db);
         const nm = await import("@/lib/novaMedia");
         const { vetMedia } = await import("@/lib/mediaQuality");
+        await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
         const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, onWait: (n) => { void cardNote(realBot(bot) as never, chatId, card, `⏳ استوديو الوسائط يخدم طلباً آخر — طلبك في الدور وسيبدأ تلقائياً (محاولة ${n})`); void taskEvent(runId, "info", `⏳ media Studio busy, waiting in line (${n})`, db).catch(() => null); } });
         const r = (await vetMedia(r0)) as typeof r0;                    // the last gate before Telegram
+        await cardStepDone(rbm, chatId, card, Boolean(r?.b64));
+        if (r?.b64 && (r.type === "image" || r.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
         if (r?.b64 && r.type === "image" && kind === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); delivered = true; }
         else if (r?.b64 && r.type === "video" && kind === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); delivered = true; }
         if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
@@ -1092,7 +1099,7 @@ const EDIT_EVERY_MS = 2000;
 const TG_MAX = 4096;
 
 export { understoodLine } from "@/lib/singleMessage";
-import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, type Card as MsgCard } from "@/lib/singleMessage";
+import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, cardTool, cardStepDone, cardPhase, type Card as MsgCard } from "@/lib/singleMessage";
 
 /** The model's own one-line understanding of the request: a tiny call on an idle Studio (40 tokens, thinking off, ~3 s cap). null = skip (one Studio only, tests, switched off). */
 function understandAsk(content: string): (() => Promise<string | null>) | null {

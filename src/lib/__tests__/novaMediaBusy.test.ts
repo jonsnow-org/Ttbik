@@ -37,7 +37,8 @@ describe("Nova media Studio busy / off", () => {
     const d: any = pgDb();
     await handleCoderSections(bot, botRow, say("قم بتوليد صورة اسد"), d);
     expect(sent.length).toBe(1);
-    expect(sent[0].text).toMatch(/^✅ فهمت طلبك/);                       // the one message, at once
+    expect(sent[0].text).toMatch(/^🕒 .*\n💬 /);                                  // the one message, at once (date + time, the received line; no canned echo)
+    expect(sent[0].text).not.toMatch(/فهمت طلبك/);
     for (let i = 0; i < 100 && !(api as any).sendPhoto.mock.calls.length; i++) await wait(50);
     expect((api as any).sendPhoto).toHaveBeenCalledTimes(1);
     await wait(100);
