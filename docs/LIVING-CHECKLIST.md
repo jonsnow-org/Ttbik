@@ -1,4 +1,5 @@
 # قائمة المتابعة / Living checklist  (آخر تحديث 07:00 توقيت إسطنبول)
+**STATUS 07:20:** مدموج حتى #516 (HEAD e0003ea0). ✅ استوديو فيديو شام v2 الخاص sham-v2-video-server نُشر وفحص حياً: فيديو حقيقي 8 إطارات motion 2.31 في 77ث (run 40628894315)، RAM حر 2.3GB وقرص حر 6.46GiB. ✅ Vercel READY على f997f35e، Oracle=Vercel SAME BUILD (run 40630760959). ⏳ استوديو دردشة Sham v2 يُعاد نشره الآن (#516 يحذف أوزان الفيديو القديمة 2.9GiB) ثم أتحقق صورة/كلام/صحة. ⏳ جدول الاستوديوهات + التقرير النهائي.
 
 PR الدفعة: https://github.com/jonsnow-org/Ttbik/pull/504 (Batch 3) — **مدموج** (merge a356a602، كل فحوص CI خضراء). قائمة المتابعة: https://github.com/jonsnow-org/Ttbik/pull/505 (draft، لا تُدمج)
 
