@@ -1,5 +1,5 @@
 // The coder's selectable models. Each entry has its own Stars price (null = included in the plan) and an owner switch that decides
-// whether users can see it. Nova AI is the default and always visible (its own improvement, "Nova 1", is trained on branch training/nova1 and
+// whether users can see it. Nova AI is the default and visible unless the owner hides it with its own switch (its own improvement, "Nova 1", is trained on branch training/nova1 and
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { prismaDb, type Db } from "@/lib/coderAuth";
@@ -50,7 +50,7 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
         ...base,
         name: { ar: String(d.name?.ar || base.name.ar).slice(0, 40), en: String(d.name?.en || base.name.en).slice(0, 40) },
         price_stars: d.price_stars === undefined ? base.price_stars : cleanStars(d.price_stars),
-        visible: base.isDefault ? true : d.visible === undefined ? base.visible : Boolean(d.visible),
+        visible: d.visible === undefined ? base.visible : Boolean(d.visible),
       });
     }
   } catch {
@@ -65,7 +65,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   if (!cur) throw new Error("unknown model");
   const next: CoderModel = {
     ...cur,
-    visible: cur.isDefault ? true : patch.visible === undefined ? cur.visible : Boolean(patch.visible),
+    visible: patch.visible === undefined ? cur.visible : Boolean(patch.visible),
     price_stars: patch.price_stars === undefined ? cur.price_stars : cleanStars(patch.price_stars),
     name: { ar: String(patch.name?.ar ?? cur.name.ar).slice(0, 40), en: String(patch.name?.en ?? cur.name.en).slice(0, 40) },
   };
@@ -92,12 +92,21 @@ export function modelReady(m: CoderModel): boolean {
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
+/** THE access check for a model, used by the bot and the Mini App alike: the owner may use every model; anyone else only a model the owner switched on for everyone AND that is ready. */
+export const modelUsableBy = (m: CoderModel, owner: boolean): boolean => owner || openToUsers(m);
+
+/** Who can use this model right now, in words the owner panel shows (never hides a reason). */
+export type ModelAccess = "everyone" | "owner_only" | "on_but_not_ready";
+export function modelAccess(m: CoderModel): ModelAccess {
+  if (!m.visible) return "owner_only";
+  return modelReady(m) ? "everyone" : "on_but_not_ready";
+}
 
 /** The model a chat may use: its pick if still visible (the owner may use hidden ones to test), else the default. */
 export function effectiveModel(models: CoderModel[], picked: string | undefined, owner: boolean): CoderModel {
   const m = models.find((x) => x.id === canonModelId(picked));
   if (m && (owner || openToUsers(m))) return m;
-  return models.find((x) => x.isDefault) || models[0];
+  return (!owner && models.find((x) => openToUsers(x) && x.isDefault)) || (!owner && models.find(openToUsers)) || models.find((x) => x.isDefault) || models[0];
 }
 
 export type PublicModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
@@ -109,7 +118,18 @@ export function publicModels(models: CoderModel[], picked: string | undefined): 
 /** Owner view: every model, its switch, its price, and whether its serving address is set (never the address itself). */
 export function ownerModels(models: CoderModel[], picked: string | undefined) {
   const sel = effectiveModel(models, picked, true).id;
-  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: modelReady(m) }));
+  return models.map((m) => ({ id: m.id, name: m.name, desc: m.desc, price_stars: m.price_stars, visible: m.visible, isDefault: Boolean(m.isDefault), selected: m.id === sel, ready: modelReady(m), access: modelAccess(m) }));
+}
+
+/** A non-owner chat whose current model is not available to users any more (the owner hid it) is moved to the first model users can use; "blocked" = no model is open to users at all.
+ *  The owner is never moved. Used by the bot and by the Mini App's send, so the owner's switch holds everywhere. */
+export function ensureUsableModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], owner: boolean): "ok" | "moved" | "blocked" {
+  if (owner) return "ok";
+  const cur = models.find((m) => m.id === (canonModelId(st.model) || DEFAULT_MODEL_ID));
+  if (cur && openToUsers(cur)) return "ok";
+  const alt = models.find(openToUsers);
+  if (!alt) return "blocked";
+  return chooseModel(st, models, alt.id, false) ? "moved" : "blocked";
 }
 
 /** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of

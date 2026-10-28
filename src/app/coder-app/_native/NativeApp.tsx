@@ -10,6 +10,7 @@ import {
   Progress, Radio, Section, SegmentedControl, Select, Spinner, Switch, Tabbar, Text, Textarea, Timeline, Title,
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
+import OwnerModelsPanel from "../_nova/OwnerModelsPanel";
 import {
   addToHome, bindBack, bindMain, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
   payInvoice, rawInitData, setBio, startTma, closeApp,
@@ -866,8 +867,6 @@ function PanelPage({ lang }: { lang: Lang }) {
   const [models, setModels] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
-  const [mediaRoute, setMediaRoute] = useState<"sham_v1" | "sham_v2_internal" | "sham_v2_ready">("sham_v2_ready");
-  const [mediaEnabled, setMediaEnabled] = useState<Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready", boolean>>({ sham_v1: true, sham_v2_internal: false, sham_v2_ready: true });
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [fail, setFail] = useState("");
@@ -878,7 +877,6 @@ function PanelPage({ lang }: { lang: Lang }) {
       setD(p);
       setModels(m.owner?.models || m.owner || []);
       setPlans(b.owner?.plans || []);
-      void api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready"; enabled: Record<"sham_v1" | "sham_v2_internal" | "sham_v2_ready", boolean> }>("sham_media").then((x) => { setMediaRoute(x.route); if (x.enabled) setMediaEnabled(x.enabled); }).catch(() => null);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -897,43 +895,6 @@ function PanelPage({ lang }: { lang: Lang }) {
     }
     setBusy("");
   };
-  const chooseMediaRoute = async (route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready") => {
-    if (route === mediaRoute || busy === "sham_media") return;
-    const prev = mediaRoute;
-    setMediaRoute(route);
-    setBusy("sham_media");
-    setMsg("");
-    try {
-      const r = await api<{ route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready" }>("sham_media", { route });
-      setMediaRoute(r.route);
-      haptic("success");
-      setMsg(ar ? "تم حفظ مسار وسائط شام." : "Sham media route saved.");
-    } catch (err: any) {
-      setMediaRoute(prev);
-      haptic("error");
-      setMsg(String(err?.message || err));
-    } finally {
-      setBusy("");
-    }
-  };
-  const toggleMediaRoute = async (route: "sham_v1" | "sham_v2_internal" | "sham_v2_ready", enabled: boolean) => {
-    const prev = mediaEnabled;
-    setMediaEnabled({ ...prev, [route]: enabled });
-    setBusy("sham_media");
-    setMsg("");
-    try {
-      const r = await api<{ enabled: typeof mediaEnabled }>("sham_media", { enabledRoute: route, enabled });
-      if (r.enabled) setMediaEnabled(r.enabled);
-      haptic("success");
-      setMsg(ar ? "تم حفظ حالة المسار." : "Route enable state saved.");
-    } catch (err: any) {
-      setMediaEnabled(prev);
-      haptic("error");
-      setMsg(String(err?.message || err));
-    } finally {
-      setBusy("");
-    }
-  };
   const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) + " TRT" : "—");
   if (fail) return <Fail t={STR[lang]} msg={fail} retry={load} />;
   if (!d) return <Loading />;
@@ -946,6 +907,7 @@ function PanelPage({ lang }: { lang: Lang }) {
           {d.steps.map((s: any) => <Cell key={s.id} multiline before="📝">{ar ? s.ar : s.en}</Cell>)}
         </Section>
       )}
+      <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
         {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · Nova 1 ${g.novaHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
         <Cell multiline subtitle={nova?.request?.not_before ? `${ar ? "يبدأ بعد" : "Starts after"} ${trt(nova.request.not_before)}` : undefined}
@@ -960,33 +922,6 @@ function PanelPage({ lang }: { lang: Lang }) {
         {(tr?.inspectorLines || []).filter((l: string) => l.startsWith("status:") || l.startsWith("=====")).slice(0, 10).map((l: string, i: number) => <Cell key={"i" + i} multiline>{l}</Cell>)}
         {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
-      <Section header={ar ? "النماذج" : "Models"} footer={ar ? "الظهور للمستخدمين وسعر النجوم (فارغ = ضمن الخطة)." : "Visible to users and Stars price (empty = included)."}>
-        {models.map((m: any) => (
-          <div key={m.id}>
-            <Cell Component="label" multiline subtitle={m.id} after={<Switch checked={Boolean(m.visible)} onChange={async (e) => { await api("model_update", { id: m.id, visible: e.currentTarget.checked }); haptic("success"); void load(); }} />}>{name(m)}</Cell>
-            <Input header={`${name(m)} ⭐`} type="number" dir="ltr" defaultValue={m.price_stars ?? ""} onBlur={async (e) => { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); }} />
-          </div>
-        ))}
-      </Section>
-      <Section header={ar ? "مسارات توليد الوسائط في شام" : "Sham media-generation routes"} footer={ar ? "فعّل أو أوقف كل مسار بشكل مستقل، ثم اختر المسار النشط. لا يوجد تحويل تلقائي عند الفشل. جميع المسارات المعروضة تخص شام فقط." : "Enable or disable each route independently, then choose the active route. No automatic fallback. Hugging Face supports images and video; use ready weights for Arabic audio."}>
-        <Select header={ar ? "المسار النشط" : "Active media route"} value={mediaRoute} onChange={(e) => void chooseMediaRoute(e.target.value as "sham_v1" | "sham_v2_internal" | "sham_v2_ready")}>
-          <option value="sham_v1">شام القديم / Sham v1</option>
-          <option value="sham_v2_internal">شام v2 — الداخلي / v2 internal</option>
-          <option value="sham_v2_ready">شام v2 — أوزان جاهزة / v2 ready weights</option>
-        </Select>
-        {([
-          ["sham_v1", ar ? "شام القديم — الاستوديو الأصلي" : "Sham v1 — original Studio"],
-          ["sham_v2_internal", ar ? "شام v2 — مولّد الرموز الداخلي" : "Sham v2 — internal token decoder"],
-          ["sham_v2_ready", ar ? "شام v2 — أوزان المانح الجاهزة (الموصى بها)" : "Sham v2 — ready donor weights (recommended)"],
-        ] as const).map(([route, label]) => (
-          <Cell key={route} Component="label" multiline subtitle={mediaRoute === route ? (ar ? "المسار النشط" : "Active route") : (ar ? "مسار متاح" : "Available route")}
-            after={<Switch checked={Boolean(mediaEnabled[route])} disabled={busy === "sham_media"} onChange={(e) => void toggleMediaRoute(route, e.currentTarget.checked)} />}>
-            {label}
-          </Cell>
-        ))}
-        {busy === "sham_media" && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ حفظ إعدادات مسارات شام…" : "Saving Sham route settings…"}</Cell>}
-      </Section>
-      
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
           <Input key={p.id} header={`${name(p)} ⭐`} type="number" dir="ltr" defaultValue={p.price_stars ?? ""}

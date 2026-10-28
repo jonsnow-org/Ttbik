@@ -19,7 +19,7 @@ import { bankAdd } from "@/lib/coderBank";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, listModels, modelReady, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -371,7 +371,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const st = await loadState(chatId, db);
   const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
-    const open = new Set((await listModels(db)).filter((m) => m.visible && modelReady(m)).map((m) => m.id));          // switched on for everyone AND ready (one tap by the owner)
+    const open = new Set((await listModels(db)).filter((m) => modelUsableBy(m, false)).map((m) => m.id));          // switched on for everyone AND ready (one tap by the owner)
     if (!(st.model && open.has(st.model))) {
       st.mode = "coder";                                        // these models are the owner's until the owner opens them
       if (OWNER_FIRST.has(st.model || "")) st.model = undefined;
@@ -390,6 +390,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
     "/stalls": "settings", "/new": "tasks", "/help": "tasks", "/plan": "billing", "/billing": "billing", "/upgrade": "billing", "/connectors": "connect",
   };
+  if (tierFor(chatId) !== "owner") {                         // the owner's per-model switch holds in the bot too: a hidden model (Nova included) answers nobody but the owner
+    const verdict = ensureUsableModel(st, await listModels(db), false);
+    if (verdict === "moved") await saveState(chatId, st, db);
+    else if (verdict === "blocked" && !(cmd in ROUTED)) { await send(bot, chatId, "🔒 هذا النموذج غير متاح للمستخدمين حالياً. حاول لاحقاً."); return true; }
+  }
   if (cmd === "/panel" && tierFor(chatId) === "owner") {
     const { panel, panelText } = await import("@/lib/coderPanel");
     const d = await panel(db);

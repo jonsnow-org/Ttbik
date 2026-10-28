@@ -22,7 +22,9 @@ describe("coder models", () => {
     expect(effectiveModel(all, "sham", true).id).toBe("sham");                 // the owner can try it
     expect(effectiveModel(all, "sham_loop", true).id).toBe("sham");                      // the former "Sham (advanced)" id is the old Sham now
     expect(effectiveModel(all, "sham_v2", true).id).toBe("sham_v2");                     // the new Sham is its own entry, tried beside the old one
-    await updateModel("coder", { visible: false }, db);                                  // the default cannot be hidden
+    await updateModel("coder", { visible: false }, db);                                  // Nova has its own switch now (owner panel); the owner can hide it and bring it back
+    expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(false);
+    await updateModel("coder", { visible: true }, db);
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(true);
     await expect(updateModel("nope", { visible: true }, db)).rejects.toThrow();
     delete process.env.MODELSCOPE_API_TOKEN;

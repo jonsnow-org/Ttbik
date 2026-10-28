@@ -50,7 +50,7 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     const r = await generateShamMediaThroughRoute("image", "a red apple");
     expect(r.type).toBe("error");
     expect(r.text).toMatch(/قيد التدريب/);
-    expect(r.text).toMatch(/المسار الجاهز/);
+    expect(r.text).toMatch(/الأوزان الجاهزة/);
   });
   it("Sham v2 video goes to Sham v2's own video Studio (generate_video), never to the chat Studio or Nova's media Studio", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
