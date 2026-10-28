@@ -429,19 +429,29 @@ const anchorOf = (el: HTMLElement): Anchor => {
   return r.bottom > window.innerHeight * 0.5 ? { bottom: Math.max(16, window.innerHeight - r.top + 4) } : { top: r.bottom + 8 };
 };
 function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; onPicked: () => void; onClose: () => void }) {
+  const [pickError, setPickError] = useState("");
   useEffect(() => (at !== null ? bindBack(true, onClose) : undefined), [at, onClose]);
   if (at === null) return null;
   const list = d ? d.owner || d.models : [];
   const pick = async (id: string) => {
     haptic("select");
-    try { await api("settings", { model: id }); haptic("success"); } catch { haptic("error"); }
-    onPicked();
-    onClose();
+    setPickError("");
+    try {
+      const saved = await api<{ ok?: boolean; model?: string }>("settings", { model: id });
+      if (!saved.ok || saved.model !== id) throw new Error("لم يؤكد الخادم حفظ النموذج المختار.");
+      haptic("success");
+      onPicked();
+      onClose();
+    } catch (e: any) {
+      haptic("error");
+      setPickError(e?.message || "تعذّر حفظ النموذج. بقي النموذج السابق محدداً.");
+    }
   };
   return (
     <>
       <div className="n-scrim" style={{ background: "transparent" }} onClick={onClose} />
       <div className="n-pop" role="listbox" aria-label={n.modelPick} style={at}>
+        {pickError && <p role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{pickError}</p>}
         {!d ? <Loading /> : list.map((m) => {
           const o = d.owner?.find((x) => x.id === m.id);
           return (

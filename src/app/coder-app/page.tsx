@@ -734,16 +734,29 @@ type PubModel = { id: string; name: { ar: string; en: string }; desc: { ar: stri
 type OwnModel = PubModel & { visible: boolean; isDefault: boolean; ready: boolean };
 function ModelPicker({ t, lang }: { t: Str; lang: Lang }) {
   const [d, setD] = useState<{ models: PubModel[]; owner?: OwnModel[] } | null>(null);
+  const [pickError, setPickError] = useState("");
   const load = useCallback(() => api("models").then(setD).catch(() => setD(null)), []);
   useEffect(() => { void load(); }, [load]);
   if (!d) return null;
   const list: PubModel[] = d.owner || d.models;
-  const pick = async (id: string) => { await api("settings", { model: id }); haptic("success"); void load(); };
+  const pick = async (id: string) => {
+    setPickError("");
+    try {
+      const saved = await api<{ ok?: boolean; model?: string }>("settings", { model: id });
+      if (!saved.ok || saved.model !== id) throw new Error("لم يؤكد الخادم حفظ النموذج المختار.");
+      haptic("success");
+      await load();
+    } catch (e: any) {
+      haptic("error");
+      setPickError(e?.message || "تعذّر حفظ النموذج. بقي النموذج السابق محدداً.");
+    }
+  };
   const field = "w-24 rounded-xl bg-[var(--c-sunken)] px-3 py-1.5 font-mono text-[13px] text-[var(--c-text)] outline-none";
   if (!d.owner && d.models.length < 2) return null;              // one model only: nothing to choose
   return (
     <div className="space-y-2">
       <div><div className="text-[14px] font-bold text-[var(--c-text)]">{d.owner ? t.modelsOwner : t.models}</div><div className="text-[12px] text-[var(--c-hint)]">{t.modelsHint}</div></div>
+      {pickError && <p role="alert" className="text-[12px] text-red-600">{pickError}</p>}
       {list.map((m) => {
         const o = d.owner?.find((x) => x.id === m.id);
         return (

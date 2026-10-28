@@ -106,7 +106,7 @@ async function tidyBeforeList(chatId: number, st: { threadId?: string | null }, 
 export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps): Promise<Json> {
   const db = deps.db || prismaDb;
   const { chatId } = user;
-  const { loadState, saveState, resolvePending, startScheduledRun } = await sections();
+  const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
@@ -126,7 +126,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       };
     }
     case "settings": {
-      const st = await loadState(chatId, db);
+      // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
+      const st = await loadStateStrict(chatId, db);
       let carried = 0;
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
@@ -163,8 +164,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
-      await saveState(chatId, st, db);
-      return { ok: true, carried };
+      await saveStateStrict(chatId, st, db);
+      return { ok: true, carried, model: st.model || "coder" };
     }
     // what Sham / Sham v2 have learned about this user: view, and forget only that (the conversations stay) — the owner's or an exposed Sham only
     case "sham_memory": {
@@ -375,7 +376,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
       { // the owner's per-model switch holds for the Mini App too
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
-        const stNow = await loadState(chatId, db);
+        const stNow = await loadStateStrict(chatId, db);
         const verdict = ensureUsableModel(stNow, await listModels(db), user.tier === "owner");
         if (verdict === "blocked") throw new AppError(403, "model not available");
         if (verdict === "moved") await saveState(chatId, stNow, db);
