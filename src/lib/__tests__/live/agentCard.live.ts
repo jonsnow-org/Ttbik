@@ -1,7 +1,7 @@
 // LIVE check of the progress card against the REAL Studios (only run by .github/workflows/agent-card-live.yml; never part of the normal test run).
 // Nova: the production handler (handleCoderSections) with a fake Telegram bot + an in-memory database, the real coder Studios and a real (read-only) GitHub read.
 // Sham v2: the real agent loop on the real Sham v2 Studio with the real GitHub tool, feeding the same card code the bot uses. Nothing is sent to Telegram.
-import { handleCoderSections } from "@/lib/coderSections";
+import { drive, handleCoderSections } from "@/lib/coderSections";
 import { shamAgentRun, shamToolDefs } from "@/lib/shamAgent";
 import { shamRunTool, type ShamCtx } from "@/lib/shamExec";
 import { shamVariant } from "@/lib/shamStudio";
@@ -28,6 +28,15 @@ test("Nova: the card shows the model's own line and real steps; the answer repla
   bot.api.editMessageText = jest.fn(async (...a: any[]) => { const text = String(a[2]); if (!seen.has(text)) { seen.add(text); log.push(`--- edit ${stamp(t0)}\n${text}`); } return orig(...a); }) as any;
   const first = bot.api.sendMessage;
   bot.api.sendMessage = jest.fn(async (...a: any[]) => { log.push(`--- send ${stamp(t0)}\n${String(a[1]).slice(0, 600)}`); return (first as any)(...a); }) as any;
+  // There is no Next server in CI: the hand-off to /api/coder/continue (the next leg of a long run) is answered here by driving the next leg in-process with the SAME fake bot and database.
+  const realFetch = global.fetch;
+  global.fetch = (async (url: any, init?: any) => {
+    if (!String(url).includes("/api/coder/continue")) return realFetch(url, init);
+    const b = JSON.parse(String(init?.body || "{}")) as { chatId?: string; chain?: string };
+    const [who, ...rest] = String(b.chatId || "").split("#");
+    void drive(bot, botRow, Number(who), String(b.chain), db, undefined, rest.join("#")).catch((e) => log.push(`--- leg error ${String(e).slice(0, 200)}`));
+    return new Response(JSON.stringify({ status: "accepted" }), { status: 202 });
+  }) as typeof fetch;
   await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: `اقرأ الملف AGENTS.md في المستودع ${REPO} ولخّصه في سطرين` } }, db);
   const t = Date.now();
   while (Date.now() - t < 600000 && !(sent.length === 1 && !/📋/.test(sent[0].text) && sent[0].text.length > 20)) await new Promise((r) => setTimeout(r, 1000));

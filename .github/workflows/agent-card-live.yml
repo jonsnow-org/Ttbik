@@ -4,9 +4,6 @@ name: Agent card live check (real Studios, nothing sent to Telegram)
 # (exact times, the model's own understanding line, real tool steps) and the final answer. A read-only GitHub read of this repository is the task. Nothing is sent anywhere.
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/agent-card-2]
-    paths: [.github/workflows/agent-card-live.yml]
 
 permissions:
   contents: read
