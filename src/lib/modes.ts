@@ -42,6 +42,9 @@ const FRESH_FACTS = /اليوم|الآن|حالياً|حاليا|آخر |اخر 
 const CODE_CUES = /```|\b(?:def|class|function|const|import|return|npm|pip|git|docker|sql|api|json|regex|bug|error|exception|stack ?trace|compile|test|unit test|refactor|lint|typescript|javascript|python|java|rust|golang|css|html|react|next\.?js|node)\b|كود|برمج|دالة|دوال|سكربت|سكريبت|خطأ|اخطاء|أخطاء|اصلح|أصلح|صحح|صلح|اختبار|اختبارات|ترجم الكود|حلل الكود|اشرح الكود|خوارزمية|قاعدة بيانات|استعلام/i;
 const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pull|branch|commit)\b|\b(?:repo|repository|pull request|pr|merge|branch|commit|push|deploy|workflow|ci|issue|issues|readme|refactor the)\b|مستودع|ريبو|دمج|فرع|كوميت|ارفع|رفع|انشر|نشر|طلب دمج|مشكلة في المستودع|اقرأ (?:الملف|الملفات|ملف)|كل الملفات|المشروع كله|ثم |وبعد ذلك|خطوة بخطوة|حلل المشروع|راجع المشروع|اجدول|جدول|ذكرني|كل يوم|كل اسبوع|ابحث|بحث عميق|research/i;
 
+// planning / design / analysis requests: they need a real thought before the answer, like code does
+const PLAN_CUES = /خطّ?ط|خطة|خطط|تخطيط|صمّ?م|تصميم|بنية|معمارية|هيكلة|استراتيجية|حلّ?ل|قارن|\b(?:plan|architecture|architect|design|roadmap|strategy|analy[sz]e|compare|trade-?offs?|break (?:it )?down)\b/i;
+
 const PLAIN_QUESTION = /[?؟]\s*$|^\s*(?:اشرح|فسّر|فسر|عرّف|عرف|ما (?:هو|هي|هم|معنى|الفرق)|ماذا|من (?:هو|هي)|لماذا|كيف|متى|أين|ما الفرق|what|why|how|when|where|who|explain|define|difference)\b/i;
 /** Is this a plain knowledge question (answerable from the model's own knowledge)? Terse commands like "عدّل" or "كمل" are NOT: they continue a task and keep every tool. */
 export const isPlainQuestion = (text: string): boolean => { const t = String(text || "").trim(); return t.length >= 12 && PLAIN_QUESTION.test(t); };
@@ -56,7 +59,7 @@ export function classifyRequest(text: string): ReqClass {
   if (detectMediaIntent(t)) return "media";
   if (t.length <= 60 && !t.includes("\n") && GREETING.test(t)) return "trivial";
   if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
-  if (CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
+  if (PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
 }
 

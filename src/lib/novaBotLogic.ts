@@ -915,10 +915,6 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   const intent = mf.detectMediaIntent(text);
   if (!intent) return false;
   await refreshPressure().catch(() => false);
-  if (shamModeCtx.getStore()?.media === false) {
-    await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
-    return true;
-  }
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // one message: the model's understanding + real progress; a failure is written into it, a picture / video is sent separately
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
@@ -1054,10 +1050,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           const caption = text.slice(text.indexOf(" ") + 1).trim();
           if (!caption || caption === text) {
             await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
-            return;
-          }
-          if (shamModeCtx.getStore()?.media === false) {          // this Sham's own "media generation" switch (Mini App → settings) is off
-            await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
             return;
           }
           await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : kind === "video" ? "upload_video" : "upload_photo").catch(() => null);

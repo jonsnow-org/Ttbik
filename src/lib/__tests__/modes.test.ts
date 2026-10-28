@@ -183,7 +183,7 @@ describe("Nova's real loop uses the profile", () => {
     const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };
     const calls = studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }, { type: "done", job: "j2", text: "انتهيت.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", think: true, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", perModel: { coder: { policy: "always" } }, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const c = chats(calls);
     expect(c[0].body.think).toBe("1"); expect(c[1].body.think).toBe("1");
@@ -206,6 +206,44 @@ describe("Nova's real loop uses the profile", () => {
     await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "ما هي عاصمة فرنسا؟" }], notes: "", inbox: [], run: { id: "r4", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     expect(chats(calls)[0].body).toMatchObject({ think: "", max_tokens: 1600, temperature: 0.2 });
+  });
+});
+
+describe("defaults and Auto: measured request parameters (no separate Auto switch; stale legacy values ignored)", () => {
+  async function params(text: string, state: any, id: string) {
+    const calls = studio([{ type: "done", job: "j" + id, text: "تم.", tool_calls: [] }]);
+    const db = memDb(); const { bot } = fakeBot();
+    await saveState(CHAT, { mode: "coder", messages: [{ role: "user", content: text }], notes: "", inbox: [], run: { id, chain: "c", sent: 0, step: 0, lease: Date.now() }, ...state } as any, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    const b = chats(calls)[0].body;
+    return { think: b.think, max_tokens: b.max_tokens, temperature: b.temperature, tools: b.tools !== "" };
+  }
+  const STALE = { think: true, accuracy: "fast", perModel: { coder: { think: true, auto: false } } };       // what an old client may have stored
+  it("with stale legacy values the user is still on adaptive + balanced: a greeting does not think, code does", async () => {
+    const g = await params("مرحبا", STALE, "d1"); const c = await params("اكتب دالة بايثون تعكس النص", STALE, "d2");
+    console.log("MEASURED stale/greeting", JSON.stringify(g), "stale/code", JSON.stringify(c));
+    expect(g).toMatchObject({ think: "", tools: false }); expect(c).toMatchObject({ think: "1", tools: true });
+  });
+  it("greeting vs plan / code / question (defaults): thinking only where it helps", async () => {
+    const r: any = {};
+    for (const [k, t] of Object.entries({ greeting: "اهلا", question: "ما هي عاصمة فرنسا؟", code: "اكتب دالة بايثون تعكس النص", plan: "خطط لي بنية مشروع متجر إلكتروني وقسّمه لمهام" })) r[k] = await params(t as string, {}, "d_" + k);
+    console.log("MEASURED defaults", JSON.stringify(r));
+    expect(r.greeting.think).toBe(""); expect(r.question.think).toBe("");
+    expect(r.code.think).toBe("1"); expect(r.plan.think).toBe("1");
+  });
+  it("balanced vs fast vs precise on a CODE request: the temperature sent differs (0.7 / 0.6 / 0.2) and the thought cap differs", async () => {
+    const out: any = {};
+    for (const a of ["fast", "balanced", "precise"]) out[a] = await params("اكتب دالة بايثون تعكس النص", { perModel: { coder: { accuracy: a } } }, "c_" + a);
+    console.log("MEASURED accuracy (code request)", JSON.stringify(out));
+    expect([out.fast.temperature, out.balanced.temperature, out.precise.temperature]).toEqual([0.7, 0.6, 0.2]);
+    expect([out.fast.think, out.balanced.think, out.precise.think]).toEqual(["1:500", "1", "1:3000"]);   // the thought cap differs too
+  });
+  it("the accuracy setting changes what is sent: fast / balanced / precise differ in temperature, answer cap and thinking", async () => {
+    const out: any = {};
+    for (const a of ["fast", "balanced", "precise"]) out[a] = await params("ما هي عاصمة فرنسا؟", { perModel: { coder: { accuracy: a } }, accuracy: undefined, think: undefined }, "a_" + a);
+    console.log("MEASURED accuracy (plain question)", JSON.stringify(out));
+    expect(new Set(Object.values(out).map((v: any) => JSON.stringify(v))).size).toBeGreaterThan(1);
+    expect(out.precise.temperature).toBeLessThan(out.fast.temperature); expect(out.precise.max_tokens).toBeGreaterThan(out.fast.max_tokens);
   });
 });
 

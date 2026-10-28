@@ -56,15 +56,16 @@ describe("Nova media Studio busy / off", () => {
     expect(sent[0].text).toMatch(/تعذّر إنشاء الصورة/);
     expect(sent[0].text).toMatch(/مشغول/);
   }, 30000);
-  it("media switched off for Nova: a deterministic answer, not left to the model", async () => {
+  it("a legacy stored media=false is ignored: the request is still taken by the fast lane (a card, then the picture), never refused", async () => {
     net([{ type: "image", b64: "x" }]);
     const { bot, sent } = fakeBot();
     const d: any = pgDb();
     const { loadState, saveState } = await import("@/lib/coderSections");
-    const st = await loadState(OWNER, d); const { setModelSettings, DEFAULT_MODEL_ID } = await import("@/lib/coderModels"); setModelSettings(st as any, st.model || DEFAULT_MODEL_ID, { media: false }); await saveState(OWNER, st, d);
+    const st: any = await loadState(OWNER, d); st.perModel = { coder: { media: false } };
+    await saveState(OWNER, st, d);
     await handleCoderSections(bot, botRow, say("قم بتوليد صورة اسد"), d);
-    expect(sent).toHaveLength(1);
-    expect(sent[0].text).toMatch(/توليد الوسائط متوقف/);
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    expect(sent.some((x) => /متوقف|للمالك/.test(x.text))).toBe(false);
   });
   it("the Studio URL: the variable wins, 'off' disables it, and a runtime WITHOUT the variable uses the known Studio (outside tests)", () => {
     expect(novaMediaUrl()).toBe("https://media.test");
