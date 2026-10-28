@@ -672,8 +672,29 @@ export async function cancelWarm(chatId: number): Promise<void> {
 export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db = prismaDb): Promise<{ runId: string; queued: boolean }> {
   const content = String(text || "").trim();
   if (!content) throw new Error("empty task");
-  if (!coderEnabled()) throw new Error("coder service is not configured");
   const st = await loadStateStrict(chatId, db);
+
+  // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
+  if (st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") {
+    const known = await listModels(db);
+    const selected = known.find((m) => m.id === (st.model === "sham_loop" ? "sham" : st.model));
+    if (!selected || !modelUsableBy(selected, tierFor(chatId) === "owner")) throw new Error("model not available");
+    const sham = await shamContextFor({ message: { chat: { id: chatId } } }, db);
+    if (!sham) throw new Error("Could not load Sham settings.");
+    const lim = await checkLimit(chatId, "tasks", 1, db);
+    if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
+    await addUsage(chatId, "tasks", 1, db);
+    const runId = `sham-${chatId}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
+    await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: content.slice(0, 200), botId: botRow.id });
+    await taskEvent(runId, "info", `بدأت المهمة باستخدام ${st.model === "sham_v2" ? "شام v2" : "شام"}.`, db).catch(() => null);
+    later(() => import("@/lib/novaBotLogic").then((m) => m.runShamMiniAppTask(bot, chatId, content, botRow.id, runId, sham.variant, sham.mode)).catch(async (e) => {
+      await taskEvent(runId, "failed", String((e as Error)?.message || e).slice(0, 300), db).catch(() => null);
+      await taskStatus(runId, "failed", 0, db).catch(() => null);
+    }));
+    return { runId, queued: false };
+  }
+
+  if (!coderEnabled()) throw new Error("coder service is not configured");
   if (st.run?.asking) {                                     // a terminal command answers the agent's question
     await answerAsk(bot, botRow, chatId, st, content, db);
     return { runId: st.run.id, queued: true };
