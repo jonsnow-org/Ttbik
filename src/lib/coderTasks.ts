@@ -224,9 +224,10 @@ export async function activeTaskCount(db: Db = prismaDb, freshMs = 90000): Promi
 }
 
 /**
- * Closes runs that can no longer be alive, so the app's "running now" list never keeps them for ever: a Sham run (its own short path) after 20 minutes, any other run after
- * 60 minutes (a live Nova run beats every 15 s and finishes long before). Waiting runs (a question or approval for the user) are left alone. Judged by when the run STARTED:
- * the heartbeat of a dead run used to be bumped by the orphan claim, which made it look fresh for days.
+ * The lease rule: a running task is alive while its heartbeat (updated_at, bumped by every event and by taskTouch every ~20 s) is fresh. A run whose heartbeat has been silent
+ * for 10 minutes (and that is older than 15 minutes, i.e. past the orphan-claim window) is dead and is closed as failed, so the "running now" list never keeps it. Hard caps
+ * by START time catch a run that is somehow still beating: Sham 45 minutes, anything else 6 hours. Waiting runs (a question or approval for the user) are left alone.
+ * The orphan claim no longer re-bumps a run that started over 30 minutes ago: that bump used to make dead runs look alive for days.
  */
 export async function reapStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
   try {
@@ -234,7 +235,9 @@ export async function reapStaleTasks(chatId: number | string, db: Db = prismaDb)
     const rows = await db.query<{ run_id: string }>(
       `UPDATE coder_tasks SET status = 'failed', updated_at = now(), finished_at = now()
        WHERE chat_key = $1 AND archived_at IS NULL AND status = 'running'
-       AND ((run_id LIKE 'sham-%' AND started_at < now() - interval '20 minutes') OR started_at < now() - interval '60 minutes')
+       AND ((updated_at < now() - interval '10 minutes' AND started_at < now() - interval '15 minutes')
+         OR (run_id LIKE 'sham-%' AND started_at < now() - interval '45 minutes')
+         OR started_at < now() - interval '6 hours')
        RETURNING run_id`,
       coderChatKey(chatId),
     );

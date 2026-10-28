@@ -150,18 +150,21 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
     expect(row.deleted_at).toBeNull();
     expect((await loadState(OWNER, d)).threadId).toBe(first.id);
   });
-  it("a run that started long ago is closed (Sham after 20 min, any other after 60), a young one is not, a waiting one is left", async () => {
+  it("lease rule: a silent heartbeat (10 min) closes a run; a beating run is alive; hard caps catch a run that still beats (Sham 45 min, others 6 h); waiting is left", async () => {
     const d = db();
     const key = coderChatKey(OWNER);
-    await taskStart(OWNER, { runId: "sham-1-old", slot: "sham", source: "interactive", title: "old sham" }, d);
-    await taskStart(OWNER, { runId: "sham-2-new", slot: "sham", source: "interactive", title: "new sham" }, d);
-    await taskStart(OWNER, { runId: "nova-old-1", slot: "", source: "interactive", title: "old nova" }, d);
-    await taskStart(OWNER, { runId: "wait-old-1", slot: "", source: "interactive", title: "asks" }, d);
-    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '2 days', updated_at = now() WHERE run_id IN ('sham-1-old','nova-old-1','wait-old-1')`);
-    await d.exec(`UPDATE coder_tasks SET status = 'waiting' WHERE run_id = 'wait-old-1'`);
-    expect(await reapStaleTasks(OWNER, d)).toBe(2);
+    const mk = async (id: string, slot: string) => taskStart(OWNER, { runId: id, slot, source: "interactive", title: id }, d);
+    for (const [id, slot] of [["sham-1-dead", "sham"], ["sham-2-beating", "sham"], ["sham-3-capped", "sham"], ["nova-dead-1", ""], ["nova-alive-1", ""], ["nova-capped", ""], ["wait-old-1", ""], ["young-run-1", ""]]) await mk(id, slot);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '40 minutes', updated_at = now() - interval '15 minutes' WHERE run_id IN ('sham-1-dead','nova-dead-1')`);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '40 minutes', updated_at = now() - interval '30 seconds' WHERE run_id IN ('sham-2-beating','nova-alive-1')`);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '50 minutes', updated_at = now() WHERE run_id = 'sham-3-capped'`);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '7 hours', updated_at = now() WHERE run_id = 'nova-capped'`);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '2 days', updated_at = now() - interval '2 days', status = 'waiting' WHERE run_id = 'wait-old-1'`);
+    expect(await reapStaleTasks(OWNER, d)).toBe(4);
     const rows: any[] = await d.query(`SELECT run_id, status FROM coder_tasks WHERE chat_key = $1 ORDER BY run_id`, key);
-    expect(Object.fromEntries(rows.map((r) => [r.run_id, r.status]))).toEqual({ "nova-old-1": "failed", "sham-1-old": "failed", "sham-2-new": "running", "wait-old-1": "waiting" });
+    expect(Object.fromEntries(rows.map((r) => [r.run_id, r.status]))).toEqual({
+      "nova-alive-1": "running", "nova-capped": "failed", "nova-dead-1": "failed", "sham-1-dead": "failed", "sham-2-beating": "running", "sham-3-capped": "failed", "wait-old-1": "waiting", "young-run-1": "running",
+    });
   });
   it("the orphan claim no longer re-bumps a run that started over 30 minutes ago", async () => {
     const d = db();
