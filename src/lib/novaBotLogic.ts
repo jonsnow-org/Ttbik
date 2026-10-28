@@ -979,6 +979,24 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, card);
 }
 
+/** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
+export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text: string, botId: string, runId: string, variant: "v1" | "v2", mode: Record<string, unknown>): Promise<void> {
+  await shamVariant.run(variant, () => shamModeCtx.run(mode as never, async () => {
+    try {
+      if (!shamStudioEnabled()) throw new Error("Sham Studio is not configured (MODELSCOPE_API_TOKEN is missing).");
+      const ctx = await shamToolCtx(chatId, botId);
+      ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };
+      const mem = await loadChatMemory(chatId, text);
+      const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+      const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+      await shamDeliver(bot, chatId, r, text, botId, 0, runId, null);
+    } catch (e) {
+      const message = String((e as Error)?.message || e).slice(0, 300);
+      await taskEvent(runId, "failed", message).catch(() => null);
+      await taskStatus(runId, "failed").catch(() => null);
+    }
+  }));
+}
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
 // The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
 async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
