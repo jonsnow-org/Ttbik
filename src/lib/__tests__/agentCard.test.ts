@@ -91,6 +91,11 @@ describe("the model's own understanding line", () => {
     expect(cleanUnderstanding("ok")).toBeNull();
     expect(cleanUnderstanding("x".repeat(400))!.length).toBeLessThanOrEqual(160);
   });
+  it("an Arabic request answered in English is not shown (neutral line instead); an English request in English is fine", () => {
+    expect(cleanUnderstanding("I will summarize the AGENTS.md file in two lines.", "اقرأ الملف ولخصه")).toBeNull();
+    expect(cleanUnderstanding("I will summarize the file in two lines.", "please condense README.md")).toBe("I will summarize the file in two lines.");
+    expect(understandingPrompt("اقرأ الملف")).toMatch(/بالعربية/);
+  });
   it("a fast model: its line is returned", async () => {
     expect(await understandRequest(async () => "تريد شرح المشروع؛ سأقرأ ملفاته أولاً.", "اشرح المشروع")).toBe("تريد شرح المشروع؛ سأقرأ ملفاته أولاً.");
   });
