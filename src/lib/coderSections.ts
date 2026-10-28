@@ -373,14 +373,23 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (!chatId) return false;
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
-  const st = await loadState(chatId, db);
+  // Routing may not substitute Nova when the persisted model cannot be read.
+  const st = await loadStateStrict(chatId, db);
   const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
+  const requestedModel = st.model || "coder";
+  console.info("[model-route] Telegram incoming", { chatKey: coderChatKey(chatId), selectedModel: requestedModel, mode: st.mode });
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
     const open = new Set((await listModels(db)).filter((m) => modelUsableBy(m, false)).map((m) => m.id));          // switched on for everyone AND ready (one tap by the owner)
     if (!(st.model && open.has(st.model))) {
-      st.mode = "coder";                                        // these models are the owner's until the owner opens them
+      const blockedModel = st.model;
+      st.mode = "coder";
       if (OWNER_FIRST.has(st.model || "")) st.model = undefined;
-      await saveState(chatId, st, db);
+      await saveStateStrict(chatId, st, db);
+      // Do not silently answer with Nova after a user selected a Sham model that this runtime considers unavailable.
+      if (blockedModel && OWNER_FIRST.has(blockedModel) && !cmd.startsWith("/")) {
+        await send(bot, chatId, "⚠️ لم أتمكن من استخدام النموذج الذي اخترته لأنه غير متاح الآن لهذا الحساب. لم أرسل رسالتك إلى Nova. افتح اختيار النماذج وتحقق من إتاحة شام v2 ثم أعد المحاولة.");
+        return true;
+      }
     }
   }
   if ((st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") && st.mode !== "sham") {            // Sham always runs on its own path
