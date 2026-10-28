@@ -7,13 +7,15 @@
 export type MediaIntent = { kind: "image" | "video"; subject: string };
 
 const norm = (s: string): string =>
-  s.toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/\s+/g, " ").trim();
+  s.toLowerCase().replace(/ڤ/g, "ف").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/\s+/g, " ").trim();
 
 const set = (xs: string) => new Set(xs.split(/\s+/));
-const VERBS = set("ولد ولدي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع سوي انشئ انشاء اعمل اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اظهر هات generate create draw make produce render imagine give show want need");
+const VERBS = set("ولد ولدي ولدلي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع اصنعلي سوي سويلي سويلى انشئ انشئلي انشاء انتج انتاج اعمل اعملي اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اظهر هات generate create draw make produce render imagine give show want need");
 const DRAW = set("ارسم ارسمي رسم draw imagine");
 const IMAGES = set("صوره صور رسمه لوحه لوغو لوجو شعار image picture photo pic logo wallpaper illustration");
-const VIDEOS = set("فيديو انيميشن video clip animation");
+const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو فدو فيديوا فيديوه فديوه كليب انيميشن video videos clip animation");
+/** Any spelling of "video" (فيديو / فديو / فيدو / ڤيديو / فيديوهات ...): after norm(), a word of the shape ف-ي?-د-ي?-و-ه?. */
+const VIDEO_SHAPE = /^ف[يا]?د[يا]?[وؤ][هو]?(?:ات|ا)?$/;
 const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن");
 const NOT_WORDS = set("كود برمج code script html css python javascript موقع website تطبيق app ملف file github repo حلل اشرح كيف how explain describe عدل edit حول convert ترجم translate تحويل png jpg svg pdf رابط http ماذا وصف هذه هذي تلك this");
 const bare = (w: string): string => w.replace(/^(ال|ب|ل|و|ف)(?=.{3,})/, "");
@@ -28,10 +30,10 @@ export function detectMediaIntent(text: string): MediaIntent | null {
   if (ws.some((w) => inSet(w, NOT_WORDS) || /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
   const verb = ws.some((w) => inSet(w, VERBS));
   const draw = ws.some((w) => inSet(w, DRAW));
-  const video = ws.some((w) => inSet(w, VIDEOS));
+  const video = ws.some((w) => inSet(w, VIDEOS) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)));
   const image = ws.some((w) => inSet(w, IMAGES));
   if (!verb || !(video || image || draw)) return null;
-  const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !inSet(w, FILLER)).join(" ").trim();
+  const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER)).join(" ").trim();
   return { kind: video ? "video" : "image", subject: subject || norm(raw) };
 }
 
@@ -81,4 +83,12 @@ export function looksLikeToolPlan(text: string): boolean {
   const arrows = /(←|→|->|=>|\bثم\b|\bthen\b|\+)/.test(t);
   const mostlyTools = names.join("").length / t.replace(/\s+/g, "").length > 0.25;
   return arrows || mostlyTools || /^\s*(tool|call|plan|الأداة|أستخدم)\b/i.test(t);
+}
+
+/** The model's own invented excuse "this feature is for owners only": media is open to every user within a daily quota (owner unlimited), so such a sentence is never shown. */
+const OWNERS_ONLY = /(?:للمالك(?:ين)?\s*فقط|متاح(?:ة)?\s*فقط\s*(?:لل|ل)?مالك|خاص(?:ة)?\s*(?:بال|لل)?مالك(?:ين)?|مقتصر(?:ة)?\s*على\s*(?:ال)?مالك|owners?[\s-]*only|only\s+(?:for\s+)?(?:the\s+)?owners?)/i;
+export const OWNERS_ONLY_FIX = "توليد الصور والفيديو والصوت متاح لجميع المستخدمين ضمن حصة يومية (للمالك بلا حد). اكتب الطلب مباشرةً، مثل: «قم بتوليد فيديو أرنب يلعب في الحديقة»، وسأنفّذه.";
+export function stripOwnersExcuse(text: string): string {
+  const t = String(text || "");
+  return OWNERS_ONLY.test(t) && /(?:فيديو|فديو|مقطع|صور[ةه]?|صوت|توليد|وسائط|video|image|media|generat)/i.test(t) ? OWNERS_ONLY_FIX : t;
 }
