@@ -1,4 +1,4 @@
-// Sub-agents ("delegate"): the parent run hands up to 3 independent, READ-ONLY investigations to child runs and goes on when their
+// Sub-agents ("delegate"): the parent run hands independent, READ-ONLY investigations to child runs, up to the available Studio capacity, and goes on when their
 // reports are in. Each child is an ordinary coder run in its own state slot ("a:<parentRunId>:<i>") on OUR Studio model, so it gets the
 // same legs, hand-offs, heartbeats and orphan recovery as any run. A child is quiet (nothing reaches the chat), may use only the
 // read-only tools below (enforced on the server, not just in the prompt), has a small step budget, and leaves its report in its own
@@ -19,6 +19,13 @@ export const WORKER_MAX_STEPS = 12;
 export type AgentRole = "reader" | "tester" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does
 export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
+
+/** Match useful agent concurrency to independent model servers; a nested worker gets at most one helper so it does not create a queue behind its siblings. */
+export function maxParallelAgentsForStudios(studioCount: number, nested = false): number {
+  const count = Math.max(0, Math.floor(Number(studioCount) || 0));
+  if (count < 2) return 0;
+  return nested ? Math.min(SUB_AGENT_MAX, 1) : Math.min(AGENT_MAX, count);
+}
 /** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
 export const agentReportsHard = (): number => reportsHardChars();
 
@@ -26,7 +33,7 @@ export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toL
 
 /** The only tools a sub-agent may call. Anything else is refused by the runner. */
 export const AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "github_repo_info", "github_repo_scan", "github_read_files", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_read_file", "github_search_code", "github_search_repos", "github_list_branches", "github_list_prs", "github_list_issues",
+  "github_repo_info", "github_repo_scan", "github_repo_audit", "github_read_files", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_read_file", "github_search_code", "github_search_repos", "github_list_branches", "github_list_prs", "github_list_issues",
   "web_search", "fetch_page", "web_fetch", "deep_research", "http_request", "memory_search",
 ]);
 

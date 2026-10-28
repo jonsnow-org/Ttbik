@@ -19,13 +19,23 @@ const call = (id: string, name: string, args: object) => ({ id, type: "function"
 
 function studio(replies: object[], github: Record<string, (b: any) => [number, any]> = {}) {
   const calls: { url: string; body?: any }[] = [];
-  let i = 0;
+  const pendingReplies = new Map<string, object>();
+  let nextReply = 0;
   (global as any).fetch = jest.fn(async (url: string, init?: any) => {
     const body = init?.body ? JSON.parse(init.body) : undefined;
     calls.push({ url, body });
     if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
-    if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: `e${calls.length}` }), { status: 200 });
-    if (url.includes("/gradio_api/call/")) return new Response(sse(replies[Math.min(i++, replies.length - 1)]), { status: 200 });
+    if (url.includes("/gradio_api/call/v2/status")) return new Response(JSON.stringify({ event_id: `status${calls.length}` }), { status: 200 });
+    if (url.includes("/gradio_api/call/status/")) return new Response(sse({ phase: "ready", queue: 0, model: "coder" }), { status: 200 });
+    if (url.includes("/gradio_api/call/v2/chat")) {
+      const id = `e${calls.length}`;
+      pendingReplies.set(id, replies[Math.min(nextReply++, replies.length - 1)] as object);
+      return new Response(JSON.stringify({ event_id: id }), { status: 200 });
+    }
+    if (url.includes("/gradio_api/call/chat/")) {
+      const id = url.slice(url.lastIndexOf("/") + 1);
+      return new Response(sse(pendingReplies.get(id) || { type: "done", text: "", tool_calls: [] }), { status: 200 });
+    }
     if (url.startsWith("https://api.github.com")) {
       const key = `${init?.method || "GET"} ${url.slice(22)}`;
       for (const [k, fn] of Object.entries(github)) if (key.startsWith(k)) {
@@ -43,6 +53,7 @@ const st0 = (content: string, r: any) => ({ mode: "coder" as const, think: false
 
 beforeEach(() => {
   process.env.OPEN_CODER_STUDIO_URL = "https://coder.test";
+  process.env.OPEN_CODER_STUDIO_URLS = "https://coder2.test,https://coder3.test,https://coder4.test,https://coder5.test";
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.CODER_POLL_MS = "5";
   process.env.CODER_GITHUB_TOKEN = "gh";

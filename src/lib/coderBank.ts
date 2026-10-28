@@ -7,7 +7,7 @@ import { terms } from "@/lib/coderWeb";
 
 /** Tools whose result is worth keeping (reads only; never writes, never an error). */
 export const BANKABLE = new Set([
-  "github_read_file", "github_read_files", "github_repo_scan", "github_list_files", "github_search_code", "github_ci_logs", "github_pr_info", "github_commits", "github_compare",
+  "github_read_file", "github_read_files", "github_repo_scan", "github_repo_audit", "github_list_files", "github_search_code", "github_ci_logs", "github_pr_info", "github_commits", "github_compare",
   "fetch_page", "web_fetch", "web_search", "deep_research", "sandbox_read_file", "sandbox_search", "http_request",
 ]);
 const MAX_ITEMS = 60, MAX_TEXT = 16000;

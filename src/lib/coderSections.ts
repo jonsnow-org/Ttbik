@@ -25,7 +25,7 @@ import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, g
 import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
-import { fitReports, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
+import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -40,7 +40,7 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
-  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -100,7 +100,7 @@ export function smallTalkReply(text: string, name = ""): string {
 export const thinkCapFor = (a?: string): number => Number(process.env[`CODER_THINK_CAP_${String(isAccuracy(a) ? a : "balanced").toUpperCase()}`]) || (a === "fast" ? 500 : a === "precise" ? 3000 : 1200);
 
 // reads that do not depend on each other and change nothing
-const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
+const PAR_READ = new Set(["github_read_file", "github_read_files", "github_repo_scan", "github_repo_audit", "github_ci_logs", "github_pr_info", "github_commits", "github_compare", "github_list_files", "github_search_code", "github_list_branches", "github_list_prs", "github_list_issues"]);
 
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
@@ -1419,7 +1419,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const timedOut = Date.now() - d.at > AGENT_TIMEOUT_MS;
       if (finished.every(Boolean) || timedOut) {
         if (timedOut) await cancelAgents(chatId, d.slots, db);
-        st.messages.push({ role: "tool", content: composeResults(await fitReports(d.titles.map((title, i) => ({ title, result: finished[i] })), async (t) => (await import("@/lib/coderMemory")).studioLlm(150000)([{ role: "user", content: `Condense this agent report to about half its length. Keep EVERY name, path, number, version, source and the whole NOT DONE and OUTPUT lines exactly; drop only repetition and filler. Keep the four labelled lines (JOB, DONE, NOT DONE, OUTPUT).\n\n${t}` }]))), tool_call_id: d.id, name: "delegate" });
+        st.messages.push({ role: "tool", content: composeResults(await fitReports(d.titles.map((title, i) => ({ title, result: finished[i] })), async (t) => (await import("@/lib/coderMemory")).studioLlm(150000)([{ role: "user", content: `Condense this agent report to about half its length. Keep EVERY name, path, number, version, source and the whole NOT DONE and OUTPUT lines exactly; drop only repetition and filler. Keep the four labelled lines (JOB, DONE, NOT DONE, OUTPUT).\n\n${t}` }]))) + (d.omitted?.length ? `\n\nCapacity note: these requested tasks were not started to avoid overloading the available Nova Studios: ${d.omitted.join(", ")}.` : ""), tool_call_id: d.id, name: "delegate" });
         run.delegating = undefined;
         await taskEvent(run.id, "info", `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})${timedOut ? " — انتهت المهلة" : ""}.`, db);
         await progressDone(ioBot, chatId, run, finished.filter(Boolean).length ? [] : ["error: no agent report"]);
@@ -1447,17 +1447,29 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       if (call.function.name === "delegate") {
-        const tasks = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner", run.agent ? run.agentDepth || 1 : 0);
+        const requested = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner", run.agent ? run.agentDepth || 1 : 0);
+        const studioCount = coderStudioUrls().length;
+        const maxAgents = maxParallelAgentsForStudios(studioCount, Boolean(run.agent));
+        const tasks = requested.slice(0, maxAgents);
+        const omitted = requested.slice(tasks.length).map((t) => t.title);
         run.queued = rest;
         if (!agentsEnabled() || !tasks.length) {
-          st.messages.push({ role: "tool", content: tasks.length ? "error: sub-agents are switched off" : "error: delegate needs tasks:[{title, task}] (1 to 3)", tool_call_id: call.id, name: "delegate" });
+          const why = !agentsEnabled()
+            ? "error: sub-agents are switched off"
+            : !requested.length
+              ? "error: delegate needs tasks:[{title, task}] (1 to 5)"
+              : studioCount < 2
+                ? "error: parallel agents are disabled because fewer than two Nova Studios are configured. Continue in this run and use github_repo_audit, github_repo_scan, github_read_files, and independent read calls."
+                : "error: there is no spare Studio capacity for a child agent at this level; continue with the tools already available.";
+          st.messages.push({ role: "tool", content: why, tool_call_id: call.id, name: "delegate" });
           await saveState(chatId, st, db, slot);
           continue;
         }
         const slots = await startAgents(bot, botRow, chatId, st, run, tasks, db);
-        run.delegating = { id: call.id || "delegate", slots, titles: tasks.map((t) => t.title), at: Date.now() };
+        run.delegating = { id: call.id || "delegate", slots, titles: tasks.map((t) => t.title), omitted: omitted.length ? omitted : undefined, at: Date.now() };
         await progressLine(ioBot, chatId, run, `تكليف ${tasks.length} ${tasks.length === 1 ? "وكيل" : "وكلاء"}: ${tasks.map((t) => t.title).join(" · ").slice(0, 100)}`);
-        await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل: ${tasks.map((t) => `${t.title} [${t.role}]`).join(" | ")}`, db);
+        await taskEvent(run.id, "tool", `🧩 إطلاق ${tasks.length} وكيل حسب سعة ${studioCount} استوديو: ${tasks.map((t) => `${t.title} [${t.role}]`).join(" | ")}`, db);
+        if (omitted.length) await taskEvent(run.id, "info", `لم تُطلق مهام إضافية لتجنّب ازدحام الاستوديوهات: ${omitted.join("، ")}`, db);
         await saveState(chatId, st, db, slot);
         continue;
       }
