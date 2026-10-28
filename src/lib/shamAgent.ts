@@ -403,7 +403,24 @@ export async function shamAgentRun(opts: {
   if (left() > 5000 && used.length) {
     const prompt = shamToolConversation(messages, [], lim).replace(/\nشام:$/, "\n[اكتب الجواب النهائي الآن مما وجدتَه، بلا استدعاء أدوات.]\nشام:");
     const r = await ask(prompt, maxNew, Math.min(25000, left() - 500));
-    if (r && r.type === "text" && (r.text || "").trim()) return { kind: "text", text: String(r.text).trim(), used, steps };
+    if (r && r.type === "text" && (r.text || "").trim()) {
+      let final = String(r.text).trim();
+      const verifier = opts.verifyAsk || (!opts.ask ? ask : undefined);
+      if (verifier && left() > 6500) {
+        opts.onEvent?.("info", "مرحلة التحقق: مراجعة الإجابة مقابل نتائج الأدوات المنفذة.");
+        const verifyPrompt = [
+          shamToolConversation(messages, [], lim).replace(/\nشام:$/, ""),
+          "[مرحلة التحقق — ليست مهمة جديدة]",
+          "راجع الإجابة المقترحة مقابل نتائج الأدوات المسجلة فقط. لا تدّعِ نجاح تنفيذ أو اختبار أو نشر ما لم تظهر نتيجة نجاح صريحة. صحّح الإجابة إن تجاوزت ما تدعمه النتائج، ثم أعد الجواب النهائي فقط.",
+          "الإجابة المقترحة: " + final.slice(0, 1800),
+        ].join("\n\n");
+        try {
+          const checked = await verifier(verifyPrompt, Math.min(maxNew, 180), Math.min(25000, left() - 500));
+          if (checked?.type === "text" && String(checked.text || "").trim()) final = String(checked.text).trim();
+        } catch { /* retain the best available final response */ }
+      }
+      return { kind: "text", text: final, used, steps };
+    }
   }
   return { kind: "none", used, steps };
 }
