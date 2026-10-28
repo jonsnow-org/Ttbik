@@ -136,16 +136,36 @@ class SmallDiskFetch(unittest.TestCase):
                 patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", return_value=("base", "adapter")):
             return cpu_video.cv_fetch_weights(d), calls
 
-    def test_small_disk_uses_fp16_base_and_fits(self):
+    def test_small_disk_uses_modelscope_base_first(self):
         found, calls = self._run(3.2)
         self.assertEqual(found, ("base", "adapter"))
-        base = [c for c in calls if c[1] == cpu_video.CV_HF_LEAN_BASE]
-        self.assertEqual(len(base), 1)
-        self.assertTrue(all("fp16" in p or "/" not in p or p.endswith("config.json") or p.endswith("*") or p.endswith(".json") for p in base[0][2]))
-        self.assertFalse(any(p in base[0][2] for p in ("unet/*.safetensors", "text_encoder/*.safetensors", "vae/*.safetensors")))
-        self.assertTrue(any(c[0] == "ms" and c[1] == cpu_video.CV_MS_ADAPTER for c in calls))
-        sizes = 1719125304 + 246144864 + 167335342 + 907702248      # real file sizes of the four weight files
+        self.assertEqual(calls[0][:2], ("ms", cpu_video.CV_MS_BASE))     # the Studio cannot always reach Hugging Face: ModelScope first
+        self.assertFalse(any(c[0] == "hf" for c in calls))
+        sizes = 1719125304 + 246144864 + 167335342 + 907702248      # real file sizes of the four weight files on ModelScope
         self.assertLess(sizes + 100 * 1024 ** 2, 3.2 * 1024 ** 3)
+
+    def test_small_disk_falls_back_to_the_fp16_hf_base(self):
+        import shutil
+        import sys
+        import types
+        calls = []
+        hf = types.ModuleType("huggingface_hub")
+        hf.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("hf", repo, tuple(allow_patterns)))
+        ms = types.ModuleType("modelscope")
+
+        def ms_fail(repo, local_dir, allow_patterns):
+            if repo == cpu_video.CV_MS_BASE:
+                raise OSError("unreachable")
+            calls.append(("ms", repo, tuple(allow_patterns)))
+        ms.snapshot_download = ms_fail
+        usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(3.2 * 1024 ** 3))
+        with tempfile.TemporaryDirectory() as d, patch.dict(sys.modules, {"huggingface_hub": hf, "modelscope": ms}), \
+                patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[("base", "adapter")]):
+            found = cpu_video.cv_fetch_weights(d)
+        self.assertEqual(found, ("base", "adapter"))
+        base = [c for c in calls if c[0] == "hf" and c[1] == cpu_video.CV_HF_LEAN_BASE]
+        self.assertEqual(len(base), 1)
+        self.assertFalse(any(p in base[0][2] for p in ("unet/*.safetensors", "text_encoder/*.safetensors", "vae/*.safetensors")))
 
     def test_big_disk_keeps_the_realistic_base(self):
         _, calls = self._run(20)

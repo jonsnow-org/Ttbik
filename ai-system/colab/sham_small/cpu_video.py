@@ -57,8 +57,7 @@ CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
 
 
 def cv_fetch_weights(root):
-    """Download the (open) weights once into <root>/video_animatediff. With >= 6 GiB free: epiCRealism (fp32 files) from ModelScope, Hugging Face as the fallback. With less
-    (a small Studio disk): the fp16 SD-1.5 base (Hugging Face) + the 0.9 GB adapter, ~2.9 GiB in total. Weights only; all inference stays local."""
+    """Download the (open) weights once into <root>/video_animatediff. epiCRealism (fp16-sized files, ~2.1 GB) + the 0.9 GB adapter from ModelScope (~2.9 GiB in total); Hugging Face is the fallback (with a small disk: the fp16 SD-1.5 base). Weights only; all inference stays local."""
     import shutil as _sh
     from pathlib import Path as _P
     dest = _P(root) / "video_animatediff"
@@ -68,7 +67,7 @@ def cv_fetch_weights(root):
         raise RuntimeError(f"native-video-unavailable: the video model needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
     lean = free < CV_FULL_NEED
     errors = []
-    for source in (("huggingface",) if lean else ("modelscope", "huggingface")):
+    for source in ("modelscope", "huggingface"):          # ModelScope first: epiCRealism there is already fp16-sized (unet 1.72 GB), ~2.9 GiB with the adapter; the Studios cannot always reach Hugging Face
         try:
             if source == "modelscope":
                 from modelscope import snapshot_download
