@@ -152,9 +152,13 @@ export async function shamAgentRun(opts: {
   // caused the model to echo the serialized question instead of answering it. Keep agent/tool
   // routing for code, execution, media, and fresh-fact requests.
   if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
-    const usableHistory = (opts.history || []).filter((h) => {
+    const allHistory = opts.history || [];
+    const usableHistory = allHistory.filter((h, index) => {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
-      return q.length >= 2 && a.length >= 2 && q !== a && !isQuestionEcho(h.a, h.q, []);
+      return q.length >= 2 && a.length >= 2 && q !== a &&
+        !isQuestionEcho(h.a, h.q, []) &&
+        !isNonAnswerBoilerplate(h.a, h.q) &&
+        !isRepeatedPriorAnswer(h.a, allHistory.slice(0, index));
     }).slice(-3);
     const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
     const historyText = usableHistory.length
@@ -188,7 +192,7 @@ export async function shamAgentRun(opts: {
         "أجب عن السؤال المحدد مباشرة. إن كان يسأل عن خبرتك أو قدراتك، ابدأ بنعم أو لا عند الحاجة ثم اذكر قدرة عملية محددة. لا تدّعِ شيئاً غير صحيح.",
         `السؤال الحالي: ${opts.text}`,
         "الإجابة الجديدة:"
-      ].join("\\n");
+      ].join("\n");
       direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
     }
     if (direct?.type === "text") {
