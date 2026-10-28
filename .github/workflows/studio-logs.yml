@@ -52,6 +52,26 @@ jobs:
           lines = [re.sub(r"(ms|sk|hf)-[A-Za-z0-9_-]{16,}", "[removed]", l) for l in lines if l.strip() and "it/s" not in l and "B/s" not in l]
           print("\n".join(lines[-90:]))
           PY
+      - name: Build log tail (read-only)
+        run: |
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" -o build.json
+          python3 - <<'PY'
+          import json, re
+          raw = open("build.json", encoding="utf-8", errors="replace").read()
+          lines = []
+          try:
+              def walk(x):
+                  if isinstance(x, str): lines.extend(x.replace("\r", "\n").split("\n"))
+                  elif isinstance(x, list):
+                      for y in x: walk(y)
+                  elif isinstance(x, dict):
+                      for y in x.values(): walk(y)
+              walk(json.loads(raw))
+          except Exception:
+              lines = raw.replace("\\n", "\n").split("\n")
+          lines = [re.sub(r"(ms|sk|hf)-[A-Za-z0-9_-]{16,}", "[removed]", l) for l in lines if l.strip()]
+          print("== build log (tail)"); print("\n".join(lines[-60:]))
+          PY
       - name: Model repo access and files (read-only)
         if: ${{ inputs.model != '' }}
         env:
