@@ -8,6 +8,10 @@ on:
         description: "Studio repo name (e.g. sham-v2-server, nova-media-server)"
         required: false
         default: "sham-v2-server"
+      model:
+        description: "optional model repo to inspect read-only (e.g. novaai2026/sham-v2)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -48,3 +52,22 @@ jobs:
           lines = [re.sub(r"(ms|sk|hf)-[A-Za-z0-9_-]{16,}", "[removed]", l) for l in lines if l.strip() and "it/s" not in l and "B/s" not in l]
           print("\n".join(lines[-90:]))
           PY
+      - name: Model repo access and files (read-only)
+        if: ${{ inputs.model != '' }}
+        env:
+          MODEL: ${{ inputs.model }}
+        run: |
+          case "$MODEL" in *[!a-zA-Z0-9_/.-]*) echo "bad name"; exit 1;; esac
+          code=$(curl -sS -o info.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/api/v1/models/$MODEL")
+          echo "model info http $code"; head -c 700 info.json | sed -E 's/(ms|sk|hf)-[A-Za-z0-9_-]{16,}/[removed]/g'; echo
+          code=$(curl -sS -o files.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/api/v1/models/$MODEL/repo/files?Recursive=true")
+          echo "files http $code"
+          python3 -c "
+          import json
+          d=json.load(open('files.json'))
+          fs=(d.get('Data') or {}).get('Files') or []
+          tot=sum(f.get('Size',0) for f in fs if f.get('Type')=='blob')
+          print(len(fs),'entries, total GiB',round(tot/2**30,2))
+          for f in fs:
+              if f.get('Type')=='blob' and f.get('Size',0)>5e7: print(f['Path'],round(f['Size']/1e6),'MB')
+          " || head -c 400 files.json
