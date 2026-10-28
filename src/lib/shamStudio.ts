@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { vetMedia } from "@/lib/mediaQuality";
+import { orderV2, tracked } from "@/lib/shamPool";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -37,7 +38,8 @@ export function shamBases(): string[] {
   const raw = configured.filter((x) => !/nova-inference-server/i.test(x));
   const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
   const k = rotate++ % Math.max(1, bases.length);
-  return [...bases.slice(k), ...bases.slice(0, k)];
+  const rotated = [...bases.slice(k), ...bases.slice(0, k)];
+  return v2 ? orderV2(rotated) : rotated;                     // Sham v2 only: the overflow Studio (src/lib/shamPool.ts) takes new calls while the primary is congested
 }
 
 export function shamStudioEnabled(): boolean {
@@ -142,7 +144,7 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
   for (let i = 0; i < bases.length; i++) {
     const left = timeoutMs - (Date.now() - t0);                 // the pool shares ONE limit: a later Studio only gets what is left (and none if too little)
     if (i > 0 && left < 1500) break;
-    const body = await shamCallAt(bases[i], api, payload, Math.max(1000, left));
+    const body = await tracked(bases[i], () => shamCallAt(bases[i], api, payload, Math.max(1000, left)), (b) => b === null || shamBusyHop(parseShamReply(b)));
     if (body && !(i < bases.length - 1 && shamBusyHop(parseShamReply(body)))) return body;
     last = body ?? last;
   }
@@ -260,7 +262,7 @@ async function shamCallOnce(api: string, payload0: Record<string, unknown>, time
   const t0 = Date.now();
   let out: ShamOutcome = { reply: null, failure: "network" };
   for (let i = 0; i < bases.length; i++) {
-    out = await shamCallOnceAt(bases[i], api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)));
+    out = await tracked(bases[i], () => shamCallOnceAt(bases[i], api, payload, Math.max(3000, timeoutMs - (Date.now() - t0))), (o) => o.failure === "network" || o.failure === "http" || shamBusyHop(o.reply));
     const hop = shamBusyHop(out.reply) || out.failure === "network" || out.failure === "http";        // busy, down or refusing: the next Studio (a timeout is not repeated: it may be working on it)
     if (!hop || i === bases.length - 1 || Date.now() - t0 > timeoutMs - 4000) return out;
   }

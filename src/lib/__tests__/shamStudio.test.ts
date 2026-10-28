@@ -138,8 +138,9 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
     expect(shamBases()).toEqual(["https://old.example"]);
     expect(shamVariant.run("v2", () => shamBases())[0]).toMatch(/sham-v2-server/);
     process.env.SHAM_V2_URL = "https://v2a.example, https://v2b.example/";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";                       // (the overflow Studio of Sham v2 has its own tests: shamPool.test.ts)
     expect(shamVariant.run("v2", () => shamBases()).sort()).toEqual(["https://v2a.example", "https://v2b.example"]);
-    delete process.env.SHAM_MODELSCOPE_URL; delete process.env.SHAM_V2_URL;
+    delete process.env.SHAM_MODELSCOPE_URL; delete process.env.SHAM_V2_URL; delete process.env.SHAM_V2_OVERFLOW_URL;
   });
   it("a busy Studio hands the call to the next one at once", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_MODELSCOPE_URL = "https://a.example,https://b.example";
