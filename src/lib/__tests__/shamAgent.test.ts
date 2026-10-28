@@ -122,6 +122,31 @@ describe("Sham's own agent loop", () => {
     expect(seen[1]).toMatch(/نتيجة الأداة web_search:\nنتيجة بحث حقيقية/);
   });
 
+  it("verifies the final answer against executed tool results before returning it", async () => {
+    const seen: string[] = [], verifyPrompts: string[] = [], ran: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "ابحث ثم لخّص النتيجة",
+      ctx,
+      tools: shamToolDefs(false),
+      budgetMs: 60000,
+      maxSteps: 4,
+      ask: script([
+        say('<tool_call>{"name":"web_search","arguments":{"query":"test topic"}}</tool_call>'),
+        say("النتيجة تقول إن المعلومة مؤكدة."),
+      ], seen),
+      verifyAsk: async (prompt) => {
+        verifyPrompts.push(prompt);
+        return say("بعد التحقق: نتيجة الأداة تؤكد المعلومة المطلوبة.");
+      },
+      exec: async (call) => { ran.push(call.function.name); return "نتيجة الأداة: المعلومة مؤكدة."; },
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "بعد التحقق: نتيجة الأداة تؤكد المعلومة المطلوبة.", used: ["web_search"] });
+    expect(ran).toEqual(["web_search"]);
+    expect(verifyPrompts).toHaveLength(1);
+    expect(verifyPrompts[0]).toContain("مرحلة التحقق");
+    expect(verifyPrompts[0]).toContain("نتيجة الأداة: المعلومة مؤكدة.");
+  });
+
   it("a wrong call goes back with the reason and the corrected one runs", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: any[] = [];
     const r = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000,
