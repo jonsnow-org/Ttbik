@@ -262,3 +262,28 @@ describe("owner override op", () => {
     expect(await appOp(owner, "mode_force", { for: "coder", mode: "" }, { db: d, bot, botRow })).toEqual({ forced: { sham_v2: "fast" } });
   });
 });
+
+import { detectMediaIntent, stripOwnersExcuse, OWNERS_ONLY_FIX } from "@/lib/coderMediaFast";
+describe("media intent: every spelling the owner types, and no invented 'owners only'", () => {
+  const yes: [string, "image" | "video"][] = [
+    ["قم بتوليد فديو ارنب يلعب في الحديقة", "video"],
+    ["قم بتوليد فيديو ارنب يلعب في الحديقة", "video"],
+    ["قم بتوليد فيديو أرنب يلعب في الحديقة", "video"],
+    ["قم بتوليد صورة ارنب", "image"],
+    ["اصنع فديو لاسد يركض", "video"], ["سوي فيديو لقطة", "video"], ["أنشئ فيديو غروب", "video"], ["انشئ مقطع فديو لحصان", "video"],
+    ["سويلي فديو ارنب", "video"], ["ولد لي فيديو بحر", "video"], ["اعمل فيديوهات ارنب", "video"], ["ابي فدو ارنب", "video"], ["اصنع ڤيديو قطة", "video"], ["اريد الفيديو ارنب يلعب", "video"],
+    ["اصنع صورة اسد", "image"], ["سوي صورة قطة", "image"], ["أنشئ صورة غروب", "image"],
+  ];
+  it.each(yes)("%s", (text, kind) => { const i = detectMediaIntent(text); expect(i?.kind).toBe(kind); expect(i?.subject).not.toMatch(/فديو|فيديو|توليد/); });
+  it("code / explanation requests are not media", () => {
+    for (const t of ["اشرح لي كيف يعمل الفيديو في المتصفح", "اكتب كود لتشغيل فيديو html", "ماذا يوجد في هذا الفيديو"]) expect(detectMediaIntent(t)).toBeNull();
+  });
+  it("a model-written 'owners only' excuse about media never reaches the user", () => {
+    const bad = "لا يمكنني توليد الفيديو لأن هذه الميزة متاحة فقط للمالكين. هل تود أن أبحث عن هذا الفيديو لك؟";
+    expect(stripOwnersExcuse(bad)).toBe(OWNERS_ONLY_FIX);
+    expect(stripOwnersExcuse("Video generation is for owners only")).toBe(OWNERS_ONLY_FIX);
+    expect(stripOwnersExcuse("هذه الميزة للمالك فقط، مقطع الفيديو")).toBe(OWNERS_ONLY_FIX);
+    expect(stripOwnersExcuse("هذا المستودع للمالك فقط")).toBe("هذا المستودع للمالك فقط");        // not about media: untouched
+    expect(stripOwnersExcuse("تم إنشاء الفيديو.")).toBe("تم إنشاء الفيديو.");
+  });
+});
