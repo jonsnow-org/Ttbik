@@ -1,0 +1,36 @@
+name: Nova fast lane live check (real Studios, nothing sent to Telegram)
+
+# Runs the production chat handler (handleCoderSections) with a fake Telegram bot and a throwaway in-memory database, against the REAL coder Studio (English prompt) and
+# Nova's REAL media Studio, for «قم بتوليد صورة فرس ابيض». Proves the live path end to end; the picture is uploaded as an artifact. Read-only for every real system.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts && (cd athar && npm ci --no-audit --no-fund)
+      - name: Run the live fast-lane check
+        env:
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          NOVA_MEDIA_STUDIO_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
+          OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
+          PROBE_OUT: ${{ runner.temp }}
+        run: |
+          cd athar
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__live__/*.live.ts' 2>&1 | grep -E "LIVE_|✓|✕|Tests:|Expected|Received|●" | cut -c1-600
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nova-fastlane-live
+          path: ${{ runner.temp }}/fastlane-white-horse.png
+          if-no-files-found: warn

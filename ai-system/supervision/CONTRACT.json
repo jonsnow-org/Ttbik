@@ -710,6 +710,14 @@
       "reads": [],
       "writes": []
     },
+    "nova_fastlane_live": {
+      "file": ".github/workflows/nova-fastlane-live.yml",
+      "title": "فحص حي لمسار الوسائط السريع في نوفا على الاستوديوهات الحقيقية (لا شيء يُرسل إلى تيليجرام)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "studio_logs": {
       "file": ".github/workflows/studio-logs.yml",
       "title": "قراءة حالة وسجل تشغيل أي استوديو للقراءة فقط (تشخيص)",
