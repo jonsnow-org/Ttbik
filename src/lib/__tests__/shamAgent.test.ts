@@ -20,6 +20,28 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).not.toContain("الأدوات المتاحة لك");
     expect(seen[0]).not.toContain("شام:");
   });
+  it("Sham v2 keeps technical capability questions in direct chat instead of the code-agent path", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "هل لديك خبرة في الكود", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("نعم، أستطيع شرح الكود ومساعدتك في كتابته وتصحيح أخطائه.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع شرح الكود ومساعدتك في كتابته وتصحيح أخطائه." });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[0]).not.toContain("الأدوات المتاحة لك");
+  });
+  it("Sham v2 rejects near-echo answers with a small word change", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "هل لديك خبرة في الكود",
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("هل لديك خبرة في المود"), say("نعم، أستطيع مساعدتك في كتابة الكود وفهمه.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع مساعدتك في كتابة الكود وفهمه." });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toContain("لا تكرر نص السؤال");
+  });
   it("Sham v2 retries a reply that echoes the current or a previous question", async () => {
     const seen: string[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
