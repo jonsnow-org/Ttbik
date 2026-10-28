@@ -96,6 +96,11 @@ def media(kind: str, backend: str):
     expected = {"image": "image", "audio": "audio", "video": "video"}[kind]
     if value.get("type") != expected:
         raise RuntimeError(f"{backend}/{kind}: expected type {expected}, got {value.get('type')}")
+    out_dir = os.environ.get("SMOKE_OUT", "").strip()
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"sham_v2_{kind}.{ {'image': 'png', 'audio': 'wav', 'video': 'mp4'}[kind] }"), "wb") as fh:
+            fh.write(raw)
     stats = assert_content(kind, raw)
     print(f"PASS {backend}/{kind}: {len(raw)} bytes; mime={value.get('mime', 'unspecified')}; content={stats}")
     return raw
@@ -127,14 +132,20 @@ def main() -> int:
         return 1
     print("PASS status: text model ready and media_assets.ready=true")
 
-    text_answer = call("generate_text", {"prompt": "أجب بكلمة واحدة: مرحباً", "max_new_tokens": 24}, timeout=180)
-    if not isinstance(text_answer, str) or not text_answer.strip():
-        print("FAIL text generation: empty response")
-        return 1
-    print(f"PASS text generation: {text_answer.strip()[:160]}")
+    only = [k for k in os.environ.get("SMOKE_KINDS", "image,audio,video").split(",") if k.strip() in ("image", "audio", "video")]
+    if os.environ.get("SMOKE_SKIP_TEXT", "").strip() != "1":
+        text_answer = call("generate_text", {"prompt": "أجب بكلمة واحدة: مرحباً", "max_new_tokens": 24}, timeout=180)
+        if not isinstance(text_answer, str) or not text_answer.strip():
+            print("FAIL text generation: empty response")
+            return 1
+        print(f"PASS text generation: {text_answer.strip()[:160]}")
 
-    for kind in ("image", "audio", "video"):
+    for kind in only:
+        started = time.time()
         media(kind, "ready")
+        print(f"   ({kind} took {time.time() - started:.0f}s)")
+    if os.environ.get("SMOKE_SKIP_TEXT", "").strip() == "1":
+        return 0
 
     # Diagnostic only: the legacy token decoder is still under training and must not
     # block ready-weight service from working.
