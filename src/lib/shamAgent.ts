@@ -120,6 +120,8 @@ export async function shamAgentRun(opts: {
   ask?: ShamAsk;
   /** Test injection for the typed agent-step protocol; production v2 uses its dedicated Studio endpoint. */
   agentAsk?: ShamAsk;
+  /** Optional injectable verifier; production verifies from recorded tool results via the plain-answer endpoint. */
+  verifyAsk?: ShamAsk;
   media?: (kind: "image" | "audio" | "video", prompt: string, opts?: { scenes?: string[]; narration?: string }) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
@@ -343,7 +345,26 @@ export async function shamAgentRun(opts: {
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
       const final = (p.text || text).trim();
-      if (!final) shamNoteFailure(`the Studio answered with empty text (raw: ${JSON.stringify(text).slice(0, 80)})`);
+      if (!final) shamNoteFailure("the Studio answered with empty text (raw: " + JSON.stringify(text).slice(0, 80) + ")");
+      // Explicit VERIFY phase: cross-check the proposed final answer against tool outputs.
+      // Never claim a write, test, or deployment succeeded without a successful tool result.
+      // Tests injecting only ask preserve deterministic scripts unless a verifier is explicitly supplied.
+      const verifier = opts.verifyAsk || (!opts.ask ? ask : undefined);
+      if (final && used.length && verifier && left() > 6500) {
+        opts.onEvent?.("info", "مرحلة التحقق: مراجعة الإجابة مقابل نتائج الأدوات المنفذة.");
+        const verifyPrompt = [
+          shamToolConversation(messages, [], lim).replace(/\nشام:$/, ""),
+          "[مرحلة التحقق — ليست مهمة جديدة]",
+          "راجع الإجابة المقترحة مقابل نتائج الأدوات المسجلة في المحادثة فقط. صحّح أي معلومة لا تدعمها النتائج، ولا تدّعِ نجاح تنفيذ أو اختبار أو نشر إلا إذا ظهر نجاح صريح في نتيجة أداة. إذا فشلت أداة، اذكر الفشل بوضوح. أعد الجواب النهائي للمستخدم فقط، بلا أدوات أو خطة.",
+          "الإجابة المقترحة: " + final.slice(0, 1800),
+        ].join("\n\n");
+        try {
+          const checked = await verifier(verifyPrompt, Math.min(maxNew, 180), Math.min(25000, left() - 500));
+          if (checked?.type === "text" && String(checked.text || "").trim()) {
+            return { kind: "text", text: String(checked.text).trim(), used, steps: steps + 1 };
+          }
+        } catch { /* keep the proposed answer rather than lose recorded tool results */ }
+      }
       return final ? { kind: "text", text: final, used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
     }
     const made = valid.find((c) => c.function.name === "make_media");
