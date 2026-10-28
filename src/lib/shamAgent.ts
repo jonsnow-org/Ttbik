@@ -155,7 +155,7 @@ export async function shamAgentRun(opts: {
     opts.onStep?.({ type: "think" });
     return rawAgentAsk(p, n, t, activeTools);
   };
-  const unpackToolReply = (reply: ShamReply | null): { text: string; calls: CoderToolCall[] } => {
+  const unpackToolReply = (reply: ShamReply | null, availableTools: CoderTool[] = opts.tools): { text: string; calls: CoderToolCall[] } => {
     if (reply?.type === "tool_calls") {
       return {
         text: String(reply.text || reply.message?.content || ""),
@@ -167,7 +167,7 @@ export async function shamAgentRun(opts: {
         }) as CoderToolCall[],
       };
     }
-    return parseShamToolCalls(String(reply?.text || ""), opts.tools);
+    return parseShamToolCalls(String(reply?.text || ""), availableTools);
   };
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
   const maxSteps = opts.maxSteps ?? 4;
@@ -309,7 +309,7 @@ export async function shamAgentRun(opts: {
       opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${q})`);
       opts.onStep?.({ type: "queue", text: info || `في الدور (محاولة ${q})` });
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
-      reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000));
+      reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     }
     if (opts.continuable && (reply?.type === "busy" || reply?.type === "loading")) return { kind: "more", messages, used, steps };
     if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
@@ -321,17 +321,17 @@ export async function shamAgentRun(opts: {
     if (reply.type === "tool_call_error") return { kind: "text", text: "تعذّر إنشاء استدعاء أداة صالح بعد إعادة المحاولة؛ لم تُنفّذ أي أداة. أعد المحاولة أو اطلب المهمة بصياغة أوضح.", used, steps: steps + 1 };
     if (reply.type !== "text" && reply.type !== "tool_calls") return { kind: "reply", reply, used, steps };
     let text = String(reply.text || "");
-    let p = unpackToolReply(reply);
+    let p = unpackToolReply(reply, toolsNow);
     // a wrong or incomplete call goes back to Sham with the reason (its own correction rounds, set by the user's accuracy mode)
     for (let fix = 0; fix < k.corrections && left() > 8000; fix++) {
-      const problems = p.calls.map((c) => validateShamCall(c, opts.tools)).filter((e): e is string => Boolean(e));
+      const problems = p.calls.map((c) => validateShamCall(c, toolsNow)).filter((e): e is string => Boolean(e));
       if (!p.calls.length && brokenCallAttempt(p.text)) problems.push("الصيغة غير صحيحة (JSON مكسور أو أداة غير محمّلة).");
-      const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, opts.tools) ? SHAM_CODE_NOTE : "";
+      const note = problems.length ? shamCorrectionNote(problems) : !p.calls.length && codeNotTried(p.text, messages, toolsNow) ? SHAM_CODE_NOTE : "";
       if (!note) break;
       const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 600)}\n${note}\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
       if (!again || (again.type !== "text" && again.type !== "tool_calls")) break;
       text = String(again.text || "");
-      p = unpackToolReply(again);
+      p = unpackToolReply(again, toolsNow);
     }
     // the last tool answered with an error and the model now writes prose with no call: give it the error back (twice at most) instead of ending the task on an apology
     const lastMsg = messages[messages.length - 1] as { role?: string; content?: string } | undefined;
