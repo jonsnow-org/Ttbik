@@ -1,3 +1,4 @@
+import { pressureOn } from "@/lib/pressureMode";
 // Sham v2's Studio pool: the primary Studio(s) (SHAM_V2_URL) and ONE overflow Studio (SHAM_V2_OVERFLOW_URL, default sham v2 on the repurposed `nova-inference-server` repo,
 // 16 GB). Sham v2 requests go to the primary first; when it is congested the overflow takes the NEW request, and a busy / unreachable primary hands a call over at once.
 // Nothing here knows Nova: Nova's Studios are never in this pool, and Sham v1 never has an overflow.
@@ -92,6 +93,7 @@ export async function tracked<T>(base: string, run: () => Promise<T>, failed: (r
 export function orderV2(primaries: string[], now = Date.now()): string[] {
   const over = overflowBase();
   if (!over || primaries.includes(over)) return primaries;
+  if (pressureOn() && !congested(over, now)) return [over, ...primaries];                 // pressure mode (owner switch): the overflow Studio takes new calls first
   const free = primaries.filter((b) => !congested(b, now));
   if (free.length) return [...free, ...primaries.filter((b) => !free.includes(b)), over];
   return congested(over, now) ? [...primaries, over] : [over, ...primaries];

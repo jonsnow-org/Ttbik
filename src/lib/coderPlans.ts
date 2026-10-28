@@ -4,6 +4,7 @@
 // SUPER_ADMIN_TELEGRAM_ID / TELEGRAM_ADMIN_CHAT_ID) has no limits at all.
 // Usage is a ROLLING 7-day window: amounts are kept in hourly buckets and the window sums the last 168 hours, so usage "comes back"
 // gradually; the reset time shown is when the oldest usage in the window drops out (and, for a full reset, when the newest does).
+import { pressureLimit } from "@/lib/pressureMode";
 import { prismaDb, coderChatKey, tierFor, type Db } from "@/lib/coderAuth";
 
 export const METRICS = ["tasks", "steps", "tokens", "sandbox_minutes", "research", "schedules"] as const;
@@ -205,7 +206,7 @@ export async function usageSummary(chatId: number | string, db: Db = prismaDb, n
     const first = mine[0]?.bucket;
     const last = mine[mine.length - 1]?.bucket;
     return {
-      metric, used, limit: owner || !enforced(metric) ? -1 : plan.limits[metric],
+      metric, used, limit: owner || !enforced(metric) ? -1 : pressureLimit(plan.limits[metric], plan.id),
       nextRelief: metric === "schedules" || !first ? null : new Date(Date.parse(first) + WINDOW_MS + HOUR).toISOString(),
       fullReset: metric === "schedules" || !last ? null : new Date(Date.parse(last) + WINDOW_MS + HOUR).toISOString(),
     };

@@ -6,6 +6,7 @@
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
 const PROVIDER_JOB_PREFIX = "p~";   // jobs of the removed "Sham inside Nova" provider: a run saved before that was removed gets "gone" instead of being polled
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
@@ -103,6 +104,7 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
 }
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
+  if (pressureOn()) avoidHome = true;                                       // pressure mode (owner switch): the least-queued Studio, not the conversation's cache-holding one
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
   if (!bases.length) return { reply: null, failure: "off" };
   if (typeof payload.job_id === "string") {

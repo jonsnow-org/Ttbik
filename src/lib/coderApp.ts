@@ -460,6 +460,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const all = await listModels(db);
       return { models: publicModels(all, st.model), ...(user.tier === "owner" ? { owner: ownerModels(all, st.model) } : {}) };
     }
+    case "pressure": {
+      // the owner's load switch (src/lib/pressureMode.ts): read / set; owner only, decided here from the verified id
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/pressureMode");
+      if (typeof body.on === "boolean") await P.setPressure(body.on, db);
+      return { on: await P.refreshPressure(db, true) };
+    }
     case "lessons": {
       // the owner's finished runs kept as training examples (coderLessons.ts): how many, and the JSON Lines to take
       if (user.tier !== "owner") throw new AppError(403, "owner only");

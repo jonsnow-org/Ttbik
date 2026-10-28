@@ -7,6 +7,7 @@
 // job, sending finished parts (< 4096 chars each) as they come. Before the 60 s function limit it hands itself to /api/coder/continue
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
+import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -283,6 +284,7 @@ async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: C
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb): Promise<boolean> {
+  await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
   // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
   if (update.message?.successful_payment) {
     const { handleCoderPaymentMessage } = await import("@/lib/coderStars");
@@ -2040,8 +2042,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     run.jobMovedAt = Date.now();
     run.jobSize = "";
     if (r.type !== "pending") cached = r;
-    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0 && tierFor(chatId) !== "owner") await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);   // the owner sees the queue on the progress card, never as a message
-    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(ioBot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
+    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0 && tierFor(chatId) !== "owner" && !run.progress?.msgId) await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);   // the owner sees the queue on the progress card, never as a message
+    if (r.type === "pending" && r.phase && r.phase !== "ready" && !run.progress?.msgId) await send(ioBot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
     await saveState(chatId, st, db, slot);
   }
 }

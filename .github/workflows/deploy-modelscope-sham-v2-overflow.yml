@@ -26,7 +26,7 @@ jobs:
   deploy:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -124,10 +124,23 @@ jobs:
         run: |
           curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1500; echo
           API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
-          for i in $(seq 1 40); do
+          stuck=0
+          for i in $(seq 1 60); do
             sleep 30
             st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
             echo "$(date -u +%H:%M:%S) studio: $st"
+            # fail fast: a Studio that sits in "Deploying" (a stuck build) is re-deployed once after 8 minutes and given up on after 15, with the logs, instead of waiting 40 minutes
+            case "$st" in
+              Deploying|deploying|Building|building|Pending|pending)
+                stuck=$((stuck+1))
+                if [ "$stuck" -eq 16 ]; then echo "::warning::still $st after 8 min: deploying once more"; curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 500; echo; fi
+                if [ "$stuck" -ge 30 ]; then
+                  echo "::error::the Studio stayed in '$st' for 15 minutes (ModelScope build stuck, not our code): see the logs below"
+                  curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
+                  exit 1
+                fi;;
+              *) stuck=0;;
+            esac
             case "$st" in
               *ail*|*rror*|*topped*)
                 curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo

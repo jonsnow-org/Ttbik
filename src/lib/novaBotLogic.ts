@@ -1,4 +1,5 @@
 import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
+import { refreshPressure } from "@/lib/pressureMode";
 import { openCard as openMsgCard, cardNote, cardFinish, cardSay, cardDrop, type Card } from "@/lib/singleMessage";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
@@ -896,6 +897,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   const mf = await import("@/lib/coderMediaFast");
   const intent = mf.detectMediaIntent(text);
   if (!intent) return false;
+  await refreshPressure().catch(() => false);
   if (shamModeCtx.getStore()?.media === false) {
     await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
     return true;
@@ -945,6 +947,7 @@ async function shamQueueNote(runId: string, attempt: number): Promise<string> {
 }
 
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
+  await refreshPressure().catch(() => false);
   const card = await openMsgCard(bot, chatId, text);                    // ONE message, within seconds: "فهمت طلبك …" + progress; the answer later takes its place
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
@@ -180,7 +181,7 @@ export async function shamGenerateMedia(
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: 2, seed: 0 }) }, timeoutMs);
+    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: 0 }) }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body)) : null;
     if (body && !reply) lastFailure = "generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
     if (!body && !lastFailure) lastFailure = "generate_video: the Sham v2 video Studio did not answer";

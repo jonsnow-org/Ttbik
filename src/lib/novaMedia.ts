@@ -1,6 +1,7 @@
 // Nova's media Studio (ai-system/modelscope-media): a picture, Arabic speech or a real text-to-video clip (never stitched stills) made on a free CPU Studio.
 //   POST {base}/gradio_api/call/v2/<api> {body: "<json>"} -> {event_id};  GET {base}/gradio_api/call/<api>/<event_id> -> `data: ["<json>"]`
 // Env: NOVA_MEDIA_STUDIO_URL (off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio).
+import { pressureOn, pressureMedia } from "@/lib/pressureMode";
 import { vetMedia } from "@/lib/mediaQuality";
 export type MediaReply = { type: string; b64?: string; text?: string; reason?: string };
 
@@ -54,7 +55,7 @@ async function novaMakeMediaOnce(
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
   const scenes = Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
   const payload =
-    kind === "image" ? { prompt: prompt.slice(0, 400), seed } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: 2, seed };   // modelscope-media/app.py api_video reads "prompt"
+    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: pressureMedia().videoSeconds, seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
   if (tok) headers.Authorization = `Bearer ${tok}`;
