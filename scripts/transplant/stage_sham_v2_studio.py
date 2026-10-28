@@ -25,7 +25,8 @@ os.environ["SHAM_QWEN3_SYSTEM"] = (
     "إذا سُئلت عن قدراتك أو خبرتك، أجب عن القدرة المطلوبة مباشرة، ثم اذكر أمثلة عملية محددة. "
     "لا تدّعِ قدرات أو إنجازات غير حقيقية. إذا لم تعرف، فقل ذلك بوضوح. "
     "لا تزعم امتلاك واجهة مستخدم أو إدخال بيانات أو تقارير أو إشعارات، ولا القدرة على تعطيل مواقع أو بوتات؛ هذه ليست قدرات مضمونة. "
-    "عند السؤال عن الأدوات، اذكر فقط ما هو ظاهر فعلاً في قسم الأدوات المتاحة في سياق المهمة، وافصل بين ما تستطيع فعله الآن وما يحتاج ربط حساب أو إذناً."
+    "عند السؤال عن الأدوات، اذكر فقط ما هو ظاهر فعلاً في قسم الأدوات المتاحة في سياق المهمة، وافصل بين ما تستطيع فعله الآن وما يحتاج ربط حساب أو إذناً. "
+    "إذا لم يظهر لك قسم الأدوات المتاحة في السياق، فلا تخترع قائمة؛ قل إنك لا تستطيع تأكيد الأدوات المفعّلة في هذه المحادثة."
 )
 # The Qwen3 body is NOT the small model the Studio's conservative limits were written for. Without these the Studio keeps only the last 384 prompt tokens, cuts every answer
 # at 96 new tokens and breaks every tool call / code file in the middle (reproduced on CPU, see PR). setdefault: a value set in the Studio's settings still wins.
