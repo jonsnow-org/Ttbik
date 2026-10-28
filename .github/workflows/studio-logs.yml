@@ -1,0 +1,31 @@
+name: Studio runtime logs (read-only)
+
+# يقرأ حالة الاستوديو وآخر سطور سجل تشغيله (للقراءة فقط) لتشخيص الانهيارات (مثلاً 502 بعد الفيديو). لا يغيّر شيئاً.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio repo name (e.g. sham-v2-server, nova-media-server)"
+        required: false
+        default: "sham-v2-server"
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      MS: https://www.modelscope.cn
+      OWNER: novaai2026
+      REPO: ${{ inputs.studio }}
+      T: ${{ secrets.MODELSCOPE_TOKEN }}
+    steps:
+      - name: Runtime state and the tail of the run log (token-looking strings removed)
+        run: |
+          case "$REPO" in *[!a-zA-Z0-9_-]*) echo "bad name"; exit 1;; esac
+          echo "== state"
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print(json.dumps({'runtime':d.get('runtime'),'hardware':d.get('hardware') or d.get('resource')},ensure_ascii=False)[:800])"
+          echo "== run log (tail)"
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 9000 | sed -E 's/(ms|sk|hf)-[A-Za-z0-9_-]{16,}/[removed]/g'
