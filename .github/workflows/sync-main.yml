@@ -1,0 +1,38 @@
+name: Sync main to the production branch (fast-forward only)
+# Why: the Cloudflare gate (cloudflare/site-gate) sends every Telegram webhook and Mini App request to the ORACLE server FIRST, and Oracle follows `main`
+# (deploy/oracle/agent/updater.sh); Vercel (the standby) follows this branch. Until 2026-10-28 `main` was 162 commits behind, so the live bot ran old code
+# (old make_media, "owners only" prompt) while Vercel had the fixes. After a green CI on this branch, `main` is moved forward to the same commit,
+# only when that is a fast-forward (never a merge, never a force-push): if `main` has diverged this job fails visibly and nothing is changed.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [claude/free-services-marketplace-h6rwk2]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: sync-main
+  cancel-in-progress: false
+jobs:
+  ff:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+          fetch-depth: 0
+      - name: Fast-forward main
+        run: |
+          set -eu
+          git fetch -q origin main
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [ "$(git rev-parse origin/main)" = "$HEAD_SHA" ]; then echo "main is already at $HEAD_SHA"; exit 0; fi
+          if git merge-base --is-ancestor origin/main "$HEAD_SHA"; then
+            git push origin "$HEAD_SHA:refs/heads/main"
+            echo "main moved to $HEAD_SHA"
+          else
+            echo "::error::main has commits that this branch does not have: not a fast-forward. Merge main into the production branch first."
+            exit 1
+          fi

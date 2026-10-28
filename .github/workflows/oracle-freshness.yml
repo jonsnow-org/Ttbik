@@ -1,0 +1,16 @@
+name: Oracle vs Vercel freshness (read-only)
+# The gate serves Oracle first. This fails when Oracle's /coder-app build differs from Vercel's, i.e. when the live bot / Mini App is stale.
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 */2 * * *"
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cd scripts/ops && python3 -m unittest test_freshness
+      - run: python3 scripts/ops/freshness.py

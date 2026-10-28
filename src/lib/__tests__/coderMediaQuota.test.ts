@@ -101,11 +101,14 @@ describe("through Nova's make_media tool in a chat", () => {
     await saveState(FREE, st0("ارسم حصاناً أبيض", run("r1")), d);
     await drive(bot, botRow, FREE, "c", d, 60000);
     expect((api as any).sendPhoto).toHaveBeenCalledTimes(3);
+    for (const c of (api as any).sendPhoto.mock.calls) expect(c[2]?.caption).toBeUndefined();          // never the raw (English) prompt as a caption
     expect(sent.some((s) => /حدّك اليومي/.test(s.text) && /الترقية/.test(s.text))).toBe(true);
     expect(sent.some((s) => /owner|المالك فقط|للمالك/i.test(s.text))).toBe(false);
     const st = await loadState(FREE, d);
     const tools = st.messages.filter((m: any) => m.role === "tool" && m.name === "make_media") as any[];
     expect(tools.length).toBe(4);
+    expect(tools[0].content).toMatch(/Nova's media Studio/);
+    expect(tools[0].content).not.toMatch(/by Sham/);                                                  // the live bot once ran a build that said "made by Sham" (Oracle served an old main)
     expect(tools[3].content).toMatch(/quota is used up/);
     expect(tools[3].content).not.toMatch(/only for owners/i);
   });
@@ -163,5 +166,12 @@ describe("what the model is told, and Sham", () => {
     expect(chooseModel({ mode: "coder" }, models, "sham_v2", false)).toBe(true);
     expect(chooseModel({ mode: "coder" }, models, "sham", false)).toBe(false);          // old Sham still owner-only
     expect(chooseModel({ mode: "coder" }, models, "coder", false)).toBe(true);          // Nova is public
+  });
+});
+
+describe("Nova's own wording (a stale build said Sham)", () => {
+  it("the tool label names Nova, not Sham", async () => {
+    const { toolLabel } = await import("@/lib/coderAgent");
+    expect(JSON.stringify(toolLabel({ id: "x", type: "function", function: { name: "make_media", arguments: "{}" } } as any))).not.toMatch(/بشام/);
   });
 });
