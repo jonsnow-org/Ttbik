@@ -34,7 +34,7 @@ os.environ.setdefault("SHAM_GENERATE_ANY_MAX_TOKENS", "768")    # generate_any's
 # Sham v2 only: constrain the beginning of a tool call to a real name loaded in the prompt. The model still chooses the tool and arguments;
 # src/lib/shamTools.ts validates the JSON/schema, and the executor keeps its normal permission/confirmation checks.
 # This improves the existing text-call protocol without changing Sham v1 or pretending the underlying protocol is native API tool-calling.
-os.environ.setdefault("SHAM_TOOLCALL_GUARD", "1")    # generate_any's own cap (default 96) - the agent loop's calls go through generate_any
+os.environ.setdefault("SHAM_TOOLCALL_GUARD", "1")    # v2 constrained tool-call decoding
 runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sham_app.py"), run_name="__main__")
 ''', encoding="utf-8")
 print("wrapper written")
