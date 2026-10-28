@@ -1,4 +1,4 @@
-name: "Deploy the Nova media Studio (image, Arabic speech, slideshow video on a free CPU Studio)"
+name: "Deploy the Nova media Studio (image, Arabic speech, real AnimateDiff-Lightning video on a free CPU Studio)"
 
 # A Studio of its own (nova-media-server), free CPU hardware only, private. Models are copied from Hugging Face into a private ModelScope model repo
 # (the Studio reaches only modelscope.cn). Uses the existing MODELSCOPE_TOKEN secret; nothing secret is printed; never deletes anything.
