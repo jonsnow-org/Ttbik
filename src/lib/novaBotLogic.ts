@@ -840,10 +840,10 @@ export function shamUnderstand(text: string): (() => Promise<string | null>) | u
 const SHAM_LEGS = 6;                                   // a long task may use up to this many legs (each up to ~4 minutes in the background)
 
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
-async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null): Promise<boolean> {
+async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false): Promise<boolean> {
   if (r.kind === "none") { await cardDrop(bot, chatId, card); if (runId) { await taskEvent(runId, "failed", "no answer from Sham in time").catch(() => null); await taskStatus(runId, "failed").catch(() => null); } return false; }
   if (r.kind === "more") {                              // the work goes on in the background: the shared runner calls the next leg (its own signed route)
-    if (leg === 0) { if (!(await cardSay(bot, chatId, card, cardRender(card, ["⏳ أكمل العمل في الخلفية، وسأحدّث هذه الرسالة بالنتيجة حين أنتهي."])))) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null); }
+    if (leg === 0 && !appOnly) { if (!(await cardSay(bot, chatId, card, cardRender(card, ["⏳ أكمل العمل في الخلفية، وسأحدّث هذه الرسالة بالنتيجة حين أنتهي."])))) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null); }
     await shamSaveRun({ chatId, botId: botId || "", runId: runId || `sham-${chatId}-${Date.now().toString(36)}`, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", card: card?.msgId ? cardSnapshot(card) : undefined, mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
     const rid = runId || "";
     later(() => shamKickNextLeg(botId || "", chatId, rid, leg + 1));
@@ -853,12 +853,19 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
     if (runId) { await taskEvent(runId, "confirm", shamConfirmText(r.call)).catch(() => null); await taskStatus(runId, "waiting").catch(() => null); }
     const id = await shamSavePending(chatId, r.call);
     await cardDrop(bot, chatId, card);
-    await bot.api.sendMessage(chatId, shamConfirmText(r.call), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${id}`).text("❌ ألغِ", `shamno|${id}`) }).catch(() => null);
+    if (!appOnly) await bot.api.sendMessage(chatId, shamConfirmText(r.call), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${id}`).text("❌ ألغِ", `shamno|${id}`) }).catch(() => null);
     return true;
   }
   if (r.kind === "reply") {
-    if (r.reply?.type === "text" && r.reply.text && card?.msgId) await cardFinish(bot, chatId, card, r.reply.text, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
-    else { await cardPhase(bot, chatId, card, "send", "جاري الإرسال"); await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, r.reply); }          // media goes as its own message; the card has nothing to say any more
+    if (runId) {
+      if (r.reply?.type === "text" && r.reply.text) await taskEvent(runId, "text", r.reply.text).catch(() => null);
+      else await taskEvent(runId, "info", r.reply?.text || `Sham returned ${r.reply?.type || "a reply"}`).catch(() => null);
+      await taskEvent(runId, "done", "").catch(() => null);
+      await taskStatus(runId, "done", r.steps).catch(() => null);
+    }
+    if (appOnly) { await cardDrop(bot, chatId, card); if (r.reply?.type === "text" && r.reply.text) await saveChatTurn(chatId, request, r.reply.text); }
+    else if (r.reply?.type === "text" && r.reply.text && card?.msgId) await cardFinish(bot, chatId, card, r.reply.text, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
+    else { await cardPhase(bot, chatId, card, "send", "جاري الإرسال"); await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, r.reply); }
     return true;
   }
   let out = r.kind === "ask" ? r.question : r.text;
@@ -869,7 +876,8 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
     return true;
   }
   if (runId) { await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
-  if (card?.msgId && out.trim() && out.length <= 24000) await cardFinish(bot, chatId, card, out, (p) => bot.api.sendMessage(chatId, p).catch(() => null));   // the answer takes the card's place: one message
+  if (appOnly) await cardDrop(bot, chatId, card);
+  else if (card?.msgId && out.trim() && out.length <= 24000) await cardFinish(bot, chatId, card, out, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
   else { await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, { type: "text", text: out }); }
   await saveChatTurn(chatId, request, out);
   return true;
@@ -979,6 +987,24 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, card);
 }
 
+/** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
+export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text: string, botId: string, runId: string, variant: "v1" | "v2", mode: Record<string, unknown>): Promise<void> {
+  await shamVariant.run(variant, () => shamModeCtx.run(mode as never, async () => {
+    try {
+      if (!shamStudioEnabled()) throw new Error("Sham Studio is not configured (MODELSCOPE_API_TOKEN is missing).");
+      const ctx = await shamToolCtx(chatId, botId);
+      ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };
+      const mem = await loadChatMemory(chatId, text);
+      const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+      const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+      await shamDeliver(bot, chatId, r, text, botId, 0, runId, null);
+    } catch (e) {
+      const message = String((e as Error)?.message || e).slice(0, 300);
+      await taskEvent(runId, "failed", message).catch(() => null);
+      await taskStatus(runId, "failed").catch(() => null);
+    }
+  }));
+}
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
 // The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
 async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
