@@ -176,6 +176,7 @@ export async function guard(reason: string): Promise<boolean> {
 }
 
 /** Same as useBack, under a name that does not look like a React hook (it is called inside effects). */
+// eslint-disable-next-line react-hooks/rules-of-hooks -- useBack calls no React hook; it only has a use* name
 export const bindBack = (on: boolean, cb: () => void): (() => void) => useBack(on, cb);
 
 // ---------------------------------------------------------------- Telegram's own bottom button (MainButton) for the primary action of a form
