@@ -70,3 +70,15 @@ export function cleanEnglishPrompt(text: string): string | null {
   const non = (t.match(/[^\x00-\x7f]/g) || []).length;
   return non / t.length > 0.15 ? null : t;
 }
+
+const TOOL_NAMES = "web_search|fetch_page|deep_research|github_[a-z_]+|memory_save|memory_search|schedule_[a-z]+|connector_api|mcp_list_tools|mcp_call|sandbox_[a-z_]+|make_media|ask_user|view_image|view_video|run_command|bash";
+/** A "final answer" that is really the model's plan of tool calls written as text («… ← sandbox_exec ثم sandbox_write_file.»): it must never reach the user as the answer. */
+export function looksLikeToolPlan(text: string): boolean {
+  const t = String(text || "").trim();
+  if (!t || t.length > 600) return false;
+  const names = t.match(new RegExp(`\\b(?:${TOOL_NAMES})\\b`, "g")) || [];
+  if (!names.length) return false;
+  const arrows = /(←|→|->|=>|\bثم\b|\bthen\b|\+)/.test(t);
+  const mostlyTools = names.join("").length / t.replace(/\s+/g, "").length > 0.25;
+  return arrows || mostlyTools || /^\s*(tool|call|plan|الأداة|أستخدم)\b/i.test(t);
+}

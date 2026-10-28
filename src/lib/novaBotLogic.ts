@@ -4,6 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
+import { looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { chatKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
@@ -828,7 +829,12 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
     return true;
   }
   if (r.kind === "reply") { await sendShamReply(bot, chatId, r.reply); return true; }
-  const out = r.kind === "ask" ? r.question : r.text;
+  let out = r.kind === "ask" ? r.question : r.text;
+  if (r.kind !== "ask" && looksLikeToolPlan(out)) {              // a tool plan written as the answer ("… ← sandbox_exec ثم sandbox_write_file") is not an answer: say so honestly
+    if (runId) { await taskEvent(runId, "failed", `the model wrote a tool plan as its answer: ${out.slice(0, 160)}`).catch(() => null); await taskStatus(runId, "failed", r.steps).catch(() => null); }
+    await bot.api.sendMessage(chatId, "تعذّر تنفيذ هذا الطلب: لم أستطع تشغيل الأداة المناسبة لإنجازه. أعد صياغته بجملة أوضح أو جرّب بعد قليل.").catch(() => null);
+    return true;
+  }
   if (runId) { await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
   await sendShamReply(bot, chatId, { type: "text", text: out });
   await saveChatTurn(chatId, request, out);
@@ -864,6 +870,54 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
 
 // Sham's own agent round (src/lib/shamAgent.ts): the model may call its own tools (web, GitHub, memory, schedules, its own computer), each call checked before it runs.
 // true = handled. false = nothing usable came back in time: the caller continues with the one-step `think` path below.
+/**
+ * Sham / Sham v2: an explicit "generate a picture / a video of X" goes to the media route chosen in the owner's panel (Sham v2's own Studios) BEFORE the model:
+ * 2026-10-28 the model answered "← sandbox_exec ثم sandbox_write_file" as text and nothing was made. The picture is sent alone (never the prompt as a caption).
+ * true = handled; false = not such a request (the model's agent round runs as before).
+ */
+export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: string, botId?: string): Promise<boolean> {
+  const mf = await import("@/lib/coderMediaFast");
+  const intent = mf.detectMediaIntent(text);
+  if (!intent) return false;
+  if (shamModeCtx.getStore()?.media === false) {
+    await bot.api.sendMessage(chatId, "توليد الوسائط متوقف لهذا النموذج في إعدادات التطبيق (الإعدادات ← توليد الوسائط).").catch(() => null);
+    return true;
+  }
+  const runId = `sham-${chatId}-${Date.now().toString(36)}`;
+  await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
+  const fail = async (msg: string, detail = "") => {
+    await taskEvent(runId, "failed", detail || msg).catch(() => null);
+    await taskStatus(runId, "failed").catch(() => null);
+    await bot.api.sendMessage(chatId, msg.slice(0, 3500)).catch(() => null);
+    await saveChatTurn(chatId, text, msg);
+    return true;
+  };
+  try {
+    await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+    // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
+    let prompt = mf.glossaryPrompt(intent.subject);
+    if (!prompt) {
+      const t = await shamChatAuto(`Write ONE short English prompt (max 20 words) for an image model describing: ${intent.subject}. Output only the prompt.`, 40, 25000).catch(() => null);
+      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
+    }
+    if (!prompt) return await fail("تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة.", "no English prompt");
+    await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
+    const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
+    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 240000 : 120000 });
+    if (reply.type === intent.kind && reply.b64) {
+      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"));
+      else await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"));
+      await taskEvent(runId, "done", "").catch(() => null);
+      await taskStatus(runId, "done", 1).catch(() => null);
+      await saveChatTurn(chatId, text, intent.kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع.");
+      return true;
+    }
+    return await fail(`تعذّر إنشاء ${intent.kind === "image" ? "الصورة" : "المقطع"} هذه المرة. لم يُرسل شيء. أعد المحاولة بعد قليل.${tierFor(chatId) === "owner" && reply.text ? `\n\n🔧 للمالك: ${String(reply.text).slice(0, 300)}` : ""}`, String(reply.text || "failed"));
+  } catch (e) {
+    return await fail("تعذّر إنشاء الوسائط هذه المرة. أعد المحاولة بعد قليل.", String((e as Error)?.message || e).slice(0, 200));
+  }
+}
+
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
@@ -978,6 +1032,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           // Telegram gets its answer at once and the work goes on in the background (as the coder does): a slow Studio can no longer make Telegram resend
           const variant = shamVariant.getStore() || "v1", mode = shamModeCtx.getStore() || {};
           later(() => shamVariant.run(variant, () => shamModeCtx.run(mode, async () => {
+            if (await shamMediaFastLane(bot, chatId, text, _botRow?.id)) return;        // a clear "make a picture / video of X" request never waits for the model to choose a tool
             if (!(await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id))) await sendShamReply(bot, chatId, null);
           })));
           return;
