@@ -74,7 +74,7 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect((api as any).sendPhoto.mock.calls[0][2]?.caption).toBeUndefined();                       // never the raw (English) prompt as a caption
     expect(urls.filter((u) => u.startsWith("https://media.test")).some((u) => /white horse/.test(u))).toBe(true);   // the Studio got the English prompt
     expect(sent.some((s) => /غير متاح|unavailable/.test(s.text))).toBe(false);
-    await until(async () => (await listTasks(FREE, { limit: 5 }, db()))[0]?.status === "done");
+    for (let i = 0; i < 100; i++) { const x = await loadState(FREE, db()); if ((await listTasks(FREE, { limit: 5 }, db()))[0]?.status === "done" && x.messages.length >= 2) break; await new Promise((r) => setTimeout(r, 50)); }   // the picture goes first, the thread turn is saved a moment later
     const t = (await listTasks(FREE, { limit: 5 }, db()))[0];
     expect(t.status).toBe("done");
     const st = await loadState(FREE, db());

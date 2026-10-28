@@ -877,7 +877,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     const last = run.leg >= SHAM_LEGS;
     const card: Card | null = run.card?.msgId ? (run.card as Card) : null;
     const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); if (k !== "text") void cardNote(bot, chatId, card, t); } : undefined;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
+    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
       await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
@@ -937,6 +937,13 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   }
 }
 
+/** The queue line while Sham's Studios are on other people's work: the position among running Sham tasks and a time estimate (src/lib/queueInfo.ts). */
+async function shamQueueNote(runId: string, attempt: number): Promise<string> {
+  const { queueInfo, queueLine } = await import("@/lib/queueInfo");
+  const { overflowBase } = await import("@/lib/shamPool");
+  return queueLine(await queueInfo(runId, "sham", shamVariant.getStore() === "v2" && overflowBase() ? 2 : 1), attempt);
+}
+
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   const card = await openMsgCard(bot, chatId, text);                    // ONE message, within seconds: "فهمت طلبك …" + progress; the answer later takes its place
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
@@ -945,7 +952,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); if (k !== "text") void cardNote(bot, chatId, card, t); };
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, card);
 }
 
