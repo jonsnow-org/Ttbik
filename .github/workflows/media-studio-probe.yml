@@ -6,7 +6,16 @@ name: Nova Media Studio Smoke Test
 # previous container (the failed runs 40611229256 / 40613962929: "no 'video' API: still OLD code" while the Studio was being rebuilt). It still WAITS until
 # the Studio reports phase=ready and the AnimateDiff video engine, then checks the CONTENT of each result.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "image prompt to check (default: the apple); e.g. the prompt a user's request became"
+        required: false
+        default: ""
+      seed:
+        description: "image seed"
+        required: false
+        default: "17"
   workflow_run:
     workflows:
       - "Deploy the Nova media Studio (image, Arabic speech, real AnimateDiff-Lightning video on a free CPU Studio)"
@@ -36,6 +45,8 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           NOVA_MEDIA_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
           READY_TIMEOUT: "2400"
+          PROBE_PROMPT: ${{ inputs.prompt }}
+          PROBE_SEED: ${{ inputs.seed }}
           PROBE_OUT: ${{ runner.temp }}
         run: python ai-system/app/nova_media_probe.py
       - uses: actions/upload-artifact@v4

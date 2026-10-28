@@ -15,8 +15,14 @@ def page_chunks(html: str) -> list[str]:
     return sorted(set(re.findall(r"/_next/static/chunks/app/[^\"' ]*?page-[0-9a-f]+\.js", html)))
 
 
-def same_build(a: list[str], b: list[str]) -> bool:
-    return bool(a) and a == b
+def texts(js: str) -> frozenset[str]:
+    """The user-visible Arabic / English string literals of a chunk: identical code gives identical texts whatever the build's module ids / hashes are."""
+    return frozenset(re.findall(r"[\u0600-\u06FF][^\"'`\\]{6,}", js)) | frozenset(re.findall(r'"([A-Za-z][A-Za-z &/·-]{14,60})"', js))
+
+
+def same_build(a: frozenset[str], b: frozenset[str]) -> bool:
+    """The two builds show the same texts (a build id or hash differing between the Oracle and the Vercel build is normal)."""
+    return bool(a) and bool(b) and len(a ^ b) <= max(2, int(0.002 * len(a | b)))
 
 
 def fetch(url: str) -> str:
@@ -28,12 +34,14 @@ def main() -> int:
     got = {}
     for name, base in ORIGINS.items():
         try:
-            got[name] = page_chunks(fetch(base + "/coder-app"))
+            chunks = page_chunks(fetch(base + "/coder-app"))
+            got[name] = frozenset().union(*(texts(fetch(base + c)) for c in chunks)) if chunks else frozenset()
         except Exception as e:  # noqa: BLE001
-            got[name] = []
+            got[name] = frozenset()
             print(f"{name}: unreachable ({type(e).__name__})")
-        print(f"{name}: {len(got[name])} page chunks {got[name][:3]}")
+        print(f"{name}: {len(got[name])} texts")
     ok = same_build(got["oracle"], got["vercel"])
+    print(f"texts only on Oracle: {len(got['oracle'] - got['vercel'])}, only on Vercel: {len(got['vercel'] - got['oracle'])}")
     print("SAME BUILD" if ok else "DIFFERENT BUILDS: the primary (Oracle) is not serving what Vercel serves")
     return 0 if ok else 1
 
