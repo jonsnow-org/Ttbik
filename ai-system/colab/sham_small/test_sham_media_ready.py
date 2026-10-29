@@ -11,6 +11,11 @@ from sham_media_ready import inspect_ready_assets, make, ready_root, _scene_prom
 
 
 class LocalMediaReadinessTests(unittest.TestCase):
+    def test_sdxs_defaults_to_its_native_512px_resolution_unless_overridden(self):
+        import os
+        if "SHAM_IMAGE_SIDE" not in os.environ:
+            self.assertEqual(sham_media_ready.IMAGE_SIDE, 512)
+
     def test_empty_or_incomplete_folders_are_not_ready(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
