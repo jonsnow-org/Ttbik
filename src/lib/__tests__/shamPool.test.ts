@@ -1,7 +1,7 @@
 // Sham v2 overflow Studio: the primary first; the overflow takes new calls while the primary is congested (in flight / slow / just failed); busy or unreachable primary
 // hands the call over at once; Nova's Studios and Sham v1 are never in the pool.
 import { shamBases, shamVariant, shamThink } from "@/lib/shamStudio";
-import { DEFAULT_V2_OVERFLOW_URL, _resetPoolForTests, _verifyForTests, congested, orderV2, overflowVerdict, refreshOverflow, tracked } from "@/lib/shamPool";
+import { DEFAULT_V2_OVERFLOW_URL, _resetPoolForTests, _verifyForTests, congested, orderV2, overflowConfigured, overflowVerdict, refreshOverflow, tracked } from "@/lib/shamPool";
 
 const PRIMARY = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
 const OVER = DEFAULT_V2_OVERFLOW_URL;
@@ -49,6 +49,7 @@ describe("routing order", () => {
     expect(v1(() => shamBases())).toEqual(["https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"]);
     process.env.SHAM_MODELSCOPE_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
     process.env.SHAM_V2_OVERFLOW_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+    expect(overflowConfigured()).toBe(DEFAULT_V2_OVERFLOW_URL);
     expect(v1(() => shamBases()).some((b) => /nova-inference-server/.test(b))).toBe(false);
     expect(v2(() => shamBases()).some((b) => /nova-inference-server|coder-inference|nova-media/.test(b))).toBe(false);
     expect(await refreshOverflow("https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net", async () => { throw new Error("must not be called"); })).toBe(false);
