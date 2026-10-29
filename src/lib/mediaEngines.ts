@@ -21,7 +21,6 @@ export type ModelMedia = {
 const OPTION_TEXT: Record<ShamEngine, EngineOption> = {
   ready: { id: "ready", ar: "أوزان جاهزة (موصى به)", en: "Ready weights (recommended)", hint: { ar: "نماذج صور وصوت وفيديو جاهزة تعمل محليًا على المعالج داخل استوديوهات شام v2. تخرج وسائط حقيقية.", en: "Ready image, speech and video models running on the CPU inside Sham v2's Studios. Real output." } },
   internal: { id: "internal", ar: "مولّد شام الداخلي (تجريبي)", en: "Sham's own generator (experimental)", hint: { ar: "مولّد شام نفسه. ما زال قيد التدريب فيرفض فاحص الجودة أغلب ما ينتجه. استخدمه للتجربة فقط.", en: "Sham's own generator. Still training: the quality gate refuses most of its output. For testing only." } },
-  borrow_v2: { id: "borrow_v2", ar: "يستعير أوزان شام v2 الجاهزة", en: "Borrows Sham v2's ready weights", hint: { ar: "شام القديم لا يملك أوزان وسائط جاهزة، فيطلبها من استوديوهات شام v2. هذا ما كان يحدث دائمًا.", en: "The old Sham has no ready media weights of its own, so it asks Sham v2's Studios. This is what always happened." } },
 };
 const opts = (m: ShamModelId): EngineOption[] => SHAM_ENGINE_OPTIONS[m].map((e) => (e === "internal" && m === "sham" ? { ...OPTION_TEXT.internal, ar: "استوديو شام القديم الأصلي (تجريبي)", en: "Old Sham's own Studio (experimental)" } : OPTION_TEXT[e]));
 
@@ -76,8 +75,8 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
         lines: [{ kind: "image", ar: "صورة: SDXS على المعالج", en: "Image: SDXS on CPU", studio: "nova-media-server" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },
       { id: "sham_v2", engine: e2, options: opts("sham_v2"), lines: v2lines(e2), studios: [S(hostOf(v2), ROLE.v2chat, pV2), S(hostOf(v2v), ROLE.v2video, pV2v), ...overflow] },
-      { id: "sham", engine: e1, options: opts("sham"), lines: e1 === "borrow_v2" ? v2lines("ready") : [{ kind: "image", ar: "صورة: مولّد شام القديم الداخلي", en: "Image: old Sham's own generator", studio: hostOf(v1) }, { kind: "audio", ar: "صوت: مولّد شام القديم الداخلي", en: "Speech: old Sham's own generator", studio: hostOf(v1) }, { kind: "video", ar: "فيديو: مولّد شام القديم الداخلي", en: "Video: old Sham's own generator", studio: hostOf(v1) }],
-        studios: e1 === "borrow_v2" ? [S(hostOf(v2), ROLE.v2chat, pV2), S(hostOf(v2v), ROLE.v2video, pV2v)] : [S(hostOf(v1), ROLE.v1, pV1)] },
+      { id: "sham", engine: e1, options: opts("sham"), lines: [{ kind: "image", ar: "صورة: مولّد شام القديم الداخلي", en: "Image: old Sham's own generator", studio: hostOf(v1) }, { kind: "audio", ar: "صوت: مولّد شام القديم الداخلي", en: "Speech: old Sham's own generator", studio: hostOf(v1) }, { kind: "video", ar: "فيديو: مولّد شام القديم الداخلي", en: "Video: old Sham's own generator", studio: hostOf(v1) }],
+        studios: [S(hostOf(v1), ROLE.v1, pV1)] },
     ],
   };
 }

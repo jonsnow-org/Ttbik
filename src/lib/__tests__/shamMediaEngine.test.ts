@@ -8,20 +8,21 @@ import { fakeBot } from "./coderFakes";
 beforeEach(async () => { await resetPg(); process.env.SUPER_ADMIN_TELEGRAM_ID = "4242"; process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_OVERFLOW_URL = "off"; });
 
 describe("per-model media engine", () => {
-  it("defaults keep what happened before: Sham v2 on ready weights, the old Sham borrowing Sham v2's ready weights", async () => {
+  it("defaults each model to its own media Studio and has no shared engine", async () => {
     const db: any = pgDb();
     expect(await shamEngine("sham_v2", db)).toBe("ready");
-    expect(await shamEngine("sham", db)).toBe("borrow_v2");
-    expect(targetOf("sham", "borrow_v2")).toEqual({ route: "sham_v2_ready", variant: "v2", backend: "ready" });
+    expect(await shamEngine("sham", db)).toBe("internal");
     expect(targetOf("sham", "internal")).toEqual({ route: "sham_v1", variant: "v1", backend: "internal" });
     expect(targetOf("sham_v2", "internal")).toEqual({ route: "sham_v2_internal", variant: "v2", backend: "internal" });
+    expect(targetOf("sham_v2", "ready")).toEqual({ route: "sham_v2_ready", variant: "v2", backend: "ready" });
+    expect(() => targetOf("sham", "ready")).toThrow("engine not supported");
   });
   it("choices are stored per model and cannot cross over", async () => {
     const db: any = pgDb();
     await setShamEngine("sham_v2", "internal", db);
     expect(await shamEngine("sham_v2", db)).toBe("internal");
-    expect(await shamEngine("sham", db)).toBe("borrow_v2");
-    await expect(setShamEngine("sham_v2", "borrow_v2", db)).rejects.toThrow();
+    expect(await shamEngine("sham", db)).toBe("internal");
+    await expect(setShamEngine("sham_v2", "borrow_v2" as any, db)).rejects.toThrow();
     await expect(setShamEngine("sham", "ready", db)).rejects.toThrow();
   });
   it("the owner op sets it; a user is refused", async () => {
@@ -47,7 +48,8 @@ describe("per-model media engine", () => {
     expect(by.sham_v2.lines.find((l) => l.kind === "video")?.studio).toBe("sham-v2-video-server");
     expect(by.sham_v2.studios.map((s) => s.id)).toEqual(["sham-v2-server", "sham-v2-video-server"]);
     expect(JSON.stringify(by.coder)).not.toMatch(/sham/i);                           // Nova never touches a Sham Studio
-    expect(by.sham.engine).toBe("borrow_v2");
+    expect(by.sham.engine).toBe("internal");
+    expect(by.sham.studios.map((s) => s.id)).toEqual(["sham-v1-server"]);
     expect(await probeStudio("", "t", f)).toMatchObject({ ok: false, phase: "off" });
     expect(await probeStudio("https://x.test", "t", (async () => { throw new Error("boom"); }) as any)).toMatchObject({ ok: false, phase: "down" });
   });
