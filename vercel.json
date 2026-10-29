@@ -23,7 +23,7 @@
     },
     {
       "path": "/api/cron/telegram-post",
-      "schedule": "0 5,8,11,14,17 * * *"
+      "schedule": "0 5,7,9,11,13,15,17,19 * * *"
     }
   ]
 }
