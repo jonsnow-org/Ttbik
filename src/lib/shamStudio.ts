@@ -315,7 +315,8 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
     if (!event_id) { note(base, api, "no event id"); return { reply: null, failure: "http" }; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
-    const reply = await vetShamReply(parseShamReply(await readShamSse(res)));
+    const rawReply = await readShamSse(res);
+    const reply = await vetShamReply(rawReply === null ? null : parseShamReply(rawReply));
     if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
