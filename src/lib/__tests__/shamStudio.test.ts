@@ -1,4 +1,4 @@
-import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, readShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
@@ -9,6 +9,27 @@ describe("shamStudio", () => {
     expect(parseShamSse('event: generating\ndata: not json\ndata: ["ثانٍ"]\n')).toBe("ثانٍ");
     expect(parseShamSse("")).toBeNull();
   });
+  it("returns the first complete SSE data line without waiting for the stream to close", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: generating\n"));
+        controller.enqueue(encoder.encode('data: ["streamed'));
+        controller.enqueue(encoder.encode(' answer"]\n'));
+        // Deliberately keep the stream open, matching a long-lived Gradio SSE response.
+      },
+      cancel() { cancelled = true; },
+    });
+    const response = {
+      body,
+      text: async () => { throw new Error("must not wait for EOF"); },
+    } as unknown as Response;
+
+    await expect(readShamSse(response)).resolves.toBe("streamed answer");
+    expect(cancelled).toBe(true);
+  });
+
   it("sends nothing without a token", async () => {
     delete process.env.MODELSCOPE_API_TOKEN;
     expect(await shamGenerate("مرحبا")).toBeNull();
