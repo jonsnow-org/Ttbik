@@ -102,6 +102,19 @@ CATALOG = [
     ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
     ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
     ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
+    ("هل تستطيع تحليل مستودع GitHub {repo}؟ ابدأ بفحص بنيته.", "github_repo_scan", {"repo": "{repo}"}, "default branch main; root files README.md, package.json; folders src, tests", "فحصت المستودع بالأداة. الفرع الافتراضي main، وفيه src وtests وملفات المشروع الأساسية."),
+    ("ما حالة CI في {repo} على الفرع main؟", "github_ci", {"repo": "{repo}", "ref": "main"}, "checks: build=success, lint=success, tests=success", "قرأت حالة CI للفرع main؛ البناء والتدقيق والاختبارات ناجحة بحسب نتيجة الأداة."),
+    ("اعرض طلبات الدمج المفتوحة في {repo}.", "github_prs", {"repo": "{repo}", "state": "open"}, "open pull requests: #7 Fix tests; #8 Update README", "هذه طلبات الدمج المفتوحة التي أعادتها GitHub؛ لا أستنتج طلبات غير موجودة في النتيجة."),
+    ("اقرأ الملفات الأساسية في {repo} حتى تحلل بنيته.", "github_read_files", {"repo": "{repo}", "paths": ["README.md", "package.json"], "ref": "main"}, "README.md: project overview; package.json: scripts build, lint, test", "قرأت README وpackage.json من نتيجة الأداة، ويمكنني تلخيص البنية والأوامر الفعلية الواردة فيهما."),
+    ("افحص آخر عمليات النشر في حساب Vercel المرتبط بالتطبيق.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v6/deployments?limit=5"}, "deployments: [{url: ttbik.vercel.app, state: READY}, {url: preview.example.vercel.app, state: ERROR}]", "قرأت قائمة النشر عبر موصل Vercel المرتبط. سأذكر الحالات التي أعادتها الأداة فقط، ولن أزعم أن نشرًا ناجح أو فاشل دون نتيجة."),
+    ("اعرض المشاريع المتاحة في حساب Vercel المرتبط.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v9/projects?limit=5"}, "projects: [{name: ttbik, id: prj_example}, {name: docs, id: prj_docs}]", "قرأت المشاريع التي أتاحها موصل Vercel المرتبط؛ إذا لم يُرجع المشروع المطلوب أذكر ذلك بدل التخمين."),
+    ("ما الأدوات المتاحة في خادم MCP {server} الذي أضفته؟", "mcp_list_tools", {"server": "{server}"}, "tools: list_projects; read_project; search_docs", "استعلمت من الخادم عن قائمة الأدوات الفعلية؛ أستخدم الاسم والمعاملات التي أعادها الخادم فقط."),
+    ("استدع أداة search_docs على خادم MCP {server} للبحث عن واجهة المشروع.", "mcp_call", {"server": "{server}", "tool": "search_docs", "arguments": {"query": "project API"}}, "requires user confirmation; awaiting approval", "طلب الاستدعاء ينتظر موافقتك؛ لم أنفذ الأداة قبل التأكيد."),
+    ("قسّم تحليل {repo} إلى فحص للبنية وفحص مستقل لحالة الاختبارات.", "delegate", {"tasks": [{"title": "بنية المستودع", "task": "افحص README والملفات الأساسية في المستودع {repo}."}, {"title": "حالة CI", "task": "تحقق من حالة CI على الفرع الافتراضي للمستودع {repo}."}]}, "agent reports: structure reviewed; CI status collected", "جمعت نتائج الفحصين المستقلين. أميّز بين النتائج التي أعادتها الأدوات وأي استنتاج إضافي."),
+    ("اختبر عنوان API عام بطلب قراءة GET: {url}", "http_request", {"method": "GET", "url": "{url}"}, "HTTP 200; JSON response", "نفذت طلب GET للعنوان العام وراجعت الاستجابة التي أعادها الخادم."),
+    ("لخّص ما قرأناه سابقاً من README في هذا التحقيق.", "recall", {"query": "README overview", "count": 3}, "previously read: README states project purpose and main commands", "استرجعت المعلومة من القراءات السابقة في هذه المهمة."),
+    ("أرسل التقرير الذي أنشأته في الجهاز الافتراضي إلى المستخدم.", "send_file", {"path": "/work/report.md", "caption": "تقرير تحليل المستودع"}, "file sent: /work/report.md", "أرسلت الملف الذي أنشأته الأداة، بعد التحقق من وجوده."),
+    ("احذف المهمة المجدولة ذات المعرّف s1 التي طلبت حذفها.", "schedule_delete", {"id": "s1"}, "deleted schedule s1", "حذفت المهمة المجدولة ذات المعرّف الذي طلبته."),
 ]
 # the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
 FLOW_REQUESTS = [
@@ -180,6 +193,7 @@ def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], 
 
 REPOS = ["jonsnow-org/Ttbik", "octocat/hello-world", "user/project"]
 URLS = ["https://example.com", "https://docs.python.org/3/"]
+MCP_SERVERS = ["mcp:ab12cd34ef"]  # synthetic shape only; inference must use an id supplied by the app/user
 
 
 def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
