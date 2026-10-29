@@ -26,6 +26,7 @@ REF = "sham-main"
 PUBLISH_WORKFLOW = "publish-sham-v2-trained.yml"
 PUBLISH_REF = "claude/free-services-marketplace-h6rwk2"
 DEFAULT_DELAY = 240
+PUBLISHED_FLAG = os.environ.get("SHAM_V2_PUBLISHED_FLAG", "/kaggle/working/sham-v2-training-published.json")
 _STATE = {"installed": False, "fired": False}
 
 
@@ -92,7 +93,24 @@ def _send_dispatch(opener, request: urllib.request.Request, label: str) -> bool:
         return False
 
 
-def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: str | None = None) -> bool:
+def _training_published_ok(flag_path: str = PUBLISHED_FLAG) -> bool:
+    """Only publish trained weights when the notebook confirms the dataset upload completed."""
+    try:
+        with open(flag_path, encoding="utf-8") as fh:
+            stamp = json.load(fh)
+        return (
+            int(stamp.get("step") or 0) > 0
+            and stamp.get("dataset") == "sham-v2-checkpoint"
+            and stamp.get("dataset_published") is True
+            and bool(stamp.get("checkpoint"))
+            and bool(stamp.get("tools_after"))
+            and bool(stamp.get("arabic_after"))
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: str | None = None, published: bool | None = None) -> bool:
     if _STATE["fired"] or os.environ.get("SHAM_NO_RESTART_TRIGGER") == "1":
         return False
     if token is None and not os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
@@ -101,9 +119,13 @@ def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: st
     if not tok:
         return False
     _STATE["fired"] = True
-    # Cell 25 has just uploaded the complete training checkpoint and its metrics.
-    # The publisher has independent quality gates and leaves production untouched on any failure.
-    _send_dispatch(opener, _publish_request(tok), "trained-checkpoint publisher")
+    # atexit also runs after notebook failures. In that case, restart training but do NOT
+    # dispatch the weight publisher unless cell 25 wrote a success stamp after dataset upload.
+    was_published = _training_published_ok() if published is None else bool(published)
+    if was_published:
+        _send_dispatch(opener, _publish_request(tok), "trained-checkpoint publisher")
+    else:
+        print("sham_trigger_restarter: publisher skipped (no successful trained-checkpoint upload stamp)")
     return _send_dispatch(opener, _request(tok, delay), f"restarter (in ~{delay}s)")
 
 
@@ -130,15 +152,21 @@ def _self_test() -> None:
     for k in ("GITHUB_TOKEN", "GH_TOKEN"):
         os.environ.pop(k, None)
     assert trigger(opener=opener) is False and not sent            # no token -> silent no-op
-    assert trigger(5, opener=opener, token="secret") is True
+    # A normal failed/not-yet-finished run may restart, but cannot publish weights.
+    assert trigger(5, opener=opener, token="secret", published=False) is True
+    assert sent == [{"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}}]
+    _STATE["fired"] = False
+    sent.clear()
+    # The notebook's explicit post-upload call is allowed to dispatch the guarded publisher.
+    assert trigger(5, opener=opener, token="secret", published=True) is True
     assert sent == [
         {"ref": PUBLISH_REF, "inputs": {}},
         {"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}},
     ]
-    assert trigger(opener=opener, token="secret") is False          # once per process
+    assert trigger(opener=opener, token="secret", published=True) is False  # once per process
     _STATE["fired"] = False
     def bad(*a, **k): raise OSError("net")
-    assert trigger(opener=bad, token="secret") is False             # never raises
+    assert trigger(opener=bad, token="secret", published=False) is False   # never raises
     print("sham_trigger_restarter self-test OK")
 
 
