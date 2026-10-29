@@ -96,7 +96,7 @@ export default async function HomePage() {
                 🤖 منشئ البوتات
               </Link>
               <Link href="/ai-tools" className="rounded-full border border-sky-200 bg-sky-50 px-5 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-100">
-                ✨ دليل أدوات الذكاء الاصطناعي
+                🧰 أدوات إضافية
               </Link>
             </div>
           </div>
