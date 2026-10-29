@@ -1543,6 +1543,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
         // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
+        onStage(`execute-tool:${call.function.name}`);
         let out = "";
         let shown: string[] = [];
         let from = "";
@@ -1614,6 +1615,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         } catch (e) {
           out = `error: ${String((e as Error)?.message || e).slice(0, 240)}`;
         }
+        onStage(`persist-tool-result:${call.function.name}`);
         await taskEvent(run.id, "tool", toolLabel(call), db);
         if (shown.length) {
           st.messages.push({ role: "tool", content: `${shown.length} picture${shown.length > 1 ? "s" : ""} from ${from} will be shown to you in the next message.`, tool_call_id: call.id, name: call.function.name });
@@ -1626,6 +1628,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (call.function.name === "send_file" && (!run.agent || run.agentRole === "worker")) {
         // not a tool that runs in the VM: the file leaves the VM and goes to the user's chat as a document
         const a = parseArgs(call);
+        onStage("execute-tool:send_file");
         let out: string;
         try {
           const { readSandboxFile } = await import("@/lib/coderSandbox");
@@ -1639,6 +1642,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         } catch (e) {
           out = `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`;
         }
+        onStage("persist-tool-result:send_file");
         await taskEvent(run.id, "tool", toolLabel(call), db);
         st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: "send_file" });
         run.queued = rest;
@@ -1734,7 +1738,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (batch.length > 1) await taskEvent(run.id, "info", `⚡ ${batch.length} قراءات مستقلة بالتوازي`, db);
       for (const b of batch.slice(1)) await taskEvent(run.id, "tool", toolLabel(b), db);
+      onStage(`execute-tool-batch:${batch.map((b) => b.function.name).join(",")}`);
       const outs = await withHeartbeat(ioBot, chatId, run, `تنفيذ: ${short}${batch.length > 1 ? ` (+${batch.length - 1})` : ""}`, () => Promise.all(batch.map((b) => runTool(b, ctx))));
+      onStage(`persist-tool-batch-result:${batch.map((b) => b.function.name).join(",")}`);
       run.queued = rest.slice(batch.length - 1);
       await progressDone(ioBot, chatId, run, outs);
       for (let i = 0; i < batch.length; i++) {
@@ -2095,6 +2101,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!thin && (!st.model || st.model === "coder") && parallelEnabled(coderStudioUrls().length)) {
           await taskEvent(run.id, "info", `✍️ [سجل داخلي] كتابة التقرير بالتوازي: ${Math.min(coderStudioUrls().length, SECTIONS_MAX)} أقسام.`, db);
           const srcText = st.messages.filter((m) => m.role === "tool").map((m) => String(m.content || "")).join("\n\n");
+          onStage("write-parallel-report");
           const pr = await withHeartbeat(ioBot, chatId, run, "كتابة التقرير", () => parallelReport({ request: q, queries, sources: srcText, lang: st.lang === "en" ? "en" : "ar", write: studioWriter(`${chatId}:${run.id}`) }));
           if (pr) {
             st.messages.push({ role: "assistant", content: pr.text });
