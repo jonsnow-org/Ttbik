@@ -69,6 +69,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  sham-v2-runtime-code-sync-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Verify signed code changes never alter Sham v2 weights or media
+        run: python scripts/transplant/push_sham_v2_runtime_code.py --self-test
+
   sham-v2-regression-tests:
     runs-on: ubuntu-latest
     steps:

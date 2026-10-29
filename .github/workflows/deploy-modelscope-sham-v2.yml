@@ -9,17 +9,17 @@ on:
     branches:
       - claude/free-services-marketplace-h6rwk2
     paths:
-      - ai-system/modelscope-sham/**
-      - ai-system/colab/sham_small/sham_media_ready.py
-      - ai-system/colab/sham_small/sham_studio_chat.py
-      - ai-system/colab/sham_small/cpu_video.py
-      - ai-system/colab/sham_small/sham_native_tools.py
+      # app.py and requirements are deployed directly. Runtime modules from sham_small/
+      # must first update the signed studio_code/ in the private model repo, then deploy
+      # through the workflow_run below.
+      - ai-system/modelscope-sham/app.py
+      - ai-system/modelscope-sham/requirements.txt
       - scripts/transplant/stage_sham_v2_studio.py
-      - .github/workflows/deploy-modelscope-sham-v2.yml
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
   workflow_run:
     workflows:
       - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
+      - "Sham v2 signed runtime code sync"
     types: [completed]
     branches:
       - claude/free-services-marketplace-h6rwk2
@@ -97,6 +97,7 @@ jobs:
       - name: Set and verify the Studio model/token secrets (never print values; no external media tokens)
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_CODE_SIGNING_KEY: ${{ secrets.SHAM_CODE_SIGNING_KEY }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
           set -eu
@@ -124,6 +125,9 @@ jobs:
           }
           set_secret MODELSCOPE_API_TOKEN "$T"
           set_secret MODELSCOPE_TOKEN "$T"
+          # The runtime code signer and Studio verifier must always share one key.
+          # When no separate signing key is configured, both use the ModelScope token.
+          set_secret SHAM_CODE_SIGNING_KEY "${SHAM_CODE_SIGNING_KEY:-$T}"
           set_secret SHAM_MS_MODEL "novaai2026/sham-v2"
           rm -f secret.json secret-response.json
 
