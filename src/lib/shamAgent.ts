@@ -130,7 +130,7 @@ export async function shamAgentRun(opts: {
   // A capability question is ordinary chat only when it is genuinely about capabilities.
   // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
   // select the permission-checked agent route instead of answering from the model's guess.
-  const hasWorkspaceTarget = /github(?:\.com)?|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج|[\w.-]+\/[\w.-]+/i.test(opts.text);
+  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
   const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !hasWorkspaceTarget;
   if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || directCapability) && !needsFreshFacts(opts.text)) {
     const chatMessages = messages
