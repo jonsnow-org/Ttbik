@@ -34,13 +34,14 @@ export default function EnglishHome() {
           </div>
         </div>
       </section>
-      <div className="mt-6 grid gap-3 sm:grid-cols-5">
+      <div className="mt-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
           ["/en/news", "News", String(EN_NEWS.length)],
           ["/en/articles", "Guides", String(EN_ARTICLES.length)],
           ["/en/events", "Dates", String(EN_EVENTS.length)],
           ["/en/free-tools", "Tools", String(EN_FREE_TOOLS.length)],
           ["/en/markets", "Markets", "Live"],
+          ["/en/ai-tools", "AI directory", "24 tools"],
         ].map(([href, label, count]) => (
           <Link key={href} href={href} className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sky-950">
             <p className="text-2xl font-extrabold">{count}</p>
