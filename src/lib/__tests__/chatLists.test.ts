@@ -51,6 +51,8 @@ describe("Sham chat list", () => {
     expect(await forgetFacts(U, db, "v1")).toBe(true);
     expect((await asV("v1", () => S.loadChatMemory(U, "ما اسمي؟", db)))?.facts.name).toBeUndefined();
     expect((await asV("v2", () => S.loadChatMemory(U, "ما اسمي؟", db)))?.facts.name).toBe("ليلى");
+    expect((await S.listThreads(U, "v1", {}, db))[0].title).toBe("اسمي أحمد");
+    expect((await S.listThreads(U, "v2", {}, db))[0].title).toBe("اسمي ليلى");
   });
 
   it("a new chat starts empty; opening an old one brings back its full history; the other chat is not mixed in", async () => {
