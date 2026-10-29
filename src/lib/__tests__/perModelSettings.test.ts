@@ -15,6 +15,27 @@ beforeEach(() => {
 });
 
 describe("independent routing while Nova's coder Studio is offline", () => {
+  it("handles owner /start without routing the default Nova selection to Sham", async () => {
+    const previous = process.env.OPEN_CODER_STUDIO_URL;
+    delete process.env.OPEN_CODER_STUDIO_URL;
+    try {
+      const db = fakeDb();
+      const { bot, sent } = fakeBot();
+      const d = { db, bot, botRow };
+      await appOp(o, "settings", { model: "coder" }, d);
+
+      const handled = await handleCoderSections(bot, botRow, {
+        message: { chat: { id: OWNER }, from: { id: OWNER }, text: "/start" },
+      }, db);
+
+      expect(handled).toBe(true);
+      expect(sent.some((item) => item.text.includes("لم أرسل طلبك إلى شام"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = previous;
+    }
+  });
+
   it("does not silently route the owner's Nova-selected message through Sham", async () => {
     const previous = process.env.OPEN_CODER_STUDIO_URL;
     delete process.env.OPEN_CODER_STUDIO_URL;
