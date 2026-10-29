@@ -141,11 +141,12 @@ export async function shamAgentRun(opts: {
   // ONE mode system (src/lib/modes.ts): this request's class (greeting / chat / code / agent / media) and the user's mode + Auto decide the answer budget, sampling, correction
   // rounds and whether the body writes a thought first. A greeting or a media request never thinks; the user's "thinking" switch applies to code / agent work, first step.
   const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") throw new Error("Missing selected Sham variant; refusing to route through a default model.");
   const prof = resolveProfile({ model: variant === "v2" ? "sham_v2" : "sham", pref: opts.mode?.accuracy, auto: opts.mode?.auto, thinkSwitch: opts.mode?.think, policy: opts.mode?.policy, text: opts.text, force: forcedMode(variant === "v2" ? "sham_v2" : "sham"), canThink: variant === "v2" });
   const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think || prof.thinkAct, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const v2 = shamVariant.getStore() === "v2";
+  const v2 = variant === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
