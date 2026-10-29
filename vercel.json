@@ -20,6 +20,10 @@
     {
       "path": "/api/media-cleanup",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/telegram-post",
+      "schedule": "0 5,8,11,14,17 * * *"
     }
   ]
 }
