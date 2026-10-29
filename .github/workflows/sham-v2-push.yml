@@ -32,13 +32,54 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install --upgrade kaggle
-      - name: Push and start the kernel
+      - name: Push and start the kernel (GPU first, CPU fallback on exhausted quota)
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
         run: |
+          set -euo pipefail
           D=ai-system/colab/sham_small/kaggle_notebooks/sham_v2
-          mkdir -p /tmp/k && cp $D/sham_v2_train.ipynb $D/kernel-metadata.json /tmp/k/
-          kaggle kernels push -p /tmp/k
-          sleep 90
-          kaggle kernels status jonsnowjonsnow/sham-v2-train || true
+          mkdir -p /tmp/k
+          cp "$D/sham_v2_train.ipynb" "$D/kernel-metadata.json" /tmp/k/
+
+          # Kaggle can print its GPU quota error while returning exit code 0, so inspect
+          # the output as well as the process status before deciding the push succeeded.
+          set +e
+          push_output=$(kaggle kernels push -p /tmp/k 2>&1)
+          push_status=$?
+          set -e
+          printf '%s\n' "$push_output"
+          if printf '%s' "$push_output" | grep -Eiq 'Maximum weekly GPU quota|GPU quota.*reached|weekly GPU.*quota'; then
+            echo "::warning::Kaggle GPU quota is exhausted; retrying this notebook on CPU."
+            python - <<'PY'
+          import json
+          p = "/tmp/k/kernel-metadata.json"
+          d = json.load(open(p, encoding="utf-8"))
+          d["enable_gpu"] = False
+          with open(p, "w", encoding="utf-8") as f:
+              json.dump(d, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print("Retry metadata: enable_gpu=false; private notebook and existing datasets unchanged")
+          PY
+            set +e
+            push_output=$(kaggle kernels push -p /tmp/k 2>&1)
+            push_status=$?
+            set -e
+            printf '%s\n' "$push_output"
+          fi
+          if [ "$push_status" -ne 0 ] || printf '%s' "$push_output" | grep -Eiq 'Kernel push error|Traceback|HTTP [45][0-9][0-9]'; then
+            echo "::error::Kaggle rejected the Sham v2 kernel push."
+            exit 1
+          fi
+
+          sleep 60
+          set +e
+          kernel_status=$(kaggle kernels status jonsnowjonsnow/sham-v2-train 2>&1)
+          status_code=$?
+          set -e
+          printf '%s\n' "$kernel_status"
+          if printf '%s' "$kernel_status" | grep -Eiq '404 Client Error|resource was not found|Kernel not found|not found for url'; then
+            echo "::error::Kaggle accepted the upload but reports no training kernel/session."
+            exit 1
+          fi
