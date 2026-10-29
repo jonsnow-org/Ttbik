@@ -128,8 +128,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
-      const { isolateLegacyCarryState } = await import("@/lib/coderChats");
-      await isolateLegacyCarryState(chatId, st, db);
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
@@ -161,6 +159,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
+      const { isolateLegacyCarryState } = await import("@/lib/coderChats");
+      await isolateLegacyCarryState(chatId, st, db);
       await saveStateStrict(chatId, st, db);
       return { ok: true, model: st.model || "coder" };
     }
