@@ -1,0 +1,42 @@
+name: Sham v2 signed runtime code sync
+
+# The app prefers the HMAC-signed studio_code/ from novaai2026/sham-v2 over the
+# deployed copy. Keep that live copy in sync whenever the exact source modules change.
+# This workflow writes only studio_code/ and bridge_manifest.json: no checkpoint/media weights.
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/sham_small/*.py"
+      - "ai-system/colab/sham_small/sham_general_tokenizer.json"
+      - "ai-system/modelscope-sham/ms_worker.py"
+      - "ai-system/modelscope-sham/codesign.py"
+      - "ai-system/modelscope-sham/sync_to_modelscope.py"
+      - "scripts/transplant/push_sham_v2_runtime_code.py"
+      - ".github/workflows/sync-sham-v2-runtime-code.yml"
+
+concurrency:
+  group: sham-v2-signed-runtime-code
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish-signed-runtime-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install the ModelScope Hub client
+        run: python -m pip install --upgrade pip modelscope
+      - name: Publish only the signed runtime code (keep weights and media unchanged)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_CODE_SIGNING_KEY: ${{ secrets.SHAM_CODE_SIGNING_KEY }}
+        run: python scripts/transplant/push_sham_v2_runtime_code.py
