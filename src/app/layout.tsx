@@ -230,6 +230,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               >
                 🎁 أدوات مجانية
               </a>
+              <a href="/ai-tools" className="rounded-full px-3 py-1.5 font-extrabold text-sky-700 transition hover:bg-sky-50">
+                🧰 أدوات إضافية
+              </a>
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🤖 منشئ البوتات
               </a>
