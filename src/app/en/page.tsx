@@ -41,7 +41,7 @@ export default function EnglishHome() {
           ["/en/events", "Dates", String(EN_EVENTS.length)],
           ["/en/free-tools", "Tools", String(EN_FREE_TOOLS.length)],
           ["/en/markets", "Markets", "Live"],
-          ["/en/ai-tools", "AI directory", "24 tools"],
+          ["/en/ai-tools", "AI tools", "24"],
         ].map(([href, label, count]) => (
           <Link key={href} href={href} className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sky-950">
             <p className="text-2xl font-extrabold">{count}</p>
