@@ -3,9 +3,7 @@ Sham v2 training (the lineage whose body is a transplanted chat-tuned donor and 
 
 What a session does, in order (the Kaggle notebook kaggle_notebooks/sham_v2/sham_v2_train.ipynb is thin glue around these functions, so the logic is testable here on a tiny model):
   1. prepare_model():  resume from this lineage's own dataset (sham-v2-checkpoint) or build the native model from the donor (the transplant, in memory).
-  2. freeze_for_media(): the donor's body and the donor's text rows stay exactly as they are; the ONLY trainable thing is the table of media/special rows
-     (image 8192 + audio 2048 + 16 special) above the text vocabulary. The table is tied to the output head, so the same rows are how Sham SAYS media tokens.
-     Weight decay is 0 for it and the gradient of every text row is zeroed, so nothing of the donor can drift.
+  2. freeze_for_media(): the donor body stays frozen; media/special embedding rows and low-rank adapters on attention/MLP projections train.
   3. batches: media pairs (the stage-2 collectors, notebook cells) + tool/code/ask examples (sham_tools_data.qwen3_tool_examples, the layout the engine sends)
      + Arabic chat (streamed instruction sets) so the language does not fade.
   4. train() (train.py: fp16 + GradScaler on GPU, wall-clock limit, checkpoints) and measure_tools(): a fixed set of tool cases answered through the SAME guarded
@@ -43,6 +41,10 @@ def prepare_model(donor: str, own_checkpoint: Path | None, device: str):
         model = native_model(LazyDonor(donor), chat_format="qwen3")
         step = 0
         print(f"built the native model from the donor (step 0, {sum(p.numel() for p in model.parameters()) / 1e9:.2f}B parameters)", flush=True)
+    rank = max(0, int(os.environ.get("SHAM_V2_ADAPTER_RANK", "8")))
+    if rank:
+        wrapped = model.enable_adapters(rank, float(os.environ.get("SHAM_V2_ADAPTER_ALPHA", "16")))
+        print(f"enabled {wrapped} trainable low-rank adapters; donor base projections remain frozen", flush=True)
     return model.to(device), step
 
 
@@ -56,31 +58,47 @@ def freeze_for_media(model, text_vocab: int | None = None) -> int:
     keep = torch.zeros(w.shape[0], 1, dtype=w.dtype, device=w.device)
     keep[tv:] = 1.0
     w.register_hook(lambda g: g * keep.to(g.device, g.dtype))
+    for name, param in model.named_parameters():
+        if name.endswith(".adapter_down") or name.endswith(".adapter_up"):
+            param.requires_grad_(True)
     return int(w.shape[0] - tv)
 
 
 def media_optimizer(model, lr: float = 2e-4):
-    """AdamW over the table only, weight decay 0 (decay would pull the frozen donor rows even with a zero gradient)."""
-    return torch.optim.AdamW([model.token_embedding.weight], lr=lr, weight_decay=0.0, betas=(0.9, 0.95))
+    """AdamW over media rows and low-rank adapters only; donor base projections stay frozen."""
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    if not trainable:
+        raise RuntimeError("Sham v2 training has no trainable parameters")
+    return torch.optim.AdamW(trainable, lr=lr, weight_decay=0.0, betas=(0.9, 0.95))
+
+
+def identity_grounding_pairs() -> list[tuple[str, str]]:
+    """Small factual SFT examples for Sham v2's app identity; training data only, never an inference-time fixed reply."""
+    return [
+        ("من أنت؟", "أنا شام v2، مساعد مستقل داخل تطبيق شام. نوفا مساعد منفصل وليس اسمي."),
+        ("هل أنت نوفا؟", "لا، أنا شام v2. نوفا نموذج آخر يعمل بمسار منفصل."),
+        ("أنت شام أم نوفا؟", "أنا شام v2، ولست نوفا. لكل نموذج مساره الخاص داخل التطبيق."),
+        ("ما الفرق بينك وبين نوفا؟", "نحن نموذجان مختلفان في التطبيق؛ لكل واحد مسار واستدعاء مستقل. اسمي شام v2."),
+        ("هل أنت شام القديم؟", "أنا إصدار شام v2، أما شام القديم فهو مسار آخر منفصل."),
+        ("ما اسم النموذج الذي تتحدث من خلاله؟", "أنا أعمل بصفتي شام v2، ولا أتحدث باسم نوفا."),
+    ]
 
 
 def tool_batches(tokenizer, n: int, batch_size: int, seed: int, system: str | None = None):
     """Padded (ids, labels) batches of tool / code / ask examples in the engine's own layout."""
     from sham_chat import batch_examples
-    from sham_studio_chat import QWEN3_SYSTEM
     from sham_tools_data import qwen3_tool_examples
-    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, system or QWEN3_SYSTEM)
+    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, system or "")
     return batch_examples(ex, batch_size)
 
 
 def arabic_pairs_to_batches(tokenizer, pairs: list[tuple[str, str]], batch_size: int, system: str | None = None, max_len: int = 900):
     """(question, answer) pairs -> Qwen3-layout chat batches (loss on the answer only)."""
     from sham_chat import batch_examples
-    from sham_studio_chat import QWEN3_SYSTEM
     end = tokenizer.encode("<|im_end|>")[-1]
     ex = []
     for q, a in pairs:
-        p = tokenizer.encode(f"<|im_start|>system\n{system or QWEN3_SYSTEM}<|im_end|>\n<|im_start|>user\n{q}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+        p = tokenizer.encode(f"<|im_start|>user\n{q}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
         t = tokenizer.encode(a) + [end]
         if len(p) + len(t) <= max_len:
             ex.append((p + t, [-100] * len(p) + t))
@@ -103,7 +121,6 @@ def _parse_call(text: str):
 def measure_tools(model, tokenizer, n_cases: int = 24, seed: int = 4242, max_new: int = 90) -> dict:
     """A fixed set of tool cases (own seed, never trained on: training uses other seeds), answered through the Studio's guarded generation.
     valid = a well-formed call; right = the first call has the expected tool and every expected argument name."""
-    from sham_studio_chat import QWEN3_SYSTEM, qwen3_chat
     from sham_tools_data import any_spec, tool_block, TOOL_SPECS
     rng = random.Random(seed)
     model.train(False)
@@ -157,11 +174,18 @@ if __name__ == "__main__":
     tv = 300
     cfg = ShamSmallConfig(vocab_size=tv + 8192 + 2048 + 16, d_model=32, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=64, max_seq_len=1300)
     model = ShamSmall(cfg)
+    model.enable_adapters(4)
     n = freeze_for_media(model, tv)
     assert n == 8192 + 2048 + 16, n
-    assert sum(p.requires_grad for p in model.parameters()) == 1
+    assert sum(p.requires_grad for p in model.parameters()) > 1
     w0 = model.token_embedding.weight.detach().clone()
-    batches = tool_batches(Tok(), 12, 2, seed=1)
+    adapter0 = {name: p.detach().clone() for name, p in model.named_parameters() if name.endswith(".adapter_down") or name.endswith(".adapter_up")}
+    from sham_chat import batch_examples
+    end_id = Tok().encode("<|im_end|>")[-1]
+    media_id = tv + 1
+    media_batch = batch_examples([([3, media_id, end_id], [-100, media_id, end_id])], 1)
+    batches = media_batch + tool_batches(Tok(), 12, 2, seed=1)
+    assert len(identity_grounding_pairs()) >= 6 and all(q and a for q, a in identity_grounding_pairs())
     assert batches and all(isinstance(b, tuple) and len(b) == 2 for b in batches)
     with tempfile.TemporaryDirectory() as d:
         losses, final = run_session(model, 0, batches[:4], "cpu", 0.05, ckpt_dir=d)
@@ -169,6 +193,7 @@ if __name__ == "__main__":
         w1 = model.token_embedding.weight.detach()
         assert torch.equal(w0[:tv], w1[:tv]), "a donor text row changed"
         assert not torch.equal(w0[tv:], w1[tv:]), "the media rows did not train"
+        assert any(not torch.equal(adapter0[name], p.detach()) for name, p in model.named_parameters() if name in adapter0), "language/tool adapters did not train"
         save_checkpoint(Path(d) / "x.pt", model, final)
         m2, s2, _ = load_checkpoint(Path(d) / "x.pt", map_location="cpu")
         assert s2 == final and torch.equal(m2.token_embedding.weight, model.token_embedding.weight)
@@ -176,4 +201,4 @@ if __name__ == "__main__":
     assert mt["cases"] == 2 and len(mt["rows"]) == 2 and 0 <= mt["right"] <= mt["valid"] <= 2
     ar = arabic_pairs_to_batches(Tok(), [("ما هي عاصمة سوريا؟", "دمشق."), ("كيف حالك؟", "بخير، شكراً.")], 2)
     assert ar
-    print("sham_v2_train self-test OK: only the media rows train, donor rows identical, tool/Arabic batches build, checkpoint round-trips.")
+    print("sham_v2_train self-test OK: media rows and low-rank adapters train; donor base remains frozen; role-based tool/Arabic batches and checkpoint round-trip.")

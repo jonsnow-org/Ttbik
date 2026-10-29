@@ -49,113 +49,71 @@ describe("Sham's own agent loop", () => {
     expect(seen).toHaveLength(1);
   });
 
-  it("Sham v2 sends ordinary conversation as a direct chat prompt without the serialized tool transcript", async () => {
+  it("Sham v2 passes ordinary user text unchanged to its direct chat path", async () => {
     const seen: string[] = [];
+    const question = "ما الذي تتقنه وتستطيع القيام به؟";
+    const answer = "أستطيع مساعدتك في الشرح والبرمجة والبحث وتنظيم الأفكار.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "ما الذي تتقنه وتستطيع القيام به؟", ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say("أستطيع مساعدتك في الشرح والبرمجة والبحث وتنظيم الأفكار.")], seen),
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(answer)], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: "أستطيع مساعدتك في الشرح والبرمجة والبحث وتنظيم الأفكار." });
-    expect(seen).toHaveLength(1);
-    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[0]).toContain("لا تكرر السؤال");
-    expect(seen[0]).not.toContain("الأدوات المتاحة لك");
-    expect(seen[0]).not.toContain("شام:");
+    expect(r).toMatchObject({ kind: "text", text: answer });
+    expect(seen).toEqual([question]);
   });
-  it("Sham v2 retries a timed-out ordinary chat on the direct route during background continuation", async () => {
+
+  it("Sham v2 resumes a timed-out direct chat without adding prompt instructions", async () => {
     const seen: string[] = [];
-    const text = "ماذا تفعل؟";
+    const question = "ماذا تفعل؟";
     const first = await shamVariant.run("v2", () => shamAgentRun({
-      text, ctx, tools: shamToolDefs(false), budgetMs: 50000, askMs: 44000, continuable: true,
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 50000, askMs: 44000, continuable: true,
       ask: script([null], seen),
     }));
     expect(first.kind).toBe("more");
     const savedMessages = (first as any).messages;
-    expect(savedMessages[savedMessages.length - 1]).toMatchObject({ role: "user", content: text });
+    expect(savedMessages[savedMessages.length - 1]).toMatchObject({ role: "user", content: question });
 
     const resumed = await shamVariant.run("v2", () => shamAgentRun({
-      text, ctx, tools: shamToolDefs(false), budgetMs: 230000, askMs: 150000, continuable: true,
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 230000, askMs: 150000, continuable: true,
       resume: savedMessages,
-      ask: script([say("أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام.")], seen),
+      ask: script([say("أجيب عن الأسئلة وأساعد في الشرح والبرمجة.")], seen),
     }));
-    expect(resumed).toMatchObject({ kind: "text", text: "أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام." });
-    expect(seen).toHaveLength(2);
-    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[1]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[1]).not.toContain("الأدوات المتاحة لك");
-    expect(seen[1]).not.toContain("شام:");
+    expect(resumed).toMatchObject({ kind: "text", text: "أجيب عن الأسئلة وأساعد في الشرح والبرمجة." });
+    expect(seen).toEqual([question, question]);
   });
 
-  it("Sham v2 keeps technical capability questions in direct chat instead of the code-agent path", async () => {
+  it("Sham v2 keeps technical capability questions on ordinary chat", async () => {
     const seen: string[] = [];
+    const question = "هل لديك خبرة في الكود";
+    const answer = "نعم، أستطيع شرح الكود ومساعدتك في كتابته وتصحيح أخطائه.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "هل لديك خبرة في الكود", ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say("نعم، أستطيع شرح الكود ومساعدتك في كتابته وتصحيح أخطائه.")], seen),
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(answer)], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع شرح الكود ومساعدتك في كتابته وتصحيح أخطائه." });
-    expect(seen).toHaveLength(1);
-    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[0]).not.toContain("الأدوات المتاحة لك");
-  });
-  it("Sham v2 includes this user's active tool inventory and retries a generic answer", async () => {
-    const seen: string[] = [];
-    const activeTools = [
-      { type: "function", function: { name: "web_search", description: "Search the public web", parameters: { type: "object", properties: {}, required: [] } } },
-      { type: "function", function: { name: "github_read_file", description: "Read a file from an authorized repository", parameters: { type: "object", properties: {}, required: [] } } },
-    ] as any;
-    const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "ما هي الأدوات المتاحة لديك والتي تستطيع استدعاءها؟",
-      ctx, tools: activeTools, budgetMs: 30000,
-      ask: script([
-        say("أنا شام، مساعد ذكي صنعه فريقنا."),
-        say("الأدوات المتاحة هنا: web_search للبحث في الويب و github_read_file لقراءة ملف مستودع مصرح به."),
-      ], seen),
-    }));
-    expect(r).toMatchObject({ kind: "text" });
-    expect(r.kind === "text" ? r.text : "").toContain("web_search");
-    expect(seen).toHaveLength(2);
-    expect(seen[0]).toContain("قائمة الأدوات الفعلية المفعّلة");
-    expect(seen[0]).toContain("github_read_file");
-    expect(seen[0]).not.toContain("delete_repository");
-    expect(seen[1]).toContain("قائمة الأدوات الفعلية المفعّلة");
+    expect(r).toMatchObject({ kind: "text", text: answer });
+    expect(seen).toEqual([question]);
   });
 
-  it("Sham v2 passes a self-identification answer through unchanged (no app-level identity correction)", async () => {
+  it("Sham v2 passes model-authored identity text through unchanged", async () => {
     const seen: string[] = [];
+    const question = "من أنت؟";
     const generated = "أنا نوفا، مساعد مستقل ضمن تطبيق شام.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "من أنت؟",
-      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
       ask: script([say(generated)], seen),
     }));
     expect(r).toMatchObject({ kind: "text", text: generated });
-    expect(seen).toHaveLength(1);
-    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[0]).not.toContain("لا تخلط بين شام ونوفا");
+    expect(seen).toEqual([question]);
   });
-  it("Sham v2 rejects near-echo answers with a small word change", async () => {
+
+  it("Sham v2 does not automatically reject or retry an echoed answer", async () => {
     const seen: string[] = [];
+    const question = "هل لديك خبرة في الكود";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "هل لديك خبرة في الكود",
-      ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say("هل لديك خبرة في المود"), say("نعم، أستطيع مساعدتك في كتابة الكود وفهمه.")], seen),
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(question)], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع مساعدتك في كتابة الكود وفهمه." });
-    expect(seen).toHaveLength(2);
-    expect(seen[1]).toContain("لا تكرر نص السؤال");
-  });
-  it("Sham v2 retries a reply that echoes the current or a previous question", async () => {
-    const seen: string[] = [];
-    const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "أنت ماذا تستطيع أن تفعل؟",
-      history: [{ q: "ما الذي تتقنه وتستطيع القيام به؟", a: "ما الذي تتقنه وتستطيع القيام به؟" }],
-      ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say("ما الذي تتقنه وتستطيع القيام به؟"), say("أستطيع شرح المواضيع والإجابة عن الأسئلة ومساعدتك في البرمجة.")], seen),
-    }));
-    expect(r).toMatchObject({ kind: "text", text: "أستطيع شرح المواضيع والإجابة عن الأسئلة ومساعدتك في البرمجة." });
-    expect(seen).toHaveLength(2);
-    expect(seen[0]).not.toContain("ما الذي تتقنه وتستطيع القيام به؟");
-    expect(seen[1]).toContain("لا تكرر نص السؤال");
+    expect(r).toMatchObject({ kind: "text", text: question });
+    expect(seen).toEqual([question]);
   });
 
   it("its own tool list: web, GitHub reading (only when the chat can read it), memory, schedules, ask_user; the VM tools", () => {

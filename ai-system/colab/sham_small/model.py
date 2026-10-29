@@ -260,6 +260,8 @@ class ShamSmallConfig:
     qkv_bias: bool = False
     qk_norm: bool = False
     chat_format: str = ""           # "" = Sham's own dialogue layout; "qwen3" = the donor's chat template (<|im_start|> ... <|im_end|>), see sham_studio_chat.py
+    adapter_rank: int = 0              # 0 preserves legacy checkpoints; positive enables low-rank adapters
+    adapter_alpha: float = 16.0
 
     @property
     def hd(self) -> int:
@@ -323,6 +325,29 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     out[..., 0::2] = rotated_1
     out[..., 1::2] = rotated_2
     return out
+
+
+class AdapterLinear(nn.Module):
+    """Frozen donor projection plus a small trainable low-rank residual."""
+    def __init__(self, base: nn.Linear, rank: int, alpha: float = 16.0):
+        super().__init__()
+        self.base = base
+        self.rank = max(1, int(rank))
+        self.adapter_down = nn.Parameter(torch.empty(self.rank, base.in_features, device=base.weight.device, dtype=base.weight.dtype))
+        self.adapter_up = nn.Parameter(torch.zeros(base.out_features, self.rank, device=base.weight.device, dtype=base.weight.dtype))
+        self.scale = float(alpha) / self.rank
+        nn.init.kaiming_uniform_(self.adapter_down, a=5 ** 0.5)
+
+    @property
+    def weight(self):
+        return self.base.weight
+
+    @property
+    def bias(self):
+        return self.base.bias
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.base(x) + F.linear(F.linear(x, self.adapter_down), self.adapter_up) * self.scale
 
 
 class Attention(nn.Module):
@@ -458,6 +483,8 @@ class ShamSmall(nn.Module):
         self.cfg = cfg
         self.token_embedding = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.layers = nn.ModuleList(TransformerBlock(cfg) for _ in range(cfg.n_layers))
+        if cfg.adapter_rank > 0:
+            self.enable_adapters(cfg.adapter_rank, cfg.adapter_alpha)
         self.final_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         if cfg.tie_embeddings:
@@ -474,6 +501,31 @@ class ShamSmall(nn.Module):
         self.register_buffer("rope_sin", sin, persistent=False)
 
         self.apply(self._init_weights)
+
+    def enable_adapters(self, rank: int = 8, alpha: float = 16.0) -> int:
+        """Wrap attention and MLP projections; never re-wrap an adapter checkpoint."""
+        rank = int(rank)
+        if rank <= 0:
+            return 0
+        existing = [module for module in self.modules() if isinstance(module, AdapterLinear)]
+        if existing:
+            ranks = {module.rank for module in existing}
+            if len(ranks) != 1:
+                raise ValueError("checkpoint contains inconsistent adapter ranks")
+            self.cfg.adapter_rank = ranks.pop()
+            self.cfg.adapter_alpha = float(existing[0].scale * existing[0].rank)
+            return 0
+        count = 0
+        for layer in self.layers:
+            for parent in (layer.attention, layer.mlp):
+                for name in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"):
+                    base = getattr(parent, name, None)
+                    if isinstance(base, nn.Linear):
+                        setattr(parent, name, AdapterLinear(base, rank, alpha))
+                        count += 1
+        self.cfg.adapter_rank = rank
+        self.cfg.adapter_alpha = float(alpha)
+        return count
 
     def _init_weights(self, module: nn.Module) -> None:
         # Standard GPT-style initialization (normal, std=0.02) — the
@@ -565,7 +617,7 @@ class ShamSmall(nn.Module):
         immediate, exactly the kind of "grows with more resources
         later" property the owner asked this architecture to have."""
         self.cfg.max_seq_len = new_max_seq_len
-        head_dim = self.cfg.d_model // self.cfg.n_heads
+        head_dim = self.cfg.hd
         cos, sin = precompute_rope(head_dim, new_max_seq_len, self.cfg.rope_theta)
         device = self.rope_cos.device
         self.register_buffer("rope_cos", cos.to(device), persistent=False)
