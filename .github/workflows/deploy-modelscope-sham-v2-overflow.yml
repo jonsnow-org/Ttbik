@@ -1,6 +1,6 @@
-name: "Deploy Sham v2 to its OVERFLOW Studio (the repurposed nova-inference-server repo, 16 GB CPU; Nova and Sham v1 are not touched)"
+name: "Deploy Sham v2 to its dedicated OVERFLOW Studio (separate from Nova and Sham v1)"
 
-# A Studio of its own (sham-v2-server), free CPU hardware only, private. It serves the private model repo novaai2026/sham-v2 (built by transplant-build.yml with publish=true).
+# A separate Studio (sham-v2-overflow-server), free CPU hardware only, private. It serves the private model repo novaai2026/sham-v2 and never reuses a Nova endpoint.
 # The app is the existing Sham Studio app (ai-system/modelscope-sham) behind a small wrapper that sets the text vocabulary and the model repo. Uses MODELSCOPE_TOKEN; nothing secret is printed; never deletes anything.
 
 on:
@@ -21,7 +21,7 @@ concurrency:
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
-  REPO: nova-inference-server      # verified unused by Nova (its engine is coder-inference-server 1-5 + nova-media-server) and by Sham v1; it held a stale old Sham copy
+  REPO: sham-v2-overflow-server   # dedicated Sham v2 endpoint, never deployed into Nova's former inference host
 
 jobs:
   deploy:
