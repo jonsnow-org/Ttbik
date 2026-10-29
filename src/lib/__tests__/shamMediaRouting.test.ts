@@ -1,4 +1,4 @@
-import { shamGenerateMedia, SHAM_BACKEND_LABELS } from "@/lib/shamStudio";
+import { shamGenerateMedia, shamVariant, SHAM_BACKEND_LABELS } from "@/lib/shamStudio";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { b64, png } from "./mediaFixtures";
 
@@ -17,11 +17,17 @@ function studio(reply: object) {
 beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_URL = "https://v2.test"; process.env.SHAM_V2_OVERFLOW_URL = "off"; process.env.SHAM_MODELSCOPE_URL = "https://v1.test"; });
 
 describe("Sham media routing (the removed generate_media endpoint is never called)", () => {
+  it("refuses a request without a selected model instead of using a shared media route", async () => {
+    const calls = studio({ type: "image", b64: "never-used" });
+    const r = await generateShamMediaThroughRoute("image", "a red apple");
+    expect(r).toMatchObject({ type: "error", route: "unselected", reason: "model_not_selected" });
+    expect(calls).toHaveLength(0);
+  });
   it("internal and ready both go to generate_media_from_panel with the Studio's exact label", async () => {
     const good = b64(await png("gradient"));
     for (const backend of ["internal", "ready"] as const) {
       const calls = studio({ type: "image", b64: good });
-      const r = await shamGenerateMedia("image", "a red apple", 5000, backend);
+      const r = await shamVariant.run("v1", () => shamGenerateMedia("image", "a red apple", 5000, backend));
       expect(r?.type).toBe("image");
       expect(calls[0].url).toBe("https://v1.test/gradio_api/call/v2/generate_media_from_panel");
       expect(calls[0].body).toMatchObject({ kind: "image", prompt: "a red apple", backend_label: SHAM_BACKEND_LABELS[backend] });
@@ -37,7 +43,7 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
   it("sham_v2_ready runs on the v2 Studio, SDXS path; the typed reason of a refused (black) picture is kept and nothing is switched silently", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
     const calls = studio({ type: "image", b64: b64(await png("black", 512)), backend: "ready" });
-    const r = await generateShamMediaThroughRoute("image", "a red apple");
+    const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
     expect(calls[0].url).toBe("https://v2.test/gradio_api/call/v2/generate_media_from_panel");
     expect(calls[0].body.backend_label).toBe(SHAM_BACKEND_LABELS.ready);
     expect(r).toMatchObject({ type: "error", route: "sham_v2_ready", reason: "blank_image" });
@@ -57,7 +63,7 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     process.env.NOVA_MEDIA_STUDIO_URL = "https://nova-media.test";
     delete process.env.SHAM_V2_VIDEO_URL;
     const calls = studio({ type: "error", text: "no clip in this test" });
-    await generateShamMediaThroughRoute("video", "a red apple rotating");
+    await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a red apple rotating"));
     expect(calls[0].url).toBe("https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net/gradio_api/call/v2/generate_video");
     expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating" });
     expect(calls.some((c) => c.url.includes("v2.test") || c.url.includes("nova-media") || c.url.includes("generate_media_from_panel"))).toBe(false);
@@ -66,11 +72,11 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
     const good = b64(await png("gradient"));
     const calls = studio({ type: "image", b64: good });
-    await generateShamMediaThroughRoute("image", "a red apple");
+    await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
     expect(calls[0].url).toBe("https://v2.test/gradio_api/call/v2/generate_media_from_panel");
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v1");
     const c2 = studio({ type: "error", text: "x" });
-    await generateShamMediaThroughRoute("video", "a clip");
+    await shamVariant.run("v1", () => generateShamMediaThroughRoute("video", "a clip"));
     expect(c2[0].url).toBe("https://v1.test/gradio_api/call/v2/generate_media_from_panel");
   });
 });
