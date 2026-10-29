@@ -66,7 +66,10 @@ def self_test() -> None:
             code_dir = stage / "studio_code"
             chat = code_dir / "sham_small" / "sham_studio_chat.py"
             assert chat.is_file(), "signed code is missing sham_studio_chat.py"
-            assert "SHAM_QWEN3_SYSTEM" in chat.read_text(encoding="utf-8"), "Qwen3 chat-template support was not included in the signed code"
+            assert "def qwen3_chat_messages(" in chat.read_text(encoding="utf-8"), "native Qwen3 role-message chat was not included in the signed code"
+            model_code = code_dir / "sham_small" / "model.py"
+            assert "class AdapterLinear(" in model_code.read_text(encoding="utf-8"), "low-rank adapter architecture was not included in the signed code"
+            assert "def resize_max_seq_len(" in model_code.read_text(encoding="utf-8"), "RoPE context extension was not included in the signed code"
             saved_signature = (code_dir / codesign.SIG_NAME).read_text(encoding="utf-8").strip()
             assert saved_signature == signature
             assert codesign.verify(code_dir, signature, {"MODELSCOPE_API_TOKEN": "sham-v2-runtime-code-self-test"})

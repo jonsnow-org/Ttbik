@@ -268,7 +268,8 @@ def tool_block(names: list[str]) -> str:
 
 
 def qwen3_prompt(system: str, user_text: str) -> str:
-    return f"<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user_text}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    prefix = f"<|im_start|>system\n{system}<|im_end|>\n" if system.strip() else ""
+    return prefix + f"<|im_start|>user\n{user_text}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
 def qwen3_tool_examples(tokenizer, rng: random.Random, n: int, system: str, max_len: int = 1100, max_result_chars: int = 700) -> list[tuple[list[int], list[int]]]:

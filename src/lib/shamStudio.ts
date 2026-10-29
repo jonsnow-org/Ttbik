@@ -216,6 +216,31 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
   return reply;
 }
 
+export type ShamChatMessage = { role: "user" | "assistant"; content: string };
+
+/** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
+export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000): Promise<ShamReply | null> {
+  if (shamVariant.getStore() !== "v2") {
+    setFailure("generate_chat refused outside the Sham v2 variant");
+    return null;
+  }
+  const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
+  if (!valid.length || valid[valid.length - 1].role !== "user") {
+    setFailure("generate_chat requires a final user turn");
+    return null;
+  }
+  const knobs = shamKnobs(shamModeCtx.getStore(), "v2");
+  const body = await shamCall("generate_chat", {
+    messages_json: JSON.stringify(valid.slice(-12)),
+    max_new_tokens: maxNewTokens,
+    temperature: knobs.temperature,
+    think_tokens: knobs.thinkTokens,
+  }, timeoutMs);
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+  if (body && !reply) setFailure(`generate_chat: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
+  return reply;
+}
+
 /** Ask Sham v2's dedicated Studio for one structured agent step. The Studio turns the model's
  * constrained call into a typed {type:"tool_calls", tool_calls:[...]} response; the app executor
  * still validates every argument and permission. This never routes to Sham v1 or Nova. */
@@ -451,4 +476,4 @@ export async function shamThinkPatient(
 }
 
 /** How many new tokens one Telegram reply may use: 80 today (small model, 60 s webhook), SHAM_LIMITS=open or SHAM_REPLY_TOKENS lifts it (the Studio's own cap, SHAM_MAX_NEW_TOKENS, still applies). */
-export const shamReplyTokens = (): number => Number(process.env.SHAM_REPLY_TOKENS) || ((process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open" || shamVariant.getStore() === "v2" ? 400 : 80);   // the new body can write more than a line
+export const shamReplyTokens = (): number => Number(process.env.SHAM_REPLY_TOKENS) || ((process.env.SHAM_LIMITS || "").trim().toLowerCase() === "open" || shamVariant.getStore() === "v2" ? 768 : 80);   // the new body can write more than a line

@@ -110,19 +110,44 @@ describe("Sham v2 agent loop recovers from a tool error", () => {
   });
 });
 
-describe("the Sham v2 Studio exposes its own structured agent protocol", () => {
+describe("the Sham v2 Studio exposes native chat and structured agent APIs", () => {
   const src = readFileSync(join(__dirname, "../../../scripts/transplant/stage_sham_v2_studio.py"), "utf8");
   const app = readFileSync(join(__dirname, "../../../ai-system/modelscope-sham/app.py"), "utf8");
-  it("opens the larger v2 prompt/token limits and enables the structured endpoint only in the v2 wrapper", () => {
+  const chat = readFileSync(join(__dirname, "../../../ai-system/colab/sham_small/sham_studio_chat.py"), "utf8");
+  const model = readFileSync(join(__dirname, "../../../ai-system/colab/sham_small/model.py"), "utf8");
+  const train = readFileSync(join(__dirname, "../../../ai-system/colab/sham_small/sham_v2_train.py"), "utf8");
+  const agentSource = readFileSync(join(__dirname, "../shamAgent.ts"), "utf8");
+  const botLogic = readFileSync(join(__dirname, "../novaBotLogic.ts"), "utf8");
+  it("raises context and generation limits without installing an identity system prompt", () => {
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_LIMITS", "open"\)/);
+    expect(src).toMatch(/os\.environ\.setdefault\("SHAM_MAX_SEQ_LEN", "4096"\)/);
+    expect(src).toMatch(/os\.environ\.setdefault\("SHAM_MAX_PROMPT_TOKENS", "3072"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_GENERATE_ANY_MAX_TOKENS", "768"\)/);
+    expect(src).toMatch(/os\.environ\.setdefault\("SHAM_GENERATE_CHAT_MAX_TOKENS", "1024"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_NATIVE_TOOL_CALLS", "1"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_TOOLCALL_GUARD", "1"\)/);
-    expect(src).toContain("أنت شام v2، مساعد مستقل ضمن تطبيق شام");
-    expect(src).toContain("لا تستخدم نصاً محفوظاً أو جواباً حرفياً إلزامياً");
-    expect(src).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا");
+    expect(src).not.toContain("SHAM_QWEN3_SYSTEM");
+    expect(app).toMatch(/SHAM_MAX_SEQ_LEN/);
+    expect(chat).toMatch(/def qwen3_chat_messages\(/);
+    expect(chat).not.toContain("QWEN3_SYSTEM");
+    expect(model).toMatch(/class AdapterLinear\\(/);
+    expect(model).toMatch(/def enable_adapters\\(/);
+    expect(model).toMatch(/def resize_max_seq_len\\(/);
+    expect(train).toMatch(/SHAM_V2_ADAPTER_RANK/);
+    expect(train).toMatch(/name\\.endswith\\("\\.adapter_up"\\)/);
+    expect(train).toContain("media_batch = batch_examples");
+    expect(train).toMatch(/def identity_grounding_pairs\\(/);
+    expect(agentSource).toContain("shamGenerateChat(chatMessages");
+    expect(agentSource).not.toContain("لا تكرر السؤال");
+    expect(agentSource).not.toContain("isQuestionEcho");
+    expect(agentSource).not.toContain("SHAM_QWEN3_SYSTEM");
+    expect(botLogic).toMatch(/const SHAM_V2_LEGS = 12/);
+    expect(botLogic).toMatch(/run\.variant === "v2" \? SHAM_V2_LEGS : SHAM_LEGS/);
+    expect(botLogic).toContain("budgetMs: v2 ? (detailedReply ? 170000 : 125000)");
   });
-  it("publishes the typed agent_step API only when the dedicated v2 Studio flag is enabled", () => {
+  it("publishes native generate_chat independently of the structured tools flag", () => {
+    expect(app).toMatch(/def generate_chat\(/);
+    expect(app).toMatch(/api_name="generate_chat"/);
     expect(app).toMatch(/def agent_step\(/);
     expect(app).toMatch(/api_name="agent_step"/);
     expect(app).toMatch(/_V2 and os\.environ\.get\("SHAM_NATIVE_TOOL_CALLS", ""\)\.strip\(\) == "1"/);

@@ -5,7 +5,7 @@ Until now the Studio asked the model for a RAW continuation of the prompt: no di
 no search. A model that only continues text answers "the year is 2024". This module gives the answer path the three things the rest of the
 project already trains for:
 
-  1. the dialogue layout the chat stage uses (sham_decoding.chat_prompt_ids), so the model is asked the way it was taught to answer;
+  1. legacy Sham chat uses the dialogue layout learned in its chat stage; the Qwen3 route below instead consumes native user/assistant turns;
   2. today's date as CONTEXT in the prompt («التاريخ اليوم: 2026-10-12 (الاثنين)») — an input like any other, never a canned answer; the model learns
      to read it from the examples sham_chat.build_date_example adds to training;
   3. the model's own learned web search (sham_decoding.chat_generate_with_search): it decides to write <SEARCH_START> query <SEARCH_END>, a real
@@ -22,8 +22,8 @@ import os
 
 import torch
 
-# prompt window in tokens: 384 today (small model, short context); SHAM_LIMITS=open or SHAM_MAX_PROMPT_TOKENS lifts it (the model's max_seq_len bounds prompt + answer)
-MAX_PROMPT_TOKENS = int(os.environ.get("SHAM_MAX_PROMPT_TOKENS", "1200" if os.environ.get("SHAM_LIMITS", "").strip().lower() == "open" else "384"))
+# Legacy one-prompt window. Native Qwen3 role chat budgets directly against the model's max_seq_len.
+MAX_PROMPT_TOKENS = int(os.environ.get("SHAM_MAX_PROMPT_TOKENS", "3072" if os.environ.get("SHAM_LIMITS", "").strip().lower() == "open" else "384"))
 
 
 def _on(name: str) -> bool:
@@ -118,64 +118,98 @@ def split_modes(prompt: str) -> tuple[str, dict]:
     return prompt[m.end():], out
 
 
-QWEN3_SYSTEM = os.environ.get("SHAM_QWEN3_SYSTEM", "أنت شام، مساعد ذكي صنعه فريقنا. أجب بلغة المستخدم بوضوح ودقة.")
-
-
-def _qwen3_system_prompt() -> str:
-    """Read the dedicated V2 prompt at request time so hot updates cannot leave a stale prompt cached."""
-    return (os.environ.get("SHAM_QWEN3_SYSTEM") or QWEN3_SYSTEM).strip()
-
-
 def _uses_qwen3_chat(model) -> bool:
-    """V2's dedicated wrapper sets SHAM_QWEN3_SYSTEM. Use the donor's chat template even if old checkpoint metadata is missing.
-    V1 never sets that marker and keeps its own dialogue format."""
-    return getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3" or bool(
-        os.environ.get("SHAM_QWEN3_SYSTEM", "").strip()
-    )
+    """Use the donor's chat format only when the checkpoint itself declares it."""
+    return getattr(getattr(model, "cfg", None), "chat_format", "") == "qwen3"
 
 
-def _qwen3_prompt_ids(tokenizer, prompt: str, think: bool, max_context_tokens: int | None = None) -> list[int]:
-    """Keep the system identity/instructions intact; truncate only the oldest user/history tokens."""
-    prefix = f"<|im_start|>system\n{_qwen3_system_prompt()}<|im_end|>\n<|im_start|>user\n"
-    suffix = "<|im_end|>\n<|im_start|>assistant\n" + ("" if think else "<think>\n\n</think>\n\n")
-    prefix_ids = tokenizer.encode(prefix)
-    user_ids = tokenizer.encode(prompt)
-    suffix_ids = tokenizer.encode(suffix)
-    limit = max_context_tokens if max_context_tokens is not None else max(MAX_PROMPT_TOKENS, 1200)
-    user_budget = limit - len(prefix_ids) - len(suffix_ids)
-    if user_budget < 1:
-        raise ValueError("Sham v2 system prompt is too large for the configured context window")
-    if len(user_ids) > user_budget:
-        user_ids = user_ids[-user_budget:]
-    return prefix_ids + user_ids + suffix_ids
+def _qwen3_messages_prompt_ids(tokenizer, messages: list[dict], max_context_tokens: int) -> list[int]:
+    """Serialize actual user/assistant turns and trim oldest complete turns first."""
+    segments = []
+    for message in messages:
+        role = message.get("role")
+        if role not in ("user", "assistant"):
+            raise ValueError(f"unsupported Qwen3 chat role: {role!r}")
+        content = str(message.get("content") or "")
+        head = tokenizer.encode(f"<|im_start|>{role}\n")
+        body = tokenizer.encode(content)
+        tail = tokenizer.encode("<|im_end|>\n")
+        segments.append((head, body, tail))
+    assistant = tokenizer.encode("<|im_start|>assistant\n")
+    budget = max(1, int(max_context_tokens) - len(assistant))
+    selected = []
+    used = 0
+    for head, body, tail in reversed(segments):
+        full = len(head) + len(body) + len(tail)
+        remaining = budget - used
+        if full <= remaining:
+            selected.append((head, body, tail))
+            used += full
+            continue
+        if not selected:
+            keep = remaining - len(head) - len(tail)
+            if keep > 0:
+                selected.append((head, body[:keep], tail))
+        break
+    if not selected:
+        raise ValueError("Qwen3 context window is too small for the current user message")
+    ids = []
+    for head, body, tail in reversed(selected):
+        ids.extend(head)
+        ids.extend(body)
+        ids.extend(tail)
+    return ids + assistant
 
 
-def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
-    """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on). No canned text: whatever the model writes is the answer.
-    temperature 0 = greedy. think_tokens > 0 = the body may write a thought first (at most that many tokens; cut and closed if it runs on), which is then removed:
-    the user's "thinking" switch is real here. A tokenizer that cannot spell the close tag as one token gets no thought (never a half-working one)."""
+def _qwen3_prompt_ids(tokenizer, prompt: str, think: bool = False, max_context_tokens: int | None = None) -> list[int]:
+    """Compatibility wrapper for older one-prompt callers; no hidden system message is inserted."""
+    limit = max_context_tokens if max_context_tokens is not None else MAX_PROMPT_TOKENS
+    ids = _qwen3_messages_prompt_ids(tokenizer, [{"role": "user", "content": prompt}], limit)
+    if not think:
+        ids.extend(tokenizer.encode("<think>\n\n</think>\n\n"))
+    return ids
+
+
+def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: int,
+                        temperature: float = 0.0, think_tokens: int = 0, tool_prompt: str | None = None) -> str:
+    """Generate from native role messages; plain chat adds no identity or answer instructions."""
     from generate import generate_tokens
-    end = tokenizer.encode("<|im_end|>")[-1]
+    from model import SpecialTokens
+    context = int(getattr(getattr(model, "cfg", None), "max_seq_len", MAX_PROMPT_TOKENS))
+    n = max(1, min(int(max_new_tokens), context - 16))
     close = tokenizer.encode("</think>")
-    think = think_tokens if (think_tokens > 0 and len(close) == 1) else 0
-    ids = torch.tensor([_qwen3_prompt_ids(tokenizer, prompt, think=bool(think))], dtype=torch.long)
+    think = max(0, min(int(think_tokens or 0), context - n - 16)) if len(close) == 1 else 0
+    prompt_budget = max(1, context - n - think - 8)
+    prompt_ids = _qwen3_messages_prompt_ids(tokenizer, messages, prompt_budget)
+    if not think:
+        prompt_ids.extend(tokenizer.encode("<think>\n\n</think>\n\n"))
+    if len(prompt_ids) + think + n > context:
+        raise ValueError("Qwen3 prompt + thinking + answer exceeds model context")
+    ids = torch.tensor([prompt_ids], dtype=torch.long)
+    end = tokenizer.encode("<|im_end|>")[-1]
     sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
     if think:
-        out = generate_tokens(model, ids, max_new_tokens=think, eos_id=end, stop_ids={close[0]}, repetition_penalty=1.0, allowed_ranges=[(0, tokenizer.vocab_size)] * think, **sample)
+        out = generate_tokens(model, ids, max_new_tokens=think, eos_id=end, stop_ids={close[0]},
+                              repetition_penalty=1.0, allowed_ranges=[(0, tokenizer.vocab_size)] * think, **sample)
         got = out[0, ids.shape[1]:].tolist()
-        if close[0] not in got:                                          # the thought ran past its cap (or the model ended): close it ourselves, then answer
+        if close[0] not in got:
             out = torch.cat([out, torch.tensor([close + tokenizer.encode("\n\n")], dtype=torch.long)], dim=1)
         ids = out
     from sham_toolcall import ToolCallGuard, repair_call, tool_names_from_prompt
-    # Constrained decoding is opt-in, not a default generation filter. The execution engine still validates tool calls and permissions.
-    guard = ToolCallGuard(tokenizer, tool_names_from_prompt(prompt)) if _on("SHAM_TOOLCALL_GUARD") and os.environ.get("SHAM_TOOLCALL_GUARD", "").strip().lower() not in ("", "0", "off", "false", "no") else None
+    guard = ToolCallGuard(tokenizer, tool_names_from_prompt(tool_prompt)) if tool_prompt and _on("SHAM_TOOLCALL_GUARD") else None
     use = bool(guard and guard.usable)
-    out = generate_tokens(model, ids, max_new_tokens=max_new_tokens, eos_id=end, repetition_penalty=1.0 if use else 1.05, allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
+    out = generate_tokens(model, ids, max_new_tokens=n, eos_id=end, repetition_penalty=1.0 if use else 1.05,
+                          allowed_ranges=[(0, tokenizer.vocab_size)] * n,
                           stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None, **sample)
     new = [i for i in out[0, ids.shape[1]:].tolist() if i != end and i < tokenizer.vocab_size]
     answer = tokenizer.decode(new).strip()
     return repair_call(answer) if use else answer
 
+
+def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
+    """Backward-compatible single-user-turn entry. Tool prompts retain their own call guard."""
+    return qwen3_chat_messages(model, tokenizer, [{"role": "user", "content": prompt}], max_new_tokens,
+                               temperature=temperature, think_tokens=think_tokens, tool_prompt=prompt)
 
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
     """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
@@ -187,9 +221,8 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
         cfg = getattr(model, "cfg", None)
         chat_format = str(getattr(cfg, "chat_format", "") or "غير مسجل")
         qwen3 = _uses_qwen3_chat(model)
-        system_source = "مخصص لـ Sham v2" if os.environ.get("SHAM_QWEN3_SYSTEM", "").strip() else "الافتراضي"
         return (f"sham_studio_chat فعّال | حوار={_on('SHAM_STUDIO_CHAT')} بحث={_on('SHAM_STUDIO_SEARCH')} تاريخ={_on('SHAM_STUDIO_DATE')} | "
-                f"قالب النموذج={chat_format} | مسار Qwen3={'فعّال' if qwen3 else 'غير مستخدم'} | prompt={system_source} | "
+                f"قالب النموذج={chat_format} | مسار Qwen3={'فعّال' if qwen3 else 'غير مستخدم'} | "
                 f"التاريخ في السياق الآن: {build_user_text('', today).splitlines()[0] if _on('SHAM_STUDIO_DATE') else '—'}")
     if _uses_qwen3_chat(model) and not stripped.startswith("#"):
         return qwen3_chat(model, tokenizer, prompt, max_new_tokens, temperature=modes.get("temp", 0.0), think_tokens=modes.get("think", 0))

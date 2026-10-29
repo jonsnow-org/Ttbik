@@ -1,4 +1,4 @@
-"""Regression tests for the dedicated Sham v2 Qwen3 chat route; no model weights or torch runtime required."""
+"""Regression tests for Sham v2's native Qwen3 role-message chat path."""
 from __future__ import annotations
 
 import importlib.util
@@ -27,42 +27,60 @@ def load_module():
     return module
 
 
+class CharacterTokenizer:
+    def encode(self, text):
+        return [ord(ch) for ch in text]
+
+
 class Qwen3RouteTests(unittest.TestCase):
-    def test_v2_system_prompt_forces_qwen_template_when_checkpoint_metadata_is_missing(self):
-        with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": "A direct test system prompt"}, clear=False):
+    def test_qwen3_route_depends_on_checkpoint_format_not_environment_prompt(self):
+        with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": "ignored identity injection"}, clear=False):
             module = load_module()
-            model = types.SimpleNamespace(cfg=types.SimpleNamespace(chat_format=""))
-            tokenizer = object()
-            with patch.object(module, "qwen3_chat", return_value="direct answer") as qwen3:
-                result = module.studio_generate(model, tokenizer, "What is the capital of Syria?", 24, search_fn=None)
-            self.assertEqual(result, "direct answer")
-            qwen3.assert_called_once_with(model, tokenizer, "What is the capital of Syria?", 24, temperature=0.0, think_tokens=0)
-            self.assertEqual(module._qwen3_system_prompt(), "A direct test system prompt")
+        legacy = types.SimpleNamespace(cfg=types.SimpleNamespace(chat_format=""))
+        donor = types.SimpleNamespace(cfg=types.SimpleNamespace(chat_format="qwen3"))
+        self.assertFalse(module._uses_qwen3_chat(legacy))
+        self.assertTrue(module._uses_qwen3_chat(donor))
 
-    def test_long_history_does_not_truncate_away_v2_system_identity(self):
-        with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": "IDENTITY: Sham v2; Nova is separate"}, clear=False):
-            module = load_module()
-
-        class CharacterTokenizer:
-            def encode(self, text):
-                return [ord(ch) for ch in text]
-
-        prompt = "OLD_HISTORY_SENTINEL " + ("older turn " * 70) + "CURRENT_QUESTION_SENTINEL"
-        ids = module._qwen3_prompt_ids(
-            CharacterTokenizer(), prompt, think=False, max_context_tokens=220
+    def test_single_user_turn_has_no_hidden_system_message(self):
+        module = load_module()
+        ids = module._qwen3_messages_prompt_ids(
+            CharacterTokenizer(), [{"role": "user", "content": "RAW_CURRENT_QUESTION"}], 500
         )
         rendered = "".join(chr(token) for token in ids)
-        self.assertIn("IDENTITY: Sham v2; Nova is separate", rendered)
+        self.assertIn("<|im_start|>user\nRAW_CURRENT_QUESTION<|im_end|>", rendered)
+        self.assertIn("<|im_start|>assistant\n", rendered)
+        self.assertNotIn("<|im_start|>system", rendered)
+        self.assertNotIn("ignored identity injection", rendered)
+
+    def test_history_is_separate_roles_and_oldest_complete_turn_is_removed(self):
+        module = load_module()
+        messages = [
+            {"role": "user", "content": "OLD_HISTORY_SENTINEL " + ("older " * 40)},
+            {"role": "assistant", "content": "old answer"},
+            {"role": "user", "content": "CURRENT_QUESTION_SENTINEL"},
+        ]
+        ids = module._qwen3_messages_prompt_ids(CharacterTokenizer(), messages, 180)
+        rendered = "".join(chr(token) for token in ids)
         self.assertIn("CURRENT_QUESTION_SENTINEL", rendered)
+        self.assertIn("<|im_start|>assistant\n", rendered)
         self.assertNotIn("OLD_HISTORY_SENTINEL", rendered)
 
-    def test_v1_keeps_its_own_template_unless_qwen3_metadata_or_v2_prompt_is_present(self):
-        with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": ""}, clear=False):
-            module = load_module()
-            old_model = types.SimpleNamespace(cfg=types.SimpleNamespace(chat_format=""))
-            donor_model = types.SimpleNamespace(cfg=types.SimpleNamespace(chat_format="qwen3"))
-            self.assertFalse(module._uses_qwen3_chat(old_model))
-            self.assertTrue(module._uses_qwen3_chat(donor_model))
+    def test_oversized_current_question_keeps_its_beginning(self):
+        module = load_module()
+        long_question = "CURRENT_START " + ("important " * 80) + " CURRENT_END"
+        ids = module._qwen3_messages_prompt_ids(
+            CharacterTokenizer(), [{"role": "user", "content": long_question}], 80
+        )
+        rendered = "".join(chr(token) for token in ids)
+        self.assertIn("CURRENT_START", rendered)
+        self.assertNotIn("CURRENT_END", rendered)
+
+    def test_invalid_roles_are_rejected(self):
+        module = load_module()
+        with self.assertRaises(ValueError):
+            module._qwen3_messages_prompt_ids(
+                CharacterTokenizer(), [{"role": "system", "content": "not accepted"}], 100
+            )
 
 
 if __name__ == "__main__":

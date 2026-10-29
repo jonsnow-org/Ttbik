@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAgentStep, shamGenerateAny, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { needsFreshFacts, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -37,77 +37,11 @@ export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Pro
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
 
-// Qwen3/Sham v2 is chat-tuned, not trained to consume Sham's serialized tool transcript as one user utterance.
-// Normalize Arabic punctuation/diacritics so the echo guard catches the same question with small formatting changes.
-const normaliseChatText = (s: string): string => String(s || "")
-  .normalize("NFKC")
-  .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
-  .replace(/^(?:المستخدم|شام(?:\s*v?2)?|assistant|user)\s*[:：]\s*/i, "")
-  .replace(/[؟?!.,،؛:："']/g, "")
-  .replace(/\s+/g, " ")
-  .trim()
-  .toLocaleLowerCase("ar");
-
-// Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
-// are still conversation, not a request to edit/run code. Keep regex escapes single;
-// double-escaping \s here silently stops matching ordinary Arabic spacing.
+// Keep technical capability questions on ordinary chat; never rewrite user content.
 function isCapabilityQuestion(text: string): boolean {
-  const t = normaliseChatText(text);
-  return /^(?:هل\s+(?:(?:لديك|عندك|عندكم)\s+(?:خبرة|معرفة|قدرة|مهارة|إمكانية|امكانية)|(?:تستطيع|تقدر|يمكنك|تجيد|تعرف|تتقن|تملك|تعمل))|(?:ما|ماذا)\s+(?:(?:الذي\s+)?(?:تتقن|تستطيع|تقدر|تفعل|تجيد|وظيفتك|قدراتك|خبرتك)|(?:هي\s+)?وظيفتك)|(?:أنت|انت)\s+(?:ماذا|ما|ماهي|ما\s+هي)\s*(?:تستطيع|تتقن|وظيفتك|قدراتك)?)/i.test(t);
+  const t = String(text || "").normalize("NFKC").replace(/[\u064B-\u065F\u0670\u0640]/g, "").toLocaleLowerCase("ar");
+  return /(?:هل\s+(?:لديك|عندك)\s+(?:خبرة|معرفة|قدرة|مهارة)|(?:ماذا|ما)\s+(?:(?:الذي\s+)?(?:تستطيع|تتقن|تفعل|وظيفتك|قدراتك)|تقدر|تجيد)|(?:تستطيع|تقدر|تجيد)\s+(?:البرمجة|الكود|الشرح))/i.test(t);
 }
-
-function isToolInventoryQuestion(text: string): boolean {
-  const t = normaliseChatText(text);
-  const asksAboutTools = /(?:أدوات|الأدوات|الادوات|ادوات|tools?|tooling|استدعاء|تستدعي)/i.test(t);
-  const asksAvailability = /(?:متاح|متوفر|لديك|عندك|يمكنك|تستطيع|تقدر|استدعاء|تستدعي|تنفيذ|مهام)/i.test(t);
-  return asksAboutTools && asksAvailability;
-}
-
-function activeToolInventoryText(tools: CoderTool[]): string {
-  const lines: string[] = [];
-  let size = 0;
-  for (const tool of tools) {
-    const name = String(tool.function?.name || "").trim();
-    if (!name) continue;
-    const description = String(tool.function?.description || "").replace(/\s+/g, " ").trim();
-    const line = `- ${name}${description ? `: ${clip(description, 72)}` : ""}`;
-    if (size + line.length > 2200 && lines.length) break;
-    lines.push(line);
-    size += line.length;
-  }
-  return [
-    "قائمة الأدوات الفعلية المفعّلة في هذه المحادثة فقط؛ لا تذكر أداة غير موجودة في هذه القائمة:",
-    lines.length ? lines.join("\n") : "- لا توجد أدوات تنفيذ مفعّلة في هذه الجلسة.",
-  ].join("\n");
-}
-
-function editSimilarity(a: string, b: string): number {
-  if (!a || !b) return 0;
-  const max = Math.max(a.length, b.length);
-  if (max > 320 || Math.abs(a.length - b.length) / max > 0.25) return 0;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const row = [i];
-    for (let j = 1; j <= b.length; j++) {
-      row[j] = Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = row;
-  }
-  return 1 - prev[b.length] / max;
-}
-
-function isQuestionEcho(answer: string, current: string, recentQuestions: string[]): boolean {
-  const a = normaliseChatText(answer);
-  if (!a) return true;
-  const candidates = [current, ...recentQuestions].map(normaliseChatText).filter((x) => x.length >= 8);
-  return candidates.some((q) => {
-    if (a === q) return true;
-    const ratio = Math.min(a.length, q.length) / Math.max(a.length, q.length);
-    if (ratio >= 0.72 && editSimilarity(a, q) >= 0.84) return true;
-    return a.length >= 16 && (a.startsWith(q) || q.startsWith(a)) && ratio >= 0.88;
-  });
-}
-
 
 export async function shamAgentRun(opts: {
   text: string;
@@ -145,7 +79,7 @@ export async function shamAgentRun(opts: {
   const prof = resolveProfile({ model: variant === "v2" ? "sham_v2" : "sham", pref: opts.mode?.accuracy, auto: opts.mode?.auto, thinkSwitch: opts.mode?.think, policy: opts.mode?.policy, text: opts.text, force: forcedMode(variant === "v2" ? "sham_v2" : "sham"), canThink: variant === "v2" });
   const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think || prof.thinkAct, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
   const k = shamKnobs(effMode, variant);
-  const maxNew = Math.max(20, opts.maxNew || 160);
+  const maxNew = Math.max(20, opts.maxNew ?? (variant === "v2" ? 512 : 160));
   const v2 = variant === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
@@ -176,7 +110,7 @@ export async function shamAgentRun(opts: {
     return parseShamToolCalls(String(reply?.text || ""), availableTools);
   };
   const exec = opts.exec || ((c, x) => shamRunTool(c, x));
-  const maxSteps = opts.maxSteps ?? 4;
+  const maxSteps = opts.maxSteps ?? (v2 ? 8 : 4);
   const used: string[] = [];
   const messages: CoderMessage[] = opts.resume ? [...opts.resume] : [];
   if (!opts.resume) {
@@ -184,54 +118,27 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
-  // Everyday Sham v2 conversation must go to its chat-tuned Qwen3 prompt directly.
-  // A short direct attempt can time out and resume in the background. Retry that same route
-  // if the saved transcript contains no tool activity; otherwise keep the genuine agent/tool path.
-  const resumeMessages = messages as Array<{ role?: string; tool_calls?: CoderToolCall[] }>;
+  // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,
+  // prompt rewriting, echo detector, content-triggered retry or canned answer is applied.
+  // Tool/code/fresh-fact work stays in the separate permission-checked agent route.
+  const resumeMessages = messages as Array<{ role?: string; content?: unknown; tool_calls?: CoderToolCall[] }>;
   const lastResumeMessage = resumeMessages[resumeMessages.length - 1];
   const canResumeDirectChat = !opts.resume || (
     lastResumeMessage?.role === "user" &&
     !resumeMessages.some((message) => message.role === "tool" || Boolean(message.tool_calls?.length))
   );
-  // Wrapping "المستخدم: ... / شام:" plus the full tool schema inside one Qwen3 user turn
-  // caused the model to echo the serialized question instead of answering it. Keep agent/tool
-  // routing for code, execution, media, and fresh-fact requests.
-  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text) || isToolInventoryQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
-    if (opts.resume) opts.onEvent?.("info", "انتهت مهلة المحاولة السريعة؛ أعيد المحاولة عبر مسار المحادثة المباشر.");
-    const toolInventoryQuestion = isToolInventoryQuestion(opts.text);
-    const toolNames = opts.tools.map((tool) => normaliseChatText(String(tool.function?.name || ""))).filter(Boolean);
-    const toolInventoryText = toolInventoryQuestion ? activeToolInventoryText(opts.tools) : "";
-    const allHistory = opts.history || [];
-    const usableHistory = allHistory.filter((h) => {
-      const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
-      return q.length >= 2 && a.length >= 2 && q !== a &&
-        !isQuestionEcho(h.a, h.q, []);
-    }).slice(-3);
-    const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
-    const historyText = usableHistory.length
-      ? `سياق مختصر للمحادثة السابقة:\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\nشام: ${clip(h.a, 260)}`).join("\n")}`
-      : "";
-    const directPrompt = [
-      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
-      historyText,
-      toolInventoryText,
-      `رسالة المستخدم الحالية: ${opts.text}`,
-      "اكتب الجواب فقط، من دون بادئة «المستخدم» أو «شام»."
-    ].filter(Boolean).join("\n\n");
-    const toolInventoryBad = (answer: string) => {
-      if (!toolInventoryQuestion) return false;
-      const normalised = normaliseChatText(answer);
-      return toolNames.length
-        ? !toolNames.some((name) => normalised.includes(name))
-        : !/(?:لا توجد|لا أملك|غير متاحة|لا أستطيع تأكيد)/i.test(answer);
-    };
-    // Do not rewrite, reject, or retry a model's answer because of its self-identification.
-    // Routing and storage isolate model contexts; the content is passed through as generated.
-    const directBad = (answer: string) =>
-      isQuestionEcho(answer, opts.text, recentQuestions) ||
-      toolInventoryBad(answer);
+  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+    const chatMessages = messages
+      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
+        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
+    const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
+    const directAsk = () => opts.ask
+      ? ask(opts.text, maxNew, timeout)
+      : shamModeCtx.run(effMode, () => shamGenerateChat(chatMessages, maxNew, timeout));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
-    let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
+    let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
     let waited = 0;
     while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
@@ -241,36 +148,23 @@ export async function shamAgentRun(opts: {
       opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${waited})`);
       opts.onStep?.({ type: "queue", text: info || `في الدور (محاولة ${waited})` });
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 2500));
-      direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
+      direct = await directAsk();
     }
     if (await isStopped()) return { kind: "stopped", used, steps: 1 + waited };
-    if (direct?.type === "text" && directBad(String(direct.text || "")) && left() > 4000) {
-      opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
-      const retryPrompt = [
-        "حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
-        "لا تكرر نص السؤال أو تنسخه بدل الإجابة.",
-        "أجب عن السؤال المحدد مباشرة، ولا تدّعِ قدرات أو نتائج غير حقيقية.",
-        toolInventoryText,
-        `السؤال الحالي: ${opts.text}`,
-        "الإجابة الجديدة:"
-      ].join("\n");
-      direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
-    }
-    if (await isStopped()) return { kind: "stopped", used, steps: 2 };
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
-      if (answer && !directBad(answer)) return { kind: "text", text: answer, used, steps: 1 };
-      // Never send/store the question itself as if it were an answer. Identity text is not filtered here.
-      return { kind: "text", text: "لم يقدّم شام إجابة فعلية عن السؤال هذه المرة. لم أعرض النص المكرر كأنه إجابة؛ أعد المحاولة بعد قليل.", used, steps: 2 };
+      return answer
+        ? { kind: "text", text: answer, used, steps: 1 + waited }
+        : { kind: "none", used, steps: 1 + waited };
     }
-    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
-    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
-    return { kind: "none", used, steps: 0 };
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 + waited };
+    if (opts.continuable) return { kind: "more", messages, used, steps: waited };
+    return { kind: "none", used, steps: waited };
   }
 
   // the old body has a ~384-token window; the new body (Qwen3, Studio with SHAM_LIMITS=open) holds ~1200 prompt tokens (~3.6 chars/token): a longer conversation, longer tool results
-  const lim = v2 ? { turns: 8, turnChars: 900, maxChars: 4600 } : { turns: 6, turnChars: 400, maxChars: 3600 };
-  const toolClip = v2 ? 2600 : 1800;
+  const lim = v2 ? { turns: 10, turnChars: 1400, maxChars: 10000 } : { turns: 6, turnChars: 400, maxChars: 3600 };
+  const toolClip = v2 ? 5000 : 1800;
   let recoveries = 0;
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
