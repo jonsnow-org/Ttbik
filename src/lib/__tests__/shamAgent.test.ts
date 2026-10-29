@@ -31,7 +31,7 @@ describe("Sham's own agent loop", () => {
   });
   it("Sham v2 retries a timed-out ordinary chat on the direct route during background continuation", async () => {
     const seen: string[] = [];
-    const text = "ما الذي تتقنه وتستطيع القيام به؟";
+    const text = "ماذا تفعل؟";
     const first = await shamVariant.run("v2", () => shamAgentRun({
       text, ctx, tools: shamToolDefs(false), budgetMs: 50000, askMs: 44000, continuable: true,
       ask: script([null], seen),
@@ -43,10 +43,11 @@ describe("Sham's own agent loop", () => {
     const resumed = await shamVariant.run("v2", () => shamAgentRun({
       text, ctx, tools: shamToolDefs(false), budgetMs: 230000, askMs: 150000, continuable: true,
       resume: savedMessages,
-      ask: script([say("أستطيع شرح المواضيع ومساعدتك في البرمجة والبحث وإنجاز المهام.")], seen),
+      ask: script([say("أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام.")], seen),
     }));
-    expect(resumed).toMatchObject({ kind: "text", text: "أستطيع شرح المواضيع ومساعدتك في البرمجة والبحث وإنجاز المهام." });
+    expect(resumed).toMatchObject({ kind: "text", text: "أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام." });
     expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
     expect(seen[1]).toContain("رسالة المستخدم الحالية:");
     expect(seen[1]).not.toContain("الأدوات المتاحة لك");
     expect(seen[1]).not.toContain("شام:");
