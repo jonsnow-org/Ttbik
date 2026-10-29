@@ -102,6 +102,19 @@ CATALOG = [
     ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
     ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
     ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
+    ("هل تستطيع تحليل مستودع GitHub {repo}؟ ابدأ بفحص بنيته.", "github_repo_scan", {"repo": "{repo}"}, "default branch main; root files README.md, package.json; folders src, tests", "فحصت المستودع بالأداة. الفرع الافتراضي main، وفيه src وtests وملفات المشروع الأساسية."),
+    ("ما حالة CI في {repo} على الفرع main؟", "github_ci", {"repo": "{repo}", "ref": "main"}, "checks: build=success, lint=success, tests=success", "قرأت حالة CI للفرع main؛ البناء والتدقيق والاختبارات ناجحة بحسب نتيجة الأداة."),
+    ("اعرض طلبات الدمج المفتوحة في {repo}.", "github_prs", {"repo": "{repo}", "state": "open"}, "open pull requests: #7 Fix tests; #8 Update README", "هذه طلبات الدمج المفتوحة التي أعادتها GitHub؛ لا أستنتج طلبات غير موجودة في النتيجة."),
+    ("اقرأ الملفات الأساسية في {repo} حتى تحلل بنيته.", "github_read_files", {"repo": "{repo}", "paths": ["README.md", "package.json"], "ref": "main"}, "README.md: project overview; package.json: scripts build, lint, test", "قرأت README وpackage.json من نتيجة الأداة، ويمكنني تلخيص البنية والأوامر الفعلية الواردة فيهما."),
+    ("افحص آخر عمليات النشر في حساب Vercel المرتبط بالتطبيق.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v6/deployments?limit=5"}, "deployments: [{url: ttbik.vercel.app, state: READY}, {url: preview.example.vercel.app, state: ERROR}]", "قرأت قائمة النشر عبر موصل Vercel المرتبط. سأذكر الحالات التي أعادتها الأداة فقط، ولن أزعم أن نشرًا ناجح أو فاشل دون نتيجة."),
+    ("اعرض المشاريع المتاحة في حساب Vercel المرتبط.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v9/projects?limit=5"}, "projects: [{name: ttbik, id: prj_example}, {name: docs, id: prj_docs}]", "قرأت المشاريع التي أتاحها موصل Vercel المرتبط؛ إذا لم يُرجع المشروع المطلوب أذكر ذلك بدل التخمين."),
+    ("ما الأدوات المتاحة في خادم MCP {server} الذي أضفته؟", "mcp_list_tools", {"server": "{server}"}, "tools: list_projects; read_project; search_docs", "استعلمت من الخادم عن قائمة الأدوات الفعلية؛ أستخدم الاسم والمعاملات التي أعادها الخادم فقط."),
+    ("استدع أداة search_docs على خادم MCP {server} للبحث عن واجهة المشروع.", "mcp_call", {"server": "{server}", "tool": "search_docs", "arguments": {"query": "project API"}}, "requires user confirmation; awaiting approval", "طلب الاستدعاء ينتظر موافقتك؛ لم أنفذ الأداة قبل التأكيد."),
+    ("قسّم تحليل {repo} إلى فحص للبنية وفحص مستقل لحالة الاختبارات.", "delegate", {"tasks": [{"title": "بنية المستودع", "task": "افحص README والملفات الأساسية في المستودع {repo}."}, {"title": "حالة CI", "task": "تحقق من حالة CI على الفرع الافتراضي للمستودع {repo}."}]}, "agent reports: structure reviewed; CI status collected", "جمعت نتائج الفحصين المستقلين. أميّز بين النتائج التي أعادتها الأدوات وأي استنتاج إضافي."),
+    ("اختبر عنوان API عام بطلب قراءة GET: {url}", "http_request", {"method": "GET", "url": "{url}"}, "HTTP 200; JSON response", "نفذت طلب GET للعنوان العام وراجعت الاستجابة التي أعادها الخادم."),
+    ("لخّص ما قرأناه سابقاً من README في هذا التحقيق.", "recall", {"query": "README overview", "count": 3}, "previously read: README states project purpose and main commands", "استرجعت المعلومة من القراءات السابقة في هذه المهمة."),
+    ("أرسل التقرير الذي أنشأته في الجهاز الافتراضي إلى المستخدم.", "send_file", {"path": "/work/report.md", "caption": "تقرير تحليل المستودع"}, "file sent: /work/report.md", "أرسلت الملف الذي أنشأته الأداة، بعد التحقق من وجوده."),
+    ("احذف المهمة المجدولة ذات المعرّف s1 التي طلبت حذفها.", "schedule_delete", {"id": "s1"}, "deleted schedule s1", "حذفت المهمة المجدولة ذات المعرّف الذي طلبته."),
 ]
 # the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
 FLOW_REQUESTS = [
@@ -180,23 +193,27 @@ def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], 
 
 REPOS = ["jonsnow-org/Ttbik", "octocat/hello-world", "user/project"]
 URLS = ["https://example.com", "https://docs.python.org/3/"]
+MCP_SERVERS = ["mcp:ab12cd34ef"]  # synthetic shape only; inference must use an id supplied by the app/user
 
 
 def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
     out = []
     for _ in range(n):
         r = rng.random()
-        if r < 0.15:                                                          # the fix flow with the push back to GitHub
+        if r < 0.14:
+            out.append(build_tool_example(text_ids_fn, *repo_audit_spec(rng), **kw))
+            continue
+        if r < 0.27:                                                          # the fix flow with the push back to GitHub
             out.append(fix_flow_example(text_ids_fn, rng, **kw))
             continue
-        if r < 0.27:                                                          # code written, run in the computer, fixed, then answered
+        if r < 0.39:                                                          # code written, run in the computer, fixed, then answered
             out.append(code_run_example(text_ids_fn, rng, **kw))
             continue
-        if r < 0.37:                                                          # a missing detail: ask once, never guess
+        if r < 0.49:                                                          # a missing detail: ask once, never guess
             out.append(ask_missing_example(text_ids_fn, rng, **kw))
             continue
         req, name, args, res, ans = rng.choice(CATALOG)
-        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
+        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
         fill = lambda v: v.format(**sub) if isinstance(v, str) else v        # noqa: E731
         args = {k: fill(v) for k, v in args.items()}
         if ans is None:                                                       # a two-step example: clone, then run
@@ -210,7 +227,7 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
 
 def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
     req, name, args, res, ans = rng.choice(CATALOG)
-    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
+    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
     fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
     args = {k: fill(v) for k, v in args.items()}
     if ans is None:
@@ -218,47 +235,76 @@ def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
     return fill(req), [(name, args, res)], ans
 
 
+def repo_audit_spec(rng: random.Random) -> tuple[str, list, str]:
+    """A real multi-step read-only analysis flow, the request pattern shown in the user's screenshot."""
+    repo = rng.choice(REPOS)
+    steps = [
+        ("github_repo_scan", {"repo": repo}, "default branch main; root files README.md, package.json; folders src, tests"),
+        ("github_read_files", {"repo": repo, "paths": ["README.md", "package.json"], "ref": "main"},
+         "README: project purpose; package.json: build, lint, test scripts"),
+        ("github_ci", {"repo": repo, "ref": "main"}, "checks: build=success, lint=success, tests=success"),
+    ]
+    return (f"هل يمكنك تحليل مستودع GitHub {repo} بالكامل؟ ابدأ بفحص البنية والملفات وحالة CI، ثم أعطني تقريراً مبنياً على النتائج.",
+            steps,
+            "حللت المستودع باستخدام أدوات GitHub: فحصت البنية، وقرأت الملفات الأساسية، ثم تحققت من CI. هذه خلاصة النتائج التي أعادتها الأدوات، وأي نقطة لم أستطع التحقق منها أذكرها صراحة.")
+
+
 def any_spec(rng: random.Random) -> tuple[str, list, str]:
     """One teaching case: the fix flow, code written-run-fixed, a missing detail asked once, or a single catalog call (same shares as synthetic_examples)."""
     r = rng.random()
-    if r < 0.15:
-        return fix_flow_spec(rng)
+    if r < 0.14:
+        return repo_audit_spec(rng)
     if r < 0.27:
+        return fix_flow_spec(rng)
+    if r < 0.39:
         return code_run_spec(rng)
-    if r < 0.37:
+    if r < 0.49:
         return ask_missing_spec(rng)
     return catalog_spec(rng)
 
 
 # ---- the SAME conversation layout Nova's engine shows Sham (src/lib/shamTools.ts: shamToolBlock + shamToolConversation), for a donor body that chats in the Qwen3 layout ----
 FORMAT_LINE = ('لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. '
-               'إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن. '
+               'إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. '
+               'إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. '
+               'طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة. '
                'وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.')
 # name -> (arguments, "?" = optional ; first words of the description as the engine shows them)
 TOOL_SPECS: dict[str, tuple[str, str]] = {
     "github_read_file": ("repo, path, ref?", "Read one file from a GitHub repository"),
+    "github_read_files": ("repo, paths, ref?, max_chars_per_file?", "Read several repository files in one call"),
     "github_repo_scan": ("repo", "Overview of a repository: default branch, folders, root files"),
     "github_list_files": ("repo, path?, ref?", "List the files of a repository"),
     "github_search_code": ("repo, query", "Search the code of a repository"),
-    "github_create_pr": ("repo, head, base, title, body?", "Open a pull request from head INTO base"),
-    "sandbox_clone": ("repo, branch?", "Copy a repository into this task's private computer"),
+    "github_prs": ("repo, number?, state?", "List or inspect pull requests in a GitHub repository"),
+    "github_ci": ("repo, ref?", "Read actual CI check outcomes and failure lines"),
+    "github_create_pr": ("repo, head, base, title, body?", "Open a pull request from head INTO base after permission"),
+    "github_merge_pr": ("repo, number, method?", "Merge a pull request after the user's confirmation"),
+    "connector_api": ("service, method?, path, body?", "Read or call the API of a connected service such as Vercel; writes require confirmation"),
+    "mcp_list_tools": ("server", "List tools from the user's configured MCP server"),
+    "mcp_call": ("server, tool, arguments?", "Call an MCP tool; the app asks for confirmation"),
+    "delegate": ("tasks", "Run independent read-only investigations in parallel"),
+    "http_request": ("url, method?, headers?, body?", "Read a public HTTP API; write methods require confirmation"),
+    "recall": ("query, count?", "Retrieve information already read during this task"),
+    "send_file": ("path, caption?, cwd?", "Send a file created in the task VM to the user"),
+    "sandbox_clone": ("repo, branch?, dir?, depth?", "Copy a repository into this task's private computer"),
     "sandbox_exec": ("command, cwd?", "Run a shell command in this task's VM"),
     "sandbox_write_file": ("path, content, cwd?", "Write a file in the VM (creates folders)"),
     "sandbox_edit_file": ("path, old, new, replace_all?, cwd?", "Edit a file in the VM by replacing an exact piece of text"),
-    "sandbox_push": ("repo, branch, message, dir?", "Send the edits made in the VM to a GitHub branch"),
-    "web_search": ("query", "Search the web"),
-    "fetch_page": ("url", "Read a web page"),
-    "github_merge_pr": ("repo, number, method?", "Merge a pull request (the user is asked first)"),
+    "sandbox_push": ("repo, branch, message, dir?", "Send the edits made in the VM to a GitHub branch after permission"),
+    "web_search": ("query, limit?", "Search the web"),
+    "fetch_page": ("url, max_chars?", "Read one web page"),
+    "schedule_delete": ("id", "Delete a scheduled task when explicitly requested"),
     "sandbox_wait": ("id", "Keep waiting for a long command"),
-    "sandbox_search": ("pattern?, glob?, path?", "Search the VM's files"),
-    "sandbox_read_file": ("path, start_line?, max_lines?", "Read a file from the VM"),
-    "deep_research": ("question", "Research a question: many sources, numbered [n]"),
-    "make_media": ("kind, prompt", "Make a picture, a sound or a short video yourself and send it"),
-    "memory_save": ("text, kind?, repo?", "Remember a lasting fact about this user"),
-    "memory_search": ("query, repo?", "Search what is remembered about this user"),
-    "schedule_create": ("title, prompt, kind?, recurrence?", "Schedule a task that runs by itself later"),
-    "schedule_list": ("", "List the scheduled tasks"),
-    "ask_user": ("question, options?", "Ask the user ONE short question and wait for the answer"),
+    "sandbox_search": ("pattern?, glob?, path?, max?, cwd?", "Search files in the task VM"),
+    "sandbox_read_file": ("path, start_line?, max_lines?, cwd?", "Read a file in the task VM"),
+    "deep_research": ("question, max_sources?", "Research a question using multiple sources"),
+    "make_media": ("kind, prompt, scenes?, narration?", "Create an image, sound or short video using Sham's own media service"),
+    "memory_save": ("text, kind?, repo?", "Remember a lasting fact, preference or decision"),
+    "memory_search": ("query, repo?", "Search what is remembered"),
+    "schedule_create": ("title, prompt, kind?, recurrence?, repo?", "Schedule a task that runs later"),
+    "schedule_list": ("", "List scheduled tasks"),
+    "ask_user": ("question, options?", "Ask the user one short question when a required detail is missing"),
 }
 
 
@@ -305,6 +351,11 @@ if __name__ == "__main__":
     fake = lambda s: [ord(c) % 4000 + 10 for c in s]          # noqa: E731  a stand-in tokenizer: the layout and the masking are what is checked
     ex = synthetic_examples(fake, random.Random(1), 40)
     assert len(ex) == 40
+    must_have = {"github_read_files", "github_prs", "github_ci", "connector_api", "mcp_list_tools", "mcp_call", "delegate", "http_request", "recall", "send_file", "schedule_delete"}
+    assert must_have.issubset(TOOL_SPECS), f"missing live tools in training specs: {must_have - set(TOOL_SPECS)}"
+    audit_user, audit_steps, audit_answer = repo_audit_spec(random.Random(4))
+    assert [s[0] for s in audit_steps] == ["github_repo_scan", "github_read_files", "github_ci"]
+    assert "GitHub" in audit_user and "تقريراً" in audit_user
     flow = fix_flow_example(fake, random.Random(2))
     for mk in (code_run_example, ask_missing_example):
         ids2, lab2 = mk(fake, random.Random(3))
@@ -334,9 +385,14 @@ if __name__ == "__main__":
     qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS")
     assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
     assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
-    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # the line shown to the model must not drift from the engine's
+    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # keep training and live tool instructions byte-identical
     if ts.is_file():
         import re
-        m = re.search(r"const FORMAT_LINE = '(.*)';", ts.read_text(encoding="utf-8"))
-        assert m and m.group(1) == FORMAT_LINE, "FORMAT_LINE differs from src/lib/shamTools.ts"
+        source = ts.read_text(encoding="utf-8")
+        base = re.search(r"const FORMAT_BASE = '(.*)';", source)
+        ask = re.search(r'const FORMAT_ASK = "(.*)";', source)
+        code = re.search(r'const FORMAT_CODE = "(.*)";', source)
+        assert base and ask and code, "Could not find the live Sham tool-format constants"
+        live_format = base.group(1) + ask.group(1) + code.group(1)
+        assert live_format == FORMAT_LINE, "Training FORMAT_LINE differs from src/lib/shamTools.ts"
     print("sham_tools_data OK: calls learned, results masked, answers learned, lessons of any kind, every tool family seen.")
