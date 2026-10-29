@@ -35,7 +35,6 @@ export function ensureThreadTables(db: Db): Promise<void> {
 
 const newId = () => "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clip = (s: string, n: number) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
-const vOf = (v: string): ShamVariantId => (v === "v2" ? "v2" : "v1");
 const view = (r: any): ShamThread => ({ id: r.id, title: r.title || "", pinned: Boolean(r.pinned), archived: Boolean(r.archived), turns: Number(r.turns) || 0, created_at: String(r.created_at), updated_at: String(r.updated_at), preview: r.preview || "" });
 const COLS = `id, title, preview, pinned, archived, turns, created_at::text AS created_at, updated_at::text AS updated_at`;
 
@@ -185,7 +184,7 @@ export async function exportTranscript(chatId: number | string, variant: ShamVar
 }
 
 // ---- The selected variant and its active thread are required. Never fall back to the legacy per-user stream:
- // that key is shared by old deployments and would mix model histories when scoped thread lookup fails.
+// that key is shared by old deployments and would mix model histories when scoped thread lookup fails.
 const variantNow = (): ShamVariantId | null => {
   const selected = shamVariant.getStore();
   return selected === "v1" || selected === "v2" ? selected : null;
