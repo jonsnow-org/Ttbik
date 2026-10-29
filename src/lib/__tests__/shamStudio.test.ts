@@ -4,6 +4,7 @@ describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
     expect(parseShamSse('event: complete\ndata: ["نص من شام"]\n')).toBe("نص من شام");
     expect(parseShamSse("event: error\ndata: null\n")).toBeNull();
+    expect(parseShamSse('event: complete\ndata: [{"type":"text","text":"كائن مباشر"}]\n')).toBe('{"type":"text","text":"كائن مباشر"}');
   });
   it("skips lines that are not data and data that is not JSON", () => {
     expect(parseShamSse('event: generating\ndata: not json\ndata: ["ثانٍ"]\n')).toBe("ثانٍ");
