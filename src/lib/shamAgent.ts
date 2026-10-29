@@ -108,37 +108,6 @@ function isQuestionEcho(answer: string, current: string, recentQuestions: string
   });
 }
 
-// Qwen3 sometimes repeats its previous self-introduction instead of answering a new question.
-// Compare only substantial answers so short valid replies ("نعم", "لا") are not suppressed.
-function isRepeatedPriorAnswer(answer: string, history: { q: string; a: string }[]): boolean {
-  const a = normaliseChatText(answer);
-  if (a.length < 18) return false;
-  return history.slice(-5).some((h) => {
-    const previous = normaliseChatText(h.a);
-    if (previous.length < 18) return false;
-    const ratio = Math.min(a.length, previous.length) / Math.max(a.length, previous.length);
-    return a === previous || (ratio >= 0.88 && editSimilarity(a, previous) >= 0.9);
-  });
-}
-
-function isIdentityBoilerplate(answer: string): boolean {
-  const a = normaliseChatText(answer);
-  const identityOnly = /(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)/i.test(a);
-  if (!identityOnly) return false;
-  // It is not boilerplate if the model goes on to answer the user's actual question
-  // with a concrete ability or a yes/no answer plus substance.
-  return !/(?:استطيع|أستطيع|يمكنني|اقدر|أقدر|لدي خبرة|عندي خبرة|اجيد|أجيد|برمج|كود|تصحيح|كتابة|تحليل|بحث|شرح|اصنع|أصنع|توليد|صورة|ملف)/i.test(a);
-}
-
-function isMisidentifiedNovaAnswer(answer: string): boolean {
-  const a = normaliseChatText(answer).replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").trim();
-  // A wrong assistant self-identification is bad context, not a trusted fact about Sham v2.
-  return /^(?:(?:انا|اسمي|i am|im|this is|my name is)\s+(?:نوفا|nova))(?:\s|$)/i.test(a);
-}
-
-function isNonAnswerBoilerplate(answer: string, question: string): boolean {
-  return isCapabilityQuestion(question) && isIdentityBoilerplate(answer);
-}
 
 export async function shamAgentRun(opts: {
   text: string;
@@ -172,11 +141,12 @@ export async function shamAgentRun(opts: {
   // ONE mode system (src/lib/modes.ts): this request's class (greeting / chat / code / agent / media) and the user's mode + Auto decide the answer budget, sampling, correction
   // rounds and whether the body writes a thought first. A greeting or a media request never thinks; the user's "thinking" switch applies to code / agent work, first step.
   const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") throw new Error("Missing selected Sham variant; refusing to route through a default model.");
   const prof = resolveProfile({ model: variant === "v2" ? "sham_v2" : "sham", pref: opts.mode?.accuracy, auto: opts.mode?.auto, thinkSwitch: opts.mode?.think, policy: opts.mode?.policy, text: opts.text, force: forcedMode(variant === "v2" ? "sham_v2" : "sham"), canThink: variant === "v2" });
   const effMode: ShamMode = { ...(opts.mode || {}), accuracy: prof.mode, think: prof.think || prof.thinkAct, thinkCap: prof.thinkTokens * 3 || undefined, temperature: opts.mode?.temperature };
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
-  const v2 = shamVariant.getStore() === "v2";
+  const v2 = variant === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
@@ -232,21 +202,17 @@ export async function shamAgentRun(opts: {
     const toolNames = opts.tools.map((tool) => normaliseChatText(String(tool.function?.name || ""))).filter(Boolean);
     const toolInventoryText = toolInventoryQuestion ? activeToolInventoryText(opts.tools) : "";
     const allHistory = opts.history || [];
-    const usableHistory = allHistory.filter((h, index) => {
+    const usableHistory = allHistory.filter((h) => {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
       return q.length >= 2 && a.length >= 2 && q !== a &&
-        !isQuestionEcho(h.a, h.q, []) &&
-        !isMisidentifiedNovaAnswer(h.a) &&
-        !isNonAnswerBoilerplate(h.a, h.q) &&
-        !(isCapabilityQuestion(opts.text) && isIdentityBoilerplate(h.a)) &&
-        !isRepeatedPriorAnswer(h.a, allHistory.slice(0, index));
+        !isQuestionEcho(h.a, h.q, []);
     }).slice(-3);
     const recentQuestions = (opts.history || []).slice(-4).map((h) => h.q);
     const historyText = usableHistory.length
       ? `سياق مختصر للمحادثة السابقة:\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\nشام: ${clip(h.a, 260)}`).join("\n")}`
       : "";
     const directPrompt = [
-      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. عند السؤال عن هويتك، اتبع تعريف الهوية في تعليمات النظام وأجب بكلماتك الطبيعية؛ لا تخلط بين شام ونوفا ولا تكرر صيغة محفوظة. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
+      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
       historyText,
       toolInventoryText,
       `رسالة المستخدم الحالية: ${opts.text}`,
@@ -259,10 +225,10 @@ export async function shamAgentRun(opts: {
         ? !toolNames.some((name) => normalised.includes(name))
         : !/(?:لا توجد|لا أملك|غير متاحة|لا أستطيع تأكيد)/i.test(answer);
     };
+    // Do not rewrite, reject, or retry a model's answer because of its self-identification.
+    // Routing and storage isolate model contexts; the content is passed through as generated.
     const directBad = (answer: string) =>
       isQuestionEcho(answer, opts.text, recentQuestions) ||
-      isRepeatedPriorAnswer(answer, opts.history || []) ||
-      isNonAnswerBoilerplate(answer, opts.text) ||
       toolInventoryBad(answer);
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
@@ -281,9 +247,9 @@ export async function shamAgentRun(opts: {
     if (direct?.type === "text" && directBad(String(direct.text || "")) && left() > 4000) {
       opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
       const retryPrompt = [
-        "أنت شام. حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
-        "لا تكرر نص السؤال أو أي سؤال سابق، ولا تعد تعريف نفسك بعبارة عامة غير مفيدة، ولا تكرر جواباً سابقاً.",
-        "أجب عن السؤال المحدد مباشرة. إن كان يسأل عن هويتك فاتبع تعليمات النظام وهويتك الفعلية؛ وإن كان يسأل عن خبرتك أو قدراتك، ابدأ بنعم أو لا عند الحاجة ثم اذكر قدرة عملية محددة. لا تدّعِ شيئاً غير صحيح.",
+        "حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
+        "لا تكرر نص السؤال أو تنسخه بدل الإجابة.",
+        "أجب عن السؤال المحدد مباشرة، ولا تدّعِ قدرات أو نتائج غير حقيقية.",
         toolInventoryText,
         `السؤال الحالي: ${opts.text}`,
         "الإجابة الجديدة:"
@@ -294,7 +260,7 @@ export async function shamAgentRun(opts: {
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
       if (answer && !directBad(answer)) return { kind: "text", text: answer, used, steps: 1 };
-      // Never send/store a question echo, a repeated previous answer, or the stock identity in place of an answer.
+      // Never send/store the question itself as if it were an answer. Identity text is not filtered here.
       return { kind: "text", text: "لم يقدّم شام إجابة فعلية عن السؤال هذه المرة. لم أعرض النص المكرر كأنه إجابة؛ أعد المحاولة بعد قليل.", used, steps: 2 };
     }
     if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };

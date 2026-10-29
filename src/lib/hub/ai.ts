@@ -1,6 +1,6 @@
 // One text generator for the creator hub: Sham (owner's model on ModelScope) first, then the site's existing free Groq chain, then null
 // (each tool has a rule-based fallback, so a hub tool never shows a raw error). Inputs are clipped; system prompts carry the guardrails.
-import { shamGenerate, shamStudioEnabled } from "@/lib/shamStudio";
+import { shamGenerate, shamStudioEnabled, shamVariant } from "@/lib/shamStudio";
 import { callGroq } from "@/lib/groq";
 
 export type HubAiResult = { text: string; engine: "sham" | "groq" } | null;
@@ -9,7 +9,8 @@ export async function hubGenerate(system: string, input: string, maxTokens = 500
   const user = (input || "").slice(0, 4000);
   const trySham = async (): Promise<HubAiResult> => {
     if (!shamStudioEnabled()) return null;
-    const out = await shamGenerate(`${system}\n\n${user}\n\nالجواب:`, Math.min(maxTokens, 300), 25000);
+    // The legacy site-tools generator belongs explicitly to Sham v1. It must never infer a model from missing context.
+    const out = await shamVariant.run("v1", () => shamGenerate(`${system}\n\n${user}\n\nالجواب:`, Math.min(maxTokens, 300), 25000));
     return out && out.trim().length >= 12 ? { text: out.trim(), engine: "sham" } : null;
   };
   const tryGroq = async (): Promise<HubAiResult> => {

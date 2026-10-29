@@ -5,7 +5,7 @@
 // with the other Sham's; the user's facts (name, city…) stay per user and are shared by every chat of the same Sham memory. This module imports no
 // Nova (coder*) module: the Mini App control plane (coderApp.ts) is the only place that carries a chat from one model to the other.
 import { prisma } from "@/lib/prisma";
-import { chatKey, ensureTables, loadMemory, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
+import { chatKey, ensureTables, loadMemory, modelMemoryKey, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 
 export type ShamVariantId = "v1" | "v2";
@@ -35,7 +35,6 @@ export function ensureThreadTables(db: Db): Promise<void> {
 
 const newId = () => "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clip = (s: string, n: number) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
-const vOf = (v: string): ShamVariantId => (v === "v2" ? "v2" : "v1");
 const view = (r: any): ShamThread => ({ id: r.id, title: r.title || "", pinned: Boolean(r.pinned), archived: Boolean(r.archived), turns: Number(r.turns) || 0, created_at: String(r.created_at), updated_at: String(r.updated_at), preview: r.preview || "" });
 const COLS = `id, title, preview, pinned, archived, turns, created_at::text AS created_at, updated_at::text AS updated_at`;
 
@@ -184,19 +183,37 @@ export async function exportTranscript(chatId: number | string, variant: ShamVar
   return out;
 }
 
-// ---- what the bot calls around a message: the open chat's own turns, falling back to the plain per-user stream when there is no database
-const variantNow = (): ShamVariantId => vOf(shamVariant.getStore() || "v1");
+// ---- The selected variant and its active thread are required. Never fall back to the legacy per-user stream:
+// that key is shared by old deployments and would mix model histories when scoped thread lookup fails.
+const variantNow = (): ShamVariantId | null => {
+  const selected = shamVariant.getStore();
+  return selected === "v1" || selected === "v2" ? selected : null;
+};
 export async function loadChatMemory(chatId: number | string, text: string, db: Db = prismaDb): Promise<MemoryContext | null> {
   const variant = variantNow();
-  let scope: string | undefined;
-  try { scope = scopeKey(chatId, variant, await activeThreadId(chatId, variant, db)); } catch { scope = undefined; }
-  return loadMemory(chatId, text, db, scope, shamModeCtx.getStore()?.memory);
+  if (!variant) return null;
+  try {
+    const id = await activeThreadId(chatId, variant, db);
+    return await loadMemory(chatId, text, db, scopeKey(chatId, variant, id), shamModeCtx.getStore()?.memory, modelMemoryKey(chatId, variant));
+  } catch {
+    // No shared-history fallback if thread scoping is unavailable.
+    return null;
+  }
 }
 export async function saveChatTurn(chatId: number | string, question: string, answer: string, db: Db = prismaDb): Promise<void> {
   const variant = variantNow();
+  if (!variant) {
+    console.error("[sham-memory] missing selected variant; refusing to save an unscoped turn");
+    return;
+  }
   const mem = shamModeCtx.getStore()?.memory;            // this Sham's own switches (remember / recall / save)
-  let id = "";
-  try { id = mem?.save === false ? (await currentThreadId(chatId, variant, db)) || "" : await activeThreadId(chatId, variant, db); } catch { id = ""; }
-  await saveTurn(chatId, question, answer, db, id ? scopeKey(chatId, variant, id) : undefined, mem);
-  if (id && mem?.save !== false && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
+  let id: string | null = null;
+  try { id = mem?.save === false ? await currentThreadId(chatId, variant, db) : await activeThreadId(chatId, variant, db); }
+  catch {
+    // Do not write to chatKey(chatId), which is a shared legacy stream.
+    return;
+  }
+  if (!id) return;
+  await saveTurn(chatId, question, answer, db, scopeKey(chatId, variant, id), mem, modelMemoryKey(chatId, variant));
+  if (mem?.save !== false && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
 }

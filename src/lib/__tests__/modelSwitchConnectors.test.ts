@@ -1,6 +1,7 @@
 // Connectors belong to the user, not to a model: linked once, they are there for Nova, Sham and Sham v2 the moment the user switches model.
 import { appOp } from "@/lib/coderApp";
 import { shamContext, shamTools, shamRunTool, shamNeedsOk } from "@/lib/shamExec";
+import { shamVariant } from "@/lib/shamStudio";
 import { connectedIds, connectorApi } from "@/lib/coderConnectors";
 import { fakeBot, fakeDb } from "./coderFakes";
 
@@ -34,7 +35,8 @@ describe("connectors follow the model switch", () => {
     for (const model of ["coder", "sham_v2", "sham", "coder", "sham_v2"]) {
       await appOp(o, "settings", { model }, d);
       expect(await connectedIds(OWNER, db)).toContain("vercel");                                         // Nova's side
-      const ctx = await shamContext(OWNER, "bot1", db as any);                                            // Sham's side (v1 and v2 share the executor)
+      const variant = model === "sham_v2" ? "v2" : "v1";
+      const ctx = await shamVariant.run(variant, () => shamContext(OWNER, "bot1", db as any));                 // same account connectors, separate model context
       expect(ctx.connectors).toContain("vercel");
       const tools = shamTools(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)).map((t) => t.function.name);
       expect(tools).toEqual(expect.arrayContaining(["connector_api", "mcp_list_tools", "mcp_call"]));
@@ -43,7 +45,7 @@ describe("connectors follow the model switch", () => {
 
   it("without any linked service Sham is not shown connector tools", async () => {
     const db = fakeDb();
-    const ctx = await shamContext(OWNER, "bot1", db as any);
+    const ctx = await shamVariant.run("v2", () => shamContext(OWNER, "bot1", db as any));
     expect(ctx.connectors).toEqual([]);
     expect(shamTools(false, false).map((t) => t.function.name)).not.toContain("connector_api");
   });
@@ -54,7 +56,7 @@ describe("connectors follow the model switch", () => {
     const f = vercelFetch(seen);
     await appOp({ chatId: OWNER, tier: "owner" }, "connector_link", { id: "vercel", token: "vercel-token-ok-1" }, { db, bot, botRow, fetchImpl: f });
     seen.length = 0;
-    const ctx = { ...(await shamContext(OWNER, "bot1", db as any)), fetchImpl: f };
+    const ctx = { ...(await shamVariant.run("v2", () => shamContext(OWNER, "bot1", db as any))), fetchImpl: f };
     const r = await shamRunTool(call("connector_api", { service: "vercel", path: "v9/projects" }), ctx as any);
     expect(r).toMatch(/HTTP 200/); expect(r).toMatch(/site/);
     const viaNova = await connectorApi(OWNER, { service: "vercel", path: "v9/projects" }, db as any, f);
@@ -72,7 +74,7 @@ describe("connectors follow the model switch", () => {
     const d = { db, bot, botRow, fetchImpl: f };
     await appOp({ chatId: OWNER, tier: "owner" }, "connector_link", { id: "vercel", token: "vercel-token-ok-1" }, d);
     await appOp({ chatId: OWNER, tier: "owner" }, "connector_disconnect", { id: "vercel" }, d).catch(() => null);
-    const ctx = await shamContext(OWNER, "bot1", db as any);
+    const ctx = await shamVariant.run("v1", () => shamContext(OWNER, "bot1", db as any));
     expect(ctx.connectors).not.toContain("vercel");
   });
 });

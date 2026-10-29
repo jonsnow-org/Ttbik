@@ -15,6 +15,32 @@ type Sdb = Parameters<typeof S.listThreads>[3];
 const sdb = (db: Db): Sdb => db as unknown as Sdb;
 const clip = (s: string, n: number) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 
+/**
+ * Quarantine a transcript imported by the pre-isolation model-switch code.
+ * That code recorded its destination thread in ChatState.carry. Keep the old
+ * data, but archive it and open a clean thread so it can never be fed to a
+ * model as if it were that model's own conversation.
+ */
+export async function isolateLegacyCarryState(chatId: number, st: ChatState, db: Db): Promise<boolean> {
+  const carry = st.carry;
+  if (!carry || (carry.model !== "sham" && carry.model !== "sham_v2") || !carry.thread) return false;
+
+  const variant: S.ShamVariantId = carry.model === "sham_v2" ? "v2" : "v1";
+  const targetDb = sdb(db);
+  const active = await S.currentThreadId(chatId, variant, targetDb);
+
+  // The thread is an old cross-model import. Preserve its contents for inspection,
+  // but keep it out of the normal chat list and away from the active model context.
+  await S.renameThread(chatId, variant, carry.thread, "معزول: سياق قديم منقول من نموذج آخر", targetDb);
+  const archived = await S.archiveThread(chatId, variant, carry.thread, true, targetDb);
+  if (active === carry.thread) {
+    if (!archived) throw new Error("Could not isolate the legacy cross-model transcript.");
+    await S.newThread(chatId, variant, targetDb);
+  }
+  st.carry = undefined;
+  return true;
+}
+
 /** The chat page of one model: pinned first, then newest; `q` searches titles and what was said; archived ones are hidden unless asked for. */
 export async function chatList(chatId: number, st: ChatState, model: ChatModelId, o: { q?: string; archived?: "exclude" | "only" | "include"; limit?: number }, db: Db): Promise<{ items: ChatItem[]; current: string | null; currentEmpty: boolean }> {
   if (model === "coder") {

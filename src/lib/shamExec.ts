@@ -23,7 +23,7 @@ export interface ShamHost {
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
   limits: { ok(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<boolean>; add(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<void> };
-  memory(chatId: number, tool: string, args: Record<string, unknown>, runId: string, db: Db): Promise<string>;
+  memory(memoryKey: string, tool: string, args: Record<string, unknown>, runId: string, db: Db): Promise<string>;
   schedules: { list(chatId: number, db: Db): Promise<string>; remove(chatId: number, id: string, db: Db): Promise<boolean>; create(chatId: number, botId: string, args: Record<string, unknown>, db: Db): Promise<string> };
 }
 let hostImpl: ShamHost | null = null;
@@ -96,8 +96,11 @@ export function shamTools(github: boolean, connectors = false): CoderTool[] {
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
+  const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") throw new Error("Missing selected Sham variant; refusing to create a shared runtime context.");
   const a = await (await host()).account(chatId, db);
-  return { chatId, botId, db, githubToken: a.githubToken, connectors: a.connectors, chatKey: `sham:${a.chatKey}`, runId: `sham-${chatId}`, owner: a.owner };
+  // The user's linked connectors remain account-level, but Sham's VM, task bank and memory-tool namespace are model-specific.
+  return { chatId, botId, db, githubToken: a.githubToken, connectors: a.connectors, chatKey: `sham:${a.chatKey}:${variant}`, runId: `sham-${chatId}-${variant}`, owner: a.owner };
 }
 
 // ---------------------------------------------------------------- GitHub (Sham's own small client)
@@ -281,7 +284,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
     if (name === "memory_save" || name === "memory_search") {
-      return await (await host()).memory(ctx.chatId, name, a, ctx.runId, ctx.db);
+      return await (await host()).memory(ctx.chatKey, name, a, ctx.runId, ctx.db);
     }
     if (name === "schedule_create" || name === "schedule_list" || name === "schedule_delete") {
       if (!ctx.botId) return "error: scheduling is not available here";

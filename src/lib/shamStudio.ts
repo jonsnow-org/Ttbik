@@ -20,10 +20,10 @@ export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
 export const shamModeCtx = new AsyncLocalStorage<ShamMode>();
 
 /** Applies the settings to one call: the answer budget scales with accuracy, and the sampling / thought header goes at the start of the prompt (src/lib/shamModes.ts). */
-function withMode(payload: Record<string, unknown>): Record<string, unknown> {
+function withMode(payload: Record<string, unknown>, variant: "v1" | "v2"): Record<string, unknown> {
   const mode = shamModeCtx.getStore();
   if (!mode) return payload;
-  const k = shamKnobs(mode, shamVariant.getStore());
+  const k = shamKnobs(mode, variant);
   const out = { ...payload };
   if (typeof out.max_new_tokens === "number") out.max_new_tokens = Math.max(20, Math.round(out.max_new_tokens * k.maxNewFactor));
   if (typeof out.prompt === "string" && k.header) out.prompt = k.header + out.prompt;
@@ -34,11 +34,14 @@ let rotate = 0;
 /** The Studio addresses for this call, best first. Each variant may name several Studios (comma-separated SHAM_MODELSCOPE_URL / SHAM_V2_URL): calls start at a rotating
  *  one, so users spread over the Studios, and a busy or unreachable one is skipped for the next (see shamBusyHop). */
 export function shamBases(): string[] {
-  const v2 = shamVariant.getStore() === "v2";
+  const selectedVariant = shamVariant.getStore();
+  // A missing async-local selection is not a request for the legacy model. Returning no route prevents silent v2 -> v1 fallback.
+  if (selectedVariant !== "v1" && selectedVariant !== "v2") return [];
+  const v2 = selectedVariant === "v2";
   const configured = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-  // nova-inference-server belongs to Nova. Ignore stale environment values rather than reconnecting Sham to Nova.
-  // Each Sham uses only its own Studios: v1 never reaches a v2 Studio, v2 never a v1 or a Nova (coder-inference-*) Studio. (The v2 overflow is added later by orderV2 on purpose.)
-  const raw = configured.filter((x) => !/nova-inference-server|coder-inference/i.test(x) && !(v2 ? /sham-v1/i : /sham-v2/i).test(x));
+  // Primary lists may contain only their assigned model endpoints. The v2 overflow is added separately by orderV2 only after verifying its served checkpoint.
+  // Old Nova inference URLs, Nova coder URLs, the other Sham variant and the v2 overflow role are never treated as primary endpoints.
+  const raw = configured.filter((x) => !/nova-inference-server|coder-inference|sham-v2-overflow/i.test(x) && !(v2 ? /sham-v1/i : /sham-v2/i).test(x));
   const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
   const k = rotate++ % Math.max(1, bases.length);
   const rotated = [...bases.slice(k), ...bases.slice(0, k)];
@@ -106,6 +109,7 @@ export async function readShamSse(response: Response): Promise<string | null> {
 export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs = 25000): Promise<string | null> {
   if (!shamStudioEnabled()) return null;
   const base = shamBases()[0];
+  if (!base) { setFailure("generate_text: no selected Sham variant; refusing model fallback"); return null; }
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   const deadline = Date.now() + timeoutMs;                      // ONE limit for submit + result together
   try {
@@ -187,9 +191,12 @@ export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => rep
 
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
   if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return null; }
+  const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") { setFailure(`${api}: no selected Sham variant; refusing model fallback`); return null; }
   // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
-  const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0);
+  const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0, variant);
   const bases = shamBases();
+  if (!bases.length) { setFailure(`${api}: no dedicated Studio endpoint for the selected variant`); return null; }
   let last: string | null = null;
   const t0 = Date.now();
   for (let i = 0; i < bases.length; i++) {
@@ -335,8 +342,17 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
 
 async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return { reply: null, failure: "off" }; }
-  const payload = withMode(payload0);
+  const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") {
+    setFailure(`${api}: no selected Sham variant; refusing model fallback`);
+    return { reply: null, failure: "off" };
+  }
+  const payload = withMode(payload0, variant);
   const bases = shamBases();
+  if (!bases.length) {
+    setFailure(`${api}: no dedicated Studio endpoint for the selected variant`);
+    return { reply: null, failure: "off" };
+  }
   const t0 = Date.now();
   let out: ShamOutcome = { reply: null, failure: "network" };
   for (let i = 0; i < bases.length; i++) {
