@@ -1,0 +1,10 @@
+{
+  "id": "qwen35-9b-low-refusal",
+  "label": "Qwen3.5-9B — uncensored community checkpoint (Q4_K_M)",
+  "repo_id": "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+  "filename": "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+  "family": "Qwen3.5",
+  "quantization": "Q4_K_M",
+  "approx_file_size_gb": 5.63,
+  "purpose": "Arabic, code, tool-call smoke testing; text-only inference in the first pass."
+}
