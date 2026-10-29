@@ -39,6 +39,23 @@ class Qwen3RouteTests(unittest.TestCase):
             qwen3.assert_called_once_with(model, tokenizer, "What is the capital of Syria?", 24, temperature=0.0, think_tokens=0)
             self.assertEqual(module._qwen3_system_prompt(), "A direct test system prompt")
 
+    def test_long_history_does_not_truncate_away_v2_system_identity(self):
+        with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": "IDENTITY: Sham v2; Nova is separate"}, clear=False):
+            module = load_module()
+
+        class CharacterTokenizer:
+            def encode(self, text):
+                return [ord(ch) for ch in text]
+
+        prompt = "OLD_HISTORY_SENTINEL " + ("older turn " * 70) + "CURRENT_QUESTION_SENTINEL"
+        ids = module._qwen3_prompt_ids(
+            CharacterTokenizer(), prompt, think=False, max_context_tokens=220
+        )
+        rendered = "".join(chr(token) for token in ids)
+        self.assertIn("IDENTITY: Sham v2; Nova is separate", rendered)
+        self.assertIn("CURRENT_QUESTION_SENTINEL", rendered)
+        self.assertNotIn("OLD_HISTORY_SENTINEL", rendered)
+
     def test_v1_keeps_its_own_template_unless_qwen3_metadata_or_v2_prompt_is_present(self):
         with patch.dict(os.environ, {"SHAM_QWEN3_SYSTEM": ""}, clear=False):
             module = load_module()

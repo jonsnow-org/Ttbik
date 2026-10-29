@@ -20,15 +20,12 @@ describe("legacy Nova backend flag (was NOVA_PAUSED)", () => {
     expect(sent.length).toBe(2);
     expect(sent.every((m) => /شام/.test(m.text))).toBe(true);
   });
-  it("pins identity on the Sham v2 Telegram route before any model fallback can answer", async () => {
-    const { bot, sent } = fakeBot();
-    await shamVariant.run("v2", () => handleNovaBotUpdate(bot, { id: "b", template: "NOVA_BOT" } as any, {
-      update_id: 817263,
-      message: { chat: { id: 5281 }, from: { id: 5281 }, text: "أنت شام أم نوفا؟" },
-    }));
-    expect(sent).toHaveLength(1);
-    expect(sent[0].text).toContain("أنا شام v2");
-    expect(sent[0].text).toContain("لست نوفا");
+  it("does not intercept Sham v2 identity questions with a canned Telegram reply", () => {
+    const logic = read("src/lib/novaBotLogic.ts");
+    const agent = read("src/lib/shamAgent.ts");
+    expect(logic).not.toMatch(/shamV2IdentityAnswer|identity is a routing invariant/);
+    expect(agent).not.toMatch(/SHAM_V2_IDENTITY_ANSWER|shamV2IdentityAnswer/);
+    expect(logic).toContain("shamAgentAndSend");
   });
   it("the bot route no longer reads the flag: Nova's coder handler runs for every NOVA_BOT update (the chat's own model decides)", () => {
     const route = read("src/app/api/telegram/[botId]/route.ts");

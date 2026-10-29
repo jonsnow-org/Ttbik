@@ -1,4 +1,4 @@
-import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, shamV2IdentityAnswer, type ShamAsk } from "@/lib/shamAgent";
+import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
 import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamVariant } from "@/lib/shamStudio";
 
@@ -17,20 +17,26 @@ describe("Sham's own agent loop", () => {
   });
 
   it.each([
-    ["من أنت؟", "أنا شام v2"],
-    ["أنت شام أم نوفا؟", "لست نوفا"],
-    ["هل أنت Nova؟", "لست نوفا"],
-    ["Who are you?", "أنا شام v2"],
-    ["Are you Sham or Nova?", "لست نوفا"],
-  ])("Sham v2 identity is fixed for %j", async (question, expected) => {
-    expect(shamV2IdentityAnswer(question)).toContain(expected);
+    "من أنت؟",
+    "أنت شام أم نوفا؟",
+    "هل أنت Nova؟",
+    "Who are you?",
+    "Are you Sham or Nova?",
+  ])("lets the Sham v2 model generate its own identity answer for %j", async (question) => {
     const seen: string[] = [];
+    const generated = "أنا شام v2، مساعد مستقل. نوفا نظام منفصل.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say("أنا نوفا")], seen),
+      text: question,
+      history: [{ q: "من أنت؟", a: "أنا نوفا" }],
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(generated)], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: expect.stringContaining("أنا شام v2"), used: [], steps: 0 });
-    expect(seen).toHaveLength(0); // identity is answered before the model or conversation memory can alter it
+    expect(r).toMatchObject({ kind: "text", text: generated });
+    expect(seen).toHaveLength(1); // the model generated the answer; no pre-model shortcut
+    expect(seen[0]).toContain(question);
+    expect(seen[0]).toContain("بكلماتك الطبيعية");
+    expect(seen[0]).not.toContain("شام: أنا نوفا"); // a wrong prior self-identification is not fed back as trusted context
+    expect(seen[0]).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا"); // no canned reply is embedded in the application
   });
 
   it("does not change the old Sham v1 identity path", async () => {
