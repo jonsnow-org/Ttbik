@@ -28,7 +28,7 @@ import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
-import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 
@@ -742,7 +742,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
     if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
     await addUsage(chatId, "tasks", 1, db);
     const runId = `sham-${chatId}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
-    await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: content.slice(0, 200), botId: botRow.id });
+    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), source: "interactive", title: content.slice(0, 200), botId: botRow.id });
     await taskEvent(runId, "info", `بدأت المهمة باستخدام ${st.model === "sham_v2" ? "شام v2" : "شام"}.`, db).catch(() => null);
     later(() => import("@/lib/novaBotLogic").then((m) => m.runShamMiniAppTask(bot, chatId, content, botRow.id, runId, sham.variant, sham.mode)).catch(async (e) => {
       await taskEvent(runId, "failed", String((e as Error)?.message || e).slice(0, 300), db).catch(() => null);

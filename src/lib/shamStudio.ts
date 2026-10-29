@@ -186,7 +186,7 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
 export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
 
 async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
-  if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return null; }
+  if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return null; }
   // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
   const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0);
   const bases = shamBases();
@@ -205,7 +205,7 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
   const reply = body ? await vetShamReply(parseShamReply(body)) : null;
-  if (body && !reply) lastFailure = `generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
+  if (body && !reply) setFailure(`generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return reply;
 }
 
@@ -214,7 +214,7 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
  * still validates every argument and permission. This never routes to Sham v1 or Nova. */
 export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], maxNewTokens = 160, timeoutMs = 90000): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
-    lastFailure = "agent_step refused outside the Sham v2 variant";
+    setFailure("agent_step refused outside the Sham v2 variant");
     return null;
   }
   const body = await shamCall("agent_step", { prompt, tools_json: JSON.stringify(tools), max_new_tokens: maxNewTokens }, timeoutMs);
@@ -222,13 +222,13 @@ export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], m
   if (reply?.type === "tool_calls") {
     const calls = Array.isArray(reply.tool_calls) ? reply.tool_calls : reply.message?.tool_calls;
     if (!calls?.length || calls.some((c) => !c || c.type !== "function" || !c.function?.name || typeof c.function.arguments !== "string")) {
-      lastFailure = "agent_step: malformed structured tool_calls envelope";
+      setFailure("agent_step: malformed structured tool_calls envelope");
       return { type: "tool_call_error", text: "استجابة استدعاء الأدوات المنظّمة غير صالحة؛ لم تُنفّذ أي أداة." };
     }
     return { ...reply, tool_calls: calls };
   }
   if (reply?.type === "tool_call_error" || reply?.type === "text" || reply?.type === "busy" || reply?.type === "loading" || reply?.type === "notice" || reply?.type === "error") return reply;
-  if (body) lastFailure = `agent_step: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`;
+  if (body) setFailure(`agent_step: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return null;
 }
 
@@ -256,8 +256,8 @@ export async function shamGenerateMedia(
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
     const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: 0 }) }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body)) : null;
-    if (body && !reply) lastFailure = "generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
-    if (!body && !lastFailure) lastFailure = "generate_video: the Sham v2 video Studio did not answer";
+    if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
+    if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");
     return reply;
   }
   const scenes = Array.isArray(opts.scenes)
@@ -266,7 +266,7 @@ export async function shamGenerateMedia(
   const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? await vetShamReply(parseShamReply(body)) : null;
-  if (body && !reply) lastFailure = api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")";
+  if (body && !reply) setFailure(api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
   return reply;
 }
 
@@ -303,11 +303,14 @@ export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promi
 // Each call has its own short timeout; the outcome says WHY when there is no answer, so the bot can tell the user the truth.
 export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
 
-/** The last failed Studio call (api, which Studio, why): shown to the owner under a failure message, so a failure is read, not guessed. */
-let lastFailure = "";
-export const shamLastFailure = (): string => lastFailure;
-export const shamNoteFailure = (why: string): void => { lastFailure = why; };
-const note = (base: string, api: string, why: string) => { lastFailure = `${api} @ ${base.replace(/^https?:\/\/(studio-novaai2026-)?/, "").slice(0, 40)}: ${why}`; };
+/** Failure diagnostics are model-local so concurrent Sham v1/v2 calls cannot overwrite each other's error. */
+const lastFailureByVariant = new Map<"v1" | "v2", string>();
+const failureVariant = (): "v1" | "v2" => shamVariant.getStore() || "v1";
+const getFailure = (): string => lastFailureByVariant.get(failureVariant()) || "";
+const setFailure = (why: string): void => { lastFailureByVariant.set(failureVariant(), why); };
+export const shamLastFailure = (): string => getFailure();
+export const shamNoteFailure = (why: string): void => { setFailure(why); };
+const note = (base: string, api: string, why: string) => { setFailure(api + " @ " + base.replace(/^https?:\/\/(studio-novaai2026-)?/, "").slice(0, 40) + ": " + why); };
 
 async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
@@ -331,7 +334,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
 }
 
 async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
-  if (!shamStudioEnabled()) { lastFailure = `${api}: MODELSCOPE_API_TOKEN is empty in this environment`; return { reply: null, failure: "off" }; }
+  if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return { reply: null, failure: "off" }; }
   const payload = withMode(payload0);
   const bases = shamBases();
   const t0 = Date.now();

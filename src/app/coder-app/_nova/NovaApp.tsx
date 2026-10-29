@@ -55,7 +55,7 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
 }
 
 // ---------------------------------------------------------------- private live terminal inside the default Nova UI
-function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fixedRunId?: string; compact?: boolean }) {
+function TerminalScreen({ lang, fixedRunId, compact = false, model = "all" }: { lang: Lang; fixedRunId?: string; compact?: boolean; model?: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<Ev[]>([]);
@@ -78,6 +78,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const sendLock = useRef(false);
   const cursor = useRef(0);
   const ar = lang === "ar";
+  const terminalModel = model === "sham_loop" ? "sham" : model;
+  const modelQuery = terminalModel === "all" ? "" : `&model=${encodeURIComponent(terminalModel)}`;
   const fetchJson = useCallback(async (url: string) => {
     const r = await fetch(url, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
     const d = await r.json().catch(() => ({}));
@@ -88,7 +90,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     if (loadBusy.current) return;
     loadBusy.current = true;
     try {
-      const d = await fetchJson("/api/coder/terminal?limit=40");
+      const d = await fetchJson(`/api/coder/terminal?limit=40${modelQuery}`);
       setTasks(d.tasks || []);
       setPending(d.pending || []);
       setAsking(d.asking || null);
@@ -106,7 +108,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       setError("");
     } catch (e: any) { setError(e?.message || "API error"); }
     finally { loadBusy.current = false; }
-  }, [fetchJson]);
+  }, [fetchJson, fixedRunId, modelQuery]);
   useEffect(() => {
     // quick while a task runs (status, approvals, questions), relaxed when idle; always one request at a time
     let stop = false;
@@ -134,7 +136,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       while (!stopped) {
         controller = new AbortController();
         try {
-          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(selected)}&after=${cursor.current}`, {
+          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(selected)}&after=${cursor.current}${modelQuery}`, {
             headers: { "x-telegram-init-data": rawInitData() },
             cache: "no-store",
             signal: controller.signal,
@@ -190,7 +192,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     };
     void connect();
     return () => { stopped = true; controller?.abort(); };
-  }, [selected]);
+  }, [selected, modelQuery]);
   useEffect(() => {
     if (logsOpen && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [events, logsOpen]);
@@ -430,10 +432,15 @@ const anchorOf = (el: HTMLElement): Anchor => {
 };
 function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; onPicked: () => void; onClose: () => void }) {
   const [pickError, setPickError] = useState("");
+  const [switching, setSwitching] = useState(false);
+  const switchingRef = useRef(false);
   useEffect(() => (at !== null ? bindBack(true, onClose) : undefined), [at, onClose]);
   if (at === null) return null;
   const list = d ? d.owner || d.models : [];
   const pick = async (id: string) => {
+    if (switchingRef.current) return;
+    switchingRef.current = true;
+    setSwitching(true);
     haptic("select");
     setPickError("");
     try {
@@ -445,6 +452,9 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
     } catch (e: any) {
       haptic("error");
       setPickError(e?.message || "تعذّر حفظ النموذج. بقي النموذج السابق محدداً.");
+    } finally {
+      switchingRef.current = false;
+      setSwitching(false);
     }
   };
   return (
@@ -455,7 +465,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
         {!d ? <Loading /> : list.map((m) => {
           const o = d.owner?.find((x) => x.id === m.id);
           return (
-            <button key={m.id} type="button" role="option" aria-selected={m.selected} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
+            <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
               <span className="n-body">
                 <span className="n-t">{m.name[lang]}{m.price_stars ? <span className="n-pro">{n.pro}</span> : null}{o && !o.visible ? <span className="n-chip">{n.hidden}</span> : null}</span>
                 <span className="n-s">{m.desc[lang]}</span>
@@ -704,7 +714,7 @@ function Chats({ c }: { c: Ctx }) {
       {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
       {me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
         <div style={{ margin: "0 0 16px", minHeight: 180 }}>
-          <TerminalScreen lang={lang} compact />
+          <TerminalScreen lang={lang} model={me?.settings.model || "coder"} compact />
         </div>
       )}
       {note && (
@@ -907,7 +917,7 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
       {/* Terminal for this conversation — logs stay in Mini App only */}
       {(() => {
         const active = d.tasks.find((k) => live(k.status));
-        return active ? <div style={{ margin: "12px 0" }}><TerminalScreen lang={c.lang} fixedRunId={active.run_id} compact /></div> : null;
+        return active ? <div style={{ margin: "12px 0" }}><TerminalScreen lang={c.lang} model="coder" fixedRunId={active.run_id} compact /></div> : null;
       })()}
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</button>

@@ -128,17 +128,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
-      let carried = 0;
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
-        const { listModels, chooseModel, canonModelId } = await import("@/lib/coderModels");
-        const C = await import("@/lib/coderChats");
-        const from = canonModelId(st.model) || "coder";
+        const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
-        // switching in the middle of a conversation: the new model gets the conversation so far as its open chat (connectors are the user's and are already there)
-        // `carry: false` switches without it (a clean start in the other model's own last chat)
-        const to = canonModelId(st.model) || "coder";
-        if (body.carry !== false && C.isChatModel(from) && C.isChatModel(to)) carried = await C.carryConversation(chatId, st, from, to, db).catch(() => 0);
+        // Model switching changes routing only. Never import or copy the previous model's conversation.
+        // Connectors belong to the user account and remain available to every permitted model.
       }
       // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
       const accIn = normalizePref(body.accuracy);
@@ -165,7 +160,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
       await saveStateStrict(chatId, st, db);
-      return { ok: true, carried, model: st.model || "coder" };
+      return { ok: true, model: st.model || "coder" };
     }
     // what Sham / Sham v2 have learned about this user: view, and forget only that (the conversations stay) — the owner's or an exposed Sham only
     case "sham_memory": {
@@ -224,10 +219,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok };
     }
     case "stop": {
-      // the same as /stop: the Studio job is cancelled too, so it does not hold the queue
-      const slot = typeof body.slot === "string" && /^(|s:[a-f0-9]{12})$/.test(body.slot) ? body.slot : "";
+      const runId = String(body.runId || "");
+      const requestedSlot = typeof body.slot === "string" ? body.slot : "";
+      if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot)) {
+        const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
+        const actualSlot = await taskSlot(runId, chatId, db);
+        if (actualSlot !== requestedSlot) return { ok: false };
+        return { ok: await stopTaskRow(chatId, runId, db) };
+      }
+      const slot = /^(|s:[a-f0-9]{12})$/.test(requestedSlot) ? requestedSlot : "";
       const { stopRun } = await sections();
-      return { ok: await stopRun(chatId, slot, String(body.runId || ""), db) };
+      return { ok: await stopRun(chatId, slot, runId, db) };
     }
     case "task_stop":
     case "stop_all": {

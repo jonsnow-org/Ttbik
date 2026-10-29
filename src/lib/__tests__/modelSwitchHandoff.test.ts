@@ -1,5 +1,4 @@
-// The Mini App model switch in the middle of a conversation: the new model gets the same connectors at once AND reads the conversation so far,
-// then carries on. Chat-list ops per model, through the real op layer, on a real SQL engine.
+// Model switching is routing-only: every model keeps a distinct transcript and task feed.
 import { appOp, AppError } from "@/lib/coderApp";
 import { loadState, saveState } from "@/lib/coderSections";
 import { updateModel } from "@/lib/coderModels";
@@ -10,6 +9,7 @@ import { shamContext, shamTools } from "@/lib/shamExec";
 import { connectedIds } from "@/lib/coderConnectors";
 import { fakeBot } from "./coderFakes";
 import { pgDb } from "./pgDb";
+import { listTasks, taskStart } from "@/lib/coderTasks";
 
 const OWNER = 4242, USER = 9001;
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
@@ -94,63 +94,77 @@ describe("owner's expose toggle", () => {
   });
 });
 
-describe("switching model mid-conversation", () => {
-  it("Nova → Sham v2: the same connectors at once, the conversation so far is read, and the work continues; back again with the new turns", async () => {
+describe("switching model keeps independent conversation histories", () => {
+  it("Nova → Sham v2 changes routing, not conversation content; connectors remain account-level", async () => {
     const { db, d } = setup();
     await appOp(o, "connector_link", { id: "vercel", token: "vercel-token-ok-1" }, d);
     await novaSay(db, [["أنشئ لي موقعاً", "أنشأت المجلد site"], ["أضف صفحة about", "أضفتها"]]);
 
     const sw = await appOp(o, "settings", { model: "sham_v2" }, d);
-    expect(sw.carried).toBe(4);
-    // connectors: the same, immediately (the user's, not the model's)
+    expect(sw).toMatchObject({ ok: true, model: "sham_v2" });
+    expect((await loadState(OWNER, db)).model).toBe("sham_v2");
+    expect(await S.listThreads(OWNER, "v2", {}, db)).toEqual([]);
+    expect((await loadState(OWNER, db)).messages.map((m: any) => m.content)).toEqual([
+      "أنشئ لي موقعاً", "أنشأت المجلد site", "أضف صفحة about", "أضفتها",
+    ]);
+
     expect(await connectedIds(OWNER, db)).toContain("vercel");
     const ctx = await shamContext(OWNER, "bot1", db);
     expect(ctx.connectors).toContain("vercel");
     expect(shamTools(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)).map((t) => t.function.name)).toEqual(expect.arrayContaining(["connector_api", "mcp_call"]));
-    // history: Sham v2's open chat IS the conversation, and its next message is answered with it in context
-    await shamVariant.run("v2", async () => {
-      const mem = await S.loadChatMemory(OWNER, "تابع", db);
-      expect(mem?.history.map((t) => t.q)).toEqual(["أنشئ لي موقعاً", "أضف صفحة about"]);
-      expect(mem?.history.map((t) => t.a)).toEqual(["أنشأت المجلد site", "أضفتها"]);
-      await S.saveChatTurn(OWNER, "انشره على vercel", "نشرت الموقع", db);
-    });
-    expect((await S.listThreads(OWNER, "v2", {}, db))[0].turns).toBe(3);
-    // nothing leaked into old Sham
-    expect(await S.listThreads(OWNER, "v1", {}, db)).toEqual([]);
 
-    // back to Nova: it reads what happened in Sham v2 too, and the connector is still there
-    const back = await appOp(o, "settings", { model: "coder" }, d);
-    expect(back.carried).toBe(6);
-    const st = await loadState(OWNER, db);
-    expect(st.model).toBe("coder");
-    expect(st.messages.map((m: any) => m.content)).toEqual(["أنشئ لي موقعاً", "أنشأت المجلد site", "أضف صفحة about", "أضفتها", "انشره على vercel", "نشرت الموقع"]);
+    await shamVariant.run("v2", () => S.saveChatTurn(OWNER, "أول طلب في شام v2", "رد شام v2", db));
+    const v2Memory = await shamVariant.run("v2", () => S.loadChatMemory(OWNER, "سؤال تالٍ", db));
+    expect(v2Memory?.history.map((x) => x.q)).toEqual(["أول طلب في شام v2"]);
+
+    await appOp(o, "settings", { model: "coder" }, d);
+    const state = await loadState(OWNER, db);
+    expect(state.model).toBe("coder");
+    expect(state.messages.map((m: any) => m.content)).toEqual([
+      "أنشئ لي موقعاً", "أنشأت المجلد site", "أضف صفحة about", "أضفتها",
+    ]);
+    expect((await S.listThreads(OWNER, "v2", {}, db))[0].title).toBe("أول طلب في شام v2");
     expect(await connectedIds(OWNER, db)).toContain("vercel");
-    // the original Nova chat is still in Nova's list (nothing was lost on the way)
-    expect((await appOp(o, "chats", { model: "coder" }, d)).items.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("a switch with nothing said in between carries nothing, and ping-pong does not pile up copies", async () => {
+  it("Sham v1 and Sham v2 never copy messages to one another when switched", async () => {
     const { db, d } = setup();
-    await novaSay(db, [["سؤال", "جواب"]]);
-    expect((await appOp(o, "settings", { model: "sham" }, d)).carried).toBe(2);
-    expect((await appOp(o, "settings", { model: "coder" }, d)).carried).toBe(0);              // sham's chat only holds what it was handed
-    expect((await appOp(o, "settings", { model: "sham" }, d)).carried).toBe(2);               // Nova's open chat is still the same conversation
-    expect((await S.listThreads(OWNER, "v1", {}, db)).length).toBeLessThanOrEqual(2);
-    // an empty conversation carries nothing
-    const e = setup();
-    expect((await appOp(o, "settings", { model: "sham_v2" }, e.d)).carried).toBe(0);
-    expect(await S.listThreads(OWNER, "v2", {}, e.db)).toEqual([]);
-  });
+    await shamVariant.run("v1", () => S.saveChatTurn(OWNER, "سؤال شام القديم", "جواب شام القديم", db));
+    expect((await S.listThreads(OWNER, "v1", {}, db))[0].title).toBe("سؤال شام القديم");
 
-  it("carry:false switches cleanly; the same model again is a no-op; the model's own chat is kept", async () => {
-    const { db, d } = setup();
-    await novaSay(db, [["a", "b"]]);
-    expect((await appOp(o, "settings", { model: "sham_v2", carry: false }, d)).carried).toBe(0);
+    await appOp(o, "settings", { model: "sham_v2" }, d);
     expect(await S.listThreads(OWNER, "v2", {}, db)).toEqual([]);
-    expect((await appOp(o, "settings", { model: "sham_v2" }, d)).carried).toBe(0);
+    await shamVariant.run("v2", () => S.saveChatTurn(OWNER, "سؤال شام الجديد", "جواب شام الجديد", db));
+    const v2Memory = await shamVariant.run("v2", () => S.loadChatMemory(OWNER, "سؤال تالٍ", db));
+    expect(v2Memory?.history.map((x) => x.q)).toEqual(["سؤال شام الجديد"]);
+
+    await appOp(o, "settings", { model: "sham" }, d);
+    const v1Memory = await shamVariant.run("v1", () => S.loadChatMemory(OWNER, "سؤال تالٍ", db));
+    expect(v1Memory?.history.map((x) => x.q)).toContain("سؤال شام القديم");
+    expect(v1Memory?.history.map((x) => x.q)).not.toContain("سؤال شام الجديد");
+    expect((await S.listThreads(OWNER, "v2", {}, db))[0].title).toBe("سؤال شام الجديد");
   });
 
-  it("a user who may not use Sham cannot switch to it, and nothing is carried", async () => {
+  it("filters task history by the selected model", async () => {
+    const { db } = setup();
+    await taskStart(OWNER, { runId: "isol-sham-v1", slot: "sham_v1", source: "interactive", title: "v1" }, db);
+    await taskStart(OWNER, { runId: "isol-sham-v2", slot: "sham_v2", source: "interactive", title: "v2" }, db);
+    await taskStart(OWNER, { runId: "isol-nova", slot: "", source: "interactive", title: "Nova" }, db);
+    const v1 = await listTasks(OWNER, { model: "sham" }, db);
+    const v2 = await listTasks(OWNER, { model: "sham_v2" }, db);
+    const nova = await listTasks(OWNER, { model: "coder" }, db);
+    expect(v1.map((x) => x.run_id)).toContain("isol-sham-v1");
+    expect(v1.map((x) => x.run_id)).not.toContain("isol-sham-v2");
+    expect(v1.map((x) => x.run_id)).not.toContain("isol-nova");
+    expect(v2.map((x) => x.run_id)).toContain("isol-sham-v2");
+    expect(v2.map((x) => x.run_id)).not.toContain("isol-sham-v1");
+    expect(v2.map((x) => x.run_id)).not.toContain("isol-nova");
+    expect(nova.map((x) => x.run_id)).toContain("isol-nova");
+    expect(nova.map((x) => x.run_id)).not.toContain("isol-sham-v1");
+    expect(nova.map((x) => x.run_id)).not.toContain("isol-sham-v2");
+  });
+
+  it("a user who may not use Sham cannot switch to it, and no transcript is imported", async () => {
     const { db, d } = setup();
     await expect(appOp(u, "settings", { model: "sham_v2" }, d)).rejects.toThrow(AppError);
     expect(await S.listThreads(USER, "v2", {}, db)).toEqual([]);
