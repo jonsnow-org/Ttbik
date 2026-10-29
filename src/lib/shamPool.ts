@@ -55,7 +55,7 @@ export async function refreshOverflow(base = overflowConfigured() || "", fetchIm
     const line = (await res.text()).split("\n").find((l) => l.startsWith("data:")) || "";
     const arr = JSON.parse(line.slice(5).trim()) as unknown[];
     const st = JSON.parse(String(arr[0])) as { phase?: string; model?: string };
-    const ok = st.phase === "ready" && st.model === V2_MODEL;
+    const ok = st.phase === "ready" && st.model === V2_MODEL && !/nova|coder/i.test(st.model || "");
     verdict = { ok, at: Date.now(), base, why: ok ? "ready" : `phase=${st.phase || "?"} model=${st.model || "unreported"}` };
   } catch (e) {
     verdict = { ok: false, at: Date.now(), base, why: `unreachable: ${String((e as Error)?.message || e).slice(0, 60)}` };
