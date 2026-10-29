@@ -72,14 +72,14 @@ export function isRetryableDriveError(error: unknown): boolean {
 }
 
 /**
- * Resuming is safe only before a tool has run: polling an existing Studio job is read-only,
- * and preparing context has not submitted a model request. Tool execution and ambiguous model
- * submissions must fail visibly rather than risk duplicate side effects.
+ * Resuming is safe only before a tool has run: polling an existing Studio job and handling a
+ * pending/progress result are read-only with respect to model/tool side effects; preparing context
+ * has not submitted a model request. Tool execution and ambiguous model submissions must not retry.
  */
 export function shouldResumeDriveAfterError(stage: string, error: unknown, run: DriveRecoveryState): boolean {
   if (!isRetryableDriveError(error)) return false;
-  if (stage !== "prepare-context" && stage !== "poll-model-job") return false;
+  if (stage !== "prepare-context" && stage !== "poll-model-job" && stage !== "process-model-progress") return false;
   if (run.pending || run.asking || run.delegating || (run.queued?.length || 0) > 0) return false;
-  if (stage === "poll-model-job" && !run.job) return false;
+  if ((stage === "poll-model-job" || stage === "process-model-progress") && !run.job) return false;
   return (run.driveRetries || 0) < 2;
 }
