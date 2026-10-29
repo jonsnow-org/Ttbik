@@ -7,6 +7,7 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/supervision/sham_v2_chat_smoke.py
+      - src/lib/shamAgent.ts
       - .github/workflows/sham-v2-chat-smoke.yml
   workflow_run:
     workflows:
