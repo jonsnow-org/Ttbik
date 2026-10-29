@@ -53,7 +53,7 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
   it("on the internal route a blank result says honestly that the internal path is still training and points to the ready route", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_internal");
     studio({ type: "image", b64: b64(await png("black", 512)) });
-    const r = await generateShamMediaThroughRoute("image", "a red apple");
+    const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
     expect(r.type).toBe("error");
     expect(r.text).toMatch(/قيد التدريب/);
     expect(r.text).toMatch(/الأوزان الجاهزة/);
