@@ -23,6 +23,8 @@ import urllib.request
 REPO = os.environ.get("SHAM_RESTARTER_REPO", "jonsnow-org/Ttbik")
 WORKFLOW = "sham-restarter.yml"
 REF = "sham-main"
+PUBLISH_WORKFLOW = "publish-sham-v2-trained.yml"
+PUBLISH_REF = "claude/free-services-marketplace-h6rwk2"
 DEFAULT_DELAY = 240
 _STATE = {"installed": False, "fired": False}
 
@@ -70,23 +72,39 @@ def _request(token: str, delay: int) -> urllib.request.Request:
                  "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"})
 
 
+def _publish_request(token: str) -> urllib.request.Request:
+    body = json.dumps({"ref": PUBLISH_REF, "inputs": {}}).encode()
+    return urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}/actions/workflows/{PUBLISH_WORKFLOW}/dispatches",
+        data=body, method="POST",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"})
+
+
+def _send_dispatch(opener, request: urllib.request.Request, label: str) -> bool:
+    try:
+        with opener(request, timeout=20) as response:
+            ok = getattr(response, "status", 204) in (200, 201, 204)
+        print(f"sham_trigger_restarter: {label} {'requested' if ok else 'not accepted'}")
+        return ok
+    except Exception as exc:
+        print(f"sham_trigger_restarter: {label} skipped ({type(exc).__name__})")
+        return False
+
+
 def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: str | None = None) -> bool:
     if _STATE["fired"] or os.environ.get("SHAM_NO_RESTART_TRIGGER") == "1":
         return False
-    if token is None and not os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):      # not in a Kaggle kernel (CI, dev machine): never send a live request by accident
+    if token is None and not os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
         return False
     tok = token or _token()
     if not tok:
         return False
     _STATE["fired"] = True
-    try:
-        with opener(_request(tok, delay), timeout=20) as r:
-            ok = getattr(r, "status", 204) in (200, 201, 204)
-        print(f"sham_trigger_restarter: {'requested' if ok else 'not accepted'} (restarter in ~{delay}s)")
-        return ok
-    except Exception as exc:
-        print(f"sham_trigger_restarter: skipped ({type(exc).__name__})")
-        return False
+    # Cell 25 has just uploaded the complete training checkpoint and its metrics.
+    # The publisher has independent quality gates and leaves production untouched on any failure.
+    _send_dispatch(opener, _publish_request(tok), "trained-checkpoint publisher")
+    return _send_dispatch(opener, _request(tok, delay), f"restarter (in ~{delay}s)")
 
 
 def install(delay: int = DEFAULT_DELAY) -> None:
@@ -113,7 +131,10 @@ def _self_test() -> None:
         os.environ.pop(k, None)
     assert trigger(opener=opener) is False and not sent            # no token -> silent no-op
     assert trigger(5, opener=opener, token="secret") is True
-    assert sent == [{"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}}]
+    assert sent == [
+        {"ref": PUBLISH_REF, "inputs": {}},
+        {"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}},
+    ]
     assert trigger(opener=opener, token="secret") is False          # once per process
     _STATE["fired"] = False
     def bad(*a, **k): raise OSError("net")
