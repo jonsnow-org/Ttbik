@@ -1771,10 +1771,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     if (run.job) {
       onStage("poll-model-job");
       const o = cached && cached.job === run.job ? { reply: cached } : await coderJobResult(run.job, 0, Math.min(10000, left() - 2000));
-      onStage("process-model-result");
-      run.driveRetries = 0;
       cached = null;
       const r: CoderReply | null = o.reply;
+      onStage(r?.type === "pending" ? "process-model-progress" : "process-model-result");
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
         if (run.compacting && r?.type !== "cancelled" && !(!r && pollTransient(o))) {
           run.job = undefined;                        // the summary job failed: the harness writes the summary itself
@@ -1913,6 +1912,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           return;
         }
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
+        run.driveRetries = 0; // a successful progress-processing pass clears only after its awaited work succeeds
         await saveState(chatId, st, db, slot);
         await typing(ioBot, chatId);
         // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
