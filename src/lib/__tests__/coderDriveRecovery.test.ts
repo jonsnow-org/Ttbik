@@ -15,10 +15,12 @@ describe("Nova runner error recovery", () => {
   it("resumes only safe model-poll/context stages and never an active tool call", () => {
     const job = { job: "s0~job-123", driveRetries: 0 };
     expect(shouldResumeDriveAfterError("poll-model-job", new Error("fetch failed"), job)).toBe(true);
+    expect(shouldResumeDriveAfterError("process-model-progress", new Error("fetch failed"), job)).toBe(true);
     expect(shouldResumeDriveAfterError("execute-tool:github_edit_file", new Error("fetch failed"), job)).toBe(false);
     expect(shouldResumeDriveAfterError("submit-model-request", new Error("fetch failed"), {})).toBe(false);
     expect(shouldResumeDriveAfterError("poll-model-job", new Error("invalid response"), job)).toBe(false);
     expect(shouldResumeDriveAfterError("poll-model-job", new Error("fetch failed"), { ...job, queued: [{ id: "pending" }] })).toBe(false);
+    expect(shouldResumeDriveAfterError("process-model-progress", new Error("fetch failed"), { ...job, delegating: { id: "d" } })).toBe(false);
   });
 
   it("caps recovery attempts so persistent failures become visible", () => {
