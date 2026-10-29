@@ -40,7 +40,7 @@ export const shamHost: ShamHost = {
     ok: async (chatId, metric, amount, db) => (await checkLimit(chatId, metric, amount, d(db))).ok,
     add: (chatId, metric, amount, db) => addUsage(chatId, metric, amount, d(db)),
   },
-  memory: (chatId, tool, args, runId, db) => memoryTool(chatId, tool, args, runId, d(db)),
+  memory: (memoryKey, tool, args, runId, db) => memoryTool(memoryKey, tool, args, runId, d(db)),
   schedules: {
     list: async (chatId, db) => {
       const rows = await S.listSchedules(chatId, d(db));
