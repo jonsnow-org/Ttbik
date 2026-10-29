@@ -84,12 +84,17 @@ describe("Mini App settings op", () => {
   });
 
   it("a user cannot edit a model that is not open to them; Nova is always allowed", async () => {
-    const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
-    // The configured Studio token triggers the legacy rollout migration; explicitly establish the hidden state this test is asserting.
-    await updateModel("sham_v2", { visible: false }, db);
-    await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
-    await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
-    expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN; // Sham is not ready, while Nova remains available to the user.
+    try {
+      const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
+      await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
+      await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
+      expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
   });
 
   it("the settings reach the runtime: Sham's context carries the chosen Sham's own think / accuracy / media", async () => {
