@@ -73,6 +73,7 @@ def call(api: str, payload: dict, timeout: int = 180):
 def norm(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).lower()
     text = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", text)
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ى", "ي")
     return re.sub(r"[\W_]+", " ", text, flags=re.UNICODE).strip()
 
 
