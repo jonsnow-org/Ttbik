@@ -13,6 +13,29 @@ function modelsDb(): Db {
 }
 
 describe("coder models", () => {
+  it("keeps a legacy hidden Sham v2 row hidden until the Studio token exists", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN;
+    try {
+      const db = modelsDb();
+      await db.exec(
+        "INSERT INTO coder_models (id, data) VALUES ($1, $2::jsonb)",
+        "sham_v2",
+        JSON.stringify({ name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, price_stars: null, visible: false }),
+      );
+      const before = await listModels(db);
+      expect(before.find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 0 });
+      expect(publicModels(before, "sham_v2").map((m) => m.id)).not.toContain("sham_v2");
+
+      process.env.MODELSCOPE_API_TOKEN = "test-token";
+      const after = await listModels(db);
+      expect(after.find((m) => m.id === "sham_v2")).toMatchObject({ visible: true, publicRolloutVersion: 1 });
+      expect(publicModels(after, "sham_v2").map((m) => m.id)).toContain("sham_v2");
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
   it("migrates legacy hidden Sham v2 to public once when the Studio token is configured", async () => {
     const previous = process.env.MODELSCOPE_API_TOKEN;
     process.env.MODELSCOPE_API_TOKEN = "test-token";
