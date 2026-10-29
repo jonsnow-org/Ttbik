@@ -128,6 +128,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
+      const { isolateLegacyCarryState } = await import("@/lib/coderChats");
+      await isolateLegacyCarryState(chatId, st, db);
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
