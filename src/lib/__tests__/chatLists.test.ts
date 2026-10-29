@@ -24,6 +24,17 @@ describe("Sham chat list", () => {
     expect(await S.openThread(V, "v2", l2[0].id, db)).toBe(false);          // nor by another user
   });
 
+  it("does not fall back to shared history when variant-scoped memory cannot be read or written", async () => {
+    const execCalls: string[] = [];
+    const db: any = {
+      exec: async (sql: string) => { execCalls.push(sql); throw new Error("database unavailable"); },
+      query: async () => { throw new Error("database unavailable"); },
+    };
+    await expect(asV("v2", () => S.loadChatMemory(U, "سؤال شام v2", db))).resolves.toBeNull();
+    await expect(asV("v2", () => S.saveChatTurn(U, "سؤال شام v2", "جواب شام v2", db))).resolves.toBeUndefined();
+    expect(execCalls.some((sql) => /INSERT INTO sham_chat_memory/i.test(sql))).toBe(false);
+  });
+
   it("a new chat starts empty; opening an old one brings back its full history; the other chat is not mixed in", async () => {
     const db: any = pgDb();
     await asV("v2", async () => {
