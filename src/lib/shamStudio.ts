@@ -137,7 +137,10 @@ export type ShamReply = {
 };
 
 export function parseShamReply(body: string): ShamReply | null {
-  const raw = parseShamSse(body);
+  // Runtime SSE reads return the decoded data payload directly; older callers and tests may
+  // still pass a complete SSE body. Accept both formats to keep every route consistent.
+  const unwrapped = parseShamSse(body);
+  const raw = unwrapped ?? body.trim();
   if (!raw) return null;
   try {
     const obj = JSON.parse(raw);
@@ -289,7 +292,7 @@ export async function shamChatMemory(
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {
   const body = await shamCall("memory_forget", { user_id: userId }, timeoutMs);
-  return Boolean(body && parseShamSse(body));
+  return Boolean(body);
 }
 
 // ---- think (2026-10-14): ONE step where the model decides (reply / its own search / picture / sound / clip). No keyword rules on this path.
