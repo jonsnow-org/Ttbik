@@ -37,6 +37,7 @@ describe("shamStudio", () => {
   it("reads the Studio's JSON reply (text, image, audio, notice)", () => {
     const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
     expect(parseShamReply(body({ type: "text", text: "مرحبا" }))).toEqual({ type: "text", text: "مرحبا" });
+    expect(parseShamReply(JSON.stringify({ type: "text", text: "محتوى SSE المفكوك" }))).toEqual({ type: "text", text: "محتوى SSE المفكوك" });
     expect(parseShamReply(body({ type: "image", mime: "image/png", b64: "AAAA" }))?.type).toBe("image");
     expect(parseShamReply(body({ type: "audio", mime: "audio/wav", b64: "BBBB" }))?.b64).toBe("BBBB");
   });
