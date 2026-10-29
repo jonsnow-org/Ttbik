@@ -16,12 +16,19 @@ export function shamToolsEnabled(): boolean {
 }
 
 const FORMAT_BASE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.';
-const FORMAT_ASK = " إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟) فاسأله بـ ask_user ولا تخمّن.";
+const FORMAT_ASK = " إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة.";
 const FORMAT_CODE = " وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.";
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
 /** Which tool fits which request (measured on the new body: it read a GitHub file with the VM tool, did not save a memory, and opened a PR instead of pushing). Shown only for tools that are loaded. */
 const EXAMPLES: [string, string][] = [
+  ["github_repo_scan", "بدء تحليل مستودع GitHub ← github_repo_scan(repo)"],
+  ["github_read_files", "قراءة ملفات المشروع الأساسية معاً ← github_read_files(repo, paths)"],
+  ["github_ci", "التحقق من نتائج البناء والاختبارات ← github_ci(repo, ref)"],
+  ["github_prs", "فحص طلبات الدمج ← github_prs(repo, state)"],
+  ["connector_api", "قراءة نشر Vercel المرتبط ← connector_api(service, GET, path)"],
+  ["mcp_list_tools", "معرفة الأدوات الفعلية لخادم MCP ← mcp_list_tools(server)"],
+  ["mcp_call", "استدعاء أداة MCP بعد التأكيد ← mcp_call(server, tool, arguments)"],
   ["github_read_file", "قراءة ملف من مستودع GitHub ← github_read_file(repo, path)"],
   ["memory_save", "«تذكّر أن…» ← memory_save(text)"],
   ["sandbox_push", "رفع التعديلات إلى GitHub ← sandbox_push(repo, branch, message)"],
