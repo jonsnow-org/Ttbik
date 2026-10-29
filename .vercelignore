@@ -1,0 +1,8 @@
+# This Vercel project builds the Next.js website. These services run separately.
+ai-system/
+training/
+media-bot/
+
+# Repository workflows and quarantined legacy implementations are not site runtime files.
+.github/
+quarantine/
