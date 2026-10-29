@@ -52,7 +52,7 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
       let visible = d.visible === undefined ? base.visible : Boolean(d.visible);
       let publicRolloutVersion = Number(d.publicRolloutVersion || 0);
       // One-time migration: old persisted Sham v2 rows were hidden. Persist the marker so owner changes are not overridden.
-      if (r.id === "sham_v2" && publicRolloutVersion < 1) {
+      if (r.id === "sham_v2" && publicRolloutVersion < 1 && studioTokenSet()) {
         visible = true;
         publicRolloutVersion = 1;
         await db.exec(
