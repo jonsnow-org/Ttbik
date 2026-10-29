@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
-import { taskEvents } from "@/lib/coderTasks";
+import { prismaDb } from "@/lib/coderAuth";
+import { taskEvents, type TaskModelFilter } from "@/lib/coderTasks";
 import { terminalAllowed } from "@/lib/coderPlans";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const runId = String(q.get("runId") || "").slice(0, 64);
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
+  const requestedModel = String(q.get("model") || "all");
+  if (!["all", "coder", "sham", "sham_v2"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400 });
+  const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
   let cursor = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
 
   let cancelled = false;
@@ -46,7 +50,7 @@ export async function GET(req: NextRequest) {
       try {
         write(": connected\n\n");
         while (!closed && !cancelled && Date.now() - started < 270000) {
-          const rows = await taskEvents(user.id, runId, cursor);
+          const rows = await taskEvents(user.id, runId, cursor, prismaDb, modelFilter);
           for (const ev of rows) {
             if (closed) break;
             cursor = Math.max(cursor, ev.id);

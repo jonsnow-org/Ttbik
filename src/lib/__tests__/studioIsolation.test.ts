@@ -1,7 +1,7 @@
 // Each model uses only its own Studios: Nova (coder-inference-*), Sham v1 (sham-v1-*), Sham v2 (sham-v2-* + the nova-inference-server overflow, added on purpose by shamPool).
 // Even with a polluted environment (every URL in every variable) no call may cross to another model's Studio. See docs/STUDIOS.md.
 import { coderStudioUrls } from "@/lib/openCoderStudio";
-import { shamBases, shamVariant } from "@/lib/shamStudio";
+import { shamBases, shamLastFailure, shamNoteFailure, shamVariant } from "@/lib/shamStudio";
 import { _resetPoolForTests } from "@/lib/shamPool";
 
 const NOVA = ["https://studio-x-coder-inference-server.api-inference.modelscope.net", "https://studio-x-coder-inference-server-2.api-inference.modelscope.net"];
@@ -43,4 +43,21 @@ describe("Studio pools never mix models", () => {
     expect(coderStudioUrls()).not.toContain(OVER);
     expect(await shamVariant.run("v1", async () => shamBases())).not.toContain(OVER);
   });
+  it("keeps v1 and v2 failure diagnostics isolated when calls overlap", async () => {
+    shamVariant.run("v1", () => shamNoteFailure(""));
+    shamVariant.run("v2", () => shamNoteFailure(""));
+    await Promise.all([
+      shamVariant.run("v1", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        shamNoteFailure("v1 timeout");
+      }),
+      shamVariant.run("v2", async () => {
+        await Promise.resolve();
+        shamNoteFailure("v2 HTTP 503");
+      }),
+    ]);
+    expect(shamVariant.run("v1", () => shamLastFailure())).toBe("v1 timeout");
+    expect(shamVariant.run("v2", () => shamLastFailure())).toBe("v2 HTTP 503");
+  });
+
 });

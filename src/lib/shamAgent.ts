@@ -29,7 +29,8 @@ export type ShamAgentResult =
   | { kind: "reply"; reply: ShamReply; used: string[]; steps: number }       // Sham answered with a picture / sound / clip of its own: the caller sends it
   | { kind: "confirm"; call: CoderToolCall; used: string[]; steps: number }   // a write to the user's repository: the user is asked before it runs
   | { kind: "more"; messages: CoderMessage[]; used: string[]; steps: number }   // not finished inside this leg: the state goes to the next leg (the shared background runner)
-  | { kind: "none"; used: string[]; steps: number };                          // the Studio did not answer in the time left
+  | { kind: "none"; used: string[]; steps: number }
+  | { kind: "stopped"; used: string[]; steps: number };                      // user-requested cancellation
 
 export type ShamStepEvent = { type: "think" } | { type: "queue"; text: string } | { type: "tool_start"; name: string; args: string } | { type: "tool_end"; name: string; ok: boolean };
 export type ShamAsk = (prompt: string, maxNew: number, timeoutMs: number) => Promise<ShamReply | null>;
@@ -161,11 +162,13 @@ export async function shamAgentRun(opts: {
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
-  continuable?: boolean;                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
+  continuable?: boolean;
+  shouldStop?: () => Promise<boolean>;        // model-specific cooperative cancellation check                    // true: out of time / steps with work still going = hand over to the next leg instead of answering now
 }): Promise<ShamAgentResult> {
   const now = opts.now || Date.now;
   const t0 = now();
   const left = () => opts.budgetMs - (now() - t0);
+  const isStopped = async (): Promise<boolean> => { try { return Boolean(await opts.shouldStop?.()); } catch { return false; } };
   // ONE mode system (src/lib/modes.ts): this request's class (greeting / chat / code / agent / media) and the user's mode + Auto decide the answer budget, sampling, correction
   // rounds and whether the body writes a thought first. A greeting or a media request never thinks; the user's "thinking" switch applies to code / agent work, first step.
   const variant = shamVariant.getStore();
@@ -261,9 +264,12 @@ export async function shamAgentRun(opts: {
       isRepeatedPriorAnswer(answer, opts.history || []) ||
       isNonAnswerBoilerplate(answer, opts.text) ||
       toolInventoryBad(answer);
+    if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
+    if (await isStopped()) return { kind: "stopped", used, steps: 1 };
     let waited = 0;
     while (direct && (direct.type === "busy" || direct.type === "loading") && left() > 12000 && waited < 2) {
+      if (await isStopped()) return { kind: "stopped", used, steps: waited };
       waited++;
       const info = opts.queueNote ? await opts.queueNote(waited).catch(() => null) : null;
       opts.onEvent?.("info", info || `⏳ طلبك في الدور وسيبدأ تلقائياً (محاولة ${waited})`);
@@ -271,6 +277,7 @@ export async function shamAgentRun(opts: {
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 2500));
       direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     }
+    if (await isStopped()) return { kind: "stopped", used, steps: 1 + waited };
     if (direct?.type === "text" && directBad(String(direct.text || "")) && left() > 4000) {
       opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
       const retryPrompt = [
@@ -283,6 +290,7 @@ export async function shamAgentRun(opts: {
       ].join("\n");
       direct = await ask(retryPrompt, maxNew, Math.min(opts.askMs ?? 20000, Math.max(1000, left() - 500)));
     }
+    if (await isStopped()) return { kind: "stopped", used, steps: 2 };
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
       if (answer && !directBad(answer)) return { kind: "text", text: answer, used, steps: 1 };
@@ -353,12 +361,14 @@ export async function shamAgentRun(opts: {
   };
 
   for (; steps < maxSteps; steps++) {
+    if (await isStopped()) return { kind: "stopped", used, steps };
     if (left() < 6000) break;
     // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
     const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
     const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
+    if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
     for (let q = 1; (reply?.type === "busy" || reply?.type === "loading") && left() > 14000 && q <= 12; q++) {
       const info = opts.queueNote ? await opts.queueNote(q).catch(() => null) : null;
@@ -396,6 +406,7 @@ export async function shamAgentRun(opts: {
       const again = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\nشام: ${text.slice(0, 300)}\n[تصحيح من المحرك] الأداة أعادت خطأً (انظر نتيجة الأداة أعلاه). أعد الاستدعاء بمعاملات صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
       if (again && (again.type === "text" || again.type === "tool_calls")) { text = String(again.text || ""); p = unpackToolReply(again, toolsNow); }
     }
+    if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
       const final = (p.text || text).trim();
@@ -440,11 +451,13 @@ export async function shamAgentRun(opts: {
     if (write) return { kind: "confirm", call: write, used, steps: steps + 1 };
     messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
     for (const c of valid.slice(0, 3)) {
+      if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
       used.push(c.function.name);
       opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
       opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
       let result: string;
       try { result = c.function.name === "delegate" ? await runDelegate(c) : await exec(c, opts.ctx); } catch (e) { result = `error: ${(e as Error).message || "tool failed"}`; }
+      if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
       opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(String(result)) });
       opts.onEvent?.("info", clip(String(result), 300));
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(String(result), toolClip) } as CoderMessage);

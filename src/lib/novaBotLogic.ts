@@ -16,7 +16,7 @@ import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/sham
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
 import { postShamContinuation } from "@/lib/shamContinuation";
-import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
+import { shamTaskSlot, taskEvent, taskIsActive, taskStart, taskStatus, taskTouch } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
 import { shamLastFailure, shamModeCtx, shamVariant } from "@/lib/shamStudio";
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
@@ -842,6 +842,11 @@ const SHAM_LEGS = 6;                                   // a long task may use up
 
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
 async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false): Promise<boolean> {
+  if (r.kind === "stopped") {
+    if (runId) { await taskEvent(runId, "info", "أُوقفت المهمة بناءً على طلب المستخدم.").catch(() => null); await taskStatus(runId, "stopped").catch(() => null); }
+    if (!appOnly) { await cardDrop(bot, chatId, card); await bot.api.sendMessage(chatId, "⏹️ أُوقفت المهمة.").catch(() => null); }
+    return true;
+  }
   if (r.kind === "none") { await cardDrop(bot, chatId, card); if (runId) { await taskEvent(runId, "failed", "no answer from Sham in time").catch(() => null); await taskStatus(runId, "failed").catch(() => null); } return false; }
   if (r.kind === "more") {                              // continue only after the saved context exists and the continuation route accepts it
     if (leg === 0 && !appOnly) { if (!(await cardSay(bot, chatId, card, cardRender(card, ["⏳ أكمل العمل في الخلفية، وسأحدّث هذه الرسالة بالنتيجة حين أنتهي."])))) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null); }
@@ -925,7 +930,8 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     const last = run.leg >= SHAM_LEGS;
     const card: Card | null = run.card?.msgId ? cardRestore(run.card) : null;
     const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last });
+    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 10, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
+    if (run.runId && !(await taskIsActive(run.runId))) return;
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
       await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
@@ -947,7 +953,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   await refreshPressure().catch(() => false);
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // one message: the model's understanding + real progress; a failure is written into it, a picture / video is sent separately
-  await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
+  await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
   const fail = async (msg: string, detail = "") => {
     await taskEvent(runId, "failed", detail || msg).catch(() => null);
     await taskStatus(runId, "failed").catch(() => null);
@@ -1002,7 +1008,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
   await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
-  await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
+  await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: detailedReply ? 95000 : 50000, askMs: detailedReply ? 85000 : 44000, maxNew: Math.min(shamReplyTokens(), detailedReply ? 320 : 160), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
@@ -1011,21 +1017,37 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
 
 /** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
 export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text: string, botId: string, runId: string, variant: "v1" | "v2", mode: Record<string, unknown>): Promise<void> {
-  await shamVariant.run(variant, () => shamModeCtx.run(mode as never, async () => {
-    try {
-      if (!shamStudioEnabled()) throw new Error("Sham Studio is not configured (MODELSCOPE_API_TOKEN is missing).");
-      const ctx = await shamToolCtx(chatId, botId);
-      ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };
-      const mem = await loadChatMemory(chatId, text);
-      const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
-      const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true });
-      await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true);
-    } catch (e) {
-      const message = String((e as Error)?.message || e).slice(0, 300);
-      await taskEvent(runId, "failed", message).catch(() => null);
-      await taskStatus(runId, "failed").catch(() => null);
-    }
-  }));
+  let stage = "startup";
+  const heartbeat = setInterval(() => { void taskTouch(runId).catch(() => null); }, 15000);
+  try {
+    await shamVariant.run(variant, () => shamModeCtx.run(mode as never, async () => {
+      try {
+        stage = "check model availability";
+        await taskEvent(runId, "info", `تهيئة ${variant === "v2" ? "شام v2" : "شام"} المستقل...`).catch(() => null);
+        if (!shamStudioEnabled()) throw new Error("Sham Studio is not configured (MODELSCOPE_API_TOKEN is missing).");
+        stage = "load tools and account";
+        const ctx = await shamToolCtx(chatId, botId);
+        ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };
+        stage = "load model-specific conversation";
+        await taskEvent(runId, "info", "جاري تحميل سياق المحادثة الخاص بالنموذج...").catch(() => null);
+        const mem = await loadChatMemory(chatId, text);
+        const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+        stage = "generate with selected Sham variant";
+        await taskEvent(runId, "info", `جاري التوليد عبر ${variant === "v2" ? "استوديو شام v2" : "استوديو شام v1"} فقط.`).catch(() => null);
+        const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 50000, askMs: 44000, maxNew: Math.min(shamReplyTokens(), 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
+        if (!(await taskIsActive(runId))) return;
+        stage = "deliver model result";
+        await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true);
+      } catch (e) {
+        const detail = String((e as Error)?.message || e).replace(/\s+/g, " ").slice(0, 240);
+        const message = `${variant === "v2" ? "شام v2" : "شام"} — ${stage}: ${detail}`;
+        await taskEvent(runId, "failed", message).catch(() => null);
+        await taskStatus(runId, "failed", 0).catch(() => null);
+      }
+    }));
+  } finally {
+    clearInterval(heartbeat);
+  }
 }
 // true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
 // The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
