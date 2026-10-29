@@ -91,7 +91,14 @@ def main() -> int:
     status = None
     deadline = time.time() + 300
     while time.time() < deadline:
-        status = call("status", {}, timeout=30)
+        try:
+            status = call("status", {}, timeout=30)
+        except (TimeoutError, URLError, OSError) as exc:
+            # During a Studio restart ModelScope may briefly return HTTP 404/503.
+            # Treat that as "deploying" and retry within the same 300s deadline.
+            status = {"phase": "deploying", "error": type(exc).__name__}
+            time.sleep(5)
+            continue
         if isinstance(status, str):
             try:
                 status = json.loads(status)
