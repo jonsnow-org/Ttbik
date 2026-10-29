@@ -10,7 +10,7 @@ import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
-import { chatKey, type loadMemory } from "@/lib/shamMemory";
+import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
@@ -1053,8 +1053,11 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
 // The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
 async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
   const t0 = Date.now();
+  const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") throw new Error("Missing selected Sham variant for memory context.");
+  const memoryKey = mem?.chatKey || modelMemoryKey(chatId, variant);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-  const first = await shamThinkPatient(text, mem?.chatKey || chatKey(chatId), mem, shamReplyTokens(), 28000, 40000);
+  const first = await shamThinkPatient(text, memoryKey, mem, shamReplyTokens(), 28000, 40000);
   if (shamThinkUnavailable(first)) return false;
   const r = first.reply;
   let reasked = false;
@@ -1082,7 +1085,7 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     if (o.reply?.type === "gone" && !reasked && left > 20000) {
       // the Studio restarted and lost the job: the same message is asked again once (Nova does the same for a lost step) instead of asking the user to resend
       reasked = true;
-      const again = await shamThink(text, mem?.chatKey || chatKey(chatId), mem, shamReplyTokens(), Math.min(25000, left - 4000));
+      const again = await shamThink(text, memoryKey, mem, shamReplyTokens(), Math.min(25000, left - 4000));
       if (again.reply?.type === "pending" && again.reply.job) { job = again.reply.job; continue; }
       if (again.reply && again.reply.type !== "pending" && again.reply.type !== "gone") { await done(again.reply); return true; }
     }

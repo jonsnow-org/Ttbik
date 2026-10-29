@@ -1,18 +1,21 @@
-import { shamMediaRoute } from "@/lib/shamExec";
 import { shamEngine, targetOf } from "@/lib/shamMediaEngine";
 import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
 export type ShamMediaKind = "image" | "audio" | "video";
 
-/** Make the media on the engine the owner chose FOR THIS MODEL (Sham v2 and the old Sham each have their own; src/lib/shamMediaEngine.ts). Never auto-switch to another route.
- *  A call outside any Sham chat (no model context) keeps the older single global route. */
+/** Make media on the engine selected FOR THIS MODEL (Sham v2 and old Sham each have their own).
+ * Calls without an explicit model context are refused; media must never fall back to a shared global route. */
 export async function generateShamMediaThroughRoute(
   kind: ShamMediaKind,
   prompt: string,
   opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply> {
   const model = shamVariant.getStore();
-  const route = model ? targetOf(model === "v2" ? "sham_v2" : "sham", await shamEngine(model === "v2" ? "sham_v2" : "sham")).route : await shamMediaRoute();
+  if (model !== "v1" && model !== "v2") {
+    return { type: "error", route: "unselected", reason: "model_not_selected", text: "No Sham model was selected for this media request; no Studio was called." };
+  }
+  const modelId = model === "v2" ? "sham_v2" : "sham";
+  const route = targetOf(modelId, await shamEngine(modelId)).route;
   const timeoutMs = Math.min(240000, Math.max(8000, opts.timeoutMs ?? 240000));
   try {
     let reply: ShamReply | null;

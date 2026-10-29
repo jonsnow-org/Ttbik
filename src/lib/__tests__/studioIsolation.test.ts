@@ -1,4 +1,4 @@
-// Each model uses only its own Studios: Nova (coder-inference-*), Sham v1 (sham-v1-*), Sham v2 (sham-v2-* + the nova-inference-server overflow, added on purpose by shamPool).
+// Each model uses only its own Studios: Nova (coder-inference-*), Sham v1 (sham-v1-*), Sham v2 (sham-v2-*), plus a separately verified Sham v2 overflow endpoint.
 // Even with a polluted environment (every URL in every variable) no call may cross to another model's Studio. See docs/STUDIOS.md.
 import { coderStudioUrls } from "@/lib/openCoderStudio";
 import { shamBases, shamLastFailure, shamNoteFailure, shamVariant } from "@/lib/shamStudio";
@@ -7,7 +7,7 @@ import { _resetPoolForTests } from "@/lib/shamPool";
 const NOVA = ["https://studio-x-coder-inference-server.api-inference.modelscope.net", "https://studio-x-coder-inference-server-2.api-inference.modelscope.net"];
 const V1 = ["https://studio-x-sham-v1-server.api-inference.modelscope.net"];
 const V2 = ["https://studio-x-sham-v2-server.api-inference.modelscope.net", "https://studio-x-sham-v2-server-2.api-inference.modelscope.net"];
-const OVER = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+const OVER = "https://studio-novaai2026-sham-v2-overflow-server.api-inference.modelscope.net";
 const ALL = [...NOVA, ...V1, ...V2, OVER];
 const saved = { ...process.env };
 beforeEach(() => { _resetPoolForTests(); process.env.OPEN_CODER_STUDIO_URL = ALL[3]; process.env.OPEN_CODER_STUDIO_URLS = ALL.join(","); process.env.SHAM_MODELSCOPE_URL = ALL.join(","); process.env.SHAM_V2_URL = ALL.join(","); process.env.SHAM_V2_OVERFLOW_URL = ""; });
@@ -38,10 +38,11 @@ describe("Studio pools never mix models", () => {
     for (let i = 0; i < 4; i++) firsts.add((await shamVariant.run("v2", async () => shamBases()))[0]);
     expect([...firsts].sort()).toEqual([...V2].sort());
   });
-  it("Sham v2 overflow (nova-inference-server) is v2-only and never offered to Nova or v1", async () => {
+  it("Sham v2 overflow has a separate role and is never treated as a primary Studio", async () => {
     process.env.SHAM_V2_OVERFLOW_URL = OVER;
     expect(coderStudioUrls()).not.toContain(OVER);
     expect(await shamVariant.run("v1", async () => shamBases())).not.toContain(OVER);
+    expect(await shamVariant.run("v2", async () => shamBases())).not.toContain(OVER);
   });
   it("keeps v1 and v2 failure diagnostics isolated when calls overlap", async () => {
     shamVariant.run("v1", () => shamNoteFailure(""));

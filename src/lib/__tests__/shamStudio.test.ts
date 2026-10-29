@@ -1,6 +1,22 @@
-import { parseShamReply, parseShamSse, readShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, readShamSse, shamBases, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable, shamVariant } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
+  it("refuses inference without an explicit selected variant instead of choosing a default model", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch;
+    let calls = 0;
+    global.fetch = (async () => { calls++; throw new Error("should not be called"); }) as any;
+    try {
+      await expect(shamGenerateAny("من أنت؟")).resolves.toBeNull();
+      await expect(shamGenerate("من أنت؟")).resolves.toBeNull();
+      await expect(shamThink("من أنت؟", "test", null, 40, 1000)).resolves.toMatchObject({ reply: null, failure: "off" });
+      expect(calls).toBe(0);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
   it("reads the first data list of an SSE body", () => {
     expect(parseShamSse('event: complete\ndata: ["نص من شام"]\n')).toBe("نص من شام");
     expect(parseShamSse("event: error\ndata: null\n")).toBeNull();
@@ -74,12 +90,12 @@ describe("shamStudio think", () => {
     const real = global.fetch;
     let n = 0;
     global.fetch = (async () => { n++; throw Object.assign(new Error("down"), { name: "TypeError" }); }) as any;
-    const o = await shamThink("مرحبا", "1", null, 80, 30000);
+    const o = await shamVariant.run("v1", () => shamThink("مرحبا", "1", null, 80, 30000));
     expect(o.failure).toBe("network");
     expect(n).toBe(2);                       // the submit fetch, once more after the blip
     n = 0;
     global.fetch = (async () => { n++; throw Object.assign(new Error("slow"), { name: "TimeoutError" }); }) as any;
-    expect((await shamThink("مرحبا", "1", null, 80, 30000)).failure).toBe("timeout");
+    expect((await shamVariant.run("v1", () => shamThink("مرحبا", "1", null, 80, 30000))).failure).toBe("timeout");
     expect(n).toBe(1);
     global.fetch = real;
     delete process.env.MODELSCOPE_API_TOKEN;
@@ -94,7 +110,7 @@ describe("shamStudio think", () => {
         if (/call\/v2\//.test(url)) { sub++; return { ok: true, json: async () => ({ event_id: "e" }) } as any; }
         return { ok: true, text: async () => sse(replies[Math.min(n++, replies.length - 1)]) } as any;
       }) as any;
-      const o = await shamThinkPatient("مرحبا", "1", null, 80, 28000, 100000);
+      const o = await shamVariant.run("v1", () => shamThinkPatient("مرحبا", "1", null, 80, 28000, 100000));
       return { o, sub };
     };
     let x = await run([{ type: "busy" }, { type: "busy" }, { type: "text", text: "أهلاً" }]);
@@ -141,8 +157,6 @@ describe("Sham limits are settings, not code", () => {
   });
 });
 
-import { shamBases, shamVariant } from "@/lib/shamStudio";
-
 describe("shamStudio: more than one Studio, and the new body's own Studio", () => {
   const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
   const mock = (answers: Record<string, object>, seen: string[]) => (async (url: string) => {
@@ -153,12 +167,12 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
   }) as any;
   it("never routes Sham v1 to Nova's inference Studio even if a stale env value remains", () => {
     process.env.SHAM_MODELSCOPE_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
-    expect(shamBases()).toEqual(["https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"]);
+    expect(shamVariant.run("v1", () => shamBases())).toEqual(["https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"]);
     delete process.env.SHAM_MODELSCOPE_URL;
   });
   it("the new body uses SHAM_V2_URL (default: its own Studio), the old one SHAM_MODELSCOPE_URL", () => {
     process.env.SHAM_MODELSCOPE_URL = "https://old.example"; delete process.env.SHAM_V2_URL;
-    expect(shamBases()).toEqual(["https://old.example"]);
+    expect(shamVariant.run("v1", () => shamBases())).toEqual(["https://old.example"]);
     expect(shamVariant.run("v2", () => shamBases())[0]).toMatch(/sham-v2-server/);
     process.env.SHAM_V2_URL = "https://v2a.example, https://v2b.example/";
     process.env.SHAM_V2_OVERFLOW_URL = "off";                       // (the overflow Studio of Sham v2 has its own tests: shamPool.test.ts)
@@ -170,7 +184,7 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
     const real = global.fetch; const seen: string[] = [];
     global.fetch = mock({ "a.example": { type: "busy" }, "b.example": { type: "text", text: "من الثاني" } }, seen);
     for (let i = 0; i < 2; i++) {                                  // the start rotates, so one of the two calls starts at the busy Studio and must hop
-      const o = await shamThink("سؤال", "u1", null, 40, 20000);
+      const o = await shamVariant.run("v1", () => shamThink("سؤال", "u1", null, 40, 20000));
       expect(o.reply).toEqual({ type: "text", text: "من الثاني" });
     }
     expect(new Set(seen)).toEqual(new Set(["https://a.example", "https://b.example"]));
@@ -180,7 +194,7 @@ describe("shamStudio: more than one Studio, and the new body's own Studio", () =
     process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_MODELSCOPE_URL = "https://a.example,https://b.example";
     const real = global.fetch; const seen: string[] = [];
     global.fetch = mock({ "a.example": { type: "gone" }, "b.example": { type: "text", text: "جاهز" } }, seen);
-    const o = await shamJobResult("j1");
+    const o = await shamVariant.run("v1", () => shamJobResult("j1"));
     expect(o.reply?.text).toBe("جاهز");
     global.fetch = real; delete process.env.MODELSCOPE_API_TOKEN; delete process.env.SHAM_MODELSCOPE_URL;
   });
@@ -203,7 +217,7 @@ describe("one end-to-end time limit per call", () => {
       return new Promise<Response>((_, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "TimeoutError" }))));
     }) as typeof fetch;
     const t0 = Date.now();
-    expect(await shamGenerate("hi", 10, 1200)).toBeNull();
+    expect(await shamVariant.run("v1", () => shamGenerate("hi", 10, 1200))).toBeNull();
     expect(Date.now() - t0).toBeLessThan(1700);                 // 1200 limit in total, not 700 + 1200
   });
   it("several Studios in the pool share one limit: the second is not started with a fresh full limit", async () => {
@@ -212,7 +226,7 @@ describe("one end-to-end time limit per call", () => {
     const calls: string[] = [];
     global.fetch = hang(calls);
     const t0 = Date.now();
-    expect(await shamGenerateAny("hi", 10, 1600)).toBeNull();
+    expect(await shamVariant.run("v1", () => shamGenerateAny("hi", 10, 1600))).toBeNull();
     expect(Date.now() - t0).toBeLessThan(2300);                 // one 1600 ms limit, not two
     expect(calls.length).toBe(1);                               // the first one used all of it: no second attempt
   });
@@ -227,7 +241,7 @@ describe("one end-to-end time limit per call", () => {
       return new Response('event: complete\ndata: [' + JSON.stringify(JSON.stringify({ type: "text", text: "from b" })) + ']\n');
     }) as typeof fetch;
     const seen = new Set<string>();
-    for (let i = 0; i < 2; i++) { const r = await shamGenerateAny("hi", 10, 5000); if (r?.type === "text") seen.add(r.text || ""); }
+    for (let i = 0; i < 2; i++) { const r = await shamVariant.run("v1", () => shamGenerateAny("hi", 10, 5000)); if (r?.type === "text") seen.add(r.text || ""); }
     expect([...seen]).toEqual(["from b"]);
   });
 });

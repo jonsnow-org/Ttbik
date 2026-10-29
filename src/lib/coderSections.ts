@@ -31,6 +31,7 @@ import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryReq
 import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
+import { isolateLegacyCarryState } from "@/lib/coderChats";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -288,18 +289,19 @@ async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: C
 }
 
 /** Sham uses its own Studio; the selected model (and its access switch) decides whether this route may run. */
-async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean): Promise<boolean> {
+async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSelectedSham?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   const st = await loadStateStrict(chatId, db);
   const selectedId = st.model || (st.mode === "sham" ? "sham" : undefined); // recover a legacy Sham-section selection without rerouting Nova chats
   const canonical = selectedId === "sham_loop" ? "sham" : selectedId;
   if (canonical !== "sham" && canonical !== "sham_v2") return false;
   const models = await listModels(db);
-  if (owner) return Boolean(models.find((m) => m.id === canonical && modelReady(m)));
-  return publicShamSelection(canonical, models);
+  const allowed = owner ? Boolean(models.find((m) => m.id === canonical && modelReady(m))) : publicShamSelection(canonical, models);
+  if (allowed) onSelectedSham?.(canonical);
+  return allowed;
 }
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
-export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb): Promise<boolean> {
+export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
   // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
   if (update.message?.successful_payment) {
@@ -321,7 +323,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     // Sham has its own Studio. Its selected, ready model—not Nova's separate coder Studio—decides if this path can run.
     if (chatId && (update.message?.chat?.id || update.callback_query)) {
       try {
-        if (await canRouteSelectedSham(chatId, db, owner)) return false;
+        if (await canRouteSelectedSham(chatId, db, owner, onShamRoute)) return false;
         if (shamCallback) {
           await bot.api.answerCallbackQuery(update.callback_query.id, { text: "هذا النموذج غير متاح لهذا الحساب الآن.", show_alert: true }).catch(() => null);
           return true;
@@ -367,7 +369,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       if (owner) return false;                                // owner: the Sham handler's own buttons
       if (/^sham(ok|no)\|/.test(data)) {
         try {
-          if (await canRouteSelectedSham(chatId, db, false)) return false;
+          if (await canRouteSelectedSham(chatId, db, false, onShamRoute)) return false;
           await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب الآن.", show_alert: true }).catch(() => null);
           return true;
         } catch {
@@ -468,7 +470,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
-  if (st.mode === "sham") return false;                     // the existing Sham path, exactly as before
+  if (st.mode === "sham") {
+    const selected = st.model === "sham_v2" ? "sham_v2" : "sham";
+    onShamRoute?.(selected);                                  // snapshot this message's model before the route reads settings again
+    return false;
+  }
 
   if (cmd === "/start" || cmd === "/help") {
     later(() => prewarmChat(chatId, db));
@@ -2379,9 +2385,13 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 export async function shamContextFor(update: any, db: Db = prismaDb, modelOverride?: "sham" | "sham_v2"): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
-  const st = await loadState(chatId, db);
-  // A Mini App task snapshots the model chosen at submission time; a concurrent UI switch must not retarget it.
-  const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : "sham");
+  // State selection is routing-critical. Do not use the forgiving reader here: a transient read failure must never silently pick another model.
+  const st = await loadStateStrict(chatId, db);
+  // The previous release copied Nova's transcript into Sham when switching. Quarantine that legacy thread before it can become model input.
+  if (await isolateLegacyCarryState(chatId, st, db)) await saveStateStrict(chatId, st, db);
+  // A Mini App task or Telegram dispatch passes the model captured at submission/routing time.
+  const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
+  if (!selected) return null;
   const set = modelSettings(st, selected);
   return { variant: selected === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected) } };
 }

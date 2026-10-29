@@ -3,7 +3,7 @@
 import { shamVariant } from "@/lib/shamStudio";
 import * as S from "@/lib/shamThreads";
 import * as N from "@/lib/coderThreads";
-import { forgetMemory, loadMemory, saveTurn } from "@/lib/shamMemory";
+import { forgetFacts, forgetMemory, loadMemory, saveTurn } from "@/lib/shamMemory";
 import { pgDb } from "./pgDb";
 
 const U = 7001, V = 7002;
@@ -22,6 +22,37 @@ describe("Sham chat list", () => {
     expect(l3).toEqual([]);
     expect(await S.openThread(U, "v1", l2[0].id, db)).toBe(false);          // v2's chat cannot be opened as v1
     expect(await S.openThread(V, "v2", l2[0].id, db)).toBe(false);          // nor by another user
+  });
+
+  it("does not fall back to shared history when variant-scoped memory cannot be read or written", async () => {
+    const execCalls: string[] = [];
+    const db: any = {
+      exec: async (sql: string) => { execCalls.push(sql); throw new Error("database unavailable"); },
+      query: async () => { throw new Error("database unavailable"); },
+    };
+    await expect(asV("v2", () => S.loadChatMemory(U, "سؤال شام v2", db))).resolves.toBeNull();
+    await expect(asV("v2", () => S.saveChatTurn(U, "سؤال شام v2", "جواب شام v2", db))).resolves.toBeUndefined();
+    expect(execCalls.some((sql) => /INSERT INTO sham_chat_memory/i.test(sql))).toBe(false);
+  });
+
+  it("user facts and Studio memory keys are isolated between Sham v1 and Sham v2", async () => {
+    const db: any = pgDb();
+    await asV("v1", () => S.saveChatTurn(U, "اسمي أحمد", "تم حفظ الاسم", db));
+    await asV("v2", () => S.saveChatTurn(U, "اسمي ليلى", "تم حفظ الاسم", db));
+
+    const v1 = await asV("v1", () => S.loadChatMemory(U, "ما اسمي؟", db));
+    const v2 = await asV("v2", () => S.loadChatMemory(U, "ما اسمي؟", db));
+    expect(v1?.facts.name).toBe("أحمد");
+    expect(v2?.facts.name).toBe("ليلى");
+    expect(v1?.chatKey).toContain("|v1");
+    expect(v2?.chatKey).toContain("|v2");
+    expect(v1?.chatKey).not.toBe(v2?.chatKey);
+
+    expect(await forgetFacts(U, db, "v1")).toBe(true);
+    expect((await asV("v1", () => S.loadChatMemory(U, "ما اسمي؟", db)))?.facts.name).toBeUndefined();
+    expect((await asV("v2", () => S.loadChatMemory(U, "ما اسمي؟", db)))?.facts.name).toBe("ليلى");
+    expect((await S.listThreads(U, "v1", {}, db))[0].title).toBe("اسمي أحمد");
+    expect((await S.listThreads(U, "v2", {}, db))[0].title).toBe("اسمي ليلى");
   });
 
   it("a new chat starts empty; opening an old one brings back its full history; the other chat is not mixed in", async () => {
