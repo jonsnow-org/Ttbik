@@ -1,7 +1,6 @@
 import { pressureOn } from "@/lib/pressureMode";
-// Sham v2's Studio pool: the primary Studio(s) (SHAM_V2_URL) and ONE overflow Studio (SHAM_V2_OVERFLOW_URL, default sham v2 on the repurposed `nova-inference-server` repo,
-// 16 GB). Sham v2 requests go to the primary first; when it is congested the overflow takes the NEW request, and a busy / unreachable primary hands a call over at once.
-// Nothing here knows Nova: Nova's Studios are never in this pool, and Sham v1 never has an overflow.
+// Sham v2's Studio pool: dedicated primary endpoint(s) plus an optional, separately named overflow endpoint.
+// Overflow is never allowed to use Nova or Sham v1 endpoints. A real endpoint status check also confirms the Sham v2 checkpoint before use.
 //
 // Congestion signals (per process, kept in memory; Oracle is long-lived so they are meaningful there):
 //   - in flight: the primary already holds >= SHAM_V2_PRIMARY_MAX_INFLIGHT calls (default 1: a CPU Studio answers one at a time, the rest queue behind it)
@@ -9,7 +8,7 @@ import { pressureOn } from "@/lib/pressureMode";
 //   - failure:   the primary was busy / refused / unreachable in the last SHAM_V2_COOLDOWN_MS (default 60000)
 // The same three apply to the overflow, which is then used only as the last choice.
 
-export const DEFAULT_V2_OVERFLOW_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+export const DEFAULT_V2_OVERFLOW_URL = "https://studio-novaai2026-sham-v2-overflow-server.api-inference.modelscope.net";
 
 type Health = { inflight: number; ewmaMs: number; failUntil: number };
 const health = new Map<string, Health>();
@@ -22,15 +21,17 @@ export const poolConfig = () => ({
   cooldownMs: num(process.env.SHAM_V2_COOLDOWN_MS, 60000),
 });
 
-/** The overflow Studio of Sham v2, or null when switched off (SHAM_V2_OVERFLOW_URL=off). */
+/** The overflow Studio of Sham v2, or null when switched off or pointed at another model's endpoint. */
+const forbiddenOverflow = (base: string): boolean => /(?:nova-inference-server|coder-inference|sham-v1|sham-v2-video)/i.test(base);
 export function overflowConfigured(): string | null {
   const raw = (process.env.SHAM_V2_OVERFLOW_URL ?? DEFAULT_V2_OVERFLOW_URL).trim();
   if (!raw || /^(off|none|0)$/i.test(raw)) return null;
-  return raw.replace(/\/+$/, "");
+  const base = raw.replace(/\/+$/, "");
+  return forbiddenOverflow(base) ? null : base;
 }
 
-// The overflow Studio is only USED once it has proven it runs Sham v2 (its `status` names the model repo and phase "ready"): the repo `nova-inference-server` held an old
-// Sham copy before it was repurposed, and a wrong model must never answer a Sham v2 user. The verdict is refreshed in the background (5 min when good, 1 min when not).
+// The overflow is only used after its status proves it runs Sham v2; a wrong checkpoint must never answer a Sham v2 user.
+// The verdict is refreshed in the background (5 min when good, 1 min when not).
 const V2_MODEL = "novaai2026/sham-v2";
 let verdict = { ok: false, at: 0, base: "", why: "not checked yet" };
 export const overflowVerdict = () => ({ ...verdict });
@@ -43,7 +44,12 @@ export function overflowBase(): string | null {
   return verdict.ok && verdict.base === base ? base : null;
 }
 export async function refreshOverflow(base = overflowConfigured() || "", fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  if (!base) return false;
+  const normalized = String(base || "").replace(/\/+$/, "");
+  if (!normalized || forbiddenOverflow(normalized)) {
+    verdict = { ok: false, at: Date.now(), base: normalized, why: "refused cross-model Studio endpoint" };
+    return false;
+  }
+  base = normalized;
   verdict = { ...verdict, at: Date.now(), base };                           // one refresh at a time per interval
   const token = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   if (!token) { verdict = { ok: false, at: Date.now(), base, why: "no token" }; return false; }
