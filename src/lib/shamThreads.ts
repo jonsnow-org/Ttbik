@@ -5,7 +5,7 @@
 // with the other Sham's; the user's facts (name, city…) stay per user and are shared by every chat of the same Sham memory. This module imports no
 // Nova (coder*) module: the Mini App control plane (coderApp.ts) is the only place that carries a chat from one model to the other.
 import { prisma } from "@/lib/prisma";
-import { chatKey, ensureTables, loadMemory, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
+import { chatKey, ensureTables, loadMemory, modelMemoryKey, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 
 export type ShamVariantId = "v1" | "v2";
@@ -194,7 +194,7 @@ export async function loadChatMemory(chatId: number | string, text: string, db: 
   if (!variant) return null;
   try {
     const id = await activeThreadId(chatId, variant, db);
-    return await loadMemory(chatId, text, db, scopeKey(chatId, variant, id), shamModeCtx.getStore()?.memory);
+    return await loadMemory(chatId, text, db, scopeKey(chatId, variant, id), shamModeCtx.getStore()?.memory, modelMemoryKey(chatId, variant));
   } catch {
     // No shared-history fallback if thread scoping is unavailable.
     return null;
@@ -214,6 +214,6 @@ export async function saveChatTurn(chatId: number | string, question: string, an
     return;
   }
   if (!id) return;
-  await saveTurn(chatId, question, answer, db, scopeKey(chatId, variant, id), mem);
+  await saveTurn(chatId, question, answer, db, scopeKey(chatId, variant, id), mem, modelMemoryKey(chatId, variant));
   if (mem?.save !== false && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
 }
