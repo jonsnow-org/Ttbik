@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import AdSlot from "@/components/AdSlot";
 import AIToolsDirectory from "@/components/AIToolsDirectory";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -63,9 +62,6 @@ export default function AIToolsPageEnglish() {
         <strong>Note:</strong> These are third-party products, not services operated by Sham AI. Some features may require an account or paid plan. Review the provider's current plan details and privacy policy before using a service.
       </div>
 
-      <div className="mt-8">
-        <AdSlot position="in-content" label="Below the AI tools directory" />
-      </div>
     </main>
   );
 }

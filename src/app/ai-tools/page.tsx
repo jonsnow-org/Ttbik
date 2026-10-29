@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import AdSlot from "@/components/AdSlot";
 import AIToolsDirectory from "@/components/AIToolsDirectory";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -63,9 +62,6 @@ export default function AIToolsPage() {
         <strong>ملاحظة:</strong> هذه أدوات من جهات خارجية وليست خدمات يملكها شام AI. بعض الميزات تحتاج إلى حساب أو اشتراك، لذا تحقّق من تفاصيل الخطة وسياسة الخصوصية في الموقع الرسمي قبل الاستخدام.
       </div>
 
-      <div className="mt-8">
-        <AdSlot position="in-content" label="أسفل دليل أدوات الذكاء الاصطناعي" />
-      </div>
     </main>
   );
 }
