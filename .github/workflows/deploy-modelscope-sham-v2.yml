@@ -138,7 +138,7 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -uo pipefail
-          API="https://studio-\${OWNER}-\${REPO}.api-inference.modelscope.net"
+          API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
 
           # Bound the deploy request. A timeout is ambiguous (ModelScope may have accepted
           # the POST), so continue by observing Studio state rather than blindly posting again.
@@ -153,7 +153,7 @@ jobs:
               exit 1
             fi
           else
-            echo "deploy request response was not confirmed (HTTP \${deploy_code:-000}); observing current Studio state"
+            echo "deploy request response was not confirmed (HTTP ${deploy_code:-000}); observing current Studio state"
           fi
 
           show_logs() {
@@ -176,7 +176,7 @@ jobs:
             if [ "$studio_code" = "200" ]; then
               status=$(python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" < studio-status.json 2>/dev/null || true)
             fi
-            echo "$(date -u +%H:%M:%S) studio HTTP $studio_code; status=\${status:-unknown}; elapsed=\${SECONDS}s"
+            echo "$(date -u +%H:%M:%S) studio HTTP $studio_code; status=${status:-unknown}; elapsed=${SECONDS}s"
 
             case "$status" in
               *ail*|*rror*|*topped*)
