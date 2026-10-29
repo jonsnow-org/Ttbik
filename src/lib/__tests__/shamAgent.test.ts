@@ -39,6 +39,24 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا"); // no canned reply is embedded in the application
   });
 
+  it("retries a wrong Nova self-identification and returns a new model-generated answer", async () => {
+    const seen: string[] = [];
+    const generated = "أنا شام v2، مساعد مستقل عن نوفا.";
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "من أنت؟",
+      history: [{ q: "من أنت؟", a: "أنا نوفا" }],
+      ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("أنا نوفا"), say(generated)], seen),
+    }));
+
+    expect(r).toMatchObject({ kind: "text", text: generated });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toContain("أنا نوفا");
+    expect(seen[1]).toContain("نسب لك هوية نوفا بالخطأ");
+    expect(seen[1]).toContain("السؤال الحالي: من أنت؟");
+    expect(seen[1]).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا");
+  });
+
   it("does not change the old Sham v1 identity path", async () => {
     const seen: string[] = [];
     const oldAnswer = "جواب اختبار شام القديم";
