@@ -13,6 +13,74 @@ function modelsDb(): Db {
 }
 
 describe("coder models", () => {
+  it("preserves an owner's explicit visibility choice made before the Studio token exists", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN;
+    try {
+      const db = modelsDb();
+      await db.exec(
+        "INSERT INTO coder_models (id, data) VALUES ($1, $2::jsonb)",
+        "sham_v2",
+        JSON.stringify({ name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, price_stars: null, visible: false }),
+      );
+      await listModels(db); // Leave the legacy migration pending while the Studio is unavailable.
+      await updateModel("sham_v2", { visible: false }, db); // Explicit owner decision: keep it hidden.
+      expect((await listModels(db)).find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 1 });
+
+      process.env.MODELSCOPE_API_TOKEN = "test-token";
+      const after = await listModels(db);
+      expect(after.find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 1 });
+      expect(publicModels(after, "sham_v2").map((m) => m.id)).not.toContain("sham_v2");
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
+  it("keeps a legacy hidden Sham v2 row hidden until the Studio token exists", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN;
+    try {
+      const db = modelsDb();
+      await db.exec(
+        "INSERT INTO coder_models (id, data) VALUES ($1, $2::jsonb)",
+        "sham_v2",
+        JSON.stringify({ name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, price_stars: null, visible: false }),
+      );
+      const before = await listModels(db);
+      expect(before.find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 0 });
+      expect(publicModels(before, "sham_v2").map((m) => m.id)).not.toContain("sham_v2");
+
+      process.env.MODELSCOPE_API_TOKEN = "test-token";
+      const after = await listModels(db);
+      expect(after.find((m) => m.id === "sham_v2")).toMatchObject({ visible: true, publicRolloutVersion: 1 });
+      expect(publicModels(after, "sham_v2").map((m) => m.id)).toContain("sham_v2");
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
+  it("migrates legacy hidden Sham v2 to public once when the Studio token is configured", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    process.env.MODELSCOPE_API_TOKEN = "test-token";
+    try {
+      const db = modelsDb();
+      await db.exec(
+        "INSERT INTO coder_models (id, data) VALUES ($1, $2::jsonb)",
+        "sham_v2",
+        JSON.stringify({ name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, price_stars: null, visible: false }),
+      );
+      const first = await listModels(db);
+      expect(first.find((m) => m.id === "sham_v2")).toMatchObject({ visible: true, publicRolloutVersion: 1 });
+      expect(publicModels(first, "sham_v2").map((m) => m.id)).toContain("sham_v2");
+      expect(effectiveModel(first, "sham_v2", false).id).toBe("sham_v2");
+      await updateModel("sham_v2", { visible: false }, db);
+      const second = await listModels(db);
+      expect(second.find((m) => m.id === "sham_v2")).toMatchObject({ visible: false, publicRolloutVersion: 1 });
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
@@ -33,7 +101,7 @@ describe("coder models", () => {
     expect(publicModels(on, "sham").map((m) => m.id)).toEqual(["coder"]);           // switched on but not ready (no Studio token): still hidden from users
     process.env.MODELSCOPE_API_TOKEN = "t";
     const pub = publicModels(on, "sham");
-    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["sham", 150, true]]);
+    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["sham", 150, true], ["sham_v2", null, false]]);
     expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
     expect(ownerModels(on, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: true, ready: true });
     delete process.env.MODELSCOPE_API_TOKEN;

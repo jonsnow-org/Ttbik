@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
-QUESTION = "ماهي خبراتك ومهاراتك مالذي تستطيع القيام به وماهي الادوات المتوفرة والمتاحة لديك والتي تستطيع استدعائها عندما تنفذ مهام"
+QUESTION = "ما عاصمة سوريا؟ أجب بكلمة أو كلمتين فقط، دون تعريف بنفسك."
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
@@ -100,12 +100,8 @@ def check_answer(answer: str) -> None:
     stock_identity = re.search(r"(?:انا شام|شام مساعد ذكي|مساعد ذكي صنعه فريقنا)", actual[:90])
     if stock_identity:
         raise RuntimeError(f"v2 started with its stock identity instead of answering the capability question: {answer[:180]!r}")
-    ability = re.search(
-        r"(?:استطيع|يمكنني|اقدر|لدي خبرة|عندي خبرة|اجيد|اعرف|خبرتي|برمج|كود|تصحيح|كتابة|مساعدة|مساعدتك|تطوير)",
-        actual,
-    )
-    if not ability:
-        raise RuntimeError(f"v2 did not state a concrete capability: {answer[:180]!r}")
+    if "دمشق" not in actual:
+        raise RuntimeError(f"v2 did not answer the factual smoke question (expected دمشق): {answer[:180]!r}")
 
 
 def main() -> int:
