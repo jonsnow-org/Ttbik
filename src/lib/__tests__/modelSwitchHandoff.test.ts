@@ -10,6 +10,7 @@ import { connectedIds } from "@/lib/coderConnectors";
 import { fakeBot } from "./coderFakes";
 import { pgDb } from "./pgDb";
 import { listTasks, taskStart } from "@/lib/coderTasks";
+import { isolateLegacyCarryState } from "@/lib/coderChats";
 
 const OWNER = 4242, USER = 9001;
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
@@ -125,6 +126,31 @@ describe("switching model keeps independent conversation histories", () => {
     ]);
     expect((await S.listThreads(OWNER, "v2", {}, db))[0].title).toBe("أول طلب في شام v2");
     expect(await connectedIds(OWNER, db)).toContain("vercel");
+  });
+
+  it("quarantines a legacy Nova transcript that an older release had copied into Sham v2", async () => {
+    const { db } = setup();
+    const imported = await S.importTranscript(OWNER, "v2", [
+      { role: "user", text: "من أنت؟" },
+      { role: "assistant", text: "أنا نوفا" },
+    ], "من أنت؟", db);
+
+    const st = await loadState(OWNER, db);
+    st.model = "sham_v2";
+    st.mode = "sham";
+    st.carry = { model: "sham_v2", thread: imported.id, turns: imported.turns };
+    expect(await S.currentThreadId(OWNER, "v2", db)).toBe(imported.id);
+
+    expect(await isolateLegacyCarryState(OWNER, st, db)).toBe(true);
+    expect(st.carry).toBeUndefined();
+    const active = await S.currentThreadId(OWNER, "v2", db);
+    expect(active).not.toBe(imported.id);
+    expect((await S.listThreads(OWNER, "v2", { archived: "only" }, db)).map((x) => x.id)).toContain(imported.id);
+    expect((await S.listThreads(OWNER, "v2", { archived: "only" }, db)).find((x) => x.id === imported.id)?.title)
+      .toContain("معزول");
+    // Archiving preserves the old messages for review; the new active conversation is empty.
+    expect((await S.threadMessages(OWNER, "v2", imported.id, 20, db))?.[0]).toMatchObject({ q: "من أنت؟", a: "أنا نوفا" });
+    expect((await S.threadMessages(OWNER, "v2", active!, 20, db)) || []).toEqual([]);
   });
 
   it("Sham v1 and Sham v2 never copy messages to one another when switched", async () => {
