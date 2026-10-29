@@ -15,6 +15,7 @@ on:
       - ai-system/modelscope-sham/app.py
       - ai-system/modelscope-sham/requirements.txt
       - scripts/transplant/stage_sham_v2_studio.py
+      - .github/workflows/deploy-modelscope-sham-v2.yml
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
   workflow_run:
     workflows:
@@ -26,7 +27,8 @@ on:
 
 concurrency:
   group: deploy-modelscope-sham-v2
-  cancel-in-progress: false
+  # A stalled deploy must not block the next repair/redeploy attempt.
+  cancel-in-progress: true
 
 env:
   MS: https://www.modelscope.cn
@@ -37,7 +39,7 @@ jobs:
   deploy:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -135,35 +137,91 @@ jobs:
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1500; echo
+          set -uo pipefail
           API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
-          for i in $(seq 1 40); do
-            sleep 30
-            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
-            echo "$(date -u +%H:%M:%S) studio: $st"
-            case "$st" in
+
+          # Bound the deploy request. A timeout is ambiguous (ModelScope may have accepted
+          # the POST), so continue by observing Studio state rather than blindly posting again.
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 25 -o deploy-response.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true)
+          if [[ "$deploy_code" =~ ^[0-9]{3}$ ]] && [ "$deploy_code" != "000" ]; then
+            echo "deploy request HTTP $deploy_code"
+            head -c 1200 deploy-response.json || true
+            echo
+            if [ "$deploy_code" -ge 400 ]; then
+              echo "::error::ModelScope rejected the Studio deploy request (HTTP $deploy_code)"
+              exit 1
+            fi
+          else
+            echo "deploy request response was not confirmed (HTTP ${deploy_code:-000}); observing current Studio state"
+          fi
+
+          show_logs() {
+            for kind in build run; do
+              body=$(curl -sS --connect-timeout 5 --max-time 12 \
+                -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
+              echo "Studio $kind logs:"
+              echo "$body" | tail -c 4000 || true
+              echo
+            done
+          }
+
+          # At most 40 minutes of readiness polling; every network operation has a deadline.
+          SECONDS=0
+          while [ "$SECONDS" -lt 2400 ]; do
+            studio_code=$(curl -sS --connect-timeout 5 --max-time 12 \
+              -o studio-status.json -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+            status=""
+            if [ "$studio_code" = "200" ]; then
+              status=$(python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" < studio-status.json 2>/dev/null || true)
+            fi
+            echo "$(date -u +%H:%M:%S) studio HTTP $studio_code; status=${status:-unknown}; elapsed=${SECONDS}s"
+
+            case "$status" in
               *ail*|*rror*|*topped*)
-                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
-                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
-                exit 1;;
-              Running|running)
-                for j in $(seq 1 20); do
-                  ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
-                  [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
-                  echo "$out" | grep -q 'phase[^,]*ready' && exit 0
-                  if echo "$out" | grep -q 'phase[^,]*error'; then
-                    echo "::error::the Studio is running but the model server is in the error phase"
-                    curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                echo "::error::ModelScope Studio reported terminal state: $status"
+                show_logs
+                exit 1
+                ;;
+              Running|running|Ready|ready)
+                event_code=$(curl -sS --connect-timeout 5 --max-time 12 \
+                  -o status-event.json -w '%{http_code}' -X POST \
+                  -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
+                  "$API/gradio_api/call/v2/status" || true)
+                event_id=""
+                if [ "$event_code" = "200" ]; then
+                  event_id=$(python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" < status-event.json 2>/dev/null || true)
+                fi
+                response=""
+                if [ -n "$event_id" ]; then
+                  result_code=$(curl -sS --connect-timeout 5 --max-time 20 \
+                    -o status-result.txt -w '%{http_code}' \
+                    -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                  response=$(cat status-result.txt 2>/dev/null || true)
+                  echo "status API HTTP $result_code: $(echo "$response" | head -c 1000)"
+                  if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"|phase[^,]*ready'; then
+                    echo "Sham v2 Studio model server is ready."
+                    exit 0
+                  fi
+                  if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"error"|phase[^,]*error'; then
+                    echo "::error::Studio is running but its model server is in error phase"
+                    show_logs
                     exit 1
                   fi
-                  sleep 30
-                done
-                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
-                echo "::error::the model server was not ready in time"
-                exit 1;;
+                else
+                  echo "status probe did not return an event id (HTTP $event_code); retrying"
+                fi
+                ;;
+              *)
+                # Includes starting/loading/queued and temporary status API failures.
+                ;;
             esac
+            sleep 20
           done
-          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+
+          echo "::error::Studio/model did not report ready within 40 minutes"
+          show_logs
           exit 1
 
       - name: Install what the content checks need (numpy, pillow; ffmpeg ships on the runner)
