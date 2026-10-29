@@ -170,8 +170,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const m = (await listModels(db)).find((x) => x.id === model);
       if ((model !== "sham" && model !== "sham_v2") || !m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
       const M = await import("@/lib/shamMemory");
-      if (body.forget === true) return { ok: await M.forgetFacts(chatId, db), facts: {} };
-      return { facts: await M.shamFacts(chatId, db), enabled: M.shamMemoryEnabled() };
+      const variant = model === "sham_v2" ? "v2" : "v1";
+      if (body.forget === true) return { ok: await M.forgetFacts(chatId, db, variant), facts: {} };
+      return { facts: await M.shamFacts(chatId, db, variant), enabled: M.shamMemoryEnabled() };
     }
     case "pref_preset": {
       // one tap for the whole confirmation policy: "careful" asks for every category, "default" goes back to the tier defaults,
