@@ -115,8 +115,7 @@ def _speech_wav(root: Path, text: str) -> bytes:
 
 # Measured (scripts/modes-bench/image_bench.py, CPU, SDXS): 512 = 1.8 s, 640 = 2.7 s, 768 = 3.8 s per picture. 640 gives visibly more detail; 768 starts to repeat subjects (the model was trained at 512) and 2-3 steps DESTROY
 # the picture (SDXS is a one-step distilled model: noise), so the step count stays 1 and only the side moves, 512 -> 640.
-# SDXS is trained at 512 px; stay at its native resolution by default to reduce off-distribution subject repetition.
-IMAGE_SIDE = int(os.environ.get("SHAM_IMAGE_SIDE", "512"))
+IMAGE_SIDE = int(os.environ.get("SHAM_IMAGE_SIDE", "640"))
 
 
 def _image(root: Path, prompt: str, size: int = 0, seed: int = 0):
