@@ -59,7 +59,7 @@ jobs:
           d["enable_gpu"] = False
           with open(p, "w", encoding="utf-8") as f:
               json.dump(d, f, ensure_ascii=False, indent=2)
-              f.write("\\n")
+              f.write("\n")
           print("Retry metadata: enable_gpu=false; private notebook and existing datasets unchanged")
           PY
             set +e
