@@ -68,3 +68,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+
+  sham-v2-regression-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: athar/package-lock.json
+      - name: Install the repository's existing Jest test toolchain
+        run: npm ci --prefix athar
+      - name: Run Sham v2 routing and model-access regression tests
+        run: cd athar && npx jest --config ../jest.media.config.js --runInBand --runTestsByPath ../src/lib/__tests__/shamAgent.test.ts ../src/lib/__tests__/coderModels.test.ts
+
