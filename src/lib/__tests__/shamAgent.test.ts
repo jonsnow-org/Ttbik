@@ -93,6 +93,37 @@ describe("Sham's own agent loop", () => {
     expect(seen).toEqual([question]);
   });
 
+  it("routes a capability question about a named GitHub repository through Sham's own tools", async () => {
+    const agentPrompts: string[] = [], directSeen: string[] = [], ran: string[] = [];
+    const answers: any[] = [
+      {
+        type: "tool_calls",
+        text: "",
+        tool_calls: [{
+          id: "call_repo_scan",
+          type: "function",
+          function: { name: "github_repo_scan", arguments: JSON.stringify({ repo: "jonsnow-org/Ttbik" }) },
+        }],
+      },
+      say("قرأت معلومات المستودع من نتيجة الأداة."),
+    ];
+    const question = "هل لديك معرفة وقدرة على تحليل مستودع GitHub jonsnow-org/Ttbik؟";
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: question,
+      ctx,
+      tools: shamToolDefs(true),
+      budgetMs: 60000,
+      maxSteps: 4,
+      ask: script([say("جواب عام عن القدرات")], directSeen),
+      agentAsk: async (prompt) => { agentPrompts.push(prompt); return answers.shift() ?? null; },
+      exec: async (call) => { ran.push(call.function.name); return "default branch main; README.md; src/"; },
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "قرأت معلومات المستودع من نتيجة الأداة.", used: ["github_repo_scan"] });
+    expect(agentPrompts).toHaveLength(2);
+    expect(ran).toEqual(["github_repo_scan"]);
+    expect(directSeen).toHaveLength(0);
+  });
+
   it("Sham v2 passes model-authored identity text through unchanged", async () => {
     const seen: string[] = [];
     const question = "من أنت؟";
