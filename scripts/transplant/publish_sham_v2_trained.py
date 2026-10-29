@@ -14,7 +14,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 SHAM = ROOT / "ai-system" / "colab" / "sham_small"
@@ -93,6 +92,7 @@ def main() -> int:
     history = json.loads(files["v2_history.json"].read_text(encoding="utf-8"))
     require(isinstance(history, list), "v2_history.json must contain a list of training runs")
 
+    import torch
     source = files["final_merged.pt"]
     require(source.stat().st_size > 0, "Training checkpoint is empty")
     payload = torch.load(source, map_location="cpu", weights_only=False, mmap=True)
@@ -176,5 +176,34 @@ def main() -> int:
     return 0
 
 
+def _self_test() -> None:
+    good = {
+        "step": 42,
+        "tools_before": {"cases": 5, "valid": 3, "right": 1},
+        "tools_after": {"cases": 5, "valid": 4, "right": 2},
+        "arabic_after": {"arabic_cases": 3, "arabic_script": 2, "capital_syria": True, "python_code": True},
+        "train_loss_last": [3.2, 2.8, 2.3, 2.0, 1.8],
+    }
+    assert verify_metrics([good], 42) is good
+    for mutate in (
+        lambda x: x["tools_after"].update(right=0),
+        lambda x: x["arabic_after"].update(arabic_script=0),
+        lambda x: x["arabic_after"].update(python_code=False),
+        lambda x: x.update(step=41),
+    ):
+        bad = json.loads(json.dumps(good))
+        mutate(bad)
+        try:
+            verify_metrics([bad], 42)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("quality gate accepted a deliberately bad checkpoint report")
+    print("publish_sham_v2_trained quality-gate self-test OK")
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        _self_test()
+        raise SystemExit(0)
     raise SystemExit(main())
