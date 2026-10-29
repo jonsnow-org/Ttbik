@@ -174,7 +174,7 @@ export async function loadMemory(chatId: number | string, text: string, db: Db =
   if (!shamMemoryEnabled()) return null;
   const key = chatKey(chatId);
   const profileKey = profileScope || key;
-  const turnKey = scope || key;      // a named conversation replays its own turns; profile can be model-scoped
+  const turnKey = scope || profileKey;      // a named conversation replays its own turns; profile can be model-scoped
   try {
     await ensureTables(db);
     const rows = await db.query<{ question: string; answer: string; created_at?: Date | string | null }>(
@@ -205,7 +205,7 @@ export async function saveTurn(chatId: number | string, question: string, answer
   if (opts.save === false && opts.remember === false) return;
   const key = chatKey(chatId);
   const profileKey = profileScope || key;
-  const turnKey = scope || key;
+  const turnKey = scope || profileKey;
   try {
     await ensureTables(db);
     if (dedupeOn() && opts.save !== false) {   // 2026-10-15: a reply (near-)identical to a recent one is not stored, so it cannot feed the next prompt
