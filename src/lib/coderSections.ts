@@ -31,6 +31,7 @@ import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryReq
 import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
+import { isolateLegacyCarryState } from "@/lib/coderChats";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -2386,6 +2387,8 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   if (!chatId) return null;
   // State selection is routing-critical. Do not use the forgiving reader here: a transient read failure must never silently pick another model.
   const st = await loadStateStrict(chatId, db);
+  // The previous release copied Nova's transcript into Sham when switching. Quarantine that legacy thread before it can become model input.
+  if (await isolateLegacyCarryState(chatId, st, db)) await saveStateStrict(chatId, st, db);
   // A Mini App task or Telegram dispatch passes the model captured at submission/routing time.
   const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
   if (!selected) return null;
