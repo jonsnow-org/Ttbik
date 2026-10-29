@@ -29,6 +29,30 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).not.toContain("الأدوات المتاحة لك");
     expect(seen[0]).not.toContain("شام:");
   });
+  it("Sham v2 retries a timed-out ordinary chat on the direct route during background continuation", async () => {
+    const seen: string[] = [];
+    const text = "ماذا تفعل؟";
+    const first = await shamVariant.run("v2", () => shamAgentRun({
+      text, ctx, tools: shamToolDefs(false), budgetMs: 50000, askMs: 44000, continuable: true,
+      ask: script([null], seen),
+    }));
+    expect(first.kind).toBe("more");
+    const savedMessages = (first as any).messages;
+    expect(savedMessages[savedMessages.length - 1]).toMatchObject({ role: "user", content: text });
+
+    const resumed = await shamVariant.run("v2", () => shamAgentRun({
+      text, ctx, tools: shamToolDefs(false), budgetMs: 230000, askMs: 150000, continuable: true,
+      resume: savedMessages,
+      ask: script([say("أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام.")], seen),
+    }));
+    expect(resumed).toMatchObject({ kind: "text", text: "أساعدك في الإجابة عن الأسئلة وشرح المواضيع وإنجاز المهام." });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[1]).toContain("رسالة المستخدم الحالية:");
+    expect(seen[1]).not.toContain("الأدوات المتاحة لك");
+    expect(seen[1]).not.toContain("شام:");
+  });
+
   it("Sham v2 keeps technical capability questions in direct chat instead of the code-agent path", async () => {
     const seen: string[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
