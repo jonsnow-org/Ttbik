@@ -75,6 +75,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   const next: CoderModel = {
     ...cur,
     visible: patch.visible === undefined ? cur.visible : Boolean(patch.visible),
+    publicRolloutVersion: id === "sham_v2" && patch.visible !== undefined ? Math.max(1, cur.publicRolloutVersion || 0) : cur.publicRolloutVersion,
     price_stars: patch.price_stars === undefined ? cur.price_stars : cleanStars(patch.price_stars),
     name: { ar: String(patch.name?.ar ?? cur.name.ar).slice(0, 40), en: String(patch.name?.en ?? cur.name.en).slice(0, 40) },
   };
