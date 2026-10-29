@@ -22,6 +22,7 @@ on:
     workflows:
       - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
       - "Sham v2 signed runtime code sync"
+      - "Sham v2 trained checkpoint publisher"
     types: [completed]
     branches:
       - claude/free-services-marketplace-h6rwk2
