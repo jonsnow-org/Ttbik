@@ -27,7 +27,9 @@ export function overflowConfigured(): string | null {
   const raw = (process.env.SHAM_V2_OVERFLOW_URL ?? DEFAULT_V2_OVERFLOW_URL).trim();
   if (!raw || /^(off|none|0)$/i.test(raw)) return null;
   const base = raw.replace(/\/+$/, "");
-  return forbiddenOverflow(base) ? null : base;
+  // Old deployments may still have Nova's former endpoint in this variable.
+  // Ignore that value and use only the dedicated Sham v2 endpoint instead.
+  return forbiddenOverflow(base) ? DEFAULT_V2_OVERFLOW_URL : base;
 }
 
 // The overflow is only used after its status proves it runs Sham v2; a wrong checkpoint must never answer a Sham v2 user.
