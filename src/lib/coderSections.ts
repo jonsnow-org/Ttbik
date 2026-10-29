@@ -2384,9 +2384,11 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 export async function shamContextFor(update: any, db: Db = prismaDb, modelOverride?: "sham" | "sham_v2"): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
-  const st = await loadState(chatId, db);
-  // A Mini App task snapshots the model chosen at submission time; a concurrent UI switch must not retarget it.
-  const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : "sham");
+  // State selection is routing-critical. Do not use the forgiving reader here: a transient read failure must never silently pick another model.
+  const st = await loadStateStrict(chatId, db);
+  // A Mini App task or Telegram dispatch passes the model captured at submission/routing time.
+  const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
+  if (!selected) return null;
   const set = modelSettings(st, selected);
   return { variant: selected === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected) } };
 }
