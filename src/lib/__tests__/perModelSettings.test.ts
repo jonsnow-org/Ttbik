@@ -1,6 +1,6 @@
 // Thinking, speed (accuracy) and media generation are per selected model; the owner's expose toggles per model; nothing leaks between models.
 import { appOp, AppError } from "@/lib/coderApp";
-import { loadState, shamContextFor } from "@/lib/coderSections";
+import { handleCoderSections, loadState, shamContextFor } from "@/lib/coderSections";
 import { modelSettings, setModelSettings, listModels, updateModel, publicModels } from "@/lib/coderModels";
 import { fakeBot, fakeDb } from "./coderFakes";
 
@@ -12,6 +12,29 @@ beforeEach(() => {
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.SUPER_ADMIN_TELEGRAM_ID = String(OWNER);
   process.env.CODER_TOKEN_KEY = "test-key";
+});
+
+describe("independent routing while Nova's coder Studio is offline", () => {
+  it("does not silently route the owner's Nova-selected message through Sham", async () => {
+    const previous = process.env.OPEN_CODER_STUDIO_URL;
+    delete process.env.OPEN_CODER_STUDIO_URL;
+    try {
+      const db = fakeDb();
+      const { bot, sent } = fakeBot();
+      const d = { db, bot, botRow };
+      await appOp(o, "settings", { model: "coder" }, d);
+
+      const handled = await handleCoderSections(bot, botRow, {
+        message: { chat: { id: OWNER }, from: { id: OWNER }, text: "اختبار مسار Nova" },
+      }, db);
+
+      expect(handled).toBe(true);
+      expect(sent.some((item) => item.text.includes("لم أرسل طلبك إلى شام تلقائياً"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = previous;
+    }
+  });
 });
 
 describe("modelSettings (pure)", () => {
