@@ -86,7 +86,8 @@ describe("coder models", () => {
     try {
       process.env.MODELSCOPE_API_TOKEN = "test-token";
       const db = modelsDb();
-      const models = await listModels(db);
+      await updateModel("sham_v2", { visible: true }, db); // explicit public rollout, not the hidden default
+      let models = await listModels(db);
       expect(publicShamSelection("sham_v2", models)).toBe(true);
       expect(publicShamSelection("coder", models)).toBe(false);
       expect(publicShamSelection("sham_loop", models)).toBe(false); // the old Sham is still owner-only by default
