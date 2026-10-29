@@ -45,11 +45,14 @@ describe("routing order", () => {
     process.env.SHAM_V2_OVERFLOW_URL = "off";
     expect(v2(() => shamBases())).toEqual([PRIMARY]);
   });
-  it("Sham v1 never has an overflow and never sees nova-inference-server; Nova's Studios are not in the pool", () => {
+  it("Sham v1 and Sham v2 never route through Nova-owned endpoints, even when configured as the overflow", async () => {
     expect(v1(() => shamBases())).toEqual(["https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"]);
     process.env.SHAM_MODELSCOPE_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+    process.env.SHAM_V2_OVERFLOW_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
     expect(v1(() => shamBases()).some((b) => /nova-inference-server/.test(b))).toBe(false);
-    expect(v2(() => shamBases()).some((b) => /coder-inference|nova-media/.test(b))).toBe(false);
+    expect(v2(() => shamBases()).some((b) => /nova-inference-server|coder-inference|nova-media/.test(b))).toBe(false);
+    expect(await refreshOverflow("https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net", async () => { throw new Error("must not be called"); })).toBe(false);
+    expect(overflowVerdict().why).toContain("cross-model");
   });
 });
 
@@ -58,7 +61,7 @@ describe("a real call under simulated congestion", () => {
   function net(primary: "slow" | "busy" | "down" | "ok") {
     const hits: string[] = [];
     (global as any).fetch = jest.fn(async (url: string) => {
-      const host = url.includes("nova-inference-server") ? "overflow" : "primary";
+      const host = url.includes("sham-v2-overflow-server") ? "overflow" : "primary";
       if (url.includes("/call/v2/")) hits.push(host);
       if (host === "primary" && primary === "down") throw new TypeError("fetch failed");
       if (url.includes("/call/v2/")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
@@ -86,7 +89,7 @@ describe("a real call under simulated congestion", () => {
     let unlock!: () => void;
     const gate = new Promise<void>((r) => (unlock = r));
     (global as any).fetch = jest.fn(async (url: string) => {
-      const host = url.includes("nova-inference-server") ? "overflow" : "primary";
+      const host = url.includes("sham-v2-overflow-server") ? "overflow" : "primary";
       if (url.includes("/call/v2/")) { hits.push(host); return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 }); }
       if (host === "primary") await gate;                                       // the primary is slow to answer
       return new Response(sse({ type: "text", text: `answer from ${host}` }), { status: 200 });
