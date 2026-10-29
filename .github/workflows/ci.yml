@@ -77,7 +77,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: athar/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            athar/package-lock.json
+      - name: Install application dependencies used by the tests
+        run: npm ci
       - name: Install the repository's existing Jest test toolchain
         run: npm ci --prefix athar
       - name: Run Sham v2 routing and model-access regression tests
