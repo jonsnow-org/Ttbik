@@ -131,8 +131,13 @@ export async function shamAgentRun(opts: {
   // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
   // select the permission-checked agent route instead of answering from the model's guess.
   const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
-  const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !hasWorkspaceTarget;
-  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || directCapability) && !needsFreshFacts(opts.text)) {
+  const hasWorkspaceAction = /تحليل|حلل|افحص|راجع|اقرأ|تصفح|اعمل على|نفذ|نفّذ|ارفع|ادفع|انشر|نشر|دمج|افتح|أنشئ|أنشاء|analy[sz]e|inspect|review|read|scan|deploy|push|merge|create|open pull request|run workflow/i.test(opts.text);
+  const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
+  const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
+  const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !requiresWorkspaceAgent && !hasWorkspaceTarget;
+  const directChatIntent = !requiresWorkspaceAgent &&
+    (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
+  if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
     const chatMessages = messages
       .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
         (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
