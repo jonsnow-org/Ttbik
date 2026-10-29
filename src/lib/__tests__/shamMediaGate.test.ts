@@ -1,4 +1,4 @@
-import { shamChatAuto, shamGenerateAny, vetShamReply } from "@/lib/shamStudio";
+import { shamChatAuto, shamGenerateAny, shamVariant, vetShamReply } from "@/lib/shamStudio";
 import { b64, png, wav } from "./mediaFixtures";
 
 const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
@@ -11,11 +11,11 @@ beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_U
 describe("Sham Studio replies pass the media quality gate", () => {
   it("a black picture from generate_any / chat_auto becomes a typed error (no bytes), a real picture passes", async () => {
     studio({ type: "image", mime: "image/png", b64: b64(await png("black", 512)) });
-    expect(await shamGenerateAny("ارسم قطة")).toMatchObject({ type: "error", reason: "blank_image" });
-    expect((await shamChatAuto("ارسم قطة"))?.b64).toBeUndefined();
+    expect(await shamVariant.run("v1", () => shamGenerateAny("ارسم قطة"))).toMatchObject({ type: "error", reason: "blank_image" });
+    expect((await shamVariant.run("v1", () => shamChatAuto("ارسم قطة")))?.b64).toBeUndefined();
     const good = b64(await png("gradient"));
     studio({ type: "image", mime: "image/png", b64: good });
-    expect(await shamGenerateAny("ارسم قطة")).toMatchObject({ type: "image", b64: good });
+    expect(await shamVariant.run("v1", () => shamGenerateAny("ارسم قطة"))).toMatchObject({ type: "image", b64: good });
   });
   it("silent audio and an empty video are errors; results finished later (`later`) are vetted too", async () => {
     expect(await vetShamReply({ type: "audio", b64: b64(wav("silence")) })).toMatchObject({ reason: "silent_audio" });
