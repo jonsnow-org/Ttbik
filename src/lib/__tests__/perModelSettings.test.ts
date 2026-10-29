@@ -120,6 +120,8 @@ describe("Mini App settings op", () => {
 
   it("the settings reach the runtime: Sham's context carries the chosen Sham's own think / accuracy / media", async () => {
     const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
+    await appOp(o, "settings", { model: "coder" }, d);
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toBeNull();
     await appOp(o, "settings", { for: "sham", think: false, accuracy: "fast", media: false }, d);
     await appOp(o, "settings", { for: "sham_v2", think: true, accuracy: "precise", media: true }, d);
     await appOp(o, "settings", { model: "sham" }, d);
