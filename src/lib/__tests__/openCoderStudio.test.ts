@@ -3,7 +3,7 @@ import { parseCoderSse, parseStatusSse, readCoderSse } from "@/lib/openCoderStud
 describe("Nova Studio SSE streaming", () => {
   it("returns a completion as soon as its data line arrives, without waiting for EOF", async () => {
     const encoder = new TextEncoder();
-    const line = `data: ["{\"type\":\"text\",\"text\":\"رد وصل عبر التدفق\"}"]\n`;
+    const line = `data: ${JSON.stringify([JSON.stringify({ type: "text", text: "رد وصل عبر التدفق" })])}\n`;
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -25,7 +25,7 @@ describe("Nova Studio SSE streaming", () => {
 
   it("reads the Studio queue/status data before the status stream closes", async () => {
     const encoder = new TextEncoder();
-    const line = `data: ["{\"phase\":\"ready\",\"queue\":0,\"model\":\"test\"}"]\n`;
+    const line = `data: ${JSON.stringify([JSON.stringify({ phase: "ready", queue: 0, model: "test" })])}\n`;
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
