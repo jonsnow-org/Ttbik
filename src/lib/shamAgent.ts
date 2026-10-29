@@ -51,6 +51,8 @@ const normaliseChatText = (s: string): string => String(s || "")
 const SHAM_V2_IDENTITY_ANSWER = "أنا شام v2، المساعد الذي تتحدث معه هنا؛ لست نوفا. نوفا مساعد منفصل وله مساره الخاص.";
 export function shamV2IdentityAnswer(text: string): string | null {
   let t = normaliseChatText(text)
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
     .replace(/^(?:(?:لو سمحت|من فضلك|رجاء|رجاءً|قل لي|اخبرني|أخبرني|خبرني|please|tell me)\s+)+/i, "")
     .trim();
   const sham = "(?:شام(?:\\s*v?2)?|sham(?:\\s*v?2)?)";
