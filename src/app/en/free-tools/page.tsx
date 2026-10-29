@@ -18,7 +18,7 @@ export default function EnglishTools() {
     <main className="mx-auto max-w-5xl px-4 py-8" lang="en">
       <EnglishDeskNav />
       <h1 className="text-4xl font-black tracking-tight text-slate-950">Tools</h1>
-      <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">Eleven browser tools for English searches. No account. A file you check stays in the tab.</p>
+      <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">Sixteen browser tools for English searches. No account. A file you check stays in the tab.</p>
       <div className="mt-6"><AdSlot position="in-content" label="English tools" /></div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         {EN_FREE_TOOLS.map((tool) => (
