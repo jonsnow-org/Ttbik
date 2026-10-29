@@ -154,6 +154,7 @@ MISSING_REQUESTS = [
     ("اقرأ الملف وأخبرني ماذا فيه.", "أي ملف تقصد، وفي أي مستودع؟", "الملف README.md في octocat/hello-world", "سأقرأ README.md من octocat/hello-world الآن."),
     ("افتح طلب دمج بالتعديلات.", "من أي فرع وإلى أي فرع تريد الدمج؟", "من fix/tests إلى main", "حسناً، سأفتح الطلب من fix/tests إلى main."),
     ("هل يمكنك مراجعة مشروعي؟", "ما اسم المستودع الذي تريد مراجعته؟", "user/project", "سأراجع user/project الآن."),
+    ("استعمل خادم MCP الذي أضفته إلى التطبيق.", "ما معرّف خادم MCP الذي تريد استخدامه؟", "mcp:ab12cd34ef", "سأستعلم عن الأدوات من الخادم الذي حددته، دون تخمين معرّف خادم آخر."),
 ]
 
 
@@ -196,6 +197,17 @@ URLS = ["https://example.com", "https://docs.python.org/3/"]
 MCP_SERVERS = ["mcp:ab12cd34ef"]  # synthetic shape only; inference must use an id supplied by the app/user
 
 
+def fill_template(value, values: dict[str, str]):
+    """Format catalog templates recursively so nested connector/agent arguments never keep {repo} placeholders."""
+    if isinstance(value, str):
+        return value.format(**values)
+    if isinstance(value, dict):
+        return {key: fill_template(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [fill_template(item, values) for item in value]
+    return value
+
+
 def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
     out = []
     for _ in range(n):
@@ -214,7 +226,7 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
             continue
         req, name, args, res, ans = rng.choice(CATALOG)
         sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
-        fill = lambda v: v.format(**sub) if isinstance(v, str) else v        # noqa: E731
+        fill = lambda v: fill_template(v, sub)                                      # noqa: E731
         args = {k: fill(v) for k, v in args.items()}
         if ans is None:                                                       # a two-step example: clone, then run
             steps = [(name, args, res), ("sandbox_exec", {"command": "npm test"}, "Tests: 12 passed")]
@@ -353,9 +365,18 @@ if __name__ == "__main__":
     assert len(ex) == 40
     must_have = {"github_read_files", "github_prs", "github_ci", "connector_api", "mcp_list_tools", "mcp_call", "delegate", "http_request", "recall", "send_file", "schedule_delete"}
     assert must_have.issubset(TOOL_SPECS), f"missing live tools in training specs: {must_have - set(TOOL_SPECS)}"
+    engine_tools = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamExec.ts"
+    if engine_tools.is_file():
+        import re
+        live_names = set(re.findall(r'tool\("([a-z_]+)"', engine_tools.read_text(encoding="utf-8")))
+        assert live_names == set(TOOL_SPECS), f"tool schema mismatch: live-only={live_names - set(TOOL_SPECS)}, training-only={set(TOOL_SPECS) - live_names}"
     audit_user, audit_steps, audit_answer = repo_audit_spec(random.Random(4))
     assert [s[0] for s in audit_steps] == ["github_repo_scan", "github_read_files", "github_ci"]
     assert "GitHub" in audit_user and "تقريراً" in audit_user
+    assert fill_template({"tasks": [{"task": "Inspect {repo}" }], "server": "{server}"},
+                         {"repo": "owner/project", "server": "mcp:sample"}) == {
+                             "tasks": [{"task": "Inspect owner/project"}], "server": "mcp:sample"
+                         }
     flow = fix_flow_example(fake, random.Random(2))
     for mk in (code_run_example, ask_missing_example):
         ids2, lab2 = mk(fake, random.Random(3))
