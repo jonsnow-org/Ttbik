@@ -60,7 +60,8 @@ export function shamV2IdentityAnswer(text: string): string | null {
   const name = "(?:" + sham + "|" + nova + ")";
   const asksWho = /^(?:(?:من|مين)\s+(?:انت|أنت)(?:\s+(?:بالضبط|فعلا|حقا|الحقيقي))?|(?:انت|أنت)\s+(?:من|مين)|(?:ما|ماذا)\s+(?:اسمك|هويتك)|who\s+are\s+you(?:\s+exactly)?|what\s+is\s+your\s+name)$/i.test(t);
   const asksWhich = new RegExp("^(?:هل\\s+)?(?:انت|أنت)\\s+" + name + "(?:\\s+(?:ام|ولا|او|or)\\s+" + name + ")?$", "i").test(t);
-  return asksWho || asksWhich ? SHAM_V2_IDENTITY_ANSWER : null;
+  const asksEnglishWhich = new RegExp("^are\\s+you\\s+" + name + "(?:\\s+or\\s+" + name + ")?$", "i").test(t);
+  return asksWho || asksWhich || asksEnglishWhich ? SHAM_V2_IDENTITY_ANSWER : null;
 }
 
 // Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
