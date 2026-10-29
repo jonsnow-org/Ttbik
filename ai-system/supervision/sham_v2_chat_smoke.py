@@ -97,8 +97,12 @@ def main() -> int:
                 status = json.loads(status)
             except json.JSONDecodeError:
                 status = {}
-        if isinstance(status, dict) and status.get("phase") == "ready":
+        context = int(status.get("context_tokens") or 0) if isinstance(status, dict) else 0
+        if (isinstance(status, dict) and status.get("phase") == "ready"
+                and status.get("model") == EXPECTED_MODEL and context >= 4096):
             break
+        # The runtime-code publish and Studio restart are triggered by the same push.
+        # Wait for the new worker instead of failing against the old ready worker.
         time.sleep(5)
     if not isinstance(status, dict) or status.get("phase") != "ready":
         raise RuntimeError(f"Sham v2 Studio is not ready: {json.dumps(status, ensure_ascii=False)[:500]}")
@@ -106,7 +110,7 @@ def main() -> int:
         raise RuntimeError(f"Wrong model in v2 Studio: {status.get('model')!r}")
     context = int(status.get("context_tokens") or 0)
     if context < 4096:
-        raise RuntimeError(f"v2 context did not extend to the configured 4096 tokens: {context}")
+        raise RuntimeError(f"v2 context did not reach 4096 tokens before the 300s deadline (reported {context}); check the Studio deploy logs")
 
     identity = chat([{"role": "user", "content": "من أنت؟"}], 160)
     print(f"PASS Sham v2 model-authored identity response (wording unrestricted): {identity[:240]}")
