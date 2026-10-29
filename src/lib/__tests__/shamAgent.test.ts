@@ -13,7 +13,7 @@ describe("Sham's own agent loop", () => {
     expect(DEFAULT_URL).toContain("sham-v1");
     expect(DEFAULT_V2_URL).toContain("sham-v2");
     expect(v1.every((url) => /sham-v1/i.test(url) && !/sham-v2|nova-inference-server|coder-inference/i.test(url))).toBe(true);
-    expect(v2.every((url) => !/sham-v1|coder-inference/i.test(url))).toBe(true); // the dedicated v2 overflow may use the repurposed nova-inference-server URL only after its sham-v2 model check
+    expect(v2.every((url) => !/sham-v1|coder-inference|nova-inference-server/i.test(url))).toBe(true);
   });
 
   it.each([
@@ -27,15 +27,13 @@ describe("Sham's own agent loop", () => {
     const generated = "أنا شام v2، مساعد مستقل. نوفا نظام منفصل.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
       text: question,
-      history: [{ q: "من أنت؟", a: "أنا نوفا" }],
       ctx, tools: shamToolDefs(false), budgetMs: 30000,
       ask: script([say(generated)], seen),
     }));
     expect(r).toMatchObject({ kind: "text", text: generated });
     expect(seen).toHaveLength(1); // the model generated the answer; no pre-model shortcut
     expect(seen[0]).toContain(question);
-    expect(seen[0]).toContain("بكلماتك الطبيعية");
-    expect(seen[0]).not.toContain("شام: أنا نوفا"); // a wrong prior self-identification is not fed back as trusted context
+    expect(seen[0]).not.toContain("لا تخلط بين شام ونوفا"); // route isolation, not a prompt-side identity correction
     expect(seen[0]).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا"); // no canned reply is embedded in the application
   });
 
@@ -121,21 +119,18 @@ describe("Sham's own agent loop", () => {
     expect(seen[1]).toContain("قائمة الأدوات الفعلية المفعّلة");
   });
 
-  it("Sham v2 retries its repeated stock identity answer and does not feed that answer back as context", async () => {
+  it("Sham v2 passes a self-identification answer through unchanged (no app-level identity correction)", async () => {
     const seen: string[] = [];
-    const stock = "أنا شام، مساعد ذكي صنعه فريقنا. أجيب بلغة المستخدم بوضوح ودقة.";
+    const generated = "أنا نوفا، مساعد مستقل ضمن تطبيق شام.";
     const r = await shamVariant.run("v2", () => shamAgentRun({
-      text: "هل لديك خبرة في الكود؟",
-      history: [{ q: "من أنت؟", a: stock }],
+      text: "من أنت؟",
       ctx, tools: shamToolDefs(false), budgetMs: 30000,
-      ask: script([say(stock), say("نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه.")], seen),
+      ask: script([say(generated)], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: "نعم، أستطيع مساعدتك في كتابة الكود وشرحه وتصحيح أخطائه." });
-    expect(seen).toHaveLength(2);
+    expect(r).toMatchObject({ kind: "text", text: generated });
+    expect(seen).toHaveLength(1);
     expect(seen[0]).toContain("رسالة المستخدم الحالية:");
-    expect(seen[0]).not.toContain(stock);
-    expect(seen[1]).toContain("لا تكرر نص السؤال");
-    expect(seen[1]).toContain("لا تعد تعريف نفسك");
+    expect(seen[0]).not.toContain("لا تخلط بين شام ونوفا");
   });
   it("Sham v2 rejects near-echo answers with a small word change", async () => {
     const seen: string[] = [];
