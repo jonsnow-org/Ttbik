@@ -47,7 +47,7 @@ describe("Sham: the three switches change what is stored and what the model is g
     await as("v2", { save: false }, () => S.saveChatTurn(OWNER, "اسمي سامي وأعيش في دمشق", "أهلاً سامي", db));
     expect(await count(db)).toBe(0);
     expect(await S.listThreads(OWNER, "v2", {}, db)).toEqual([]);
-    expect(await shamFacts(OWNER, db)).toMatchObject({ name: "سامي" });
+    expect(await shamFacts(OWNER, db, "v2")).toMatchObject({ name: "سامي" });
     await as("v2", {}, () => S.saveChatTurn(OWNER, "سؤال", "جواب", db));                // switched back on: stored
     expect(await count(db)).toBe(1);
     expect((await S.listThreads(OWNER, "v2", {}, db)).map((t) => t.title)).toEqual(["سؤال"]);
@@ -56,16 +56,16 @@ describe("Sham: the three switches change what is stored and what the model is g
     const { db } = mkd();
     await as("v1", {}, () => S.saveChatTurn(OWNER, "اسمي سامي", "أهلاً", db));
     await as("v1", { remember: false }, () => S.saveChatTurn(OWNER, "أعيش في حلب", "تشرفنا", db));
-    expect(await shamFacts(OWNER, db)).toEqual({ name: "سامي" });                       // the city was NOT learned
+    expect(await shamFacts(OWNER, db, "v1")).toEqual({ name: "سامي" });                       // the city was NOT learned
     expect(await count(db)).toBe(2);
     await as("v1", {}, () => S.saveChatTurn(OWNER, "أعيش في حمص", "تشرفنا مرة أخرى", db));
-    expect(await shamFacts(OWNER, db)).toMatchObject({ name: "سامي", city: "حمص" });
+    expect(await shamFacts(OWNER, db, "v1")).toMatchObject({ name: "سامي", city: "حمص" });
   });
   it("remember OFF + save OFF: nothing at all is written", async () => {
     const { db } = mkd();
     await as("v2", { remember: false, save: false }, () => S.saveChatTurn(OWNER, "اسمي سامي", "أهلاً", db));
     expect(await count(db)).toBe(0);
-    expect(await shamFacts(OWNER, db)).toEqual({});
+    expect(await shamFacts(OWNER, db, "v2")).toEqual({});
   });
   it("recall OFF: stored facts and earlier chats are not given to the model; this chat's own turns still are", async () => {
     const { db } = mkd();
@@ -96,7 +96,7 @@ describe("Sham: the three switches change what is stored and what the model is g
     const { db } = mkd();
     await as("v1", {}, () => S.saveChatTurn(OWNER, "اسمي سامي", "أهلاً", db));
     expect(await forgetFacts(OWNER, db)).toBe(true);
-    expect(await shamFacts(OWNER, db)).toEqual({});
+    expect(await shamFacts(OWNER, db, "v1")).toEqual({});
     expect(await count(db)).toBe(1);
     expect(await S.listThreads(OWNER, "v1", {}, db)).toHaveLength(1);
   });
