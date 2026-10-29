@@ -127,7 +127,12 @@ export async function shamAgentRun(opts: {
     lastResumeMessage?.role === "user" &&
     !resumeMessages.some((message) => message.role === "tool" || Boolean(message.tool_calls?.length))
   );
-  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+  // A capability question is ordinary chat only when it is genuinely about capabilities.
+  // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
+  // select the permission-checked agent route instead of answering from the model's guess.
+  const hasWorkspaceTarget = /github(?:\.com)?|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج|[\w.-]+\/[\w.-]+/i.test(opts.text);
+  const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !hasWorkspaceTarget;
+  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || directCapability) && !needsFreshFacts(opts.text)) {
     const chatMessages = messages
       .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
         (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
