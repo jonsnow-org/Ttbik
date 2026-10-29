@@ -67,6 +67,14 @@ def verify_metrics(history: list[dict], step: int) -> dict:
             f"Arabic script gate failed: {ar_script}/{ar_cases} responses passed")
     require(bool(ar.get("capital_syria")), "Arabic factual smoke test failed (capital of Syria)")
     require(bool(ar.get("python_code")), "Python code smoke test failed (function/return)")
+    ar_before = latest.get("arabic_before") or {}
+    ar_before_cases = int(ar_before.get("arabic_cases") or 0)
+    ar_before_script = int(ar_before.get("arabic_script") or 0)
+    if ar_before_cases >= 3:
+        before_ratio = ar_before_script / ar_before_cases
+        after_ratio = ar_script / ar_cases
+        require(after_ratio >= before_ratio,
+                f"Arabic-script rate regressed from {ar_before_script}/{ar_before_cases} to {ar_script}/{ar_cases}")
 
     losses = latest.get("train_loss_last") or []
     require(len(losses) >= 5, "Training history has fewer than five loss observations")
