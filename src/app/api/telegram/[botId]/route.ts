@@ -174,15 +174,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         // Two sections: Nova (the coder engine, src/lib/coderSections.ts, the default) and Sham (old / v2). WHICH one answers is decided by the chat's own model inside
         // handleCoderSections (it returns false for a Sham chat, or when OPEN_CODER_STUDIO_URL is unset). The legacy-backend flag (novaPause.ts) plays no part here (B-09).
         const routeChatId = body.message?.chat?.id ?? body.callback_query?.message?.chat?.id;
-        const coderHandled = await handleCoderSections(bot, botRow, body).catch(async (e) => {
+        let selectedShamModel: "sham" | "sham_v2" | undefined;
+        const coderHandled = await handleCoderSections(bot, botRow, body, undefined, (model) => { selectedShamModel = model; }).catch(async (e) => {
           void reportError("bot:coder", e, { botId: botRow?.id });
           // Do not fall through to a different model when state resolution / the selected-model handler failed.
           if (routeChatId) await bot.api.sendMessage(routeChatId, "⚠️ تعذّر التحقق من النموذج المختار بسبب خطأ مؤقت. لم أرسل رسالتك إلى نموذج بديل؛ أعد المحاولة بعد قليل.").catch(() => null);
           return true;
         });
         if (!coderHandled) {
-          // A false result is the explicit Sham path. Resolve it strictly; never default a missing context to Sham v1.
-          const ctx = await shamContextFor(body).catch((e) => { void reportError("bot:sham-context", e, { botId: botRow?.id }); return null; });
+          // Keep the route selected by the message handler; never reread a mutable model selection and retarget an in-flight message.
+          const ctx = await shamContextFor(body, undefined, selectedShamModel).catch((e) => { void reportError("bot:sham-context", e, { botId: botRow?.id }); return null; });
           if (!ctx) {
             if (routeChatId) await bot.api.sendMessage(routeChatId, "⚠️ تعذّر قراءة اختيار النموذج. لم أرسل رسالتك إلى نموذج آخر؛ أعد المحاولة بعد قليل.").catch(() => null);
             return NextResponse.json({ status: "model_state_unavailable" });
