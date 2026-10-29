@@ -757,6 +757,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "sham_v2_chat_smoke": {
+      "file": ".github/workflows/sham-v2-chat-smoke.yml",
+      "title": "اختبار حي لقدرة Sham v2 على الإجابة الواقعية عبر استوديوه المنفصل (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
