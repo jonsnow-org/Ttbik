@@ -110,7 +110,7 @@ describe("switching model keeps independent conversation histories", () => {
     ]);
 
     expect(await connectedIds(OWNER, db)).toContain("vercel");
-    const ctx = await shamContext(OWNER, "bot1", db);
+    const ctx = await shamVariant.run("v2", () => shamContext(OWNER, "bot1", db));
     expect(ctx.connectors).toContain("vercel");
     expect(shamTools(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)).map((t) => t.function.name)).toEqual(expect.arrayContaining(["connector_api", "mcp_call"]));
 
