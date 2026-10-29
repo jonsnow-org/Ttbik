@@ -15,6 +15,7 @@ import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
+import { postShamContinuation } from "@/lib/shamContinuation";
 import { taskEvent, taskStart, taskStatus } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
 import { shamLastFailure, shamModeCtx, shamVariant } from "@/lib/shamStudio";
@@ -842,11 +843,26 @@ const SHAM_LEGS = 6;                                   // a long task may use up
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
 async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false): Promise<boolean> {
   if (r.kind === "none") { await cardDrop(bot, chatId, card); if (runId) { await taskEvent(runId, "failed", "no answer from Sham in time").catch(() => null); await taskStatus(runId, "failed").catch(() => null); } return false; }
-  if (r.kind === "more") {                              // the work goes on in the background: the shared runner calls the next leg (its own signed route)
+  if (r.kind === "more") {                              // continue only after the saved context exists and the continuation route accepts it
     if (leg === 0 && !appOnly) { if (!(await cardSay(bot, chatId, card, cardRender(card, ["⏳ أكمل العمل في الخلفية، وسأحدّث هذه الرسالة بالنتيجة حين أنتهي."])))) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null); }
-    await shamSaveRun({ chatId, botId: botId || "", runId: runId || `sham-${chatId}-${Date.now().toString(36)}`, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", card: card?.msgId ? cardSnapshot(card) : undefined, mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
-    const rid = runId || "";
-    later(() => shamKickNextLeg(botId || "", chatId, rid, leg + 1));
+    const nextRunId = runId || `sham-${chatId}-${Date.now().toString(36)}`;
+    try {
+      await shamSaveRun({ chatId, botId: botId || "", runId: nextRunId, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", card: card?.msgId ? cardSnapshot(card) : undefined, mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
+    } catch (e) {
+      const reason = String((e as Error)?.message || e).slice(0, 140);
+      const message = "تعذّر حفظ حالة متابعة شام، لذلك أوقفت الانتظار بدل إبقاء الرسالة معلّقة. أعد إرسال طلبك.";
+      if (runId) { await taskEvent(runId, "failed", `could not save Sham continuation: ${reason}`).catch(() => null); await taskStatus(runId, "failed").catch(() => null); }
+      if (!appOnly && !(await cardSay(bot, chatId, card, cardRender(card, [message])))) await bot.api.sendMessage(chatId, message).catch(() => null);
+      return true;
+    }
+    const handoff = await shamKickNextLeg(botId || "", chatId, nextRunId, leg + 1);
+    if (!handoff.ok) {
+      const message = handoff.uncertain
+        ? "تعذّر تأكيد استئناف عمل شام في الخلفية؛ قد يكون الطلب قد بدأ بالفعل. إذا لم يصلك الرد خلال دقيقة، أعد إرسال الطلب."
+        : "تعذّر بدء متابعة شام في الخلفية، لذلك أوقفت الانتظار حتى لا تبقى الرسالة معلّقة. أعد إرسال طلبك.";
+      if (runId) { await taskEvent(runId, "failed", `Sham continuation handoff failed (${handoff.uncertain ? "unconfirmed" : "rejected"}): ${handoff.reason}`).catch(() => null); await taskStatus(runId, "failed").catch(() => null); }
+      if (!appOnly && !(await cardSay(bot, chatId, card, cardRender(card, [message])))) await bot.api.sendMessage(chatId, message).catch(() => null);
+    }
     return true;
   }
   if (r.kind === "confirm") {                           // a write to the user's repository: ask first, run only on the tap
@@ -883,14 +899,19 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   return true;
 }
 
-async function shamKickNextLeg(botId: string, chatId: number, runId: string, leg: number): Promise<void> {
-  const { prisma } = await import("@/lib/prisma");
-  const row = await prisma.bot.findUnique({ where: { id: botId } }).catch(() => null);
-  if (!row) return;
-  const chain = `sham${leg}`;
-  const who = `${chatId}#${runId}`;                      // the signed address names the chat AND the task: tasks of one chat run side by side
-  const body = JSON.stringify({ botId, chatId: who, chain, sig: signContinue(row.webhookSecret || "", botId, who, chain) });
-  await fetch(`${selfUrl()}/api/sham/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" }).catch(() => null);
+async function shamKickNextLeg(botId: string, chatId: number, runId: string, leg: number): Promise<{ ok: true } | { ok: false; uncertain: boolean; reason: string }> {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const row = await prisma.bot.findUnique({ where: { id: botId } }).catch(() => null);
+    if (!row) return { ok: false, uncertain: false, reason: "bot record unavailable" };
+    if (!row.isActive) return { ok: false, uncertain: false, reason: "bot is inactive" };
+    const chain = `sham${leg}`;
+    const who = `${chatId}#${runId}`;                      // the signed address names the chat AND the task: tasks of one chat run side by side
+    const body = JSON.stringify({ botId, chatId: who, chain, sig: signContinue(row.webhookSecret || "", botId, who, chain) });
+    return await postShamContinuation(`${selfUrl()}/api/sham/continue`, body);
+  } catch (e) {
+    return { ok: false, uncertain: true, reason: String((e as Error)?.message || e).slice(0, 140) };
+  }
 }
 
 /** The next leg of a long Sham task (called by /api/sham/continue, up to 300 s): the saved conversation goes on from where it stopped. */
