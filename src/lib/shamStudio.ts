@@ -54,7 +54,11 @@ export function parseShamSse(body: string): string | null {
     if (!line.startsWith("data:")) continue;
     try {
       const data = JSON.parse(line.slice(5).trim());
-      if (Array.isArray(data) && data.length) return data[0] == null ? null : String(data[0]).trim();
+      if (Array.isArray(data) && data.length) {
+        const first = data[0];
+        if (first == null) return null;
+        return typeof first === "string" ? first.trim() : JSON.stringify(first);
+      }
     } catch {
       /* not a data line we understand: keep reading */
     }
