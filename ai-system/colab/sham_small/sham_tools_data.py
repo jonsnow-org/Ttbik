@@ -385,9 +385,14 @@ if __name__ == "__main__":
     qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS")
     assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
     assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
-    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # the line shown to the model must not drift from the engine's
+    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # keep training and live tool instructions byte-identical
     if ts.is_file():
         import re
-        m = re.search(r"const FORMAT_LINE = '(.*)';", ts.read_text(encoding="utf-8"))
-        assert m and m.group(1) == FORMAT_LINE, "FORMAT_LINE differs from src/lib/shamTools.ts"
+        source = ts.read_text(encoding="utf-8")
+        base = re.search(r"const FORMAT_BASE = '(.*)';", source)
+        ask = re.search(r'const FORMAT_ASK = "(.*)";', source)
+        code = re.search(r'const FORMAT_CODE = "(.*)";', source)
+        assert base and ask and code, "Could not find the live Sham tool-format constants"
+        live_format = base.group(1) + ask.group(1) + code.group(1)
+        assert live_format == FORMAT_LINE, "Training FORMAT_LINE differs from src/lib/shamTools.ts"
     print("sham_tools_data OK: calls learned, results masked, answers learned, lessons of any kind, every tool family seen.")
