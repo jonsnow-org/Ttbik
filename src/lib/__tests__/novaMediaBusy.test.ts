@@ -1,7 +1,7 @@
 // 2026-10-28 15:33 live failure: Nova told the owner "the media Studio is not connected in this session" for «قم بتوليد صورة اسد». Never a model excuse:
 // a busy Studio = the request waits in line (visible in the ONE message) and then the picture comes; media switched off / Studio off = a precise, deterministic answer.
 import { handleCoderSections } from "@/lib/coderSections";
-import { novaMediaUrl, novaMakeMedia, DEFAULT_NOVA_MEDIA_URL } from "@/lib/novaMedia";
+import { novaMediaUrl, novaMakeMedia, readMediaSse, DEFAULT_NOVA_MEDIA_URL } from "@/lib/novaMedia";
 import { fakeBot } from "./coderFakes";
 import { b64, png } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
@@ -28,6 +28,29 @@ function net(mediaAnswers: object[]) {
   });
 }
 const say = (text: string) => ({ message: { chat: { id: OWNER }, from: { id: OWNER }, text } });
+
+describe("Nova media Studio SSE streaming", () => {
+  it("returns the first complete media result while the Studio stream remains open", async () => {
+    const encoder = new TextEncoder();
+    const line = `data: ["{\"type\":\"audio\",\"b64\":\"QUJD\"}"]\n`;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: generating\n"));
+        controller.enqueue(encoder.encode(line));
+        // Deliberately keep the stream open, like a slow Studio which has already produced its result.
+      },
+      cancel() { cancelled = true; },
+    });
+    const response = {
+      body,
+      text: async () => { throw new Error("must not wait for EOF"); },
+    } as unknown as Response;
+
+    await expect(readMediaSse(response)).resolves.toEqual({ type: "audio", b64: "QUJD" });
+    expect(cancelled).toBe(true);
+  });
+});
 
 describe("Nova media Studio busy / off", () => {
   it("busy twice, then the picture: one message while waiting, the picture sent, the card gone, no excuse text", async () => {
