@@ -136,7 +136,7 @@ def check_identity_answer(answer: str) -> None:
     if not actual:
         raise RuntimeError("v2 returned an empty answer to the identity question")
     head = actual[:180]
-    if re.search(r"(?:^|\\s)(?:انا|اسمي|i am|i m|this is|my name is)\\s+(?:نوفا|nova)(?:\\s|$)", head, re.I):
+    if re.search(r"(?:^|\s)(?:انا|اسمي|i am|i m|this is|my name is)\s+(?:نوفا|nova)(?:\s|$)", head, re.I):
         raise RuntimeError(f"v2 incorrectly identified itself as Nova: {answer[:180]!r}")
     if not re.search(r"(?:شام|sham)", head, re.I):
         raise RuntimeError(f"v2 did not identify itself as Sham in its own words: {answer[:180]!r}")
