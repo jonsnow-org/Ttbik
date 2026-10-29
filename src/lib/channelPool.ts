@@ -65,7 +65,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     url: `${SITE_URL}${t.href}`,
     cta: "🚀 جرّب الأداة الآن",
     tags: ["#أدوات_مجانية", "#شام_AI"],
-    repeatDays: 14,
+    repeatDays: 7,
   }));
   const bots: PoolItem[] = BOT_LANDINGS.map((b) => ({
     kind: "bot",
@@ -76,7 +76,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     cta: "ℹ️ تفاصيل البوت",
     target: { url: b.href, label: "🤖 افتح البوت" },
     tags: ["#بوتات_تليجرام", "#شام_AI"],
-    repeatDays: 14,
+    repeatDays: 7,
   }));
   const news: PoolItem[] = NEWS_ITEMS.map((n) => ({
     kind: "news",
@@ -108,7 +108,6 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     tags: ["#مقالات", "#شام_AI"],
     repeatDays: 3650,
   }));
-  // The coin comes first: the ZNB posts are the most frequent in the rotation (see ROTATION). Fixed wording, English then Arabic, never a promise.
   const ZNB_CONTRACT = "EQDai9iDv4fDlQHUDxx59QUZMGvTm9uzUL867c_Lxi4cDuCN";
   const coinPosts: PoolItem[] = [
     {
@@ -137,7 +136,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     },
     {
       kind: "coin", id: "coin:quote", title: "قالت زنوبيا",
-      blurb: "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»  “A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.”",
+      blurb: "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»  “A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.”",
       url: ZENOBIA_CHANNEL, cta: "📢 قناة زنوبيا", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
       tags: ["#زنوبيا", "#ZNB"], repeatDays: 8,
     },
@@ -149,6 +148,16 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     },
   ];
   const projects: PoolItem[] = [
+    {
+      kind: "project", id: "project:site-home", title: "شام AI — المنصة",
+      blurb: "موقع شام AI: أدوات مجانية عربية، أخبار، مقالات، أحداث، وبوتات تليجرام جاهزة. ابدأ من هنا.",
+      url: SITE_URL, cta: "🏠 افتح الموقع", tags: ["#شام_AI", "#أدوات"], repeatDays: 5,
+    },
+    {
+      kind: "project", id: "project:free-tools", title: "جميع الأدوات المجانية",
+      blurb: "أكثر من 30 أداة مجانية تعمل داخل المتصفح: حاسبات، مولّدات، مساعد كتابة، ضغط صور، وغيرها. بلا تسجيل.",
+      url: `${SITE_URL}/free-tools`, cta: "🛠️ افتح الأدوات", tags: ["#أدوات_مجانية", "#شام_AI"], repeatDays: 4,
+    },
     {
       kind: "project", id: "project:zenobia-passport", title: "جواز مرور طريق الحرير من تدمر",
       blurb: "Silk Road Passport: 2,500 only, grows with its age, locked 30 days then free to trade, for ZNB holders. جواز محدود بـ2,500، يكبر بعمره (طفلة ثم ملكة ثم محاربة)، يُقفل 30 يومًا ثم يُباع ويُشترى بحرية، لحاملي ZNB. للاقتناء فقط وبلا أي وعد.",
@@ -164,20 +173,28 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     {
       kind: "project", id: "project:athar-days", title: "أثر · رمز حيّ لكل يوم",
       blurb: "لكل يوم في التقويم رمز واحد: يوم ميلادك أو زواجك أو يوم تحبه. صورته حيّة تومض وتدور وتنضج كلما طال بقاؤه عندك، ويمكنك وضع صورتك عليه وإهداؤه. للذكرى والاقتناء فقط.",
-      url: ATHAR_BOT, cta: "🕰 افتح أثر", tags: ["#أثر", "#TON"], repeatDays: 4,
+      url: ATHAR_BOT, cta: "🕰 افتح أثر", tags: ["#أثر", "#TON"], repeatDays: 3,
     },
     {
       kind: "project", id: "project:athar-today", title: "رمز اليوم في أثر",
       blurb: "كل يوم تاريخ جديد قد يصير رمزك. افتح أثر وشاهد رمز اليوم واحجزه إن كان متاحًا. للذكرى والاقتناء فقط.",
-      url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 7,
+      url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 5,
+    },
+    {
+      kind: "project", id: "project:literium", title: "ليتيريوم",
+      blurb: "منصة عربية للأدب والمقالات: اقرأ نصوصاً وأفكاراً، وانشر مقالاتك وتغريداتك القصيرة.",
+      url: "https://literium.ai.studio/", cta: "📚 افتح ليتيريوم", tags: ["#ليتيريوم", "#أدب"], repeatDays: 6,
     },
   ];
   return { tool: tools, bot: bots, news, event: events, article: articles, project: [...projects, ...platformPosts(flags)], coin: coinPosts };
 }
 
-// Category order for the rotation (cursor % length): varied, tools and bots
-// appear often because they are what newcomers can use immediately.
-export const ROTATION: PoolKind[] = ["coin", "tool", "coin", "news", "project", "coin", "bot", "coin", "event", "coin", "tool", "article"];
+// Wider rotation: more tools, bots and projects so the channel covers the whole site.
+export const ROTATION: PoolKind[] = [
+  "tool", "coin", "bot", "project", "tool", "news",
+  "coin", "tool", "bot", "project", "event", "tool",
+  "coin", "bot", "article", "project", "tool", "coin",
+];
 
 export const HEADERS: Record<PoolKind, string> = {
   tool: "🛠 أداة مجانية",
@@ -189,7 +206,7 @@ export const HEADERS: Record<PoolKind, string> = {
   coin: "🏛 عملة زنوبيا",
 };
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (s: string) => s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 
 // Several fixed layouts, rotated, so the channel does not look copy-pasted.
 export function formatPost(item: PoolItem, variant: number): string {
