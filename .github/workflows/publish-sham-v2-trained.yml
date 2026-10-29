@@ -1,0 +1,63 @@
+name: Sham v2 trained checkpoint publisher
+
+# Only a successful, evaluated Kaggle training checkpoint can replace the live donor checkpoint.
+# This workflow is dispatched by sham_v2_train.ipynb after sham-v2-checkpoint is published.
+# It never uploads an untrained step-zero donor and never rewrites media/sdxs or media/piper.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-sham-v2-trained
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install the CPU checkpoint tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install kaggle tokenizers modelscope
+
+      - name: Download the latest trained Sham v2 checkpoint
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/sham-v2-trained"
+          mkdir -p "$OUT"
+          for file in final_merged.pt sham_small_tokenizer.json image_tokenizer.pt audio_tokenizer.pt v2_history.json; do
+            echo "Downloading trained dataset file: $file"
+            success=0
+            for attempt in 1 2 3; do
+              if kaggle datasets download -d jonsnowjonsnow/sham-v2-checkpoint -f "$file" -p "$OUT" --unzip -q; then
+                success=1
+                break
+              fi
+              echo "Attempt $attempt failed for $file; retrying"
+              sleep $((attempt * 15))
+            done
+            [ "$success" = "1" ] || { echo "::error::Could not download $file from sham-v2-checkpoint"; exit 1; }
+          done
+          echo "SHAM_V2_TRAINED_DIR=$OUT" >> "$GITHUB_ENV"
+
+      - name: Validate quality, convert to the Studio's bf16 format, and publish
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_V2_TRAINED_DIR: ${{ runner.temp }}/sham-v2-trained
+          SHAM_V2_MAX_CHECKPOINT_GIB: "5.5"
+        run: python scripts/transplant/publish_sham_v2_trained.py
