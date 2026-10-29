@@ -101,7 +101,7 @@ describe("coder models", () => {
     expect(publicModels(on, "sham").map((m) => m.id)).toEqual(["coder"]);           // switched on but not ready (no Studio token): still hidden from users
     process.env.MODELSCOPE_API_TOKEN = "t";
     const pub = publicModels(on, "sham");
-    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["sham", 150, true]]);
+    expect(pub.map((m) => [m.id, m.price_stars, m.selected])).toEqual([["coder", null, false], ["sham", 150, true], ["sham_v2", null, false]]);
     expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
     expect(ownerModels(on, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: true, ready: true });
     delete process.env.MODELSCOPE_API_TOKEN;
