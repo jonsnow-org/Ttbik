@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-28 20:25 UTC",
+  "generated_at": "2026-10-29 01:06 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -149,7 +149,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-28",
       "gpu": false,
@@ -232,15 +232,23 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 718.6,
       "last_updated": "2026-10-28",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 794.3,
+      "alias": "نتائج المرحلة الثالثة 1",
+      "track": "chat_stage",
+      "size_mb": 580.5,
+      "last_updated": "2026-10-28",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 0.0,
       "last_updated": "2026-10-28",
       "progress": {},
       "has_key_files": true
@@ -279,7 +287,15 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثالثة 1",
+      "alias": "نتائج المسار B 1",
+      "track": "research_track",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-29",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الثالثة 2",
       "track": "chat_stage",
       "size_mb": 579.3,
       "last_updated": "2026-10-27",
@@ -287,25 +303,9 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-28",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المرحلة الثالثة 2",
-      "track": "chat_stage",
-      "size_mb": 580.5,
-      "last_updated": "2026-10-28",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المسار B 1",
-      "track": "research_track",
-      "size_mb": 4213.3,
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 794.5,
       "last_updated": "2026-10-28",
       "progress": {},
       "has_key_files": true
@@ -319,6 +319,14 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج المرحلة الثانية 1",
+      "track": "stage2_multimodal",
+      "size_mb": 581.4,
+      "last_updated": "2026-10-28",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
       "size_mb": 15.2,
@@ -326,14 +334,6 @@
       "progress": {
         "videos_consumed": 3767
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المرحلة الثانية 1",
-      "track": "stage2_multimodal",
-      "size_mb": 581.4,
-      "last_updated": "2026-10-28",
-      "progress": {},
       "has_key_files": true
     },
     {
