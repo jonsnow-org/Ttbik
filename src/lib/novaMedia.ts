@@ -31,6 +31,37 @@ export function parseMediaSse(body: string): MediaReply | null {
   return null;
 }
 
+/** Media Studio SSE can stay open after the first completed result; return on that data line instead of waiting for EOF. */
+export async function readMediaSse(response: Response): Promise<MediaReply | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return parseMediaSse(await response.text());
+
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffered += decoder.decode(value, { stream: !done });
+
+      let newline = buffered.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffered.slice(0, newline).replace(/\r$/, "");
+        buffered = buffered.slice(newline + 1);
+        const parsed = parseMediaSse(line + "\n");
+        if (parsed !== null) {
+          await reader.cancel().catch(() => undefined);
+          return parsed;
+        }
+        newline = buffered.indexOf("\n");
+      }
+
+      if (done) return buffered ? parseMediaSse(buffered + "\n") : null;
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* stream may already be closed */ }
+  }
+}
+
 /** kind image | audio | video. A video is ONE prompt (+ seconds) given to the Studio's text-to-video model; `scenes` / `narration` are accepted for old callers but never become stills.
  *  Every picture / sound / clip that comes back is vetted (src/lib/mediaQuality.ts): a blank or empty result is returned as a typed error, never as media. */
 export async function novaMakeMedia(
@@ -81,7 +112,7 @@ async function novaMakeMediaOnce(
     if (!event_id) return { type: "error", text: "the media Studio gave no event id" };
     const res = await f(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) return { type: "error", text: `the media Studio answered HTTP ${res.status}` };
-    const parsed = parseMediaSse(await res.text());
+    const parsed = await readMediaSse(res);
     return ((await vetMedia(parsed)) as MediaReply | null) || { type: "error", text: "the media Studio's answer was unreadable" };
   } catch (e) {
     const n = (e as { name?: string })?.name || "";
