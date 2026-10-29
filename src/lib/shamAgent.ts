@@ -51,13 +51,13 @@ const normaliseChatText = (s: string): string => String(s || "")
 const SHAM_V2_IDENTITY_ANSWER = "أنا شام v2، المساعد الذي تتحدث معه هنا؛ لست نوفا. نوفا مساعد منفصل وله مساره الخاص.";
 export function shamV2IdentityAnswer(text: string): string | null {
   let t = normaliseChatText(text)
-    .replace(/^(?:(?:لو سمحت|من فضلك|رجاء|رجاءً|قل لي|اخبرني|أخبرني|خبرني|please|tell me)\\s+)+/i, "")
+    .replace(/^(?:(?:لو سمحت|من فضلك|رجاء|رجاءً|قل لي|اخبرني|أخبرني|خبرني|please|tell me)\s+)+/i, "")
     .trim();
-  const sham = "(?:شام(?:\\\\s*v?2)?|sham(?:\\\\s*v?2)?)";
+  const sham = "(?:شام(?:\\s*v?2)?|sham(?:\\s*v?2)?)";
   const nova = "(?:نوفا|nova)";
   const name = "(?:" + sham + "|" + nova + ")";
-  const asksWho = /^(?:(?:من|مين)\\s+(?:انت|أنت)(?:\\s+(?:بالضبط|فعلا|حقا|الحقيقي))?|(?:انت|أنت)\\s+(?:من|مين)|(?:ما|ماذا)\\s+(?:اسمك|هويتك)|who\\s+are\\s+you(?:\\s+exactly)?|what\\s+is\\s+your\\s+name)$/i.test(t);
-  const asksWhich = new RegExp("^(?:هل\\\\s+)?(?:انت|أنت)\\\\s+" + name + "(?:\\\\s+(?:ام|ولا|او|or)\\\\s+" + name + ")?$", "i").test(t);
+  const asksWho = /^(?:(?:من|مين)\s+(?:انت|أنت)(?:\s+(?:بالضبط|فعلا|حقا|الحقيقي))?|(?:انت|أنت)\s+(?:من|مين)|(?:ما|ماذا)\s+(?:اسمك|هويتك)|who\s+are\s+you(?:\s+exactly)?|what\s+is\s+your\s+name)$/i.test(t);
+  const asksWhich = new RegExp("^(?:هل\\s+)?(?:انت|أنت)\\s+" + name + "(?:\\s+(?:ام|ولا|او|or)\\s+" + name + ")?$", "i").test(t);
   return asksWho || asksWhich ? SHAM_V2_IDENTITY_ANSWER : null;
 }
 
