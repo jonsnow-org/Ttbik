@@ -62,6 +62,43 @@ export function parseShamSse(body: string): string | null {
   return null;
 }
 
+/**
+ * Read a Gradio SSE response as it arrives and return its first complete data value.
+ * Do not call Response.text() on the live stream: some Studio streams stay open after
+ * the answer is already available, so waiting for EOF can waste the whole request budget.
+ */
+export async function readShamSse(response: Response): Promise<string | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return parseShamSse(await response.text());
+
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffered += decoder.decode(value, { stream: !done });
+
+      let newline = buffered.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffered.slice(0, newline).replace(/\r$/, "");
+        buffered = buffered.slice(newline + 1);
+        const parsed = parseShamSse(line + "\n");
+        if (parsed !== null) {
+          await reader.cancel().catch(() => undefined);
+          return parsed;
+        }
+        newline = buffered.indexOf("\n");
+      }
+
+      if (done) {
+        return buffered ? parseShamSse(buffered + "\n") : null;
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* stream may already be closed */ }
+  }
+}
+
 export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs = 25000): Promise<string | null> {
   if (!shamStudioEnabled()) return null;
   const base = shamBases()[0];
@@ -79,7 +116,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
     if (!event_id || deadline <= Date.now()) return null;
     const res = await fetch(`${base}/gradio_api/call/generate_text/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     if (!res.ok) return null;
-    return parseShamSse(await res.text());
+    return await readShamSse(res);
   } catch {
     return null;
   }
@@ -131,7 +168,7 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
     if (deadline <= Date.now()) { note(base, api, "limit used up by the submit"); return null; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     if (!res.ok) note(base, api, `HTTP ${res.status} on result`);
-    return res.ok ? await res.text() : null;
+    return res.ok ? await readShamSse(res) : null;
   } catch (e) {
     note(base, api, `${(e as { name?: string })?.name || "error"} (limit ${Math.round(timeoutMs / 1000)} s): ${String((e as Error)?.message || "").slice(0, 80)}`);
     return null;
@@ -275,7 +312,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
     if (!event_id) { note(base, api, "no event id"); return { reply: null, failure: "http" }; }
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
-    const reply = await vetShamReply(parseShamReply(await res.text()));
+    const reply = await vetShamReply(parseShamReply(await readShamSse(res)));
     if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
