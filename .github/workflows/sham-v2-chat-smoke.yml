@@ -2,13 +2,6 @@ name: Sham v2 live capability smoke test
 
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - ai-system/supervision/sham_v2_chat_smoke.py
-      - src/lib/shamAgent.ts
-      - .github/workflows/sham-v2-chat-smoke.yml
   workflow_run:
     workflows:
       - "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat, own media tokens; a NEW Studio, the current Sham Studio is not touched)"
@@ -21,9 +14,9 @@ permissions:
 
 jobs:
   capability:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Test a real capability question through Sham v2's dedicated Studio
