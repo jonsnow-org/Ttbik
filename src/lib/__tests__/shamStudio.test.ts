@@ -1,14 +1,36 @@
-import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, readShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
     expect(parseShamSse('event: complete\ndata: ["نص من شام"]\n')).toBe("نص من شام");
     expect(parseShamSse("event: error\ndata: null\n")).toBeNull();
+    expect(parseShamSse('event: complete\ndata: [{"type":"text","text":"كائن مباشر"}]\n')).toBe('{"type":"text","text":"كائن مباشر"}');
   });
   it("skips lines that are not data and data that is not JSON", () => {
     expect(parseShamSse('event: generating\ndata: not json\ndata: ["ثانٍ"]\n')).toBe("ثانٍ");
     expect(parseShamSse("")).toBeNull();
   });
+  it("returns the first complete SSE data line without waiting for the stream to close", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: generating\n"));
+        controller.enqueue(encoder.encode('data: ["streamed'));
+        controller.enqueue(encoder.encode(' answer"]\n'));
+        // Deliberately keep the stream open, matching a long-lived Gradio SSE response.
+      },
+      cancel() { cancelled = true; },
+    });
+    const response = {
+      body,
+      text: async () => { throw new Error("must not wait for EOF"); },
+    } as unknown as Response;
+
+    await expect(readShamSse(response)).resolves.toBe("streamed answer");
+    expect(cancelled).toBe(true);
+  });
+
   it("sends nothing without a token", async () => {
     delete process.env.MODELSCOPE_API_TOKEN;
     expect(await shamGenerate("مرحبا")).toBeNull();
@@ -16,6 +38,7 @@ describe("shamStudio", () => {
   it("reads the Studio's JSON reply (text, image, audio, notice)", () => {
     const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
     expect(parseShamReply(body({ type: "text", text: "مرحبا" }))).toEqual({ type: "text", text: "مرحبا" });
+    expect(parseShamReply(JSON.stringify({ type: "text", text: "محتوى SSE المفكوك" }))).toEqual({ type: "text", text: "محتوى SSE المفكوك" });
     expect(parseShamReply(body({ type: "image", mime: "image/png", b64: "AAAA" }))?.type).toBe("image");
     expect(parseShamReply(body({ type: "audio", mime: "audio/wav", b64: "BBBB" }))?.b64).toBe("BBBB");
   });

@@ -15,6 +15,7 @@ BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-serv
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
 QUESTION = "ما عاصمة سوريا؟ أجب بكلمة أو كلمتين فقط، دون تعريف بنفسك."
+IDENTITY_QUESTION = "من أنت؟"
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
@@ -72,6 +73,7 @@ def call(api: str, payload: dict, timeout: int = 180):
 def norm(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).lower()
     text = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", text)
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ى", "ي")
     return re.sub(r"[\W_]+", " ", text, flags=re.UNICODE).strip()
 
 
@@ -104,6 +106,45 @@ def check_answer(answer: str) -> None:
         raise RuntimeError(f"v2 did not answer the factual smoke question (expected دمشق): {answer[:180]!r}")
 
 
+def text_answer(prompt: str, max_new_tokens: int = 160, timeout: int = 180) -> str:
+    """Read one text result from the real Studio generate_any endpoint; retry only a busy response."""
+    last = None
+    for attempt in range(3):
+        last = call("generate_any", {"prompt": prompt, "max_new_tokens": max_new_tokens}, timeout=timeout)
+        if isinstance(last, str):
+            try:
+                last = json.loads(last)
+            except json.JSONDecodeError:
+                last = {"type": "text", "text": last}
+        if isinstance(last, dict) and last.get("type") == "busy":
+            time.sleep(5)
+            continue
+        break
+    if not isinstance(last, dict) or last.get("type") != "text":
+        raise RuntimeError(f"Expected a text result for {prompt!r}; got {str(last)[:300]!r}")
+    return str(last.get("text") or "").strip()
+
+
+def check_identity_context() -> None:
+    """Verify the deployed Studio actually uses its V2 system context, not just the source in Git."""
+    info = text_answer("#info", max_new_tokens=160, timeout=60)
+    if "prompt=مخصص لـ Sham v2" not in info or "مسار Qwen3=فعّال" not in info:
+        raise RuntimeError(f"Sham v2 system identity prompt is not active in the live Studio: {info[:500]!r}")
+
+
+def check_identity_answer(answer: str) -> None:
+    actual = norm(answer)
+    if not actual:
+        raise RuntimeError("v2 returned an empty answer to the identity question")
+    head = actual[:180]
+    if re.search(r"(?:^|\s)(?:انا|اسمي|i am|i m|this is|my name is)\s+(?:نوفا|nova)(?:\s|$)", head, re.I):
+        raise RuntimeError(f"v2 incorrectly identified itself as Nova: {answer[:180]!r}")
+    if norm(IDENTITY_QUESTION) in actual:
+        raise RuntimeError(f"v2 echoed the identity question instead of answering: {answer[:180]!r}")
+    if not re.search(r"(?:شام|sham)", head, re.I):
+        raise RuntimeError(f"v2 did not identify itself as Sham in its own words: {answer[:180]!r}")
+
+
 def main() -> int:
     if not TOKEN:
         raise RuntimeError("MODELSCOPE_TOKEN is missing")
@@ -128,6 +169,13 @@ def main() -> int:
         raise RuntimeError(f"Sham v2's own Studio is not ready: {json.dumps(status, ensure_ascii=False)[:500]}")
     if status.get("model") != EXPECTED_MODEL:
         raise RuntimeError(f"Wrong model in v2 Studio: {status.get('model')!r}, expected {EXPECTED_MODEL!r}")
+
+    # First prove the live Studio is using the identity-bearing Qwen3 system prompt.
+    # Then ask the model to identify itself; validate without prescribing exact wording.
+    check_identity_context()
+    identity_answer = text_answer(IDENTITY_QUESTION, max_new_tokens=160, timeout=180)
+    check_identity_answer(identity_answer)
+    print(f"PASS Sham v2 identity answer: {identity_answer[:300]}")
 
     last = None
     for attempt in range(3):

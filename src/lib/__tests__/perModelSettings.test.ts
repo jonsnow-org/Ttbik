@@ -1,6 +1,6 @@
 // Thinking, speed (accuracy) and media generation are per selected model; the owner's expose toggles per model; nothing leaks between models.
 import { appOp, AppError } from "@/lib/coderApp";
-import { loadState, shamContextFor } from "@/lib/coderSections";
+import { handleCoderSections, loadState, shamContextFor } from "@/lib/coderSections";
 import { modelSettings, setModelSettings, listModels, updateModel, publicModels } from "@/lib/coderModels";
 import { fakeBot, fakeDb } from "./coderFakes";
 
@@ -12,6 +12,50 @@ beforeEach(() => {
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.SUPER_ADMIN_TELEGRAM_ID = String(OWNER);
   process.env.CODER_TOKEN_KEY = "test-key";
+});
+
+describe("independent routing while Nova's coder Studio is offline", () => {
+  it("handles owner /start without routing the default Nova selection to Sham", async () => {
+    const previous = process.env.OPEN_CODER_STUDIO_URL;
+    delete process.env.OPEN_CODER_STUDIO_URL;
+    try {
+      const db = fakeDb();
+      const { bot, sent } = fakeBot();
+      const d = { db, bot, botRow };
+      await appOp(o, "settings", { model: "coder" }, d);
+
+      const handled = await handleCoderSections(bot, botRow, {
+        message: { chat: { id: OWNER }, from: { id: OWNER }, text: "/start" },
+      }, db);
+
+      expect(handled).toBe(true);
+      expect(sent.some((item) => item.text.includes("لم أرسل طلبك إلى شام"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = previous;
+    }
+  });
+
+  it("does not silently route the owner's Nova-selected message through Sham", async () => {
+    const previous = process.env.OPEN_CODER_STUDIO_URL;
+    delete process.env.OPEN_CODER_STUDIO_URL;
+    try {
+      const db = fakeDb();
+      const { bot, sent } = fakeBot();
+      const d = { db, bot, botRow };
+      await appOp(o, "settings", { model: "coder" }, d);
+
+      const handled = await handleCoderSections(bot, botRow, {
+        message: { chat: { id: OWNER }, from: { id: OWNER }, text: "اختبار مسار Nova" },
+      }, db);
+
+      expect(handled).toBe(true);
+      expect(sent.some((item) => item.text.includes("لم أرسل طلبك إلى شام تلقائياً"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = previous;
+    }
+  });
 });
 
 describe("modelSettings (pure)", () => {
@@ -61,10 +105,17 @@ describe("Mini App settings op", () => {
   });
 
   it("a user cannot edit a model that is not open to them; Nova is always allowed", async () => {
-    const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
-    await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
-    await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
-    expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN; // Sham is not ready, while Nova remains available to the user.
+    try {
+      const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
+      await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
+      await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
+      expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
   });
 
   it("the settings reach the runtime: Sham's context carries the chosen Sham's own think / accuracy / media", async () => {
@@ -89,6 +140,10 @@ describe("owner-only visibility with a per-model expose toggle", () => {
   it("Nova is public; Sham and Sham v2 are the owner's until each is switched on separately", async () => {
     const db = modelsDb();
     let all = await listModels(db);
+    // Seed the intended initial visibility explicitly instead of relying on the legacy auto-rollout migration.
+    await updateModel("sham", { visible: false }, db);
+    await updateModel("sham_v2", { visible: false }, db);
+    all = await listModels(db);
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     await updateModel("sham_v2", { visible: true }, db);
     all = await listModels(db);

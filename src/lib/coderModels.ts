@@ -105,6 +105,15 @@ const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
 /** THE access check for a model, used by the bot and the Mini App alike: the owner may use every model; anyone else only a model the owner switched on for everyone AND that is ready. */
 export const modelUsableBy = (m: CoderModel, owner: boolean): boolean => owner || openToUsers(m);
 
+/** Whether a public chat is selected on Sham's independent runtime and may use it right now.
+ * This access check must not depend on Nova's separate coder Studio being configured or online. */
+export function publicShamSelection(id: string | undefined, models: CoderModel[]): boolean {
+  const canonical = canonModelId(id);
+  if (canonical !== "sham" && canonical !== "sham_v2") return false;
+  const selected = models.find((m) => m.id === canonical);
+  return Boolean(selected && modelUsableBy(selected, false));
+}
+
 /** Who can use this model right now, in words the owner panel shows (never hides a reason). */
 export type ModelAccess = "everyone" | "owner_only" | "on_but_not_ready";
 export function modelAccess(m: CoderModel): ModelAccess {

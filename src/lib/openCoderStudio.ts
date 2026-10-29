@@ -265,7 +265,7 @@ async function callOnce(base: string, api: string, payload: Record<string, unkno
     if (!event_id) return { reply: null, failure: "http" };
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) return { reply: null, failure: res.status === 401 || res.status === 403 ? "auth" : "http", status: res.status, detail: await errorDetail(res) };
-    const reply = parseCoderSse(await res.text());
+    const reply = await readCoderSse(res, parseCoderSse);
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
     const n = (e as { name?: string })?.name || "";
@@ -345,6 +345,40 @@ export function parseStatusSse(body: string): Record<string, unknown> | null {
   }
   return null;
 }
+
+/**
+ * Gradio SSE may keep its result connection open after the first complete answer arrives.
+ * Parse each complete line as it streams instead of waiting for Response.text() to reach EOF.
+ */
+export async function readCoderSse<T>(response: Response, parse: (body: string) => T | null): Promise<T | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return parse(await response.text());
+
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffered += decoder.decode(value, { stream: !done });
+
+      let newline = buffered.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffered.slice(0, newline).replace(/\r$/, "");
+        buffered = buffered.slice(newline + 1);
+        const parsed = parse(line + "\n");
+        if (parsed !== null) {
+          await reader.cancel().catch(() => undefined);
+          return parsed;
+        }
+        newline = buffered.indexOf("\n");
+      }
+
+      if (done) return buffered ? parse(buffered + "\n") : null;
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* stream may already be closed */ }
+  }
+}
 // The hub rate-limits the account ("429 Request limit exceeded" seen on a live task): status asks are shared for 1.5 s (idle-picking, the panel, the queue check all ask the same Studios).
 const statusShared = new Map<string, { t: number; p: Promise<Record<string, unknown> | null> }>();
 function studioStatus(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
@@ -370,7 +404,7 @@ async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return null;
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) });
-    const st = res.ok ? parseStatusSse(await res.text()) : null;
+    const st = res.ok ? await readCoderSse(res, parseStatusSse) : null;
     if (st && st.ctx != null) noteStudioCtx(base, st.ctx);
     if (st) { if (st.vision === true) visionBases.add(base); else visionBases.delete(base); }        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
     return st;

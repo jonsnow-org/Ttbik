@@ -1,5 +1,5 @@
 import type { Db } from "@/lib/coderAuth";
-import { effectiveModel, listModels, ownerModels, publicModels, updateModel } from "@/lib/coderModels";
+import { effectiveModel, listModels, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
 
 function modelsDb(): Db {
   const rows = new Map<string, any>();
@@ -81,6 +81,29 @@ describe("coder models", () => {
       else process.env.MODELSCOPE_API_TOKEN = previous;
     }
   });
+  it("allows a ready public Sham route independently of Nova, but never when hidden or not ready", async () => {
+    const previous = process.env.MODELSCOPE_API_TOKEN;
+    try {
+      process.env.MODELSCOPE_API_TOKEN = "test-token";
+      const db = modelsDb();
+      await updateModel("sham_v2", { visible: true }, db); // explicit public rollout, not the hidden default
+      let models = await listModels(db);
+      expect(publicShamSelection("sham_v2", models)).toBe(true);
+      expect(publicShamSelection("coder", models)).toBe(false);
+      expect(publicShamSelection("sham_loop", models)).toBe(false); // the old Sham is still owner-only by default
+
+      await updateModel("sham_v2", { visible: false }, db);
+      expect(publicShamSelection("sham_v2", await listModels(db))).toBe(false);
+
+      await updateModel("sham_v2", { visible: true }, db);
+      delete process.env.MODELSCOPE_API_TOKEN;
+      expect(publicShamSelection("sham_v2", await listModels(db))).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
+
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);

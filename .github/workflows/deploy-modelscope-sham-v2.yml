@@ -14,6 +14,7 @@ on:
       # through the workflow_run below.
       - ai-system/modelscope-sham/app.py
       - ai-system/modelscope-sham/requirements.txt
+      - ai-system/supervision/sham_v2_chat_smoke.py
       - scripts/transplant/stage_sham_v2_studio.py
       - .github/workflows/deploy-modelscope-sham-v2.yml
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
@@ -230,4 +231,6 @@ jobs:
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
-        run: python ai-system/supervision/sham_v2_media_smoke.py
+        run: |
+          python ai-system/supervision/sham_v2_chat_smoke.py
+          python ai-system/supervision/sham_v2_media_smoke.py
