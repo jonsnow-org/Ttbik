@@ -47,23 +47,6 @@ const normaliseChatText = (s: string): string => String(s || "")
   .trim()
   .toLocaleLowerCase("ar");
 
-// Sham v2 has a separate identity from Nova. Identity questions must not depend on a probabilistic model answer.
-const SHAM_V2_IDENTITY_ANSWER = "أنا شام v2، المساعد الذي تتحدث معه هنا؛ لست نوفا. نوفا مساعد منفصل وله مساره الخاص.";
-export function shamV2IdentityAnswer(text: string): string | null {
-  let t = normaliseChatText(text)
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/^(?:(?:لو سمحت|من فضلك|رجاء|رجاءً|قل لي|اخبرني|أخبرني|خبرني|please|tell me)\s+)+/i, "")
-    .trim();
-  const sham = "(?:شام(?:\\s*v?2)?|sham(?:\\s*v?2)?)";
-  const nova = "(?:نوفا|nova)";
-  const name = "(?:" + sham + "|" + nova + ")";
-  const asksWho = /^(?:(?:من|مين)\s+(?:انت|أنت)(?:\s+(?:بالضبط|فعلا|حقا|الحقيقي))?|(?:انت|أنت)\s+(?:من|مين)|(?:ما|ماذا)\s+(?:اسمك|هويتك)|who\s+are\s+you(?:\s+exactly)?|what\s+is\s+your\s+name)$/i.test(t);
-  const asksWhich = new RegExp("^(?:هل\\s+)?(?:انت|أنت)\\s+" + name + "(?:\\s+(?:ام|ولا|او|or)\\s+" + name + ")?$", "i").test(t);
-  const asksEnglishWhich = new RegExp("^are\\s+you\\s+" + name + "(?:\\s+or\\s+" + name + ")?$", "i").test(t);
-  return asksWho || asksWhich || asksEnglishWhich ? SHAM_V2_IDENTITY_ANSWER : null;
-}
-
 // Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
 // are still conversation, not a request to edit/run code. Keep regex escapes single;
 // double-escaping \s here silently stops matching ordinary Arabic spacing.
@@ -146,6 +129,12 @@ function isIdentityBoilerplate(answer: string): boolean {
   return !/(?:استطيع|أستطيع|يمكنني|اقدر|أقدر|لدي خبرة|عندي خبرة|اجيد|أجيد|برمج|كود|تصحيح|كتابة|تحليل|بحث|شرح|اصنع|أصنع|توليد|صورة|ملف)/i.test(a);
 }
 
+function isMisidentifiedNovaAnswer(answer: string): boolean {
+  const a = normaliseChatText(answer).replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").trim();
+  // A wrong assistant self-identification is bad context, not a trusted fact about Sham v2.
+  return /^(?:(?:انا|اسمي|i am|im|this is|my name is)\s+(?:نوفا|nova))(?:\s|$)/i.test(a);
+}
+
 function isNonAnswerBoilerplate(answer: string, question: string): boolean {
   return isCapabilityQuestion(question) && isIdentityBoilerplate(answer);
 }
@@ -185,10 +174,6 @@ export async function shamAgentRun(opts: {
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
   const v2 = shamVariant.getStore() === "v2";
-  if (v2) {
-    const identity = shamV2IdentityAnswer(opts.text);
-    if (identity) return { kind: "text", text: identity, used: [], steps: 0 };
-  }
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
@@ -248,6 +233,7 @@ export async function shamAgentRun(opts: {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
       return q.length >= 2 && a.length >= 2 && q !== a &&
         !isQuestionEcho(h.a, h.q, []) &&
+        !isMisidentifiedNovaAnswer(h.a) &&
         !isNonAnswerBoilerplate(h.a, h.q) &&
         !(isCapabilityQuestion(opts.text) && isIdentityBoilerplate(h.a)) &&
         !isRepeatedPriorAnswer(h.a, allHistory.slice(0, index));
@@ -257,7 +243,7 @@ export async function shamAgentRun(opts: {
       ? `سياق مختصر للمحادثة السابقة:\n${usableHistory.map((h) => `المستخدم: ${clip(h.q, 220)}\nشام: ${clip(h.a, 260)}`).join("\n")}`
       : "";
     const directPrompt = [
-      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. لا ترد بتعريف عام مثل «أنا شام، مساعد ذكي» إلا إذا سُئلت عن هويتك. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
+      "أجب عن رسالة المستخدم الحالية مباشرة وبوضوح وباللغة التي كتب بها. لا تكرر السؤال ولا تنسخه ولا تجعله جوابك. عند السؤال عن هويتك، اتبع تعريف الهوية في تعليمات النظام وأجب بكلماتك الطبيعية؛ لا تخلط بين شام ونوفا ولا تكرر صيغة محفوظة. إذا سألك عن خبرتك أو قدراتك، أجب عن السؤال نفسه أولاً ثم اذكر ما تستطيع فعله فعلاً باختصار ومن دون ادعاء قدرات غير متاحة. عند السؤال عن الأدوات، استخدم الأسماء الواردة في القائمة المرفقة فقط ولا تخترع أسماء أدوات.",
       historyText,
       toolInventoryText,
       `رسالة المستخدم الحالية: ${opts.text}`,

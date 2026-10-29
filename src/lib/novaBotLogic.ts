@@ -12,7 +12,7 @@ import { looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { chatKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
-import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs, shamV2IdentityAnswer } from "@/lib/shamAgent";
+import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
 import { postShamContinuation } from "@/lib/shamContinuation";
@@ -1085,16 +1085,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
       const chatId = update.message.chat.id;
-      // v2 identity is a routing invariant, not a guess left to the donor model. This also covers the legacy non-agent fallback.
-      if (shamVariant.getStore() === "v2") {
-        const identity = shamV2IdentityAnswer(text);
-        if (identity) {
-          if (!(await shamClaimUpdate(chatId, update.update_id))) return;
-          await bot.api.sendMessage(chatId, identity, { reply_markup: { remove_keyboard: true } }).catch(() => null);
-          await saveChatTurn(chatId, text, identity).catch(() => null);
-          return;
-        }
-      }
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
       // 2026-10-14: with SHAM_THINK on, a bare word («صورة …») is no longer a keyword rule — only the explicit slash command (/image, /صورة …)
       // is the user's own choice; everything else is for the model to decide. REVIEW: the bare-word form is kept for SHAM_THINK=0.

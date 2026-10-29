@@ -118,8 +118,9 @@ describe("the Sham v2 Studio exposes its own structured agent protocol", () => {
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_GENERATE_ANY_MAX_TOKENS", "768"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_NATIVE_TOOL_CALLS", "1"\)/);
     expect(src).toMatch(/os\.environ\.setdefault\("SHAM_TOOLCALL_GUARD", "1"\)/);
-    expect(src).toContain("أنت شام v2، وهويتك ثابتة");
-    expect(src).toContain("لا تسمِّ نفسك نوفا في أي حال");
+    expect(src).toContain("أنت شام v2، مساعد مستقل ضمن تطبيق شام");
+    expect(src).toContain("لا تستخدم نصاً محفوظاً أو جواباً حرفياً إلزامياً");
+    expect(src).not.toContain("أنا شام v2، المساعد الذي تتحدث معه هنا");
   });
   it("publishes the typed agent_step API only when the dedicated v2 Studio flag is enabled", () => {
     expect(app).toMatch(/def agent_step\(/);

@@ -134,6 +134,22 @@ def _uses_qwen3_chat(model) -> bool:
     )
 
 
+def _qwen3_prompt_ids(tokenizer, prompt: str, think: bool, max_context_tokens: int | None = None) -> list[int]:
+    """Keep the system identity/instructions intact; truncate only the oldest user/history tokens."""
+    prefix = f"<|im_start|>system\n{_qwen3_system_prompt()}<|im_end|>\n<|im_start|>user\n"
+    suffix = "<|im_end|>\n<|im_start|>assistant\n" + ("" if think else "<think>\n\n</think>\n\n")
+    prefix_ids = tokenizer.encode(prefix)
+    user_ids = tokenizer.encode(prompt)
+    suffix_ids = tokenizer.encode(suffix)
+    limit = max_context_tokens if max_context_tokens is not None else max(MAX_PROMPT_TOKENS, 1200)
+    user_budget = limit - len(prefix_ids) - len(suffix_ids)
+    if user_budget < 1:
+        raise ValueError("Sham v2 system prompt is too large for the configured context window")
+    if len(user_ids) > user_budget:
+        user_ids = user_ids[-user_budget:]
+    return prefix_ids + user_ids + suffix_ids
+
+
 def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
     """A Sham that carries a chat-tuned donor body answers in the donor's own chat layout (the layout it was trained on). No canned text: whatever the model writes is the answer.
     temperature 0 = greedy. think_tokens > 0 = the body may write a thought first (at most that many tokens; cut and closed if it runs on), which is then removed:
@@ -142,9 +158,7 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
     end = tokenizer.encode("<|im_end|>")[-1]
     close = tokenizer.encode("</think>")
     think = think_tokens if (think_tokens > 0 and len(close) == 1) else 0
-    system = f"<|im_start|>system\n{_qwen3_system_prompt()}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-    text = system + ("" if think else "<think>\n\n</think>\n\n")
-    ids = torch.tensor([tokenizer.encode(text)[-max(MAX_PROMPT_TOKENS, 1200):]], dtype=torch.long)
+    ids = torch.tensor([_qwen3_prompt_ids(tokenizer, prompt, think=bool(think))], dtype=torch.long)
     sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
     if think:
         out = generate_tokens(model, ids, max_new_tokens=think, eos_id=end, stop_ids={close[0]}, repetition_penalty=1.0, allowed_ranges=[(0, tokenizer.vocab_size)] * think, **sample)
