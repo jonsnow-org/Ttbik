@@ -126,6 +126,8 @@ describe("Mini App settings op", () => {
     expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
     await appOp(o, "settings", { model: "sham_v2" }, d);
     expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v2", mode: { think: true, accuracy: "precise", media: true } });
+    // A run that captured Sham v1 must keep v1's settings even if the UI has switched to v2.
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db, "sham")).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
   });
 });
 

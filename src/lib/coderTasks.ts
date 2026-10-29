@@ -6,6 +6,14 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
+export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "all";
+export const shamTaskSlot = (variant: "v1" | "v2"): string => variant === "v2" ? "sham_v2" : "sham_v1";
+function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column = "slot"): void {
+  if (!model || model === "all") return;
+  if (model === "coder") where.push(`(${column} = '' OR ${column} LIKE 's:%')`);
+  else if (model === "sham_v2") where.push(`${column} = 'sham_v2'`);
+  else where.push(`${column} IN ('sham_v1', 'sham')`);
+}
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
@@ -107,6 +115,15 @@ export async function taskTouch(runId: string, db: Db = prismaDb): Promise<void>
   } catch { /* best-effort heartbeat */ }
 }
 
+/** Explicit stopped / terminal runs cease model-specific work; DB errors fail open for transient pool pressure. */
+export async function taskIsActive(runId: string, db: Db = prismaDb): Promise<boolean> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ status: string }>(`SELECT status FROM coder_tasks WHERE run_id = $1 LIMIT 1`, runId);
+    return rows[0]?.status === "running" || rows[0]?.status === "waiting";
+  } catch { return true; }
+}
+
 /** Close orphaned running rows left behind when a serverless worker was hard-killed. Approval-waiting tasks are intentionally excluded. */
 export async function recoverStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
   try {
@@ -150,7 +167,7 @@ export async function taskSlot(runId: string, chatId: number | string, db: Db = 
   }
 }
 
-export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
+export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean; model?: TaskModelFilter } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
   try {
     await ensureTaskTables(db);
     // This endpoint is polled frequently by the terminal and must remain read-only.
@@ -164,8 +181,9 @@ export async function listTasks(chatId: number | string, opts: { limit?: number;
     if (opts.active) where.push(`status IN ('running','waiting')`);
     if (opts.before) {
       args.push(opts.before);
-      where.push(`started_at < $${args.length}::timestamptz`);
+      where.push(`started_at < ${args.length}::timestamptz`);
     }
+    applyTaskModelFilter(where, opts.model);
     return await db.query<TaskRow>(
       `SELECT run_id, slot, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at, thread_id FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
       ...args,
@@ -175,12 +193,15 @@ export async function listTasks(chatId: number | string, opts: { limit?: number;
   }
 }
 
-export async function taskEvents(chatId: number | string, runId: string, after = 0, db: Db = prismaDb): Promise<EventRow[]> {
+export async function taskEvents(chatId: number | string, runId: string, after = 0, db: Db = prismaDb, model?: TaskModelFilter): Promise<EventRow[]> {
   try {
     await ensureTaskTables(db);
+    const where = ["e.run_id = $1", "t.chat_key = $2", "t.archived_at IS NULL", "e.id > $3"];
+    const args: unknown[] = [runId, coderChatKey(chatId), after];
+    applyTaskModelFilter(where, model, "t.slot");
     return await db.query<EventRow>(
-      `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.run_id = $1 AND t.chat_key = $2 AND t.archived_at IS NULL AND e.id > $3 ORDER BY e.id ASC LIMIT 500`,
-      runId, coderChatKey(chatId), after,
+      `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE ${where.join(" AND ")} ORDER BY e.id ASC LIMIT 500`,
+      ...args,
     );
   } catch {
     return [];

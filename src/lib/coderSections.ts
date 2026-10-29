@@ -28,7 +28,7 @@ import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
-import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 
@@ -736,13 +736,13 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
     const known = await listModels(db);
     const selected = known.find((m) => m.id === (st.model === "sham_loop" ? "sham" : st.model));
     if (!selected || !modelUsableBy(selected, tierFor(chatId) === "owner")) throw new Error("model not available");
-    const sham = await shamContextFor({ message: { chat: { id: chatId } } }, db);
+    const sham = await shamContextFor({ message: { chat: { id: chatId } } }, db, st.model === "sham_v2" ? "sham_v2" : "sham");
     if (!sham) throw new Error("Could not load Sham settings.");
     const lim = await checkLimit(chatId, "tasks", 1, db);
     if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
     await addUsage(chatId, "tasks", 1, db);
     const runId = `sham-${chatId}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
-    await taskStart(chatId, { runId, slot: "sham", source: "interactive", title: content.slice(0, 200), botId: botRow.id });
+    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), source: "interactive", title: content.slice(0, 200), botId: botRow.id });
     await taskEvent(runId, "info", `بدأت المهمة باستخدام ${st.model === "sham_v2" ? "شام v2" : "شام"}.`, db).catch(() => null);
     later(() => import("@/lib/novaBotLogic").then((m) => m.runShamMiniAppTask(bot, chatId, content, botRow.id, runId, sham.variant, sham.mode)).catch(async (e) => {
       await taskEvent(runId, "failed", String((e as Error)?.message || e).slice(0, 300), db).catch(() => null);
@@ -2376,10 +2376,12 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb, modelOverride?: "sham" | "sham_v2"): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   const st = await loadState(chatId, db);
-  const set = modelSettings(st, st.model === "sham_v2" ? "sham_v2" : "sham");          // the chosen Sham's own switches (old and new Sham each have theirs)
-  return { variant: st.model === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, st.model === "sham_v2" ? "sham_v2" : "sham") } };
+  // A Mini App task snapshots the model chosen at submission time; a concurrent UI switch must not retarget it.
+  const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : "sham");
+  const set = modelSettings(st, selected);
+  return { variant: selected === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected) } };
 }
