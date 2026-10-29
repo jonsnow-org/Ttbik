@@ -318,7 +318,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const welcomeCommand = Boolean(update.message && /^\/(start|help)(?:@\w+)?(?:\s|$)/i.test(text));
 
     // Keep bot-level welcome/help commands working, but never send a Nova-selected chat to Sham as an implicit fallback.
-    if (owner && welcomeCommand) return false;
     // Sham has its own Studio. Its selected, ready model—not Nova's separate coder Studio—decides if this path can run.
     if (chatId && (update.message?.chat?.id || update.callback_query)) {
       try {
@@ -336,9 +335,12 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     }
     if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id, { text: owner ? "Nova AI غير متاحة الآن، ولم يتم تحويلك إلى شام." : "Nova AI قيد الصيانة لدقائق.", show_alert: owner }).catch(() => null);
     else if (update.message?.chat?.id) {
-      await send(bot, update.message.chat.id, owner
-        ? "⚠️ Nova AI غير متاحة الآن. لم أرسل طلبك إلى شام تلقائياً؛ تحقق من خدمة Nova أو اختر شام صراحةً."
-        : "🛠️ Nova AI قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.");
+      const message = owner && welcomeCommand
+        ? "👋 أهلاً بك. خدمة Nova AI غير متاحة الآن؛ لم أرسل طلبك إلى شام. أعد المحاولة لاحقاً أو اختر شام صراحةً من قائمة النماذج."
+        : owner
+          ? "⚠️ Nova AI غير متاحة الآن. لم أرسل طلبك إلى شام تلقائياً؛ تحقق من خدمة Nova أو اختر شام صراحةً."
+          : "🛠️ Nova AI قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.";
+      await send(bot, update.message.chat.id, message);
     }
     return true;
   }
