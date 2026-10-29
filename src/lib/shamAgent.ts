@@ -47,6 +47,23 @@ const normaliseChatText = (s: string): string => String(s || "")
   .trim()
   .toLocaleLowerCase("ar");
 
+// Sham v2 has a separate identity from Nova. Identity questions must not depend on a probabilistic model answer.
+const SHAM_V2_IDENTITY_ANSWER = "أنا شام v2، المساعد الذي تتحدث معه هنا؛ لست نوفا. نوفا مساعد منفصل وله مساره الخاص.";
+export function shamV2IdentityAnswer(text: string): string | null {
+  let t = normaliseChatText(text)
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/^(?:(?:لو سمحت|من فضلك|رجاء|رجاءً|قل لي|اخبرني|أخبرني|خبرني|please|tell me)\s+)+/i, "")
+    .trim();
+  const sham = "(?:شام(?:\\s*v?2)?|sham(?:\\s*v?2)?)";
+  const nova = "(?:نوفا|nova)";
+  const name = "(?:" + sham + "|" + nova + ")";
+  const asksWho = /^(?:(?:من|مين)\s+(?:انت|أنت)(?:\s+(?:بالضبط|فعلا|حقا|الحقيقي))?|(?:انت|أنت)\s+(?:من|مين)|(?:ما|ماذا)\s+(?:اسمك|هويتك)|who\s+are\s+you(?:\s+exactly)?|what\s+is\s+your\s+name)$/i.test(t);
+  const asksWhich = new RegExp("^(?:هل\\s+)?(?:انت|أنت)\\s+" + name + "(?:\\s+(?:ام|ولا|او|or)\\s+" + name + ")?$", "i").test(t);
+  const asksEnglishWhich = new RegExp("^are\\s+you\\s+" + name + "(?:\\s+or\\s+" + name + ")?$", "i").test(t);
+  return asksWho || asksWhich || asksEnglishWhich ? SHAM_V2_IDENTITY_ANSWER : null;
+}
+
 // Capability questions mentioning a technical term (e.g. "هل لديك خبرة في الكود؟")
 // are still conversation, not a request to edit/run code. Keep regex escapes single;
 // double-escaping \s here silently stops matching ordinary Arabic spacing.
@@ -168,6 +185,10 @@ export async function shamAgentRun(opts: {
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew || 160);
   const v2 = shamVariant.getStore() === "v2";
+  if (v2) {
+    const identity = shamV2IdentityAnswer(opts.text);
+    if (identity) return { kind: "text", text: identity, used: [], steps: 0 };
+  }
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =

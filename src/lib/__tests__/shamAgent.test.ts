@@ -1,4 +1,4 @@
-import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
+import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, shamV2IdentityAnswer, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
 import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamVariant } from "@/lib/shamStudio";
 
@@ -14,6 +14,34 @@ describe("Sham's own agent loop", () => {
     expect(DEFAULT_V2_URL).toContain("sham-v2");
     expect(v1.every((url) => /sham-v1/i.test(url) && !/sham-v2|nova-inference-server|coder-inference/i.test(url))).toBe(true);
     expect(v2.every((url) => !/sham-v1|coder-inference/i.test(url))).toBe(true); // the dedicated v2 overflow may use the repurposed nova-inference-server URL only after its sham-v2 model check
+  });
+
+  it.each([
+    ["من أنت؟", "أنا شام v2"],
+    ["أنت شام أم نوفا؟", "لست نوفا"],
+    ["هل أنت Nova؟", "لست نوفا"],
+    ["Who are you?", "أنا شام v2"],
+    ["Are you Sham or Nova?", "لست نوفا"],
+  ])("Sham v2 identity is fixed for %j", async (question, expected) => {
+    expect(shamV2IdentityAnswer(question)).toContain(expected);
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("أنا نوفا")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: expect.stringContaining("أنا شام v2"), used: [], steps: 0 });
+    expect(seen).toHaveLength(0); // identity is answered before the model or conversation memory can alter it
+  });
+
+  it("does not change the old Sham v1 identity path", async () => {
+    const seen: string[] = [];
+    const oldAnswer = "جواب اختبار شام القديم";
+    const r = await shamVariant.run("v1", () => shamAgentRun({
+      text: "من أنت؟", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say(oldAnswer)], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: oldAnswer });
+    expect(seen).toHaveLength(1);
   });
 
   it("Sham v2 sends ordinary conversation as a direct chat prompt without the serialized tool transcript", async () => {
