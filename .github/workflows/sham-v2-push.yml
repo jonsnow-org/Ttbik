@@ -5,6 +5,23 @@ name: "Sham v2 (push the separate training notebook to Kaggle)"
 # sham-v2-checkpoint. After this first push the restarter (EXTRA_KERNELS) keeps it running.
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/sham_small/kaggle_notebooks/sham_v2/**"
+      - "ai-system/colab/sham_small/sham_v2_train.py"
+      - "ai-system/colab/sham_small/sham_tools_data.py"
+      - "ai-system/colab/sham_small/sham_chat.py"
+      - "ai-system/colab/sham_small/sham_studio_chat.py"
+      - "ai-system/colab/sham_small/sham_trigger_restarter.py"
+      - "ai-system/colab/sham_small/checkpoint.py"
+      - "ai-system/colab/sham_small/sham_transplant.py"
+      - "ai-system/colab/sham_small/model.py"
+
+concurrency:
+  group: sham-v2-kaggle-train
+  cancel-in-progress: false
 
 jobs:
   push:

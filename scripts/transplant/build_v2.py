@@ -84,6 +84,12 @@ def speed_probe(model, tok, threads: int) -> None:
 def main() -> None:
     donor = [a for a in sys.argv[1:] if not a.startswith("--")][0]
     do_publish = "--publish" in sys.argv
+    if do_publish:
+        raise SystemExit(
+            "Refusing to publish this command's fresh step-zero donor: it has not been trained as Sham v2. "
+            "Use .github/workflows/publish-sham-v2-trained.yml, which requires a non-zero training step, "
+            "trained adapters, held-out Arabic/code checks, and non-regressed tool-call metrics."
+        )
     if "--speed-only" in sys.argv:
         torch.set_default_dtype(torch.bfloat16)                                    # a 4B donor does not fit in 16 GB as float32
         from huggingface_hub import snapshot_download

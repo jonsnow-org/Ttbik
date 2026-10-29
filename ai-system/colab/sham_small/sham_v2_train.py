@@ -118,6 +118,44 @@ def _parse_call(text: str):
 
 
 @torch.no_grad()
+def measure_arabic(model, tokenizer, seed: int = 7041) -> dict:
+    """Held-out Arabic/code smoke set. Evaluation only; never changes or rewrites inference replies."""
+    from sham_studio_chat import qwen3_chat
+    import re
+
+    cases = [
+        ("ما عاصمة سوريا؟ أجب بالعربية بجملة قصيرة.", "capital"),
+        ("اشرح بالعربية باختصار الفرق بين المتغير والدالة في البرمجة.", "arabic"),
+        ("اكتب دالة Python تجمع عددين وتعيد الناتج.", "python"),
+        ("ما فائدة الاختبارات في مشروع برمجي؟ أجب بالعربية.", "arabic"),
+        ("اشرح بالعربية معنى واجهة برمجة التطبيقات API.", "arabic"),
+    ]
+    rows = []
+    for prompt, kind in cases:
+        answer = str(qwen3_chat(model, tokenizer, prompt, 100, temperature=0.0, think_tokens=0) or "").strip()
+        arabic_chars = len(re.findall(r"[\u0600-\u06FF]", answer))
+        letters = len(re.findall(r"[^\W\d_]", answer, flags=re.UNICODE))
+        arabic_ratio = arabic_chars / max(1, letters)
+        rows.append({
+            "kind": kind,
+            "arabic_ratio": round(arabic_ratio, 3),
+            "capital_syria": kind != "capital" or "دمشق" in answer,
+            "python_code": kind != "python" or ("def " in answer and ("return" in answer or "lambda" in answer)),
+            "has_arabic": arabic_chars >= 8 and arabic_ratio >= 0.25,
+            "answer": answer[:220],
+        })
+    arabic_rows = [r for r in rows if r["kind"] == "arabic"]
+    return {
+        "cases": len(rows),
+        "arabic_cases": len(arabic_rows),
+        "arabic_script": sum(bool(r["has_arabic"]) for r in arabic_rows),
+        "capital_syria": bool(rows[0]["capital_syria"]),
+        "python_code": bool(rows[2]["python_code"]),
+        "rows": rows,
+    }
+
+
+@torch.no_grad()
 def measure_tools(model, tokenizer, n_cases: int = 24, seed: int = 4242, max_new: int = 90) -> dict:
     """A fixed set of tool cases (own seed, never trained on: training uses other seeds), answered through the Studio's guarded generation.
     valid = a well-formed call; right = the first call has the expected tool and every expected argument name."""
