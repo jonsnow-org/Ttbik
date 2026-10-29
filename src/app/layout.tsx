@@ -139,6 +139,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <a href="/en/news" className="rounded-full px-3 py-1.5 hover:bg-brand-50">News</a>
                 <a href="/en/markets" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Markets</a>
                 <a href="/en/free-tools" className="rounded-full px-3 py-1.5 text-emerald-600 hover:bg-emerald-50">Free tools</a>
+                <a href="/en/ai-tools" className="rounded-full px-3 py-1.5 font-extrabold text-sky-700 hover:bg-sky-50">More tools</a>
                 <a href="/en/articles" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Guides</a>
                 <a href="/en/events" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Dates</a>
               </nav>
@@ -229,6 +230,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 className="rounded-full px-3 py-1.5 text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
               >
                 🎁 أدوات مجانية
+              </a>
+              <a href="/ai-tools" className="rounded-full px-3 py-1.5 font-extrabold text-sky-700 transition hover:bg-sky-50">
+                🧰 أدوات إضافية
               </a>
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🤖 منشئ البوتات

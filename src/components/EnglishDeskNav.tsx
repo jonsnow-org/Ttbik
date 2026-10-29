@@ -6,7 +6,8 @@ const LINKS = [
   ["/en/articles", "Guides"],
   ["/en/events", "Dates"],
   ["/en/events/upcoming", "Upcoming"],
-  ["/en/free-tools", "Tools"],
+  ["/en/free-tools", "Free tools"],
+  ["/en/ai-tools", "More tools"],
 ];
 
 export default function EnglishDeskNav() {

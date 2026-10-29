@@ -30,6 +30,7 @@ export default function EnglishHome() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/en/news" className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white hover:bg-sky-600">News</Link>
               <Link href="/en/events/upcoming" className="rounded-full bg-white px-4 py-2 text-xs font-black text-sky-800 ring-1 ring-sky-100">Upcoming dates</Link>
+              <Link href="/en/ai-tools" className="rounded-full bg-indigo-700 px-4 py-2 text-xs font-black text-white hover:bg-indigo-800">More tools</Link>
             </div>
           </div>
         </div>
