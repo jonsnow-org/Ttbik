@@ -5,6 +5,7 @@ import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamVariant } from "@/lib/shamS
 const ctx = { chatId: 1, db: { exec: async () => undefined, query: async () => [] }, githubToken: null, chatKey: "sham:1", runId: "sham-1", owner: true } as unknown as ShamCtx;
 const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say> | { type: "image"; b64: string } | null>, seen: string[] = []): ShamAsk => async (prompt) => { seen.push(prompt); return (answers.shift() ?? null) as any; };
+const runV1 = (opts: Parameters<typeof shamAgentRun>[0]) => shamVariant.run("v1", () => shamAgentRun(opts));
 
 describe("Sham's own agent loop", () => {
   it("keeps v1 and v2 on their separate ModelScope Studio routes", () => {
@@ -166,7 +167,7 @@ describe("Sham's own agent loop", () => {
   });
   it("calls a tool, reads its result, and answers from it", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: string[] = [];
-    const r = await shamAgentRun({ text: "ابحث عن الطقس", ctx, tools, budgetMs: 60000,
+    const r = await runV1({ text: "ابحث عن الطقس", ctx, tools, budgetMs: 60000,
       ask: script([say('<tool_call>{"name":"web_search","arguments":{"query":"الطقس"}}</tool_call>'), say("الطقس مشمس حسب البحث.")], seen),
       exec: async (c) => { ran.push(c.function.name); return "نتائج: مشمس 30 درجة"; } });
     expect(r).toMatchObject({ kind: "text", text: "الطقس مشمس حسب البحث.", used: ["web_search"] });
@@ -225,7 +226,7 @@ describe("Sham's own agent loop", () => {
 
   it("a wrong call goes back with the reason and the corrected one runs", async () => {
     const tools = shamToolDefs(false), seen: string[] = [], ran: any[] = [];
-    const r = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000,
+    const r = await runV1({ text: "ابحث", ctx, tools, budgetMs: 60000,
       ask: script([say('<tool_call>{"name":"web_search","arguments":{}}</tool_call>'), say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>'), say("تم.")], seen),
       exec: async (c) => { ran.push(JSON.parse(c.function.arguments)); return "ok"; } });
     expect(seen[1]).toMatch(/تصحيح من المحرك[\s\S]*«query» ناقص/);
@@ -234,17 +235,17 @@ describe("Sham's own agent loop", () => {
   });
   it("ask_user ends the round with the question; a picture reply is handed back; no answer in time is 'none'", async () => {
     const tools = shamToolDefs(false);
-    const a = await shamAgentRun({ text: "صلّح الأخطاء", ctx, tools, budgetMs: 60000, ask: script([say('<tool_call>{"name":"ask_user","arguments":{"question":"أي مستودع؟"}}</tool_call>')]) });
+    const a = await runV1({ text: "صلّح الأخطاء", ctx, tools, budgetMs: 60000, ask: script([say('<tool_call>{"name":"ask_user","arguments":{"question":"أي مستودع؟"}}</tool_call>')]) });
     expect(a).toMatchObject({ kind: "ask", question: "أي مستودع؟" });
-    const b = await shamAgentRun({ text: "ارسم قطة", ctx, tools, budgetMs: 60000, ask: script([{ type: "image", b64: "AAAA" }]) });
+    const b = await runV1({ text: "ارسم قطة", ctx, tools, budgetMs: 60000, ask: script([{ type: "image", b64: "AAAA" }]) });
     expect(b.kind).toBe("reply");
-    const c = await shamAgentRun({ text: "مرحبا", ctx, tools, budgetMs: 60000, ask: script([null]) });
+    const c = await runV1({ text: "مرحبا", ctx, tools, budgetMs: 60000, ask: script([null]) });
     expect(c.kind).toBe("none");
   });
   it("stops at the step limit and asks for the final answer without tools", async () => {
     const tools = shamToolDefs(false), seen: string[] = [];
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
-    const r = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, ask: script([call, call, say("الجواب النهائي من النتائج.")], seen), exec: async () => "نتيجة" });
+    const r = await runV1({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, ask: script([call, call, say("الجواب النهائي من النتائج.")], seen), exec: async () => "نتيجة" });
     expect(r).toMatchObject({ kind: "text", text: "الجواب النهائي من النتائج." });
     expect(seen[2]).toMatch(/اكتب الجواب النهائي الآن/);
     expect(seen[2]).not.toMatch(/الأدوات المتاحة لك/);                                    // no tools shown for the last answer
@@ -254,14 +255,15 @@ describe("Sham's own agent loop", () => {
     for (const n of ["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"]) expect(names).toContain(n);
     expect(names).not.toContain("sandbox_push");
     const { shamToolCtx } = await import("@/lib/shamAgent");
-    const c = await shamToolCtx(42, "b", { exec: async () => undefined, query: async () => [] } as any);
+    const c = await shamVariant.run("v1", () => shamToolCtx(42, "b", { exec: async () => undefined, query: async () => [] } as any));
     expect(c.chatKey).toMatch(/^sham:/);
-    expect(c.runId).toBe("sham-42");
+    expect(c.chatKey).toContain(":v1");
+    expect(c.runId).toBe("sham-42-v1");
   });
   it("a push / PR / merge never runs on Sham's word: the round ends with 'confirm', and the tool refuses without the tap", async () => {
     const tools = shamToolDefs(true);
     const ran: string[] = [];
-    const r = await shamAgentRun({ text: "ارفع التعديلات", ctx, tools, budgetMs: 60000, exec: async (c) => { ran.push(c.function.name); return "ok"; },
+    const r = await runV1({ text: "ارفع التعديلات", ctx, tools, budgetMs: 60000, exec: async (c) => { ran.push(c.function.name); return "ok"; },
       ask: script([say('<tool_call>{"name":"sandbox_push","arguments":{"repo":"o/r","branch":"fix/x","message":"fix"}}</tool_call>')]) });
     expect(r).toMatchObject({ kind: "confirm" });
     expect(ran).toEqual([]);
@@ -281,14 +283,14 @@ describe("Sham's own agent loop", () => {
   });
   it("make_media is Sham's own: the picture comes back as a reply, no Nova media Studio", async () => {
     const tools = shamToolDefs(false);
-    const r = await shamAgentRun({ text: "ارسم قطة", ctx, tools, budgetMs: 60000, media: async (k, p) => ({ type: "image", b64: "AAAA", text: `${k}:${p}` }) as any,
+    const r = await runV1({ text: "ارسم قطة", ctx, tools, budgetMs: 60000, media: async (k, p) => ({ type: "image", b64: "AAAA", text: `${k}:${p}` }) as any,
       ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"قطة"}}</tool_call>')]) });
     expect(r).toMatchObject({ kind: "reply", reply: { type: "image" } });
   });
   it("passes requested video scenes and narration through make_media", async () => {
     const tools = shamToolDefs(false);
     const calls: unknown[] = [];
-    const r = await shamAgentRun({
+    const r = await runV1({
       text: "اصنع فيديو لأرنب",
       ctx,
       tools,
@@ -309,15 +311,15 @@ describe("Sham's own agent loop", () => {
   it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
     const tools = shamToolDefs(false);
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
-    const a = await shamAgentRun({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: true, ask: script([call, call]), exec: async () => "نتيجة" });
+    const a = await runV1({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: true, ask: script([call, call]), exec: async () => "نتيجة" });
     expect(a.kind).toBe("more");
     const msgs = (a as any).messages;
     expect(msgs.filter((m: any) => m.role === "tool")).toHaveLength(2);
     const seen: string[] = [];
-    const b = await shamAgentRun({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, resume: msgs, ask: script([say("الجواب النهائي.")], seen), exec: async () => "نتيجة" });
+    const b = await runV1({ text: "ابحث بعمق", ctx, tools, budgetMs: 60000, resume: msgs, ask: script([say("الجواب النهائي.")], seen), exec: async () => "نتيجة" });
     expect(b).toMatchObject({ kind: "text", text: "الجواب النهائي." });
     expect(seen[0]).toMatch(/نتيجة الأداة web_search/);                                    // the earlier legs' results are in front of Sham
-    const last = await shamAgentRun({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
+    const last = await runV1({ text: "ابحث", ctx, tools, budgetMs: 60000, maxSteps: 2, continuable: false, ask: script([call, call, say("خلاصة.")]), exec: async () => "نتيجة" });
     expect(last).toMatchObject({ kind: "text", text: "خلاصة." });                         // the last leg answers instead of handing over
   });
   it("ignores only a Telegram retry of the same update, not a new message", async () => {
@@ -354,11 +356,11 @@ describe("a picture goes to the background leg, which waits long", () => {
   it("inside the webhook budget make_media hands over; the next leg runs it without asking the model again", async () => {
     const tools = shamToolDefs(false);
     const call = say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"أرنب يلعب"}}</tool_call>');
-    const a = await shamAgentRun({ text: "ارسم أرنباً", ctx, tools, budgetMs: 50000, continuable: true, ask: script([call]), media: async () => { throw new Error("must not run in the short leg"); } });
+    const a = await runV1({ text: "ارسم أرنباً", ctx, tools, budgetMs: 50000, continuable: true, ask: script([call]), media: async () => { throw new Error("must not run in the short leg"); } });
     expect(a.kind).toBe("more");
     const got: string[] = [];
     const asks: string[] = [];
-    const b = await shamAgentRun({ text: "ارسم أرنباً", ctx, tools, budgetMs: 230000, resume: (a as any).messages, ask: script([], asks), media: async (k, p) => { got.push(`${k}:${p}`); return { type: "image", b64: "AAAA" } as any; } });
+    const b = await runV1({ text: "ارسم أرنباً", ctx, tools, budgetMs: 230000, resume: (a as any).messages, ask: script([], asks), media: async (k, p) => { got.push(`${k}:${p}`); return { type: "image", b64: "AAAA" } as any; } });
     expect(b).toMatchObject({ kind: "reply", reply: { type: "image" } });
     expect(got).toEqual(["image:أرنب يلعب"]);
     expect(asks).toEqual([]);                                                   // the model is not asked again
