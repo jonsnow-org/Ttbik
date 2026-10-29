@@ -17,6 +17,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHAM = ROOT / "ai-system" / "colab" / "sham_small"
+# Keep the shared token-ID ranges identical to the donor tokenizer before importing any Sham module.
+os.environ.setdefault("SHAM_TEXT_VOCAB", "151936")
 sys.path.insert(0, str(SHAM))
 
 DATA_DIR = Path(os.environ.get("SHAM_V2_TRAINED_DIR", "/tmp/sham-v2-trained"))
@@ -65,6 +67,14 @@ def verify_metrics(history: list[dict], step: int) -> dict:
             f"Arabic script gate failed: {ar_script}/{ar_cases} responses passed")
     require(bool(ar.get("capital_syria")), "Arabic factual smoke test failed (capital of Syria)")
     require(bool(ar.get("python_code")), "Python code smoke test failed (function/return)")
+    ar_before = latest.get("arabic_before") or {}
+    ar_before_cases = int(ar_before.get("arabic_cases") or 0)
+    ar_before_script = int(ar_before.get("arabic_script") or 0)
+    if ar_before_cases >= 3:
+        before_ratio = ar_before_script / ar_before_cases
+        after_ratio = ar_script / ar_cases
+        require(after_ratio >= before_ratio,
+                f"Arabic-script rate regressed from {ar_before_script}/{ar_before_cases} to {ar_script}/{ar_cases}")
 
     losses = latest.get("train_loss_last") or []
     require(len(losses) >= 5, "Training history has fewer than five loss observations")
@@ -159,7 +169,37 @@ def main() -> int:
     )
 
     files_summary = [(p.name, round(p.stat().st_size / 1e6, 1)) for p in sorted(OUT_DIR.iterdir())]
-    print(f"Verified trained checkpoint step={step}; ready to publish: {files_summary}", flush=True)
+    print(f"Verified trained checkpoint step={step}; loading the staged checkpoint through the production loader before publish.", flush=True)
+
+    # Preflight the exact saved artifact with the same loader the ModelScope Studio imports.
+    # Any checkpoint/tokenizer/config incompatibility fails before the live private repo is touched.
+    import serve
+    serve.load_model(
+        checkpoint_path=str(OUT_DIR / "final_merged.pt"),
+        tokenizer_path=str(OUT_DIR / "sham_small_tokenizer.json"),
+    )
+    loaded_model = serve._state.get("model")
+    loaded_tokenizer = serve._state.get("text_tokenizer")
+    require(loaded_model is not None and loaded_tokenizer is not None,
+            f"Production loader did not initialise the model/tokenizer: {serve._state.get('tokenizer_check')}")
+    require(int(getattr(getattr(loaded_model, "cfg", None), "max_seq_len", 0)) >= 4096,
+            "Staged model context is shorter than the required 4096 tokens")
+    from sham_studio_chat import qwen3_chat_messages
+    preflight_answer = qwen3_chat_messages(
+        loaded_model, loaded_tokenizer,
+        [{"role": "user", "content": "ما عاصمة سوريا؟ أجب بالعربية بجملة قصيرة."}],
+        max_new_tokens=48, temperature=0.0, think_tokens=0,
+    )
+    require("دمشق" in preflight_answer,
+            f"Staged checkpoint failed the live Arabic smoke check; refusing to publish: {preflight_answer[:180]}")
+    print(
+        f"STAGED RUNTIME PREFLIGHT PASS: {serve._state.get('source')} | "
+        f"context={loaded_model.cfg.max_seq_len} | answer={preflight_answer[:180]}",
+        flush=True,
+    )
+    del loaded_model, loaded_tokenizer
+    import gc
+    gc.collect()
 
     from modelscope.hub.api import HubApi
     from modelscope.hub.constants import Visibility
