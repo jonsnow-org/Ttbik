@@ -22,7 +22,7 @@ import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -287,6 +287,17 @@ async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: C
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot));
 }
 
+/** Sham uses its own Studio; the selected model (and its access switch) decides whether this route may run. */
+async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean): Promise<boolean> {
+  const st = await loadStateStrict(chatId, db);
+  const selectedId = st.model || (st.mode === "sham" ? "sham" : undefined); // recover a legacy Sham-section selection without rerouting Nova chats
+  const canonical = selectedId === "sham_loop" ? "sham" : selectedId;
+  if (canonical !== "sham" && canonical !== "sham_v2") return false;
+  const models = await listModels(db);
+  if (owner) return Boolean(models.find((m) => m.id === canonical && modelReady(m)));
+  return publicShamSelection(canonical, models);
+}
+
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
@@ -300,10 +311,37 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
   if (!coderEnabled()) {
-    if (owner || fromId === undefined) return false;
-    // the Sham section is the owner's only (owner's rule, 2026-10-21): users get a short notice instead
-    if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id).catch(() => null);
-    else if (update.message?.chat?.id) await send(bot, update.message.chat.id, "🛠️ Nova AI قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.");
+    if (fromId === undefined) return false;
+    const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+    const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
+    const shamCallback = Boolean(update.callback_query && /^sham(ok|no)\|/.test(String(update.callback_query.data || "")));
+    const welcomeCommand = Boolean(update.message && /^\/(start|help)(?:@\w+)?(?:\s|$)/i.test(text));
+
+    // Keep bot-level welcome/help commands working, but never send a Nova-selected chat to Sham as an implicit fallback.
+    // Sham has its own Studio. Its selected, ready model—not Nova's separate coder Studio—decides if this path can run.
+    if (chatId && (update.message?.chat?.id || update.callback_query)) {
+      try {
+        if (await canRouteSelectedSham(chatId, db, owner)) return false;
+        if (shamCallback) {
+          await bot.api.answerCallbackQuery(update.callback_query.id, { text: "هذا النموذج غير متاح لهذا الحساب الآن.", show_alert: true }).catch(() => null);
+          return true;
+        }
+      } catch {
+        const message = "⚠️ تعذّر التحقق من اختيار النموذج. لم أرسل رسالتك إلى نموذج آخر؛ أعد المحاولة بعد قليل.";
+        if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id, { text: message, show_alert: true }).catch(() => null);
+        else await send(bot, chatId, message);
+        return true;
+      }
+    }
+    if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id, { text: owner ? "Nova AI غير متاحة الآن، ولم يتم تحويلك إلى شام." : "Nova AI قيد الصيانة لدقائق.", show_alert: owner }).catch(() => null);
+    else if (update.message?.chat?.id) {
+      const message = owner && welcomeCommand
+        ? "👋 أهلاً بك. خدمة Nova AI غير متاحة الآن؛ لم أرسل طلبك إلى شام. أعد المحاولة لاحقاً أو اختر شام صراحةً من قائمة النماذج."
+        : owner
+          ? "⚠️ Nova AI غير متاحة الآن. لم أرسل طلبك إلى شام تلقائياً؛ تحقق من خدمة Nova أو اختر شام صراحةً."
+          : "🛠️ Nova AI قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.";
+      await send(bot, update.message.chat.id, message);
+    }
     return true;
   }
   const cq = update.callback_query;
@@ -327,6 +365,16 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     }
     if (!/^c(mode|cf|perm|sch)\|/.test(data)) {
       if (owner) return false;                                // owner: the Sham handler's own buttons
+      if (/^sham(ok|no)\|/.test(data)) {
+        try {
+          if (await canRouteSelectedSham(chatId, db, false)) return false;
+          await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب الآن.", show_alert: true }).catch(() => null);
+          return true;
+        } catch {
+          await bot.api.answerCallbackQuery(cq.id, { text: "تعذّر التحقق من اختيار النموذج.", show_alert: true }).catch(() => null);
+          return true;
+        }
+      }
       await bot.api.answerCallbackQuery(cq.id).catch(() => null);
       return true;
     }
