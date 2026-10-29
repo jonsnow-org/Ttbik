@@ -201,7 +201,7 @@ export async function shamAgentRun(opts: {
     const toolNames = opts.tools.map((tool) => normaliseChatText(String(tool.function?.name || ""))).filter(Boolean);
     const toolInventoryText = toolInventoryQuestion ? activeToolInventoryText(opts.tools) : "";
     const allHistory = opts.history || [];
-    const usableHistory = allHistory.filter((h, index) => {
+    const usableHistory = allHistory.filter((h) => {
       const q = normaliseChatText(h.q), a = normaliseChatText(h.a);
       return q.length >= 2 && a.length >= 2 && q !== a &&
         !isQuestionEcho(h.a, h.q, []);
