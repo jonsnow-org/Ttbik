@@ -31,6 +31,7 @@ import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryReq
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
+import { safeDriveError, sanitizeDriveDiagnostic, shouldResumeDriveAfterError } from "@/lib/coderDriveRecovery";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -39,7 +40,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
-  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number; driveRetries?: number;   // model-server patience and safe runner recovery
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -1432,11 +1433,12 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
   }
 }
 
-async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = "", onStage: (stage: string) => void = () => {}): Promise<void> {
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
   let cached: CoderReply | null = null;                 // `chat` already answered within its wait: no extra poll
   for (;;) {
+    onStage("load-state");
     let st: ChatState;
     try {
       st = await loadStateStrict(chatId, db, slot);
@@ -1456,11 +1458,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       await handOff(botRow, chatId, chain, slot);
       return;
     }
+    onStage("prepare-context");
     const ctx = await toolCtx(chatId, st, db, run, botRow.id);
     const github = Boolean(ctx.gh);
 
     // 0) sub-agents running for this run: wait for their reports (they are separate runs; this leg only polls their state rows)
     if (run.delegating) {
+      onStage("wait-for-agents");
       const d = run.delegating;
       const kids = await Promise.all(d.slots.map((sl) => loadState(chatId, db, sl)));
       const finished = kids.map((k) => (k.agentResult && !k.run ? k.agentResult : undefined));
@@ -1486,6 +1490,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
 
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
+      onStage("process-queued-tool");
       const [call, ...rest] = run.queued;
       if (run.agent && !agentToolAllowed(call.function.name, run.agentRole, run.agentDepth || 1, parseArgs(call))) {
         // an agent only uses its role's tools: enforced here, whatever the model asks for
@@ -1659,7 +1664,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
         await taskEvent(run.id, "tool", toolLabel(call), db);
         await progressLine(ioBot, chatId, run, stepLabel(call.function.name, call.function.arguments));
+        onStage(`execute-tool:${call.function.name}`);
         const out = await withHeartbeat(ioBot, chatId, run, `تنفيذ بعد الموافقة: ${short}`, () => runTool(call, ctx));
+        onStage(`persist-tool-result:${call.function.name}`);
         await progressDone(ioBot, chatId, run, [out]);
         st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
         run.queued = rest;
@@ -1756,7 +1763,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
 
     // 2) a job on the Studio: poll it and send what is finished
     if (run.job) {
+      onStage("poll-model-job");
       const o = cached && cached.job === run.job ? { reply: cached } : await coderJobResult(run.job, 0, Math.min(10000, left() - 2000));
+      onStage("process-model-result");
+      run.driveRetries = 0;
       cached = null;
       const r: CoderReply | null = o.reply;
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
@@ -2057,7 +2067,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const call = { id: "pre_research", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: q, ...(queries.length ? { queries } : {}) }) } };
         await progressLine(ioBot, chatId, run, stepLabel("deep_research", call.function.arguments));
         await taskEvent(run.id, "tool", toolLabel(call), db);
+        onStage("execute-tool:deep_research");
         const out = await withHeartbeat(ioBot, chatId, run, "بحث معمّق", () => runTool(call, ctx));
+        onStage("persist-tool-result:deep_research");
         await progressDone(ioBot, chatId, run, [out]);
         st.messages.push({ role: "assistant", content: "", tool_calls: [call] }, { role: "tool", content: out, tool_call_id: call.id, name: "deep_research" });
         // "search GitHub" requests: the engine also asks GitHub itself (repositories by stars) and reads the top READMEs, so the report names real projects
@@ -2180,7 +2192,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
+    onStage("submit-model-request");
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    onStage("process-new-model-response");
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
@@ -2256,6 +2270,7 @@ ${summary}`, db);
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   if (isAgentSlot(slot)) bot = silentBot(bot);
   let runId = "";
+  let stage = "initializing";
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let heartbeatBusy = false;
   try {
@@ -2274,24 +2289,52 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         }, 15000);
       }
     } catch { /* driveLoop retries transient state-store failures itself */ }
-    await driveLoop(bot, botRow, chatId, chain, db, budgetMs, slot);
+    await driveLoop(bot, botRow, chatId, chain, db, budgetMs, slot, (nextStage) => { stage = nextStage; });
   } catch (error) {
-    console.error("[coder-drive]", { chatId, chain, error: String((error as Error)?.message || error).slice(0, 240) });
+    const detail = safeDriveError(error);
+    const rawStack = error instanceof Error ? error.stack || "" : "";
+    const stack = sanitizeDriveDiagnostic(rawStack, 4000);
+    console.error("[coder-drive]", { chatId, chain, runId, stage, error: detail, stack });
     try {
       const st = await loadStateStrict(chatId, db, slot);
       if (st.run?.chain === chain) {
         const run = st.run;
         runId = run.id;
+
+        // A transient failure while polling a saved Studio job (or preparing a read-only context)
+        // is safe to resume. Never do this while a tool, agent launch, or confirmation may be in flight.
+        if (shouldResumeDriveAfterError(stage, error, run)) {
+          run.driveRetries = (run.driveRetries || 0) + 1;
+          run.lease = Date.now();
+          try {
+            await saveStateStrict(chatId, st, db, slot);
+            await taskEvent(run.id, "stall", `Safe automatic resume after transient runner error at ${stage} (${run.driveRetries}/2): ${detail}`, db).catch(() => null);
+            await taskEvent(run.id, "info", `🔁 واجهت نوفا انقطاعاً مؤقتاً أثناء متابعة المهمة؛ أستأنف الخطوة نفسها تلقائياً (${run.driveRetries}/2).`, db).catch(() => null);
+            try {
+              await handOff(botRow, chatId, chain, slot);
+              return;
+            } catch (handoffError) {
+              const handoffDetail = safeDriveError(handoffError);
+              console.error("[coder-drive-handoff]", { chatId, chain, runId, stage, error: handoffDetail });
+              await taskEvent(run.id, "stall", `Automatic resume handoff failed at ${stage}: ${handoffDetail}`, db).catch(() => null);
+            }
+          } catch (resumeError) {
+            console.error("[coder-drive-resume]", { chatId, chain, runId, stage, error: safeDriveError(resumeError) });
+          }
+        }
+
+        // Keep the full diagnostic in server logs and a hidden stall event; public task history hides "stall" events.
+        await taskEvent(run.id, "stall", `Uncaught runner error at ${stage}: ${detail}`, db).catch(() => null);
         st.run = null;
         if (run.agent && !st.agentResult) st.agentResult = { status: "failed", text: "the sub-agent stopped on an internal error", at: Date.now() };
         await saveStateStrict(chatId, st, db, slot); // persist the terminal state before best-effort cleanup
         if (run.job) later(() => coderCancel(run.job!).catch(() => null));
-        await taskEvent(run.id, "failed", "توقف العامل الخلفي بسبب خطأ غير متوقع. أعد إرسال الطلب؛ لن تبقى المهمة عالقة بصمت.", db);
+        await taskEvent(run.id, "failed", `توقف العامل الخلفي عند المرحلة ${stage}: ${detail}`, db);
         await taskStatus(run.id, "failed", run.step, db);
-        await send(bot, chatId, "⚠️ توقّف تنفيذ المهمة بسبب خطأ داخلي. أصبحت المهمة معلّمة كفاشلة بدل بقائها معلّقة؛ أعد إرسال طلبك بعد قليل.");
+        await send(bot, chatId, "⚠️ توقّف تنفيذ المهمة بسبب خطأ داخلي. سجّلتُ المرحلة التقنية لمراجعتها؛ أعد إرسال طلبك بعد قليل.");
       }
     } catch (recoveryError) {
-      console.error("[coder-drive-recovery]", String((recoveryError as Error)?.message || recoveryError).slice(0, 200));
+      console.error("[coder-drive-recovery]", { chatId, chain, runId, stage, error: safeDriveError(recoveryError) });
     }
   } finally {
     if (heartbeat) clearInterval(heartbeat);
