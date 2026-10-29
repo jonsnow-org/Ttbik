@@ -21,6 +21,7 @@ describe("Sham's own agent loop", () => {
     ["أنت شام أم نوفا؟", "لست نوفا"],
     ["هل أنت Nova؟", "لست نوفا"],
     ["Who are you?", "أنا شام v2"],
+    ["Are you Sham or Nova?", "لست نوفا"],
   ])("Sham v2 identity is fixed for %j", async (question, expected) => {
     expect(shamV2IdentityAnswer(question)).toContain(expected);
     const seen: string[] = [];
