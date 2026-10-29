@@ -22,6 +22,7 @@ export const metadata: Metadata = {
 export default function AIToolsPageEnglish() {
   return (
     <main lang="en" dir="ltr" className="mx-auto max-w-6xl px-4 py-7 sm:py-10">
+      <EnglishDeskNav />
       <nav aria-label="Breadcrumb" className="mb-5 text-xs font-semibold text-slate-500">
         <Link href="/en" className="hover:text-indigo-700">Sham AI</Link>
         <span className="mx-2" aria-hidden="true">/</span>
