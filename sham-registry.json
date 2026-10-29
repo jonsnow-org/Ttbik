@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-29 10:10 UTC",
+  "generated_at": "2026-10-29 18:36 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -149,7 +149,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-29",
       "gpu": false,
@@ -224,7 +224,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 791.7,
+      "size_mb": 791.8,
       "last_updated": "2026-10-29",
       "progress": {},
       "has_key_files": true
@@ -248,8 +248,8 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4210.0,
-      "last_updated": "2026-10-28",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-29",
       "progress": {},
       "has_key_files": true
     },
@@ -259,13 +259,13 @@
       "size_mb": 144.9,
       "last_updated": "2026-10-29",
       "progress": {
-        "samples_consumed": 142644,
-        "step": 19921,
+        "samples_consumed": 150168,
+        "step": 21802,
         "last_run_sources": {
           "coco-karpathy": 1000
         },
-        "codebook_usage": 4212,
-        "recon": 0.048075222629396355
+        "codebook_usage": 2352,
+        "recon": 0.060671446424338124
       },
       "has_key_files": true
     },
@@ -312,8 +312,8 @@
     {
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
-      "size_mb": 2422.5,
-      "last_updated": "2026-10-27",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-29",
       "progress": {},
       "has_key_files": true
     },
