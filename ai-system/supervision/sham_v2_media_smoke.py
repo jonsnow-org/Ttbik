@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").rstrip("/")
@@ -59,16 +60,25 @@ def call(api: str, payload: dict, timeout: int = 300):
     event = sub.get("event_id")
     if not event:
         raise RuntimeError(f"{api}: Studio returned no event_id: {str(sub)[:200]}")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    last_error = ""
+    # Gradio returns a long-lived SSE stream. Read complete lines as they arrive;
+    # res.read() waits for EOF and can time out while the model is still streaming.
+    while time.monotonic() < deadline:
         req = Request(f"{BASE}/gradio_api/call/{api}/{event}", headers={"Authorization": f"Bearer {TOKEN}"})
-        with urlopen(req, timeout=min(45, max(5, int(deadline-time.time())))) as res:
-            body = res.read().decode("utf-8", errors="replace")
-        value = unwrap(body)
-        if value is not None:
-            return value
-        time.sleep(2)
-    raise TimeoutError(f"{api}: timed out after {timeout}s")
+        try:
+            with urlopen(req, timeout=min(45, max(5, int(deadline - time.monotonic())))) as res:
+                while time.monotonic() < deadline:
+                    line = res.readline()
+                    if not line:
+                        break
+                    value = unwrap(line.decode("utf-8", errors="replace"))
+                    if value is not None:
+                        return value
+        except (TimeoutError, URLError, OSError) as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:100]}"
+        time.sleep(1)
+    raise TimeoutError(f"{api}: timed out after {timeout}s; last stream error: {last_error}")
 
 
 def media(kind: str, backend: str):

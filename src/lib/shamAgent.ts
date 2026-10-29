@@ -206,10 +206,19 @@ export async function shamAgentRun(opts: {
   }
 
   // Everyday Sham v2 conversation must go to its chat-tuned Qwen3 prompt directly.
+  // A short direct attempt can time out and resume in the background. Retry that same route
+  // if the saved transcript contains no tool activity; otherwise keep the genuine agent/tool path.
+  const resumeMessages = messages as Array<{ role?: string; tool_calls?: CoderToolCall[] }>;
+  const lastResumeMessage = resumeMessages[resumeMessages.length - 1];
+  const canResumeDirectChat = !opts.resume || (
+    lastResumeMessage?.role === "user" &&
+    !resumeMessages.some((message) => message.role === "tool" || Boolean(message.tool_calls?.length))
+  );
   // Wrapping "المستخدم: ... / شام:" plus the full tool schema inside one Qwen3 user turn
   // caused the model to echo the serialized question instead of answering it. Keep agent/tool
   // routing for code, execution, media, and fresh-fact requests.
-  if (v2 && !opts.resume && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text) || isToolInventoryQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+  if (v2 && canResumeDirectChat && (prof.klass === "chat" || prof.klass === "trivial" || isCapabilityQuestion(opts.text) || isToolInventoryQuestion(opts.text)) && !needsFreshFacts(opts.text)) {
+    if (opts.resume) opts.onEvent?.("info", "انتهت مهلة المحاولة السريعة؛ أعيد المحاولة عبر مسار المحادثة المباشر.");
     const toolInventoryQuestion = isToolInventoryQuestion(opts.text);
     const toolNames = opts.tools.map((tool) => normaliseChatText(String(tool.function?.name || ""))).filter(Boolean);
     const toolInventoryText = toolInventoryQuestion ? activeToolInventoryText(opts.tools) : "";
