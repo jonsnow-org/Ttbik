@@ -1,0 +1,167 @@
+name: "Donor bake-off: three isolated ModelScope Studios"
+on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - "experiments/donor-bakeoff/**"
+      - ".github/workflows/donor-bakeoff-modelscope.yml"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: donor-bakeoff-modelscope-exclusive
+  cancel-in-progress: false
+jobs:
+  deploy-candidate:
+    name: ${{ matrix.candidate.label }} — isolated Studio
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        candidate:
+          - id: qwen35-9b
+            label: Qwen3.5-9B low-refusal
+            studio: sham-donor-qwen35-9b-test
+            config: qwen35-9b.json
+          - id: gemma4-e4b
+            label: Gemma 4 E4B low-refusal
+            studio: sham-donor-gemma4-e4b-test
+            config: gemma4-e4b.json
+          - id: minicpm-o45
+            label: MiniCPM-o 4.5
+            studio: sham-donor-minicpmo45-test
+            config: minicpm-o45.json
+    env:
+      MS: https://www.modelscope.cn
+      OWNER: novaai2026
+      REPO: ${{ matrix.candidate.studio }}
+      CANDIDATE_ID: ${{ matrix.candidate.id }}
+      CANDIDATE_CONFIG: ${{ matrix.candidate.config }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify credentials and inspect free CPU hardware
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" > account.json
+          curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          d=json.load(open("hardware.json",encoding="utf-8"))
+          items=d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items,dict): items=items.get("items") or items.get("hardware") or []
+          free=[x for x in items if isinstance(x,dict) and str(x.get("resource_type","")).lower()!="paid" and not str(x.get("name","")).startswith("paid/")]
+          cpu=[x for x in free if "cpu" in str(x.get("name","")).lower()]
+          mem16=[x for x in cpu if "16g" in str(x.get("name","")).lower() or "16gb" in str(x.get("name","")).lower()]
+          choices=mem16 or cpu
+          if not choices: raise SystemExit("No free CPU Studio hardware; refusing paid hardware.")
+          print("HW="+str(choices[-1].get("name") or ""))
+          PY
+          echo "ModelScope account authenticated; no account identifiers or token values printed."
+      - name: Create only this candidate's private Studio if missing
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          echo "Experiment Studio lookup HTTP $code"
+          if [ "$code" = "200" ]; then
+            echo "Refreshing only this named donor experiment Studio."
+          elif [ "$code" = "404" ]; then
+            export OWNER REPO HW
+            python3 - <<'PY' > create.json
+          import json,os
+          print(json.dumps({"owner":os.environ["OWNER"],"repo_name":os.environ["REPO"],"sdk_type":"gradio","visibility":"private","hardware":os.environ["HW"],"display_name":os.environ["REPO"]}))
+          PY
+            code=$(curl -sS --connect-timeout 8 --max-time 30 -o create-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @create.json "$MS/openapi/v1/studios")
+            echo "Experiment Studio create HTTP $code"
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then cat create-response.json; echo "::error::ModelScope rejected isolated Studio creation."; exit 1; fi
+          else
+            cat studio.json
+            echo "::error::Unexpected lookup status; refusing to alter an unknown Studio."
+            exit 1
+          fi
+      - name: Push isolated benchmark app
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "donor bake-off CI"
+          git config --global user.email "donor-bakeoff@users.noreply.github.com"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" experiment-studio 2>&1 | sed "s/$T/***/g"
+          cp experiments/donor-bakeoff/app.py experiment-studio/app.py
+          cp experiments/donor-bakeoff/requirements.txt experiment-studio/requirements.txt
+          cp "experiments/donor-bakeoff/candidates/$CANDIDATE_CONFIG" experiment-studio/candidate.json
+          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "GitHub/Vercel checks only inspect generated tool-call structure; no connector operation is executed." > experiment-studio/README.md
+          cd experiment-studio
+          git add app.py requirements.txt candidate.json README.md
+          git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Deploy isolated Studio and wait for the model
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true)
+          echo "Experiment deploy HTTP $deploy_code"
+          if [[ "$deploy_code" =~ ^[0-9]{3}$ ]] && [ "$deploy_code" -ge 400 ]; then cat deploy-response.json; exit 1; fi
+          mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
+          show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\n' "$body" | tail -c 4000 || true; done; }
+          SECONDS=0; READY=0
+          while [ "$SECONDS" -lt 5100 ]; do
+            studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+            state=""
+            if [ "$studio_code" = "200" ]; then state=$(python3 -c "import json;d=json.load(open('studio-status.json'));d=d.get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true); fi
+            echo "$(date -u +%H:%M:%S) $REPO: HTTP $studio_code; runtime=$state; elapsed=$SECONDS s"
+            case "$state" in
+              *ail*|*rror*|*topped*) echo "::error::Experiment Studio terminal state: $state"; show_logs; exit 1 ;;
+              Running|running|Ready|ready)
+                event_code=$(curl -sS --connect-timeout 5 --max-time 15 -o status-event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" || true)
+                event_id=""
+                if [ "$event_code" = "200" ]; then event_id=$(python3 -c "import json;print(json.load(open('status-event.json')).get('event_id',''))" 2>/dev/null || true); fi
+                if [ -n "$event_id" ]; then
+                  result_code=$(curl -sS --connect-timeout 5 --max-time 25 -o status-result.txt -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                  response=$(cat status-result.txt 2>/dev/null || true)
+                  echo "Model readiness HTTP $result_code: $(printf '%s' "$response" | head -c 700)"
+                  if printf '%s' "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"'; then READY=1; break; fi
+                  if printf '%s' "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"error"'; then echo "::error::Candidate failed to load."; show_logs; exit 1; fi
+                fi
+                ;;
+            esac
+            sleep 20
+          done
+          if [ "$READY" -ne 1 ]; then echo "::error::Candidate not ready within 85 minutes."; show_logs; exit 1; fi
+      - name: Run Arabic, code, refusal, GitHub and Vercel smoke suite
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          OUT="donor-bakeoff-output/$CANDIDATE_ID/smoke.sse"
+          mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o smoke-event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/smoke_suite")
+          echo "Smoke submit HTTP $code"; [ "$code" = "200" ] || { cat smoke-event.json; exit 1; }
+          event_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))")
+          [ -n "$event_id" ] || { echo "::error::No Gradio event id"; exit 1; }
+          result_code=$(curl -sS --connect-timeout 8 --max-time 1050 -o "$OUT" -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$event_id")
+          echo "Smoke result HTTP $result_code"; cat "$OUT"
+          [ "$result_code" = "200" ] || { echo "::error::Smoke suite result unavailable"; exit 1; }
+      - name: Upload candidate report, including failed model loads
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: donor-bakeoff-${{ matrix.candidate.id }}
+          path: donor-bakeoff-output/${{ matrix.candidate.id }}/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,10 @@
+{
+  "id": "gemma4-e4b-low-refusal",
+  "label": "Gemma 4 E4B — Heretic uncensored community checkpoint (Q4_K_M)",
+  "repo_id": "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF",
+  "filename": "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf",
+  "family": "Gemma 4",
+  "quantization": "Q4_K_M",
+  "approx_file_size_gb": 5.34,
+  "purpose": "Arabic, code, tool-call smoke testing; text-only inference in the first pass."
+}
