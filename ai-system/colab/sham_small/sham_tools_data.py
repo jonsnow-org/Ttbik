@@ -213,7 +213,7 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
             out.append(ask_missing_example(text_ids_fn, rng, **kw))
             continue
         req, name, args, res, ans = rng.choice(CATALOG)
-        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
+        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
         fill = lambda v: v.format(**sub) if isinstance(v, str) else v        # noqa: E731
         args = {k: fill(v) for k, v in args.items()}
         if ans is None:                                                       # a two-step example: clone, then run
@@ -227,7 +227,7 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
 
 def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
     req, name, args, res, ans = rng.choice(CATALOG)
-    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS)}
+    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
     fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
     args = {k: fill(v) for k, v in args.items()}
     if ans is None:
