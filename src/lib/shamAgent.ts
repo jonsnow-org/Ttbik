@@ -259,7 +259,6 @@ export async function shamAgentRun(opts: {
     const directBad = (answer: string) =>
       isQuestionEcho(answer, opts.text, recentQuestions) ||
       isRepeatedPriorAnswer(answer, opts.history || []) ||
-      isMisidentifiedNovaAnswer(answer) ||
       isNonAnswerBoilerplate(answer, opts.text) ||
       toolInventoryBad(answer);
     let direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
@@ -273,14 +272,9 @@ export async function shamAgentRun(opts: {
       direct = await ask(directPrompt, maxNew, Math.min(opts.askMs ?? 30000, Math.max(1000, left() - 1000)));
     }
     if (direct?.type === "text" && directBad(String(direct.text || "")) && left() > 4000) {
-      const wrongIdentity = isMisidentifiedNovaAnswer(String(direct.text || ""));
-      opts.onEvent?.("info", wrongIdentity
-        ? "إعادة المحاولة لأن الرد نسب هوية نوفا إلى شام v2."
-        : "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
+      opts.onEvent?.("info", "إعادة المحاولة لأن الرد كرر السؤال أو كرر تعريفاً عاماً بدلاً من الإجابة.");
       const retryPrompt = [
-        wrongIdentity
-          ? "الرد السابق نسب لك هوية نوفا بالخطأ. أنت شام v2 في هذا المسار ونوفا نظام منفصل. صحّح المعلومة بنفسك بكلماتك الطبيعية؛ لا تستخدم جواباً محفوظاً."
-          : "أنت شام. حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
+        "أنت شام. حاول مرة أخرى لأن الرد السابق لم يجب عن السؤال الحالي.",
         "لا تكرر نص السؤال أو أي سؤال سابق، ولا تعد تعريف نفسك بعبارة عامة غير مفيدة، ولا تكرر جواباً سابقاً.",
         "أجب عن السؤال المحدد مباشرة. إن كان يسأل عن هويتك فاتبع تعليمات النظام وهويتك الفعلية؛ وإن كان يسأل عن خبرتك أو قدراتك، ابدأ بنعم أو لا عند الحاجة ثم اذكر قدرة عملية محددة. لا تدّعِ شيئاً غير صحيح.",
         toolInventoryText,
