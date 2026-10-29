@@ -61,7 +61,7 @@ def verify_metrics(history: list[dict], step: int) -> dict:
     ar_cases = int(ar.get("arabic_cases") or 0)
     ar_script = int(ar.get("arabic_script") or 0)
     require(ar_cases >= 3, "No held-out Arabic evaluation found; refusing to publish")
-    require(ar_script >= math.ceil(0.67 * ar_cases),
+    require(ar_script >= math.ceil((2.0 / 3.0) * ar_cases),
             f"Arabic script gate failed: {ar_script}/{ar_cases} responses passed")
     require(bool(ar.get("capital_syria")), "Arabic factual smoke test failed (capital of Syria)")
     require(bool(ar.get("python_code")), "Python code smoke test failed (function/return)")
