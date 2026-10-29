@@ -1,6 +1,22 @@
 import { parseShamReply, parseShamSse, readShamSse, shamBases, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable, shamVariant } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
+  it("refuses inference without an explicit selected variant instead of choosing a default model", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch;
+    let calls = 0;
+    global.fetch = (async () => { calls++; throw new Error("should not be called"); }) as any;
+    try {
+      await expect(shamGenerateAny("من أنت؟")).resolves.toBeNull();
+      await expect(shamGenerate("من أنت؟")).resolves.toBeNull();
+      await expect(shamThink("من أنت؟", "test", null, 40, 1000)).resolves.toMatchObject({ reply: null, failure: "off" });
+      expect(calls).toBe(0);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
   it("reads the first data list of an SSE body", () => {
     expect(parseShamSse('event: complete\ndata: ["نص من شام"]\n')).toBe("نص من شام");
     expect(parseShamSse("event: error\ndata: null\n")).toBeNull();
