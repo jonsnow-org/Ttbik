@@ -85,6 +85,8 @@ describe("Mini App settings op", () => {
 
   it("a user cannot edit a model that is not open to them; Nova is always allowed", async () => {
     const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
+    // The configured Studio token triggers the legacy rollout migration; explicitly establish the hidden state this test is asserting.
+    await updateModel("sham_v2", { visible: false }, db);
     await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
     await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
     expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
@@ -112,6 +114,10 @@ describe("owner-only visibility with a per-model expose toggle", () => {
   it("Nova is public; Sham and Sham v2 are the owner's until each is switched on separately", async () => {
     const db = modelsDb();
     let all = await listModels(db);
+    // Seed the intended initial visibility explicitly instead of relying on the legacy auto-rollout migration.
+    await updateModel("sham", { visible: false }, db);
+    await updateModel("sham_v2", { visible: false }, db);
+    all = await listModels(db);
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     await updateModel("sham_v2", { visible: true }, db);
     all = await listModels(db);
