@@ -342,8 +342,17 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
 
 async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
   if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return { reply: null, failure: "off" }; }
-  const payload = withMode(payload0);
+  const variant = shamVariant.getStore();
+  if (variant !== "v1" && variant !== "v2") {
+    setFailure(`${api}: no selected Sham variant; refusing model fallback`);
+    return { reply: null, failure: "off" };
+  }
+  const payload = withMode(payload0, variant);
   const bases = shamBases();
+  if (!bases.length) {
+    setFailure(`${api}: no dedicated Studio endpoint for the selected variant`);
+    return { reply: null, failure: "off" };
+  }
   const t0 = Date.now();
   let out: ShamOutcome = { reply: null, failure: "network" };
   for (let i = 0; i < bases.length; i++) {
