@@ -152,12 +152,56 @@ def app_status(name: str, token: str) -> tuple[int, dict]:
     return last_code, {}
 
 
-def studio_list_url(page_number: int, page_size: int = 50) -> str:
-    """ModelScope Studio listing uses page_number and a maximum page_size of 50."""
+def studio_list_url(page_number: int, page_size: int = 50, owner: str = OWNER) -> str:
+    """ModelScope Studio listing uses page_number, status=all and max page_size 50."""
     return (
-        f"{MS}/openapi/v1/studios?owner={OWNER}&status=all"
+        f"{MS}/openapi/v1/studios?owner={owner}&status=all"
         f"&page_number={page_number}&page_size={page_size}"
     )
+
+
+def extract_studio_page(root: dict) -> tuple[list, int | None, list[str]]:
+    """Accept the official bare response and older wrapped variants without dumping private metadata."""
+    containers = [root]
+    for key in ("data", "Data", "result", "Result"):
+        if isinstance(root.get(key), dict):
+            containers.append(root[key])
+    for container in containers:
+        items = next((container.get(key) for key in ("studios", "items", "list") if isinstance(container.get(key), list)), None)
+        if items is not None:
+            total = container.get("total_count") or container.get("total") or container.get("count")
+            try:
+                total = int(total) if total is not None else None
+            except (ValueError, TypeError):
+                total = None
+            return items, total, list(container.keys())
+    return [], None, list(root.keys())
+
+
+def _hardware_summary(token: str, studio: str | None = None) -> tuple[int, list[dict]]:
+    url = f"{MS}/openapi/v1/studios/hardware?sdk_type=gradio"
+    if studio:
+        url += "&studio=" + studio
+    code, raw = _http(url, token)
+    if code != 200:
+        return code, []
+    try:
+        root = json.loads(raw)
+        data = root.get("data") or root.get("Data") or root
+        items = data if isinstance(data, list) else (
+            data.get("hardware") or data.get("items") or data.get("list") or []
+        )
+        safe = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            safe.append({
+                key: item[key] for key in ("name", "resource_type", "cpu", "memory", "gpu", "description")
+                if key in item and isinstance(item[key], (str, int, float, bool))
+            })
+        return code, safe
+    except (ValueError, TypeError, AttributeError):
+        return code, []
 
 
 def main() -> int:
@@ -165,32 +209,60 @@ def main() -> int:
     listed_set = set()
     code = 0
     total_count = None
+    used_owner = None
     page_size = 50
-    # status=all includes sleeping Studios; status defaults to running in some account-list queries.
-    for page in range(1, 61):
-        page_code, txt = _http(studio_list_url(page, page_size), token)
-        if page == 1:
-            code = page_code
-        if page_code != 200:
-            break
+    # First use the special 'me' owner accepted by the account CLI, then try the canonical username.
+    for owner_filter in ("me", OWNER):
+        probe_code, probe_text = _http(studio_list_url(1, page_size, owner_filter), token)
+        if code == 0:
+            code = probe_code
+        if probe_code != 200:
+            continue
         try:
-            root = json.loads(txt)
-            # Unlike most ModelScope OpenAPI methods, GET /studios returns the collection at the top level.
-            items = root.get("studios") or []
-            if total_count is None:
-                total_count = int(root.get("total_count") or 0)
-            page_names = {
-                str(item.get("repo_name") or item.get("name") or item.get("repo") or "").strip()
-                for item in items if isinstance(item, dict)
-            } - {""}
-            new_names = page_names - listed_set
-            listed_set.update(new_names)
-            if not items or not new_names or len(listed_set) >= total_count > 0 or len(items) < page_size:
+            probe = json.loads(probe_text)
+            probe_items, probe_total, probe_keys = extract_studio_page(probe)
+            if probe_items or (probe_total is not None and probe_total > 0):
+                used_owner = owner_filter
+                total_count = probe_total
+                listed_set.update({
+                    str(item.get("repo_id") or item.get("id") or item.get("repo_name") or item.get("name") or item.get("repo") or "").strip()
+                    .split("/")[-1]
+                    for item in probe_items if isinstance(item, dict)
+                } - {""})
                 break
+            # If the response carries an API error or a different schema, expose only safe shape metadata.
+            print(f"studio-list probe owner={owner_filter}: keys={probe_keys}; count={len(probe_items)}; total={probe_total}")
         except (ValueError, TypeError, AttributeError):
-            break
+            continue
+
+    if used_owner:
+        for page in range(2, 61):
+            page_code, txt = _http(studio_list_url(page, page_size, used_owner), token)
+            if page_code != 200:
+                break
+            try:
+                root = json.loads(txt)
+                items, page_total, _keys = extract_studio_page(root)
+                if total_count is None:
+                    total_count = page_total
+                page_names = {
+                    str(item.get("repo_id") or item.get("id") or item.get("repo_name") or item.get("name") or item.get("repo") or "").strip()
+                    .split("/")[-1]
+                    for item in items if isinstance(item, dict)
+                } - {""}
+                new_names = page_names - listed_set
+                listed_set.update(new_names)
+                if not items or not new_names or (total_count and len(listed_set) >= total_count) or len(items) < page_size:
+                    break
+            except (ValueError, TypeError, AttributeError):
+                break
+
     listed = sorted(listed_set)
-    print(f"studios listed by the API (http {code}; total={total_count}): {listed}")
+    print(f"studios listed by the API (http {code}; owner={used_owner}; total={total_count}): {listed}")
+    hw_code, hardware = _hardware_summary(token)
+    print(json.dumps({"hardware_catalog_http": hw_code, "hardware_options": hardware}, ensure_ascii=False))
+    scoped_code, scoped_hardware = _hardware_summary(token, f"{OWNER}/nova-media-server")
+    print(json.dumps({"studio_hardware_check": "nova-media-server", "http": scoped_code, "options": scoped_hardware}, ensure_ascii=False))
     names = sorted(set(KNOWN) | set(listed))
     for n in names:
         c, t = _http(f"{MS}/openapi/v1/studios/{OWNER}/{n}", token)
@@ -199,7 +271,9 @@ def main() -> int:
         except ValueError:
             det = {}
         rt = runtime(det)
-        ac, st = app_status(n, token) if c == 200 else (0, {})
+        runtime_state = str(rt.get("state") or "").lower()
+        # Sleeping / stopped Studio apps cannot answer Gradio calls; avoid spending 3×30s on dead endpoints.
+        ac, st = app_status(n, token) if c == 200 and runtime_state in ("running", "ready") else (0, {})
         print(json.dumps({"name": n, "role": KNOWN.get(n, "UNKNOWN (not in this repo)"), "modelscope_http": c, "runtime": rt, "app_http": ac, "app": pick(st)}, ensure_ascii=False))
     return 0
 
