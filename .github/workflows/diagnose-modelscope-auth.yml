@@ -1,0 +1,94 @@
+name: "Diagnose ModelScope authentication path without changing credentials"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/diagnose-modelscope-auth.yml
+
+permissions:
+  contents: read
+
+env:
+  MODELSCOPE_ENDPOINT: https://modelscope.cn
+  PHOTO_STUDIO: novaai2026/realistic-vision-v6-test
+  PHOTO_MODEL: novaai2026/realistic-vision-v6-test-models
+
+jobs:
+  auth-diagnosis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare the exact existing token through the SDK and canonical HTTP hosts
+        env:
+          MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN" || { echo "::error::The existing repository secret is empty"; exit 1; }
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q --upgrade "modelscope"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import importlib.metadata
+          import os
+          import requests
+          import traceback
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          print("Installed package versions:")
+          for package in ("modelscope","modelscope-hub","requests"):
+              try: print(package,importlib.metadata.version(package))
+              except Exception as exc: print(package,type(exc).__name__)
+
+          print("\n1) SDK login using the same compatibility import as the successful upload step")
+          from modelscope.hub.api import HubApi
+          api=HubApi()
+          try:
+              user=api.login(token)
+              print("SDK_LOGIN=SUCCESS")
+              print("SDK_USERNAME=",getattr(user,"username",None) or getattr(user,"Username",None) or "available")
+          except Exception as exc:
+              print("SDK_LOGIN=FAILED",type(exc).__name__,str(exc)[:900])
+              traceback.print_exc(limit=2)
+
+          print("\n2) Studio and model metadata through the authenticated SDK")
+          for repo_id,repo_type in (
+              (os.environ["PHOTO_STUDIO"],"studio"),
+              (os.environ["PHOTO_MODEL"],"model"),
+          ):
+              try:
+                  info=api.get_repo(repo_id,repo_type)
+                  print("SDK_REPO=SUCCESS",repo_type,repo_id)
+                  print("SDK_REPO_RUNTIME=",getattr(info,"runtime",None))
+              except Exception as exc:
+                  print("SDK_REPO=FAILED",repo_type,type(exc).__name__,str(exc)[:700])
+
+          print("\n3) Canonical host versus www redirect using the same bearer credential")
+          for base in ("https://modelscope.cn","https://www.modelscope.cn"):
+              try:
+                  response=requests.get(
+                      base+"/openapi/v1/studios/"+os.environ["PHOTO_STUDIO"],
+                      headers={"Authorization":"Bearer "+token,"User-Agent":"RealisticVisionAuthDiagnostic/1.0"},
+                      timeout=20,allow_redirects=False,
+                  )
+                  print("OPENAPI_PROBE",base,"status=",response.status_code,
+                        "location=",response.headers.get("Location","")[:180],
+                        "body=",response.text[:450].replace(token,"***"))
+              except Exception as exc:
+                  print("OPENAPI_PROBE",base,"ERROR",type(exc).__name__,str(exc)[:300])
+
+          print("\n4) Studio inference endpoint auth variants")
+          inference="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net/gradio_api/info"
+          variants=(
+              ("bearer_only",{"Authorization":"Bearer "+token},None),
+              ("bearer_plus_session_cookies",{"Authorization":"Bearer "+token},{"m_session_id":token,"modelscope_session":token}),
+              ("session_cookies_only",{},{"m_session_id":token,"modelscope_session":token}),
+          )
+          for name,headers,cookies in variants:
+              try:
+                  response=requests.get(inference,headers=headers,cookies=cookies,timeout=20,allow_redirects=False)
+                  body=response.text[:500].replace(token,"***")
+                  print("INFERENCE_PROBE",name,"status=",response.status_code,"body=",body)
+              except Exception as exc:
+                  print("INFERENCE_PROBE",name,"ERROR",type(exc).__name__,str(exc)[:300])
+          PY
