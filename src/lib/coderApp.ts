@@ -490,7 +490,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
           // Candidate models are first-class entries in owner.models, not a secondary trial selector.
           donorTests: [],
           trialSelected: null,
-          candidateStatuses: await (await import("@/lib/donorTests")).probeDonorTestStudios(deps.fetchImpl || globalThis.fetch),
         } : {}),
       };
     }
