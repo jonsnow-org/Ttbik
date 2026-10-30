@@ -51,7 +51,7 @@ jobs:
           metadata={
               "model":"Realistic Vision V6.0 B1 noVAE FP16",
               "model_repo":"novaai2026/realistic-vision-v6-test-models",
-              "checkpoint_sha256":"c48bfd159cd7a6507b128685e963c398fa72399cefafaf6034e6c",
+              "checkpoint_sha256":"c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
               "vae":"stabilityai/sd-vae-ft-mse-original / MSE 840000 EMA",
               "vae_sha256":"735e4c3a447a3255760d7f86845f09f937809baa529c17370d83e4c3758f3c75",
               "sampler":"DPM++ SDE Karras",
