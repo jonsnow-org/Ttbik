@@ -55,7 +55,7 @@ export type Run = {
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>>; imageTestModel?: ImageGenerationTestId; imageTestInFlight?: Partial<Record<ImageGenerationTestId, string>> };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>>; imageTestModel?: ImageGenerationTestId; imageTestInFlight?: Partial<Record<ImageGenerationTestId, string>>; imageTestJobs?: Partial<Record<ImageGenerationTestId, { runId: string; prompt: string; seed: number; eventId?: string; attempt: number }>> };
 export type { Db };
 export { coderChatKey };
 
@@ -591,7 +591,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       return true;
     }
     try {
-      await startImageGenerationTest(bot, chatId, text, botRow.id, db, imageId);
+      await startImageGenerationTest(bot, chatId, text, botRow.id, db, imageId, globalThis.fetch, botRow.webhookSecret || "");
     } catch (error) {
       const message = String((error as Error)?.message || error).slice(0, 700);
       await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
