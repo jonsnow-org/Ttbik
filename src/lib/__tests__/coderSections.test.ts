@@ -150,10 +150,16 @@ describe("guard (the only guardrail)", () => {
 });
 
 describe("sections and the loop", () => {
-  it("is off without OPEN_CODER_STUDIO_URL (Sham path unchanged)", async () => {
+  it("does not forward owner messages to Sham when OPEN_CODER_STUDIO_URL is off", async () => {
     delete process.env.OPEN_CODER_STUDIO_URL;
-    const { bot } = fakeBot();
-    expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "hi" } }, memDb())).toBe(false);
+    const { bot, sent } = fakeBot();
+    expect(await handleCoderSections(
+      bot,
+      botRow,
+      { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "hi" } },
+      memDb(),
+    )).toBe(true);
+    expect(sent.some((x) => x.text.includes("لم أرسل طلبك إلى شام"))).toBe(true);
   });
 
   it("/mode switches to Sham (its own path: every message goes to the Sham handler) and back to Nova AI", async () => {
@@ -543,11 +549,10 @@ describe("isolated Telegram donor route", () => {
       if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
         return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/status") && method === "POST") {
-        return new Response(JSON.stringify({ event_id: "status-event" }), { status: 200 });
-      }
-      if (url.endsWith("/gradio_api/call/status/status-event")) {
-        return new Response(completed({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/status") && method === "POST") {
+        return new Response(JSON.stringify({
+          data: [JSON.stringify({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } })],
+        }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/call/chat") && method === "POST") {
         return new Response(JSON.stringify({ event_id: "chat-event" }), { status: 200 });

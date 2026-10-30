@@ -174,6 +174,29 @@ export async function donorTestChat(
     tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
   };
 }
+async function callGradioDirect(
+  config: (typeof DONOR_TESTS)[number],
+  apiName: string,
+  data: unknown[],
+  timeoutMs: number,
+  fetchImpl: typeof fetch,
+): Promise<unknown> {
+  const token = tokenOf();
+  if (!token) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
+  const response = await fetchImpl(apiOf(config) + "/gradio_api/run/" + apiName, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ data }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => "")).slice(0, 300);
+    throw new Error("استديو " + config.name.ar + ": HTTP " + response.status + (detail ? " · " + detail : ""));
+  }
+  return response.json();
+}
+
 function parseStatus(value: unknown): Record<string, any> | null {
   if (Array.isArray(value)) value = value[0];
   if (typeof value === "string") {
@@ -205,7 +228,8 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
         detail: runtimeState || "استديو غير جاهز بعد",
       };
     }
-    const statusValue = parseStatus(await callGradio(config, "status", [], 20_000, fetchImpl));
+    const direct = asObject(await callGradioDirect(config, "status", [], 20_000, fetchImpl));
+    const statusValue = parseStatus(Array.isArray(direct.data) ? direct.data[0] : direct.data ?? direct);
     const phase = String(statusValue?.phase || "unavailable").toLowerCase();
     const caps = statusValue?.media_capabilities;
     return {
