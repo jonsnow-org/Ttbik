@@ -485,6 +485,11 @@ describe("notices of a task started from the chat", () => {
   });
 });
 
+function memDbQuery(db: Db): (sql: string, ...args: any[]) => Promise<any> {
+  const original = (db as any).query.bind(db);
+  return (sql: string, ...args: any[]) => original(sql, args[0]);
+}
+
 describe("a poll the hub refuses for a moment does not end the task", () => {
   it("a 429 on the job poll is waited out and the task finishes", async () => {
     process.env.CODER_POLL_MS = "5";
@@ -503,4 +508,75 @@ describe("a poll the hub refuses for a moment does not end the task", () => {
     expect(sent.map((s) => s.text)).toContain("تم بعد رفض مؤقت");
     expect(polls).toBeGreaterThanOrEqual(3);
   }, 70000);
+});
+
+
+describe("isolated Telegram donor route", () => {
+  it("sends owner messages directly to the selected candidate even when Nova is disabled, without fallback", async () => {
+    const db = memDb();
+    const state = {
+      mode: "coder" as const,
+      think: false,
+      messages: [],
+      notes: "",
+      inbox: [],
+      run: null,
+      donorTestModel: "qwen35-9b" as const,
+    };
+    await saveState(CHAT, state, db);
+    const originalFetch = global.fetch;
+    const originalOpenCoder = process.env.OPEN_CODER_STUDIO_URL;
+    delete process.env.OPEN_CODER_STUDIO_URL;
+
+    const calls: { url: string; method: string }[] = [];
+    const originalQuery = memDbQuery(db);
+    (db as any).query = async (sql: string, ...args: any[]) => {
+      if (sql.includes("SELECT status FROM coder_tasks")) return [{ status: "running" }];
+      return originalQuery(sql, ...args);
+    };
+    const completed = (payload: object) =>
+      "event: complete\ndata: [" + JSON.stringify(JSON.stringify(payload)) + "]\n\n";
+    global.fetch = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      const method = String(init?.method || "GET").toUpperCase();
+      calls.push({ url, method });
+      if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
+        return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/call/status") && method === "POST") {
+        return new Response(JSON.stringify({ event_id: "status-event" }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/call/status/status-event")) {
+        return new Response(completed({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/call/chat") && method === "POST") {
+        return new Response(JSON.stringify({ event_id: "chat-event" }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/call/chat/chat-event")) {
+        return new Response(completed({ text: "رد مباشر من Qwen", tool_calls: [], seconds: 0.2, tokens_per_second: 12 }), { status: 200 });
+      }
+      return new Response("unexpected donor test request", { status: 500 });
+    }) as any;
+
+    try {
+      const { bot, sent } = fakeBot();
+      await handleCoderSections(
+        bot,
+        botRow,
+        { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "اختبر الرد المباشر" } },
+        db,
+      );
+      for (let i = 0; i < 100 && !sent.some((x) => x.text.includes("رد مباشر من Qwen")); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/call/chat"))).toBe(true);
+      expect(calls.every((x) => !x.url.includes("coder.test"))).toBe(true);
+      expect(sent.some((x) => x.text.includes("رد مباشر من Qwen"))).toBe(true);
+      expect(sent.some((x) => /لم يتم تحويل الطلب إلى نموذج آخر/.test(x.text))).toBe(false);
+    } finally {
+      global.fetch = originalFetch;
+      if (originalOpenCoder === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = originalOpenCoder;
+    }
+  });
 });

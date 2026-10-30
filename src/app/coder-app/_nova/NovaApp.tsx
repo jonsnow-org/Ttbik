@@ -29,9 +29,8 @@ type ChatList = { model: string; selected: string; items: ChatItem[]; current: s
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
-type DonorTestOption = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; studioUrl?: string; selected: boolean };
+type DonorTestOption = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; selected: boolean };
 type DonorTestStatus = { id: string; phase: string; detail?: string; media_capabilities?: { vision: boolean; audio: boolean; video: boolean } };
-type DonorChatMessage = { role: "user" | "assistant"; content: string; runId?: string };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[]; donorTests?: DonorTestOption[]; trialSelected?: string | null };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
@@ -471,7 +470,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
     }
   };
   const phaseLabel = (phase: string) => ({
-    ready: lang === "ar" ? "✅ جاهز للمحادثة" : "✅ Ready for chat",
+    ready: lang === "ar" ? "✅ جاهز للاختبار داخل البوت" : "✅ Ready to test in Telegram",
     loading: lang === "ar" ? "⏳ النموذج يُحمّل" : "⏳ Model loading",
     deploying: lang === "ar" ? "⏳ الاستديو قيد التشغيل" : "⏳ Studio starting",
     not_created: lang === "ar" ? "لم يُنشأ الاستديو بعد" : "Studio not created yet",
@@ -523,16 +522,22 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
               🧪 {lang === "ar" ? "اختبار المرشحين · خاص بالمالك" : "Candidate test · owner only"}
             </div>
             <div className="n-s" style={{ padding: "0 12px 8px" }}>
-              {lang === "ar" ? "كل رسالة تذهب مباشرة إلى استديو المرشح المحدد ولا تدخل مسارات الإنتاج." : "Messages go straight to the selected candidate Studio, outside production routes."}
+              {lang === "ar" ? "بعد الاختيار أرسل رسائلك في محادثة البوت على تيليغرام؛ ستذهب إلى المرشح مباشرة دون المرور بمسارات الإنتاج." : "After selecting a candidate, send messages in the Telegram bot chat. They go directly to that model, outside production routes."}
             </div>
             {d.donorTests!.map((m) => {
               const phase = trialStatuses[m.id]?.phase || "unknown";
               return (
-                <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pickDonor(m.id)}>
+                <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching || phase !== "ready"} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pickDonor(m.id)}>
                   <span className="n-body">
                     <span className="n-t">🧪 {m.name[lang]}</span>
                     <span className="n-s">{m.desc[lang]}</span>
                     <span className="n-s">{phaseLabel(phase)}</span>
+                    {trialStatuses[m.id]?.media_capabilities && <span className="n-s">
+                      {lang === "ar" ? "الوسائط: " : "Media: "}
+                      {trialStatuses[m.id].media_capabilities!.vision ? "🖼️" : "—"}
+                      {" "}{trialStatuses[m.id].media_capabilities!.audio ? "🎧" : "—"}
+                      {" "}{trialStatuses[m.id].media_capabilities!.video ? "🎞️" : "—"}
+                    </span>}
                   </span>
                   {m.selected && <span className="n-check" aria-hidden="true">✓</span>}
                 </button>
@@ -553,7 +558,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
                   catch (e: any) { setPickError(e?.message || "تعذّر بدء محادثة اختبار جديدة."); }
                   finally { switchingRef.current = false; setSwitching(false); }
                 }}>
-                  <span className="n-body"><span className="n-t">＋ {lang === "ar" ? "محادثة جديدة لهذا المرشح" : "New chat for this candidate"}</span></span>
+                  <span className="n-body"><span className="n-t">⌫ {lang === "ar" ? "مسح سجل هذا المرشح" : "Clear this candidate history"}</span></span>
                 </button>
               </>
             )}
@@ -564,189 +569,6 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
   );
 }
 
-
-function DonorTestPanel({ c, candidate, revision }: { c: Ctx; candidate: DonorTestOption; revision: Models | null }) {
-  const { lang } = c;
-  const ar = lang === "ar";
-  const [messages, setMessages] = useState<DonorChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [status, setStatus] = useState<DonorTestStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [runId, setRunId] = useState("");
-  const [notice, setNotice] = useState("");
-  const cursor = useRef(0);
-  const pollBusy = useRef(false);
-  const runRef = useRef("");
-  const terminalRef = useRef(false);
-
-  const refreshHistory = useCallback(async () => {
-    const result = await api<{ messages: { role: "user" | "assistant"; content: string }[] }>("donor_test_history", { id: candidate.id });
-    setMessages((result.messages || []).map((x) => ({ role: x.role, content: x.content })));
-  }, [candidate.id]);
-
-  const checkStatus = useCallback(async () => {
-    const result = await api<{ statuses: DonorTestStatus[] }>("donor_test_status");
-    setStatus((result.statuses || []).find((x) => x.id === candidate.id) || null);
-  }, [candidate.id]);
-
-  useEffect(() => {
-    let alive = true;
-    void refreshHistory().catch((e: any) => alive && setNotice(e?.message || "تعذّر تحميل سجل الاختبار."));
-    void checkStatus().catch((e: any) => alive && setStatus({ id: candidate.id, phase: "unavailable", detail: e?.message || "" }));
-    return () => { alive = false; };
-  }, [candidate.id, revision, refreshHistory, checkStatus]);
-
-  const poll = useCallback(async () => {
-    const activeId = runRef.current;
-    if (!activeId || terminalRef.current || pollBusy.current || document.visibilityState !== "visible") return;
-    pollBusy.current = true;
-    try {
-      const result = await api<{ events: Ev[] }>("events", { runId: activeId, after: cursor.current });
-      for (const event of result.events || []) {
-        cursor.current = Math.max(cursor.current, event.id);
-        if (event.kind === "text") {
-          setMessages((old) => {
-            const last = old[old.length - 1];
-            if (last?.role === "assistant" && last.runId === activeId) {
-              return [...old.slice(0, -1), { ...last, content: last.content + event.text }];
-            }
-            return [...old, { role: "assistant", content: event.text, runId: activeId }];
-          });
-        } else if (event.kind === "info") {
-          setNotice(event.text);
-        } else if (event.kind === "failed") {
-          setNotice(event.text);
-          terminalRef.current = true;
-          setBusy(false);
-          void refreshHistory().catch(() => undefined);
-        } else if (event.kind === "done") {
-          setNotice(event.text);
-          terminalRef.current = true;
-          setBusy(false);
-          void refreshHistory().catch(() => undefined);
-        }
-      }
-    } catch (e: any) {
-      setNotice(e?.message || (ar ? "انقطع اتصال سجل الاختبار مؤقتاً." : "Test log connection interrupted."));
-    } finally {
-      pollBusy.current = false;
-    }
-  }, [ar, refreshHistory]);
-
-  useEffect(() => {
-    if (!runId) return;
-    const timer = setInterval(() => { void poll(); }, 1200);
-    void poll();
-    return () => clearInterval(timer);
-  }, [runId, poll]);
-
-  const send = async () => {
-    const prompt = input.trim();
-    if (!prompt || busy || status?.phase !== "ready") return;
-    setBusy(true);
-    setNotice(ar ? "أُرسل الطلب مباشرة إلى استديو المرشح…" : "Sending directly to candidate Studio…");
-    setMessages((old) => [...old, { role: "user", content: prompt }]);
-    setInput("");
-    cursor.current = 0;
-    terminalRef.current = false;
-    try {
-      const result = await api<{ runId: string }>("send", { text: prompt });
-      if (!result.runId) throw new Error("لم يُنشأ طلب اختبار.");
-      runRef.current = result.runId;
-      setRunId(result.runId);
-    } catch (e: any) {
-      setBusy(false);
-      setNotice(e?.message || (ar ? "تعذّر إرسال طلب الاختبار." : "Could not send the test prompt."));
-    }
-  };
-
-  const stop = async () => {
-    if (!runRef.current || !busy) return;
-    try {
-      await api("stop", { runId: runRef.current, slot: "donor:" + candidate.id });
-      terminalRef.current = true;
-      setBusy(false);
-      setNotice(ar ? "تم إيقاف مهمة الاختبار." : "Test task stopped.");
-    } catch (e: any) { setNotice(e?.message || "تعذّر إيقاف الاختبار."); }
-  };
-
-  const phase = status?.phase || "checking";
-  const ready = phase === "ready";
-  const phaseText: Record<string, string> = {
-    ready: ar ? "✅ الاستديو جاهز — الاتصال مباشر" : "✅ Studio ready — direct connection",
-    loading: ar ? "⏳ النموذج قيد التحميل" : "⏳ Model is loading",
-    deploying: ar ? "⏳ الاستديو قيد التشغيل" : "⏳ Studio is starting",
-    not_created: ar ? "لم يُنشأ استديو هذا المرشح بعد" : "This candidate Studio has not been created yet",
-    error: ar ? "❌ فشل تحميل النموذج داخل الاستديو" : "❌ Model failed to load in Studio",
-    unconfigured: ar ? "رمز ModelScope غير مضبوط على خادم التطبيق" : "ModelScope token is not configured on the app server",
-    unavailable: status?.detail || (ar ? "تعذّر التحقق من الاستديو" : "Could not check Studio"),
-    checking: ar ? "جارٍ فحص استديو المرشح…" : "Checking candidate Studio…",
-  };
-
-  return (
-    <section className="n-card" style={{ marginBottom: 16, padding: 14 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="n-body">
-          <div className="n-lbl">🧪 {ar ? "وضع اختبار مستقل" : "Isolated candidate test"}</div>
-          <div className="n-t">{candidate.name[lang]}</div>
-          <div className="n-s">{candidate.desc[lang]}</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span className="n-chip">{ar ? "خاص بالمالك" : "Owner only"}</span>
-          {candidate.studioUrl && <a className="n-btn n-ghost" href={candidate.studioUrl} target="_blank" rel="noreferrer">
-            {ar ? "فتح مختبر الوسائط" : "Open media lab"} ↗
-          </a>}
-        </div>
-      </div>
-      <div className="n-s" role="status" style={{ margin: "10px 0", color: ready ? "var(--c-ok)" : "var(--c-warn)" }}>
-        {phaseText[phase] || phaseText.checking}
-        {status?.detail && phase !== "unavailable" ? " · " + status.detail : ""}
-      </div>
-      {status?.media_capabilities && <div className="n-s" style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingBottom: 8 }}>
-        <span>{status.media_capabilities.vision ? "✅" : "—"} {ar ? "صور" : "Images"}</span>
-        <span>{status.media_capabilities.audio ? "✅" : "—"} {ar ? "صوت" : "Audio"}</span>
-        <span>{status.media_capabilities.video ? "✅" : "—"} {ar ? "فيديو" : "Video"}</span>
-      </div>}
-      <div className="n-s" style={{ padding: "8px 0", borderTop: "1px solid var(--c-line)" }}>
-        {ar
-          ? "رسائلك هنا تصل إلى هذا المرشح فقط. لا نستخدم سجل Nova أو شام، ولا نمرّر أي بيانات أو مفاتيح إنتاجية إليه."
-          : "Messages here reach this candidate only. No Nova/Sham history or production credentials are passed to it."}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "42vh", overflowY: "auto", padding: "8px 0" }}>
-        {!messages.length && <div className="n-empty">{ar ? "ابدأ المحادثة بسؤال اختبار." : "Start with a test prompt."}</div>}
-        {messages.map((message, index) => (
-          <div key={index} className={"n-bubble " + (message.role === "user" ? "n-me" : "n-bot")} dir="auto" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-            {message.content}
-          </div>
-        ))}
-      </div>
-      {notice && <div className="n-meta" role="status" dir="auto" style={{ padding: "6px 0" }}>{notice}</div>}
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-        disabled={!ready || busy}
-        rows={3}
-        placeholder={ready ? (ar ? "اكتب سؤالاً لهذا المرشح فقط…" : "Write a prompt for this candidate only…") : (ar ? "انتظر حتى يصبح الاستديو جاهزاً…" : "Wait for the Studio to become ready…")}
-        style={{ width: "100%", border: "1px solid var(--c-line)", background: "var(--c-sunken)", borderRadius: 12, padding: 12, color: "var(--c-text)", resize: "vertical" }}
-      />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-        <button type="button" className="n-btn" disabled={!ready || busy || !input.trim()} onClick={() => void send()}>
-          {busy ? (ar ? "جارٍ الاختبار…" : "Testing…") : (ar ? "إرسال إلى المرشح" : "Send to candidate")}
-        </button>
-        {busy && <button type="button" className="n-btn n-ghost" onClick={() => void stop()}>⏹ {ar ? "إيقاف" : "Stop"}</button>}
-        <button type="button" className="n-btn n-ghost" onClick={() => { void checkStatus().catch(() => undefined); void refreshHistory().catch(() => undefined); }}>
-          ↻ {ar ? "تحديث" : "Refresh"}
-        </button>
-      </div>
-      <p className="n-meta" style={{ marginTop: 10 }}>
-        {ar
-          ? "المحادثة هنا نصية؛ افتح مختبر الوسائط لرفع الصور والصوت والفيديو وفق دعم المرشح. استدعاءات GitHub وVercel المقترحة لا تُنفّذ."
-          : "Direct chat here is text-only. Open the media lab for image/audio/video uploads when supported. Proposed GitHub/Vercel calls are logged only and never executed."}
-      </p>
-    </section>
-  );
-}
 
 // ---------------------------------------------------------------- Home
 const CAT: Record<string, "cat_dev" | "cat_prod"> = { github: "cat_dev", gitlab: "cat_dev", vercel: "cat_dev", supabase: "cat_dev", gmail: "cat_prod", google_drive: "cat_prod", google_calendar: "cat_prod", notion: "cat_prod", slack: "cat_prod", discord: "cat_prod" };
@@ -871,9 +693,6 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
         <h1 className="n-hi" lang={lang} dir="auto">{firstName ? fill(n.hi, { name: firstName }) : n.welcome}</h1>
       </div>
       <div className="n-wrap">
-        {owner && models?.donorTests?.find((x) => x.selected) && (
-          <DonorTestPanel key={models.trialSelected || "donor"} c={c} candidate={models.donorTests.find((x) => x.selected)!} revision={models} />
-        )}
         <PlanCard c={c} b={b} />
         {live && (live.pending.length > 0 || live.live.length > 0) && (
           <>

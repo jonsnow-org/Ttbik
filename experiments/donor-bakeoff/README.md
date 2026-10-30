@@ -22,10 +22,10 @@ Each Studio downloads its own main GGUF and the candidate's compatible multimoda
 
 Images, audio, and video are sent as direct base64 payloads to the local model server. No external media API, remote URL fetch, or media-generation provider is used. The UI reports the actual capabilities detected from the loaded projector; a modality is marked unsupported when the runtime does not report it.
 
-- Image, WAV/MP3 audio, and MP4/MOV video uploads can be tried in the private candidate Studio UI when supported by its detected projector.
-- The built-in media smoke checks create small synthetic input fixtures and verify that the media ingestion plus model inference pipeline completes.
+- The Telegram bot accepts photos, voice/audio files, and video attachments. The selected candidate's loaded projector determines which modalities can be processed; unsupported modalities return an explicit error instead of falling back to another model.
+- The automated media smoke checks create small synthetic image/audio/video fixtures and verify that the media ingestion plus model inference pipeline completes.
 - A media smoke "pass" means the runtime accepted the media and produced a response; it is **not** a semantic accuracy score. Human review of the answer against the uploaded media is still needed.
-- This first round tests multimodal **input/understanding**. It does not add image generation, video generation, speech synthesis, or full-duplex audio output. MiniCPM-o's separate audio/TTS weight files are not loaded by this first-round runtime.
+- This round tests multimodal **input/understanding** from the Telegram chat. It does not add image generation, video generation, speech synthesis, or full-duplex audio output. MiniCPM-o's separate speech/TTS weight files are not loaded by this runtime.
 
 The main weight and projector are downloaded independently. The deployment wait can therefore be longer the first time each Studio receives a projector; retries reuse the existing private Studio and cached downloads whenever possible.
 
@@ -41,7 +41,15 @@ GitHub and Vercel schemas are exposed only to see whether the model proposes a c
 
 The reports are uploaded as GitHub Actions artifacts for the donor workflow. A candidate is not declared a winner automatically; compare response quality, media understanding, code correctness, tool-call reliability, latency and memory use before deciding whether to continue training Sham v2 from its weights.
 
-## Direct owner chat from the Nova Mini App
+## Direct owner testing inside the Telegram bot
 
-The owner-only model switch retains a separate text-only chat path for each candidate and its own conversation history. Selecting a donor there does not change the selected production model, invoke the Nova agent, enter Sham v1/v2 routing, or fall back to another Studio. The Mini App path is not the media test UI; use the private ModelScope Studio UI for image/audio/video uploads.
+The candidate selector in the owner's Mini App only chooses which isolated candidate is active. It does not show a second chat window and does not link out to ModelScope. Messages are sent in the existing Telegram bot conversation.
 
+- Use `/models` in the Telegram bot to choose Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5, or exit candidate mode. The Mini App model popover also persists the owner-only candidate selection.
+- After selection, each incoming Telegram text message or supported photo/audio/video attachment is routed straight to that candidate Studio. The selected donor route is checked before Nova/Sham routing and also works when Nova's coding Studio is disabled.
+- The route has a per-candidate conversation history and task slot. If the candidate is not ready, an upload fails, or inference errors, the bot shows the error and does not send the message to Nova, Sham v1, Sham v2, or another candidate.
+- Telegram photos, voice/audio files and video attachments are passed as bounded base64 payloads to the selected Studio's private chat_payload endpoint. No public media URL or external generation service is used.
+- The ModelScope Gradio UI is an implementation surface only; users are not asked to open it to chat. ModelScope links are not shown in the Mini App.
+- Proposed GitHub/Vercel calls are returned as model output for evaluation only. The candidate Studio has no production connector tokens and does not execute these calls.
+
+The owner can switch out of donor mode using `/models` → “return to normal model”, or by choosing a regular production model in the Mini App. Choosing a regular production model clears the active donor selection but does not alter any production weights.

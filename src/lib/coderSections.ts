@@ -32,7 +32,7 @@ import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskS
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
-import { DONOR_TESTS, donorTestChat, isDonorTestId, type DonorHistoryMessage, type DonorTestId } from "@/lib/donorTests";
+import { DONOR_TESTS, donorTestChat, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -311,9 +311,19 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
+  // Resolve the owner-only candidate mode before the normal coder availability gate.
+  // A selected donor remains reachable even when Nova's own coding Studio is disabled.
+  const incomingChatId = update.message?.chat?.id;
+  const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
+  const selectedDonor = preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
+    ? preloadedOwnerState.donorTestModel
+    : null;
+  const donorPickerAction = Boolean(
+    update.callback_query && String(update.callback_query.data || "").startsWith("donor_model|")
+  ) || Boolean(update.message?.text && /^\\/models?(?:@\\w+)?(?:\\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled()) {
+  if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -352,6 +362,26 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
+    if (data.startsWith("donor_model|")) {
+      if (!owner) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "اختبار المرشحين متاح للمالك فقط.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const id = data.slice("donor_model|".length);
+      if (id !== "off" && !isDonorTestId(id)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "مرشح غير معروف.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const state = await loadStateStrict(chatId, db);
+      state.donorTestModel = id === "off" ? undefined : id as DonorTestId;
+      await saveStateStrict(chatId, state, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: id === "off" ? "تم إيقاف اختبار المرشح." : "تم اختيار المرشح." }).catch(() => null);
+      const selected = id === "off" ? "النموذج المعتاد" : (DONOR_TESTS.find((x) => x.id === id)?.name.ar || id);
+      await bot.api.sendMessage(chatId, id === "off"
+        ? "↩️ عادت الرسائل إلى النموذج الذي تختاره من القائمة المعتادة."
+        : "🧪 تم اختيار " + selected + ". الرسائل التالية في هذه المحادثة ستذهب إليه مباشرة فقط، ولن تتحول إلى Nova أو Sham عند الخطأ. أرسل رسالة أو صورة أو صوتاً أو فيديو.");
+      return true;
+    }
     if (data.startsWith("cpanel|")) {
       // owner control panel buttons (src/lib/coderPanel.ts): the owner only
       if (!owner) {
@@ -424,8 +454,21 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (!chatId) return false;
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
+  if (cmd === "/model" || cmd === "/models") {
+    if (tierFor(chatId) !== "owner") {
+      await send(bot, chatId, "اختبار المرشحين متاح للمالك فقط.");
+      return true;
+    }
+    const keyboard = new InlineKeyboard()
+      .text("Qwen3.5-9B", "donor_model|qwen35-9b").row()
+      .text("Gemma 4 E4B", "donor_model|gemma4-e4b").row()
+      .text("MiniCPM-o 4.5", "donor_model|minicpmo45").row()
+      .text("↩️ العودة إلى النموذج المعتاد", "donor_model|off");
+    await send(bot, chatId, "🧪 اختر مرشح الاختبار. بعد الاختيار، أرسل رسالتك هنا في محادثة البوت نفسها.", { reply_markup: keyboard });
+    return true;
+  }
   // Routing may not substitute Nova when the persisted model cannot be read.
-  const st = await loadStateStrict(chatId, db);
+  const st = preloadedOwnerState || await loadStateStrict(chatId, db);
   const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
   const requestedModel = st.model || "coder";
   console.info("[model-route] Telegram incoming", { chatKey: coderChatKey(chatId), selectedModel: requestedModel, mode: st.mode });
@@ -469,6 +512,53 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
+    return true;
+  }
+  if (st.donorTestModel && owner && isDonorTestId(st.donorTestModel)) {
+    const donorId = st.donorTestModel;
+    if (cmd === "/start" || cmd === "/help") {
+      await send(bot, chatId, "🧪 وضع اختبار المرشح نشط: " + (DONOR_TESTS.find((x) => x.id === donorId)?.name.ar || donorId) + ". رسائلك هنا تصل إلى هذا المرشح فقط. أرسل /models لتغيير المرشح.");
+      return true;
+    }
+    if (cmd === "/stop") {
+      const runId = st.donorTestInFlight?.[donorId];
+      if (!runId) {
+        await send(bot, chatId, "لا يوجد طلب نشط لهذا المرشح.");
+        return true;
+      }
+      const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
+      const actualSlot = await taskSlot(runId, chatId, db);
+      if (actualSlot !== "donor:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
+        await send(bot, chatId, "تعذّر إيقاف الطلب؛ ربما اكتمل بالفعل.");
+        return true;
+      }
+      const active = { ...(st.donorTestInFlight || {}) };
+      delete active[donorId];
+      st.donorTestInFlight = active;
+      await saveStateStrict(chatId, st, db);
+      await taskEvent(runId, "info", "أوقف المستخدم اختبار المرشح.", db);
+      await send(bot, chatId, "⏹️ تم إيقاف طلب المرشح.");
+      return true;
+    }
+    if (cmd === "/new") {
+      const history = { ...(st.donorTestHistory || {}) };
+      delete history[donorId];
+      st.donorTestHistory = history;
+      await saveStateStrict(chatId, st, db);
+      await send(bot, chatId, "🆕 بدأ سجل جديد لهذا المرشح.");
+      return true;
+    }
+    try {
+      const attachment = await telegramDonorAttachment(bot, botRow, msg);
+      if (!attachment.text && !attachment.media) {
+        await send(bot, chatId, "أرسل نصاً أو أرفق صورة أو ملف صوت أو فيديو لهذا المرشح.");
+        return true;
+      }
+      await startDonorTestTelegramTask(bot, chatId, attachment.text, botRow.id, attachment.media, db);
+    } catch (error) {
+      const message = String((error as Error)?.message || error).slice(0, 600);
+      await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
+    }
     return true;
   }
   if (st.mode === "sham") {
@@ -786,14 +876,13 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   return { runId, queued: false };
 }
 
-/**
- * Owner-only direct candidate test. Its selection, history and task slot are separate from
- * the production model, Nova conversation, Sham v1 and Sham v2.
- */
-export async function startDonorTestAppTask(
+/** Telegram chat path: this candidate receives the message directly; no production runner is invoked. */
+export async function startDonorTestTelegramTask(
+  bot: TelegramBot,
   chatId: number,
   text: string,
   botId: string,
+  media?: DonorTestMedia,
   db: Db = prismaDb,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<{ runId: string; queued: boolean }> {
@@ -801,10 +890,15 @@ export async function startDonorTestAppTask(
   const st = await loadStateStrict(chatId, db);
   const id = st.donorTestModel;
   if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار مرشح للاختبار.");
-  if (!(process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim()) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
+  const readiness = await probeDonorTestStudio(id, fetchImpl);
+  if (readiness.phase !== "ready") {
+    const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
+    const detail = readiness.detail ? " · " + readiness.detail : "";
+    throw new Error("المرشح " + label + " غير جاهز بعد (" + readiness.phase + ")" + detail + ". لم يتم إرسال رسالتك إلى Nova أو Sham.");
+  }
   const previousRun = st.donorTestInFlight?.[id];
   if (previousRun && await taskIsActive(previousRun, db)) {
-    throw new Error("هناك رسالة اختبار قيد التنفيذ لهذا المرشح. انتظر نتيجتها أولاً.");
+    throw new Error("هناك طلب جارٍ لهذا المرشح. أرسل /stop لإيقافه أو انتظر الرد.");
   }
   const inFlight = { ...(st.donorTestInFlight || {}) };
   delete inFlight[id];
@@ -820,8 +914,9 @@ export async function startDonorTestAppTask(
     title: "🧪 " + label + ": " + text.slice(0, 150),
     botId,
   }, db);
-  await taskEvent(runId, "info", "🧪 اختبار مباشر عبر استديو " + label + " المستقل. لا يوجد تحويل إلى Nova أو Sham عند الفشل.", db);
-  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl));
+  await taskEvent(runId, "info", "🧪 رسالة تيليغرام متجهة مباشرة إلى " + label + " فقط.", db);
+  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media));
+  void bot.api.sendChatAction(chatId, "typing").catch(() => null);
   return { runId, queued: false };
 }
 
@@ -833,12 +928,15 @@ async function runDonorTestTask(
   prior: DonorHistoryMessage[],
   db: Db,
   fetchImpl: typeof fetch,
+  bot?: TelegramBot,
+  media?: DonorTestMedia,
 ): Promise<void> {
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
+  const typing = bot ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, fetchImpl);
+    const result = await donorTestChat(id, prompt, prior, media, fetchImpl);
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
@@ -857,19 +955,29 @@ async function runDonorTestTask(
       st.donorTestInFlight = active;
       await saveStateStrict(chatId, st, db);
     }
-    if (answer) for (const piece of splitForTelegram(answer, 3600)) await taskEvent(runId, "text", piece, db);
+    if (answer) {
+      for (const piece of splitForTelegram(answer, 3600)) {
+        await taskEvent(runId, "text", piece, db);
+        if (bot) await bot.api.sendMessage(chatId, piece).catch(() => null);
+      }
+    }
     if (toolCalls.length) {
-      await taskEvent(runId, "info", "استدعاءات أدوات مقترحة فقط (لم تُنفّذ): " + JSON.stringify(toolCalls).slice(0, 1800), db);
+      const note = "استدعاءات أدوات اقترحها المرشح (للفحص فقط، لم تُنفّذ): " + JSON.stringify(toolCalls).slice(0, 1800);
+      await taskEvent(runId, "info", note, db);
+      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3900)).catch(() => null);
     }
     await taskEvent(runId, "info", "⏱ " + (result.seconds ?? "—") + "ث · " + (result.tokens_per_second ?? "—") + " token/s · " + toolCalls.length + " tool call(s) مقترحة", db);
     await taskEvent(runId, "done", "اكتمل الرد من " + label + ".", db);
     await taskStatus(runId, "done", undefined, db);
   } catch (error) {
     const message = String((error as Error)?.message || error).slice(0, 700);
-    await taskEvent(runId, "failed", "تعذّر الاتصال بمرشح " + label + ": " + message, db);
+    const notice = "تعذّر الاتصال بمرشح " + label + ": " + message + " لم يتم تحويل الطلب إلى نموذج آخر.";
+    await taskEvent(runId, "failed", notice, db);
     await taskStatus(runId, "failed", undefined, db);
+    if (bot) await bot.api.sendMessage(chatId, notice).catch(() => null);
   } finally {
     clearInterval(heartbeat);
+    if (typing) clearInterval(typing);
     const st = await loadState(chatId, db);
     if (st.donorTestInFlight?.[id] === runId) {
       const active = { ...(st.donorTestInFlight || {}) };
@@ -1131,6 +1239,60 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
   } catch {
     return `[could not read file ${doc.file_name || ""}]`;
   }
+}
+
+async function telegramDonorAttachment(
+  bot: TelegramBot,
+  botRow: BotRow,
+  msg: any,
+): Promise<{ text: string; media?: DonorTestMedia }> {
+  const prompt = String(msg.text || msg.caption || "").trim();
+  if (Array.isArray(msg.photo) && msg.photo.length) {
+    const image = await telegramPhoto(bot, botRow, msg.photo);
+    if (!image) throw new Error("تعذّر تحميل الصورة من تيليغرام.");
+    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind: "image", dataUrl: image, format: "jpeg" } };
+  }
+
+  let file: any = null;
+  let kind: "image" | "audio" | "video" | null = null;
+  if (msg.voice) { file = msg.voice; kind = "audio"; }
+  else if (msg.audio) { file = msg.audio; kind = "audio"; }
+  else if (msg.video || msg.video_note || msg.animation) { file = msg.video || msg.video_note || msg.animation; kind = "video"; }
+  else if (msg.document) {
+    file = msg.document;
+    const name = String(file.file_name || "").toLowerCase();
+    const mime = String(file.mime_type || "").toLowerCase();
+    if (mime.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/.test(name)) kind = "image";
+    else if (mime.startsWith("audio/") || /\.(wav|mp3|ogg|oga|opus|m4a|aac|webm)$/.test(name)) kind = "audio";
+    else if (mime.startsWith("video/") || /\.(mp4|mov|m4v)$/.test(name)) kind = "video";
+    else return { text: (prompt + "\n\n" + await readDocument(bot, botRow, file)).trim() };
+  }
+  if (!file || !kind) return { text: prompt };
+
+  const max = kind === "image" ? 20_000_000 : kind === "audio" ? 24_000_000 : 32_000_000;
+  if (Number(file.file_size || 0) > max) throw new Error("حجم المرفق أكبر من الحد المسموح لهذا الاختبار.");
+  const telegramFile = await bot.api.getFile(file.file_id);
+  const response = await fetch("https://api.telegram.org/file/bot" + botRow.token + "/" + telegramFile.file_path, {
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error("تعذّر تنزيل المرفق من تيليغرام (HTTP " + response.status + ").");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > max) throw new Error("حجم المرفق غير صالح لهذا الاختبار.");
+
+  const suffix = String(file.file_name || telegramFile.file_path || "").toLowerCase().split(".").pop() || "";
+  if (kind === "image") {
+    const image = await toModelImage(bytes, 1024);
+    if (!image) throw new Error("صيغة الصورة غير مدعومة.");
+    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind, dataUrl: image, format: "jpeg" } };
+  }
+  const format = kind === "video"
+    ? (["mp4", "mov", "m4v"].includes(suffix) ? suffix : "mp4")
+    : (["wav", "mp3", "ogg", "oga", "opus", "m4a", "aac", "webm"].includes(suffix) ? suffix : "ogg");
+  const mime = kind === "video"
+    ? (format === "mov" ? "video/quicktime" : "video/mp4")
+    : (format === "mp3" ? "audio/mpeg" : format === "wav" ? "audio/wav" : "audio/ogg");
+  const dataUrl = "data:" + mime + ";base64," + bytes.toString("base64");
+  return { text: prompt || (kind === "audio" ? "استمع إلى هذا التسجيل وأجب بالعربية." : "حلّل هذا الفيديو واشرح ما يحدث فيه بالعربية."), media: { kind, dataUrl, format } };
 }
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
