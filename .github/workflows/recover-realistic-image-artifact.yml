@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Install image inspection tools
+        run: |
+          python -m pip install -q pillow
+
       - name: Download the completed Gradio image through the API-specific host
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
