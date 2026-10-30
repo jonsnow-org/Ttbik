@@ -382,9 +382,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!text) throw new AppError(400, "empty");
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
       const stNow = await loadStateStrict(chatId, db);
+      // Migrate a legacy trial selector into the primary model field; never send it through another model's runner.
       if (stNow.donorTestModel) {
-        if (user.tier !== "owner") throw new AppError(403, "donor test is owner only");
-        throw new AppError(409, "تم اختيار مرشح اختبار. أرسل رسالتك مباشرة في محادثة بوت تيليغرام؛ التطبيق المصغّر مخصص لتبديل المرشح فقط.");
+        if (user.tier !== "owner") throw new AppError(403, "candidate models are owner only");
+        const { isDonorTestId } = await import("@/lib/donorTests");
+        if (isDonorTestId(stNow.donorTestModel)) stNow.model = stNow.donorTestModel;
+        stNow.donorTestModel = undefined;
+        await saveStateStrict(chatId, stNow, db);
       }
       { // The ordinary production model's availability check is unchanged.
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
@@ -483,20 +487,26 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         models: publicModels(all, st.model),
         ...(user.tier === "owner" ? {
           owner: ownerModels(all, st.model),
-          donorTests: (await import("@/lib/donorTests")).donorTestOptions(st.donorTestModel),
-          trialSelected: st.donorTestModel || null,
+          // Candidate models are first-class entries in owner.models, not a secondary trial selector.
+          donorTests: [],
+          trialSelected: null,
+          candidateStatuses: await (await import("@/lib/donorTests")).probeDonorTestStudios(deps.fetchImpl || globalThis.fetch),
         } : {}),
       };
     }
     case "donor_test_select": {
+      // Backward-compatible client op; selection now changes the main model, never a parallel "trial" mode.
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const id = String(body.id || "").trim();
       const D = await import("@/lib/donorTests");
-      if (id && !D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
+      if (id && !D.isDonorTestId(id)) throw new AppError(400, "unknown candidate model");
       const st = await loadStateStrict(chatId, db);
-      st.donorTestModel = id ? id as import("@/lib/donorTests").DonorTestId : undefined;
+      const { listModels, chooseModel } = await import("@/lib/coderModels");
+      const selected = id || "coder";
+      if (!chooseModel(st, await listModels(db), selected, true)) throw new AppError(503, "candidate model route is not configured");
+      st.donorTestModel = undefined;
       await saveStateStrict(chatId, st, db);
-      return { ok: true, trialSelected: st.donorTestModel || null, productionModel: st.model || "coder" };
+      return { ok: true, trialSelected: null, model: st.model };
     }
     case "donor_test_status": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
