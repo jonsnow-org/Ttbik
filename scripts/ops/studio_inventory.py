@@ -152,7 +152,7 @@ def app_status(name: str, token: str) -> tuple[int, dict]:
     return last_code, {}
 
 
-def studio_list_url(page_number: int, page_size: int = 50, owner: str = "me") -> str:
+def studio_list_url(page_number: int, page_size: int = 50, owner: str = OWNER) -> str:
     """ModelScope Studio listing uses page_number, status=all and max page_size 50."""
     return (
         f"{MS}/openapi/v1/studios?owner={owner}&status=all"
