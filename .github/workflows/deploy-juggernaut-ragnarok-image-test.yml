@@ -1,0 +1,209 @@
+name: "Juggernaut Ragnarok dedicated CPU 8GB image Studio"
+on:
+  push:
+    branches: [realistic-vision-v6-isolated-test]
+    paths:
+      - "experiments/juggernaut-ragnarok-test/**"
+      - ".github/workflows/deploy-juggernaut-ragnarok-image-test.yml"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: juggernaut-ragnarok-dedicated-image-studio
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      MS: https://www.modelscope.cn
+      OWNER: novaai2026
+      REPO: juggernaut-ragnarok-image-test
+      API: https://studio-novaai2026-juggernaut-ragnarok-image-test.api-inference.modelscope.net
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate only Juggernaut FP8 app and source checkpoint
+        run: |
+          set -euo pipefail
+          python3 -m py_compile experiments/juggernaut-ragnarok-test/app.py
+          grep -q 'Kandoo/Juggernaut-XL-Ragnarok' experiments/juggernaut-ragnarok-test/app.py
+          grep -q 'juggernautXL_ragnarok_fp8_e4m3fn.safetensors' experiments/juggernaut-ragnarok-test/app.py
+          grep -q 'CPU only' experiments/juggernaut-ragnarok-test/app.py
+      - name: Select exact free CPU 8GB hardware — no GPU or 16GB fallback
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T"
+          echo "::add-mask::$T"
+          curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" >/dev/null
+          curl -fsS --connect-timeout 8 --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
+          python3 - <<'PY' > hardware-choice.json
+          import json,re
+          raw=json.load(open("hardware.json",encoding="utf-8"))
+          items=raw.get("data") or raw.get("Data") or raw.get("items") or []
+          if isinstance(items,dict): items=items.get("items") or items.get("hardware") or items.get("resources") or []
+          free=[]
+          for item in items if isinstance(items,list) else []:
+              if not isinstance(item,dict): continue
+              name=str(item.get("name") or item.get("hardware") or "")
+              kind=str(item.get("resource_type") or item.get("type") or "").lower()
+              m=re.search(r"(\d+)\s*g(?:b)?(?:[-_/]|$)",name.lower())
+              ram=int(m.group(1)) if m else 0
+              if "cpu" not in name.lower() or ram != 8: continue
+              if "paid" in name.lower() or kind=="paid" or item.get("is_paid") is True: continue
+              if item.get("available") is False or item.get("is_available") is False: continue
+              free.append(name)
+          if not free:
+              raise SystemExit("No FREE CPU 8GB Studio hardware is currently available. No GPU, 16GB, or paid hardware will be selected.")
+          print(json.dumps({"hardware":sorted(free)[0]}))
+          PY
+          HW=$(python3 -c "import json;print(json.load(open('hardware-choice.json'))['hardware'])")
+          echo "Selected exact hardware: $HW"
+          echo "HW=$HW" >> "$GITHUB_ENV"
+      - name: Create or verify Juggernaut private Studio only
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          if [ "$code" = "404" ]; then
+            python3 - "$OWNER" "$REPO" "$HW" <<'PY' > create.json
+          import json,sys
+          print(json.dumps({"owner":sys.argv[1],"repo_name":sys.argv[2],"sdk_type":"gradio","visibility":"private","hardware":sys.argv[3],"display_name":"Juggernaut Ragnarok private CPU8G test"}))
+          PY
+            create_code=$(curl -sS --connect-timeout 8 --max-time 30 -o create-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @create.json "$MS/openapi/v1/studios")
+            if [[ ! "$create_code" =~ ^2[0-9][0-9]$ ]]; then cat create-response.json; exit 1; fi
+            echo "Created private Juggernaut Studio on exact free CPU 8GB hardware."
+          elif [ "$code" = "200" ]; then
+            echo "Juggernaut Studio already exists; no hardware change will be made."
+          else
+            cat studio.json
+            echo "Unexpected Studio lookup response: $code" >&2
+            exit 1
+          fi
+      - name: Push Juggernaut-specific FP8 app and dependencies
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          git config --global user.name "Juggernaut image test deploy"
+          git config --global user.email "juggernaut-image-test@users.noreply.github.com"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" studio 2>&1 | sed "s/$T/***/g"
+          cp experiments/juggernaut-ragnarok-test/app.py studio/app.py
+          cp experiments/juggernaut-ragnarok-test/requirements.txt studio/requirements.txt
+          cp experiments/juggernaut-ragnarok-test/README.md studio/README.md
+          cd studio
+          git add app.py requirements.txt README.md
+          git diff --cached --quiet || git commit -m "Deploy Juggernaut Ragnarok dedicated CPU 8GB FP8 app"
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Deploy and wait for Juggernaut CPU8G FP8 loader
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          if [[ ! "$deploy_code" =~ ^2[0-9][0-9]$ ]]; then cat deploy.json; exit 1; fi
+          ready=0
+          for attempt in $(seq 1 270); do
+            start_code=$(curl -sS --connect-timeout 8 --max-time 25 -o status-start.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/call/status" || true)
+            if [ "$start_code" = "200" ]; then
+              event_id=$(python3 -c "import json;print(json.load(open('status-start.json')).get('event_id',''))" 2>/dev/null || true)
+              if [ -n "$event_id" ]; then
+                poll_code=$(curl -sS --connect-timeout 8 --max-time 40 -o status.sse -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                if [ "$poll_code" = "200" ]; then
+                  python3 - <<'PY' > status-values.txt
+          import json
+          raw=open("status.sse",encoding="utf-8").read()
+          for line in raw.splitlines():
+              if line.startswith("data:"):
+                  try:
+                      v=json.loads(line[5:].strip())
+                      if isinstance(v,list) and v and isinstance(v[0],dict):
+                          d=v[0]; print(str(d.get("phase",""))); print(str(d.get("app_revision",""))); print(str(d.get("error","")))
+                  except Exception: pass
+          PY
+                  phase=$(sed -n '1p' status-values.txt)
+                  revision=$(sed -n '2p' status-values.txt)
+                  err=$(sed -n '3p' status-values.txt)
+                  echo "Juggernaut phase=$phase revision=$revision"
+                  if [ "$phase" = "ready" ] && [ "$revision" = "juggernaut-ragnarok-cpu8g-2026-10-31-r1" ]; then ready=1; break; fi
+                  if [ "$phase" = "error" ]; then echo "$err"; cat status.sse; exit 1; fi
+                fi
+              fi
+            fi
+            sleep 20
+          done
+          if [ "$ready" -ne 1 ]; then
+            logs=$(curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" || true)
+            printf '%s\n' "$logs" | tail -c 10000
+            echo "Juggernaut failed to load within the 8GB CPU limit; no larger hardware fallback was attempted."
+            exit 1
+          fi
+      - name: Smoke-test real Juggernaut FP8 image generation on CPU 8GB
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          mkdir -p juggernaut-smoke
+          python3 - <<'PY' > request.json
+          import json
+          print(json.dumps({"data":["A realistic documentary photograph of an adult woman in a dark coat standing on a quiet stone street after rain, natural skin texture, realistic eyes, soft overcast daylight, photorealistic portrait.","cartoon, illustration, cgi, deformed, blurry, watermark, text","512 × 512",20,5.0,42]}))
+          PY
+          submit_code=$(curl -sS --connect-timeout 8 --max-time 30 -o image-start.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @request.json "$API/gradio_api/call/image")
+          [ "$submit_code" = "200" ] || { cat image-start.json; exit 1; }
+          event_id=$(python3 -c "import json;print(json.load(open('image-start.json')).get('event_id',''))")
+          test -n "$event_id"
+          poll_code=$(curl -sS --connect-timeout 8 --max-time 1800 -o image.sse -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/image/$event_id")
+          [ "$poll_code" = "200" ] || { cat image.sse; exit 1; }
+          grep -q '^event: complete' image.sse
+          python3 - <<'PY'
+          import json
+          raw=open("image.sse",encoding="utf-8").read()
+          found=[]
+          for block in raw.split("\n\n"):
+              for line in block.splitlines():
+                  if line.startswith("data:"):
+                      try: found.append(json.loads(line[5:].strip()))
+                      except Exception: pass
+          image=None
+          for value in found:
+              def walk(x):
+                  global image
+                  if isinstance(x,list):
+                      for y in x: walk(y)
+                  elif isinstance(x,dict):
+                      if image is None and (x.get("path") or x.get("url")): image=x
+                      for y in x.values():
+                          if isinstance(y,(dict,list)): walk(y)
+              walk(value)
+          if not image: raise SystemExit("No image file in Gradio response.")
+          open("image-path.txt","w").write(str(image.get("path") or image.get("url")))
+          PY
+          FILE=$(cat image-path.txt)
+          if [[ "$FILE" = http* ]]; then URL="$FILE"; else URL="$API/gradio_api/file=$FILE"; fi
+          curl -fsS --connect-timeout 8 --max-time 90 -H "Authorization: Bearer $T" "$URL" -o juggernaut-smoke/juggernaut-seed-42.png
+          python3 - <<'PY'
+          from PIL import Image
+          import hashlib,json
+          from pathlib import Path
+          p=Path("juggernaut-smoke/juggernaut-seed-42.png")
+          im=Image.open(p).convert("RGB")
+          if im.size != (512,512): raise SystemExit(f"Unexpected resolution: {im.size}")
+          data=p.read_bytes()
+          result={"status":"smoke_pass","model":"Kandoo/Juggernaut-XL-Ragnarok","checkpoint":"juggernautXL_ragnarok_fp8_e4m3fn.safetensors","device":"CPU only","ram_target":"8GB","resolution":"512x512","bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()}
+          Path("juggernaut-smoke/result.json").write_text(json.dumps(result,indent=2))
+          print(json.dumps(result))
+          PY
+      - name: Upload Juggernaut smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: juggernaut-ragnarok-image-test-cpu8g
+          path: juggernaut-smoke/
+          if-no-files-found: warn
+          retention-days: 14
