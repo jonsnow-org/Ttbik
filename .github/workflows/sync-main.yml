@@ -45,6 +45,7 @@ jobs:
               echo "::error::merge conflict between main and the production branch: nothing was changed. Merge main into the production branch by a PR."
               exit 1
             fi
+          fi
       - name: Wait for Oracle to report the synced main commit and a healthy site build
         shell: bash
         run: |
@@ -83,4 +84,3 @@ jobs:
           echo "::error::Oracle did not confirm the synced main commit and a healthy site build within 15 minutes."
           if [ -f oracle-status.json ]; then cat oracle-status.json; fi
           exit 1
-          fi
