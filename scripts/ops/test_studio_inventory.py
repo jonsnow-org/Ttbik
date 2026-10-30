@@ -38,6 +38,14 @@ class Pick(unittest.TestCase):
         self.assertTrue(out["media_assets"]["ready"])
         self.assertNotIn("reason", json.dumps(out))
 
+    def test_studio_list_url_requests_all_states_with_supported_pagination(self):
+        url = inv.studio_list_url(2, 50)
+        self.assertIn("owner=novaai2026", url)
+        self.assertIn("status=all", url)
+        self.assertIn("page_number=2", url)
+        self.assertIn("page_size=50", url)
+        self.assertNotIn("page=", url)
+
     def test_status_sse_and_direct_payload_parsing(self):
         sse = 'data: ["{\\\"phase\\\": \\\"ready\\\"}"]' + chr(10) + chr(10)
         self.assertEqual(inv._decode_sse_status(sse), {"phase": "ready"})
