@@ -1,6 +1,13 @@
 name: ModelScope Studios inventory (read-only)
-# Lists every Studio of the account (state, hardware) and each app's own status numbers (disk, memory, phase, queue). Prints no token, no user text. Manual only.
+# Read-only inventory of every Studio on the account, including Studios not declared in this repository.
+# It never deploys, restarts, changes secrets, or reads user conversations.
 on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - "scripts/ops/studio_inventory.py"
+      - "scripts/ops/test_studio_inventory.py"
+      - ".github/workflows/modelscope-inventory.yml"
   workflow_dispatch:
 permissions:
   contents: read

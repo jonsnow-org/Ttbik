@@ -14,18 +14,26 @@ OWNER = "novaai2026"
 MS = "https://www.modelscope.cn"
 # name -> role (from the deploy workflows in this repo)
 KNOWN = {
-    "nova-inference-server": "Nova legacy: Qwen2.5-VL-7B GGUF + mmproj (deploy-modelscope-studio.yml)",
-    "coder-inference-server": "Nova coder replica 1 (deploy-modelscope-coder.yml)",
+    "nova-inference-server": "Nova legacy text/vision Studio",
+    "coder-inference-server": "Nova coder replica 1",
     "coder-inference-server-2": "Nova coder replica 2",
     "coder-inference-server-3": "Nova coder replica 3",
     "coder-inference-server-4": "Nova coder replica 4",
     "coder-inference-server-5": "Nova coder replica 5 (+vision)",
-    "nova-media-server": "Nova media: image SDXS, speech Piper, video AnimateDiff-Lightning (deploy-modelscope-media.yml)",
-    "sham-v1-server": "Sham (old): chat + image/speech from its own tokens (sham-modelscope.yml)",
-    "sham-v2-server": "Sham v2: transplanted text body + ready image/speech + own video (deploy-modelscope-sham-v2.yml)",
+    "nova-media-server": "Nova shared media: SDXS image + Piper Arabic speech + AnimateDiff video",
+    "sham-v1-server": "Sham old: chat + own image/audio tokens",
+    "sham-v2-server": "Sham v2 chat + packaged image/audio weights",
+    "sham-v2-overflow-server": "Sham v2 text overflow replica",
+    "sham-v2-video-server": "Sham v2 dedicated video generation",
+    "sham-donor-qwen35-9b-test": "Qwen3.5-9B donor candidate",
+    "sham-donor-gemma4-e4b-test": "Gemma 4 E4B donor candidate",
+    "sham-donor-minicpmo45-test": "MiniCPM-o 4.5 donor candidate",
 }
-KEEP = ("phase", "detail", "error", "model", "model_repo", "ctx", "threads", "vision", "cpus", "queue", "uptime_s", "mem_total_gb", "mem_available_gb", "images", "speech",
-        "videos", "last_s")
+KEEP = (
+    "phase", "detail", "error", "model", "model_repo", "app_revision", "ctx", "context_tokens",
+    "threads", "vision", "audio", "speech", "tts", "cpus", "queue", "uptime_s",
+    "mem_total_gb", "mem_available_gb", "images", "videos", "last_s",
+)
 
 
 def pick(status: dict) -> dict:
@@ -37,12 +45,21 @@ def pick(status: dict) -> dict:
             out["disk_gb"] = {k: d[k] for k in ("total_gb", "used_gb", "free_gb") if k in d}
         elif "free_bytes" in d:
             out["disk_gb"] = {"total_gb": round(d.get("total_bytes", 0) / 2 ** 30, 2), "used_gb": round(d.get("used_bytes", 0) / 2 ** 30, 2), "free_gb": round(d["free_bytes"] / 2 ** 30, 2)}
+    for key in ("media_capabilities", "model_native_outputs", "runtime_generation_capabilities"):
+        value = status.get(key)
+        if isinstance(value, dict):
+            out[key] = {str(k): bool(v) for k, v in value.items() if isinstance(v, (bool, int))}
     ma = status.get("media_assets")
     if isinstance(ma, dict):
-        out["media_assets_ready"] = bool(ma.get("ready"))
+        out["media_assets_ready"] = bool(ma.get("ready"))  # retained for existing dashboards/tests
+        out["media_assets"] = {
+            "ready": bool(ma.get("ready")),
+            **({"image_bytes": int(ma["image_bytes"])} if isinstance(ma.get("image_bytes"), (int, float)) else {}),
+            **({"audio_bytes": int(ma["audio_bytes"])} if isinstance(ma.get("audio_bytes"), (int, float)) else {}),
+        }
     v = status.get("video")
     if isinstance(v, dict):
-        out["video"] = {k: v[k] for k in ("engine", "ready", "device") if k in v}
+        out["video"] = {k: v[k] for k in ("engine", "ready", "device", "mode") if k in v and isinstance(v[k], (str, int, float, bool))}
     return out
 
 
@@ -64,42 +81,98 @@ def _http(url, token, body=None, timeout=25):
         return 0, type(e).__name__
 
 
-def app_status(name: str, token: str) -> tuple[int, dict]:
-    base = f"https://studio-{OWNER}-{name}.api-inference.modelscope.net"
-    code, txt = _http(f"{base}/gradio_api/call/v2/status", token, b"{}")
-    if code != 200:
-        return code, {}
-    try:
-        ev = json.loads(txt).get("event_id", "")
-    except ValueError:
-        return code, {}
-    time.sleep(2)
-    code2, sse = _http(f"{base}/gradio_api/call/status/{ev}", token)
+def _decode_sse_status(sse: str) -> dict:
     for line in sse.splitlines():
-        if line.startswith("data:"):
-            try:
-                v = json.loads(line[5:].strip())
-                v = v[0] if isinstance(v, list) and v else v
-                v = json.loads(v) if isinstance(v, str) else v
-                return code2, v if isinstance(v, dict) else {}
-            except ValueError:
-                pass
-    return code2, {}
+        if not line.startswith("data:"):
+            continue
+        try:
+            value = json.loads(line[5:].strip())
+            if isinstance(value, list) and value:
+                value = value[0]
+            if isinstance(value, str):
+                value = json.loads(value)
+            if isinstance(value, dict):
+                return value
+        except (ValueError, TypeError):
+            continue
+    return {}
+
+
+def _unwrap_direct_status(payload: dict) -> dict:
+    value = payload.get("data", payload)
+    if isinstance(value, list) and value:
+        value = value[0]
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def app_status(name: str, token: str) -> tuple[int, dict]:
+    """Try Gradio 6 queued v2, classic queued, then direct run; status probes are read-only."""
+    base = f"https://studio-{OWNER}-{name}.api-inference.modelscope.net"
+    last_code = 0
+    for submit_path, body, mode in (
+        ("/gradio_api/call/v2/status", b"{}", "queued"),
+        ("/gradio_api/call/status", b"{}", "queued"),
+        ("/gradio_api/run/status", b'{"data":[]}', "direct"),
+    ):
+        code, txt = _http(base + submit_path, token, body, timeout=30)
+        last_code = code
+        if code != 200:
+            continue
+        try:
+            submitted = json.loads(txt)
+        except ValueError:
+            continue
+        if mode == "direct":
+            status = _unwrap_direct_status(submitted)
+            if status:
+                return code, status
+            continue
+        event_id = submitted.get("event_id", "") if isinstance(submitted, dict) else ""
+        if not event_id:
+            continue
+        time.sleep(2)
+        for poll_path in (f"/gradio_api/call/status/{event_id}", f"/gradio_api/call/v2/status/{event_id}"):
+            poll_code, sse = _http(base + poll_path, token, timeout=30)
+            last_code = poll_code
+            status = _decode_sse_status(sse)
+            if status:
+                return poll_code, status
+    return last_code, {}
 
 
 def main() -> int:
     token = os.environ.get("MODELSCOPE_TOKEN", "")
-    code, txt = _http(f"{MS}/openapi/v1/studios?owner={OWNER}&page_size=100", token)
-    listed = []
-    if code == 200:
+    listed_set = set()
+    code = 0
+    # The account can have more than 12 Studios; page through the API, not only this repository's static list.
+    for page in range(1, 21):
+        page_code, txt = _http(f"{MS}/openapi/v1/studios?owner={OWNER}&page={page}&page_size=100", token)
+        if page == 1:
+            code = page_code
+        if page_code != 200:
+            break
         try:
-            d = json.loads(txt).get("data") or {}
-            items = d.get("studios") or d.get("items") or (d if isinstance(d, list) else [])
-            listed = sorted({str(i.get("repo_name") or i.get("name") or "") for i in items if isinstance(i, dict)} - {""})
-        except ValueError:
-            pass
+            root = json.loads(txt)
+            data = root.get("data") or root.get("Data") or {}
+            items = data if isinstance(data, list) else (data.get("studios") or data.get("items") or data.get("list") or [])
+            page_names = {
+                str(item.get("repo_name") or item.get("name") or item.get("repo") or "").strip()
+                for item in items if isinstance(item, dict)
+            } - {""}
+            new_names = page_names - listed_set
+            listed_set.update(new_names)
+            if len(items) < 100 or not new_names:
+                break
+        except (ValueError, TypeError, AttributeError):
+            break
+    listed = sorted(listed_set)
     print(f"studios listed by the API (http {code}): {listed}")
-    names = list(KNOWN) + [n for n in listed if n not in KNOWN]
+    names = sorted(set(KNOWN) | set(listed))
     for n in names:
         c, t = _http(f"{MS}/openapi/v1/studios/{OWNER}/{n}", token)
         try:
