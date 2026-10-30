@@ -320,7 +320,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     : null;
   const donorPickerAction = Boolean(
     update.callback_query && String(update.callback_query.data || "").startsWith("donor_model|")
-  ) || Boolean(update.message?.text && /^\\/models?(?:@\\w+)?(?:\\s|$)/i.test(String(update.message.text)));
+  ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
   if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
