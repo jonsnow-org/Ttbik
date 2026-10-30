@@ -15,6 +15,7 @@ class Pick(unittest.TestCase):
         self.assertNotIn("SECRET", json.dumps(out))
         self.assertNotIn("messages", out)
         self.assertNotIn("active", out)
+        self.assertNotIn("user text", json.dumps(out))
 
     def test_sham_disk_bytes(self):
         out = inv.pick({"disk": {"total_bytes": 8 * 2 ** 30, "used_bytes": 5 * 2 ** 30, "free_bytes": 3 * 2 ** 30}})
@@ -22,6 +23,30 @@ class Pick(unittest.TestCase):
 
     def test_long_strings_dropped(self):
         self.assertNotIn("detail", inv.pick({"detail": "y" * 500}))
+
+    def test_keeps_separate_native_and_runtime_media_capabilities(self):
+        out = inv.pick({
+            "phase": "ready",
+            "media_capabilities": {"vision": True, "audio": True, "video": False},
+            "model_native_outputs": {"image": False, "audio": True, "video": False},
+            "runtime_generation_capabilities": {"image": False, "audio": False, "video": False},
+            "media_assets": {"ready": True, "reason": "private details not copied"},
+        })
+        self.assertEqual(out["media_capabilities"], {"vision": True, "audio": True, "video": False})
+        self.assertTrue(out["model_native_outputs"]["audio"])
+        self.assertFalse(out["runtime_generation_capabilities"]["audio"])
+        self.assertTrue(out["media_assets"]["ready"])
+        self.assertNotIn("reason", json.dumps(out))
+
+    def test_status_sse_and_direct_payload_parsing(self):
+        self.assertEqual(inv._decode_sse_status('data: ["{\\\"phase\\\": \\\"ready\\\"}"]\\n\\n'), {"phase": "ready"})
+        self.assertEqual(inv._unwrap_direct_status({"data": ['{"phase":"ready"}']}), {"phase": "ready"})
+
+    def test_known_names_cover_candidate_and_specialized_media_studios(self):
+        for name in ("sham-donor-qwen35-9b-test", "sham-donor-gemma4-e4b-test",
+                     "sham-donor-minicpmo45-test", "sham-v2-video-server",
+                     "sham-v2-overflow-server", "nova-media-server"):
+            self.assertIn(name, inv.KNOWN)
 
     def test_known_names_cover_the_repo_studios(self):
         for n in ("nova-media-server", "sham-v1-server", "sham-v2-server", "nova-inference-server", "coder-inference-server-5"):
