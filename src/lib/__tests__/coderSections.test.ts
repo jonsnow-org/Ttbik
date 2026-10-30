@@ -531,6 +531,8 @@ describe("isolated Telegram donor route", () => {
     };
     await saveState(CHAT, state, db);
     const originalFetch = global.fetch;
+    const originalModelScopeToken = process.env.MODELSCOPE_API_TOKEN;
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
     const originalOpenCoder = process.env.OPEN_CODER_STUDIO_URL;
     delete process.env.OPEN_CODER_STUDIO_URL;
 
@@ -551,7 +553,7 @@ describe("isolated Telegram donor route", () => {
       }
       if (url.endsWith("/gradio_api/run/status") && method === "POST") {
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-30-r7", media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/call/chat") && method === "POST") {
@@ -580,6 +582,8 @@ describe("isolated Telegram donor route", () => {
       expect(sent.some((x) => /لم يتم تحويل الطلب إلى نموذج آخر/.test(x.text))).toBe(false);
     } finally {
       global.fetch = originalFetch;
+      if (originalModelScopeToken === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = originalModelScopeToken;
       if (originalOpenCoder === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
       else process.env.OPEN_CODER_STUDIO_URL = originalOpenCoder;
     }
