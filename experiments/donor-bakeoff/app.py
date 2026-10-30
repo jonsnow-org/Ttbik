@@ -311,7 +311,7 @@ def load_model() -> None:
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError(
-                    f"Multimodal model server exited with code {process.returncode}.\\n{_server_log_tail()}"
+                    f"Multimodal model server exited with code {process.returncode}.\n{_server_log_tail()}"
                 )
             try:
                 # /healthz is a liveness response in llama-cpp-python 0.3.36.
@@ -325,7 +325,7 @@ def load_model() -> None:
                 pass
             time.sleep(2)
         if not healthy:
-            raise RuntimeError("Multimodal inference service did not become ready in 15 minutes.\\n" + _server_log_tail())
+            raise RuntimeError("Multimodal inference service did not become ready in 15 minutes.\n" + _server_log_tail())
 
         # CPU-only first-token latency can exceed a short HTTP read timeout on
         # cold start. Retry a tiny warm-up before marking a live candidate unavailable.
@@ -354,7 +354,7 @@ def load_model() -> None:
                 print("Candidate warm-up attempt failed: " + warmup_errors[-1], flush=True)
                 if process.poll() is not None:
                     raise RuntimeError(
-                        f"Multimodal model server exited during warm-up ({process.returncode}).\\n"
+                        f"Multimodal model server exited during warm-up ({process.returncode}).\n"
                         + _server_log_tail()
                     )
             if attempt < 3:
@@ -363,7 +363,7 @@ def load_model() -> None:
             raise RuntimeError(
                 "The multimodal server did not complete warm-up after 3 attempts: "
                 + " | ".join(warmup_errors)[-1800:]
-                + "\\n"
+                + "\n"
                 + _server_log_tail()
             )
         try:
