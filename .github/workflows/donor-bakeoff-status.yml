@@ -1,3 +1,4 @@
+# Refresh ModelScope state after isolated runner r7 rollout.
 name: "Read-only status of isolated donor Studios"
 # Status only: never deploys, restarts, or changes candidate models.
 on:
