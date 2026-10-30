@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-29 18:36 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-30 01:12 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -6,7 +6,7 @@
 
 ✅ المرحلة الأولى — تدريب النص الأساسي (GPU)
 ✅ مسار ترميز الصورة (VQ-VAE)
-✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=15256 · step=46736 · codebook_usage=1999
+✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=30352 · step=48623 · codebook_usage=2004
 ✅ مسار جمع وترميز الفيديو
 ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)
 ✅ المسار A — التدريب النصي المستمر (CPU)
@@ -22,6 +22,7 @@
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
+❌ فشل | المرحلة الأولى 3 | duplicate
 ❌ فشل | المرحلة الثالثة 5 | duplicate
 ⏳ يعمل الآن | الدفتر الشامل 1 | primary
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate
@@ -31,7 +32,7 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ❌ فشل | مسار ترميز الصوت 3 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-✅ اكتمل | دفتر المسارين A وB 1 | primary
+⏳ يعمل الآن | دفتر المسارين A وB 1 | primary
 ✅ اكتمل | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | primary
