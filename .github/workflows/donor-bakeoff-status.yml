@@ -34,7 +34,7 @@ jobs:
             echo "studio HTTP $code"
             branch_info=$(git ls-remote --symref "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" HEAD 2>/dev/null || true)
             studio_default_branch=$(printf '%s\n' "$branch_info" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
-            echo "Studio default git branch: \${studio_default_branch:-unknown}"
+            echo "Studio default git branch: ${studio_default_branch:-unknown}"
             if [ "$code" != "200" ]; then
               echo "{\"studio\":\"$REPO\",\"http_status\":\"$code\"}" > "donor-bakeoff-status/$REPO.json"
               continue
@@ -46,8 +46,8 @@ jobs:
             echo "direct status HTTP $code"
             python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json "$studio_default_branch" <<'PY'
           import json,sys,os
-          repo,code,source,target,studio_source=sys.argv[1:]
-          payload={"studio":repo,"status_http":code}
+          repo,code,source,target,studio_source,default_branch=sys.argv[1:]
+          payload={"studio":repo,"status_http":code,"studio_default_branch":default_branch or None}
           try:
               studio=json.load(open(studio_source,encoding="utf-8"))
               data=studio.get("data") or studio.get("Data") or studio
