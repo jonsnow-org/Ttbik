@@ -374,7 +374,7 @@ export async function continueImageGenerationTest(
       await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, String((error as Error)?.message || error), db, fetchImpl);
       return;
     }
-      if (/(^|\r?\n)event:\s*complete\r?\ndata:[^\r\n]*(?:\r?\n\r?\n|$)/m.test(raw)) return raw;
+    if (!/(^|\r?\n)event:\s*complete\r?\ndata:[^\r\n]*(?:\r?\n\r?\n|$)/m.test(raw)) {
       await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, "لم يكتمل التدفق في جلسة المتابعة الحالية.", db, fetchImpl);
       return;
     }
