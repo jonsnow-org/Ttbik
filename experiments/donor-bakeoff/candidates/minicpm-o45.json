@@ -3,8 +3,9 @@
   "label": "MiniCPM-o 4.5 — official multimodal checkpoint (Q4_K_M)",
   "repo_id": "openbmb/MiniCPM-o-4_5-gguf",
   "filename": "MiniCPM-o-4_5-Q4_K_M.gguf",
+  "mmproj_filename": "vision/MiniCPM-o-4_5-vision-F16.gguf",
   "family": "MiniCPM-o",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.03,
-  "purpose": "Cross-family comparison for Arabic, code, tool-call smoke tests; initial pass is text-only."
+  "purpose": "Arabic, code, tool-call shape and image/video input tests. Separate speech encoder/decoder GGUFs are not loaded unless the selected runtime supports them."
 }
