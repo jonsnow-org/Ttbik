@@ -219,7 +219,7 @@ jobs:
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r7"
+          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r8"
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
