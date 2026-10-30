@@ -83,10 +83,48 @@ jobs:
                     if [ "$smoke_code" = "200" ]; then
                       smoke_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))" 2>/dev/null || true)
                       if [ -n "$smoke_id" ]; then
-                        smoke_result=$(curl -sS --connect-timeout 8 --max-time 1050 -o "donor-bakeoff-output/$REPO/smoke.sse" -w '%{http_code}' \
-                          -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$smoke_id" || true)
-                        echo "smoke result HTTP $smoke_result"
-                        cat "donor-bakeoff-output/$REPO/smoke.sse" || true
+                        echo "smoke event id=$smoke_id"
+                        combined="donor-bakeoff-output/$REPO/smoke.sse"
+                        : > "$combined"
+                        smoke_complete=0
+                        for attempt in $(seq 1 12); do
+                          poll_file="donor-bakeoff-output/$REPO/smoke-poll-$attempt.sse"
+                          smoke_result=$(curl -sS --connect-timeout 8 --max-time 100 -o "$poll_file" -w '%{http_code}' \
+                            -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$smoke_id" || true)
+                          echo "smoke poll $attempt HTTP $smoke_result"
+                          cat "$poll_file" >> "$combined" 2>/dev/null || true
+                          cat "$poll_file" 2>/dev/null || true
+                          if grep -q '^event: complete' "$poll_file" 2>/dev/null; then
+                            smoke_complete=1
+                            break
+                          fi
+                          if grep -q '^event: error' "$poll_file" 2>/dev/null; then
+                            echo "::warning::Gradio returned an error event for the smoke suite."
+                            break
+                          fi
+                          sleep 3
+                        done
+                        if [ "$smoke_complete" -eq 1 ]; then
+                          echo "smoke_suite=complete"
+                          python3 - "$combined" <<'PY'
+          import json,sys
+          raw=open(sys.argv[1],encoding="utf-8",errors="replace").read()
+          for line in raw.splitlines():
+              if not line.startswith("data:"):
+                  continue
+              try: payload=json.loads(line[5:].strip())
+              except Exception: continue
+              values=payload if isinstance(payload,list) else [payload]
+              for value in values:
+                  if isinstance(value,str):
+                      try: value=json.loads(value)
+                      except Exception: continue
+                  if isinstance(value,dict):
+                      print(json.dumps(value,ensure_ascii=False,indent=2))
+          PY
+                        else
+                          echo "::warning::Gradio smoke suite did not emit a terminal complete event; no quality pass is recorded."
+                        fi
                       fi
                     fi
                   fi
