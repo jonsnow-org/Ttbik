@@ -41,7 +41,7 @@ jobs:
           PY
               API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
               ecode=$(curl -sS --connect-timeout 5 --max-time 15 -o event.json -w '%{http_code}' \
-                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
+                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
                 "$API/gradio_api/call/status" || true)
               echo "app status submit HTTP $ecode"
               if [ "$ecode" = "200" ]; then
