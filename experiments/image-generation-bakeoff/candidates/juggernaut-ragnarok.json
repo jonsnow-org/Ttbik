@@ -6,7 +6,7 @@
   "filename": "juggernautXL_ragnarok_fp8_e4m3fn.safetensors",
   "pipeline": "sdxl_single_file_fp8",
   "base_config_repo": "stabilityai/stable-diffusion-xl-base-1.0",
-  "torch_dtype": "float16",
+  "torch_dtype": "float32",
   "sampler": "DPM++ SDE Karras",
   "minimum_memory_gb": 15.0,
   "resolutions": {
