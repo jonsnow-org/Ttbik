@@ -22,6 +22,7 @@ jobs:
           set -euo pipefail
           test -n "$MODELSCOPE_TOKEN"
           echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
           MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
           import json, os, time
           import requests
