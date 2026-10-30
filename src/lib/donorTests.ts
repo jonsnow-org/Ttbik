@@ -1,5 +1,10 @@
 export type DonorTestId = "qwen35-9b" | "gemma4-e4b" | "minicpmo45";
 export type DonorHistoryMessage = { role: "user" | "assistant"; content: string };
+export type DonorTestMedia = {
+  kind: "image" | "audio" | "video";
+  dataUrl: string;
+  format: string;
+};
 export type DonorTestStatus = {
   id: DonorTestId;
   phase: "ready" | "loading" | "error" | "deploying" | "not_created" | "unavailable" | "unconfigured";
@@ -12,23 +17,20 @@ export const DONOR_TESTS = [
   {
     id: "qwen35-9b",
     studio: "sham-donor-qwen35-9b-test",
-    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-qwen35-9b-test",
     name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" },
-    desc: { ar: "مرشح Qwen مستقل · محادثة مباشرة", en: "Isolated Qwen candidate · direct chat" },
+    desc: { ar: "اختبار مباشر داخل محادثة البوت · مسار معزول", en: "Isolated Qwen candidate · Telegram bot route" },
   },
   {
     id: "gemma4-e4b",
     studio: "sham-donor-gemma4-e4b-test",
-    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-gemma4-e4b-test",
     name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" },
-    desc: { ar: "مرشح Gemma مستقل · محادثة مباشرة", en: "Isolated Gemma candidate · direct chat" },
+    desc: { ar: "اختبار مباشر داخل محادثة البوت · مسار معزول", en: "Isolated Gemma candidate · Telegram bot route" },
   },
   {
     id: "minicpmo45",
     studio: "sham-donor-minicpmo45-test",
-    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-minicpmo45-test",
     name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" },
-    desc: { ar: "مرشح متعدد الوسائط · اختبار النص في هذه الجولة", en: "Multimodal family · text chat in this round" },
+    desc: { ar: "مرشح متعدد الوسائط · مرفقات تيليغرام حسب قدرات المشغّل", en: "Multimodal candidate · Telegram media according to runtime capabilities" },
   },
 ] as const;
 
@@ -39,7 +41,6 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
   id: x.id,
   name: x.name,
   desc: x.desc,
-  studioUrl: x.studioUrl,
   selected: x.id === selected,
 }));
 
@@ -147,6 +148,7 @@ export async function donorTestChat(
   id: string,
   prompt: string,
   history: DonorHistoryMessage[],
+  media?: DonorTestMedia,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<{ text: string; tool_calls: { name?: string; arguments?: unknown }[]; seconds?: number; tokens_per_second?: number }> {
   const config = configOf(id);
@@ -154,8 +156,15 @@ export async function donorTestChat(
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
     .slice(-12)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
-  // Direct native history only. No Sham/Nova system prompt, tools, memory, credentials or production fallback.
-  const raw = await callGradio(config, "chat", [prompt.slice(0, 12000), JSON.stringify(prior), true], 210_000, fetchImpl);
+  // Candidate-native prompt/history only. No Nova/Sham agent, system prompt, memory, connector credentials or fallback.
+  const raw = media
+    ? await callGradio(config, "chat_payload", [JSON.stringify({
+        prompt: prompt.slice(0, 12000),
+        history: prior,
+        use_tools: true,
+        media,
+      })], 240_000, fetchImpl)
+    : await callGradio(config, "chat", [prompt.slice(0, 12000), JSON.stringify(prior), true], 210_000, fetchImpl);
   const result = asObject(raw);
   if (result.error) throw new Error(String(result.error).slice(0, 700));
   return {
@@ -165,7 +174,6 @@ export async function donorTestChat(
     tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
   };
 }
-
 function parseStatus(value: unknown): Record<string, any> | null {
   if (Array.isArray(value)) value = value[0];
   if (typeof value === "string") {
@@ -216,6 +224,10 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
   } catch (error) {
     return { id: config.id, phase: "unavailable", studio: "unknown", detail: String((error as Error)?.message || error).slice(0, 220) };
   }
+}
+
+export async function probeDonorTestStudio(id: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<DonorTestStatus> {
+  return probeOne(configOf(id), fetchImpl);
 }
 
 export async function probeDonorTestStudios(fetchImpl: typeof fetch = globalThis.fetch): Promise<DonorTestStatus[]> {

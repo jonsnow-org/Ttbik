@@ -66,6 +66,8 @@ describe("mini app api", () => {
     expect(after.donorTestModel).toBe("qwen35-9b");
     expect(after.model).toBe(before.model);
     expect(after.mode).toBe(before.mode);
+    await expect(appOp(owner, "send", { text: "هذه ليست قناة اختبار المرشح" }, { db, bot, botRow }))
+      .rejects.toMatchObject({ status: 409 });
     const ownerModels = await appOp(owner, "models", {}, { db, bot, botRow });
     expect(ownerModels.donorTests.map((x: any) => x.id)).toEqual(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
     expect(ownerModels.donorTests.find((x: any) => x.selected)?.id).toBe("qwen35-9b");

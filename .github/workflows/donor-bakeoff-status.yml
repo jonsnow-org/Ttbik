@@ -73,6 +73,14 @@ jobs:
           with open(target,"w",encoding="utf-8") as f: json.dump(payload,f,ensure_ascii=False,indent=2)
           print(json.dumps(payload,ensure_ascii=False,indent=2))
           PY
+            DIR="donor-bakeoff-status/$REPO"
+            mkdir -p "$DIR"
+            for kind in build run; do
+              log_code=$(curl -sS --connect-timeout 5 --max-time 20 -o "$DIR/$kind.log" -w '%{http_code}' \
+                -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
+              echo "$REPO $kind log HTTP $log_code"
+              tail -c 2500 "$DIR/$kind.log" 2>/dev/null || true
+            done
           done
       - name: Upload read-only status snapshot
         if: always()

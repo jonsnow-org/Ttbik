@@ -384,16 +384,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const stNow = await loadStateStrict(chatId, db);
       if (stNow.donorTestModel) {
         if (user.tier !== "owner") throw new AppError(403, "donor test is owner only");
-        const { startDonorTestAppTask } = await import("@/lib/coderSections");
-        try {
-          return {
-            ok: true,
-            ...(await startDonorTestAppTask(chatId, text, deps.botRow.id, db, deps.fetchImpl || globalThis.fetch)),
-            donorTest: stNow.donorTestModel,
-          };
-        } catch (e) {
-          throw new AppError(503, String((e as Error)?.message || "could not start direct donor test").slice(0, 500));
-        }
+        throw new AppError(409, "تم اختيار مرشح اختبار. أرسل رسالتك مباشرة في محادثة بوت تيليغرام؛ التطبيق المصغّر مخصص لتبديل المرشح فقط.");
       }
       { // The ordinary production model's availability check is unchanged.
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");

@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import threading
+import uuid
 import time
 import wave
 from pathlib import Path
@@ -395,7 +396,17 @@ def _file_data_uri(path: str, kind: str) -> tuple[str, str]:
             raise ValueError("ملف الصوت أكبر من الحد المسموح.")
         suffix = Path(path).suffix.lower().lstrip(".")
         if suffix not in {"wav", "mp3"}:
-            raise ValueError("صيغة الصوت المدعومة للاختبار هي WAV أو MP3.")
+            if suffix not in {"ogg", "oga", "opus", "m4a", "aac", "webm"}:
+                raise ValueError("صيغة الصوت غير مدعومة؛ استخدم WAV أو MP3 أو أرسل صوت Telegram.")
+            import imageio_ffmpeg
+            converted = RUNTIME / ("audio-" + str(int(time.time() * 1000)) + ".wav")
+            command = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", str(converted)]
+            run = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+            if run.returncode != 0 or not converted.is_file():
+                raise ValueError("تعذّر تحويل ملف الصوت إلى WAV محلياً.")
+            payload = converted.read_bytes()
+            converted.unlink(missing_ok=True)
+            suffix = "wav"
         return base64.b64encode(payload).decode("ascii"), suffix
     if kind == "video":
         payload = Path(path).read_bytes()
@@ -443,9 +454,19 @@ def _parse_tool_calls(message: dict) -> list[dict]:
             except json.JSONDecodeError:
                 args = {"_invalid_json": args}
         calls.append({"name": fn.get("name"), "arguments": args})
+    content = str(message.get("content") or "")
+    for match in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", content, flags=re.S):
+        try:
+            item = json.loads(match.group(1))
+            if isinstance(item, dict) and item.get("name"):
+                calls.append({
+                    "name": str(item.get("name")),
+                    "arguments": item.get("arguments") if isinstance(item.get("arguments"), dict) else {},
+                })
+        except Exception:
+            continue
     if calls:
         return calls
-    content = str(message.get("content") or "")
     for match in re.finditer(r"<function=([^>\n]+)>\s*(.*?)</function>", content, flags=re.S):
         name, body = match.group(1).strip(), match.group(2)
         args = {}
@@ -500,6 +521,8 @@ def infer(
         usage = data.get("usage") or {}
         token_count = int(usage.get("completion_tokens") or 0)
         output = str(choice.get("content") or "")
+        if calls:
+            output = re.sub(r"<tool_call>\s*.*?\s*</tool_call>", "", output, flags=re.S).strip()
         return {
             "text": output,
             "tool_calls": calls,
@@ -514,6 +537,61 @@ def infer(
         return {"error": f"Model API HTTP error: {body}"}
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
+
+def chat_payload(payload_json: str) -> str:
+    """Direct bot ingress; Telegram media is decoded only inside this private candidate Studio."""
+    created = []
+    try:
+        payload = json.loads(payload_json or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid candidate chat payload.")
+        media = payload.get("media")
+        paths = {"image_path": None, "audio_path": None, "video_path": None}
+        if isinstance(media, dict):
+            kind = str(media.get("kind") or "")
+            if kind not in {"image", "audio", "video"}:
+                raise ValueError("Unsupported media kind.")
+            data_url = str(media.get("dataUrl") or "")
+            if data_url.startswith("data:") and "," in data_url:
+                header, encoded = data_url.split(",", 1)
+            else:
+                encoded = data_url
+            raw = base64.b64decode(encoded, validate=True)
+            maximum = {"image": IMAGE_MAX_BYTES, "audio": AUDIO_MAX_BYTES, "video": VIDEO_MAX_BYTES}[kind]
+            if not raw or len(raw) > maximum:
+                raise ValueError("Media payload is empty or exceeds the allowed size.")
+            fmt = str(media.get("format") or "").lower().lstrip(".")
+            supported = {
+                "image": {"jpg", "jpeg", "png", "webp"},
+                "audio": {"wav", "mp3", "ogg", "oga", "opus", "m4a", "aac", "webm"},
+                "video": {"mp4", "mov", "m4v"},
+            }
+            if fmt not in supported[kind]:
+                raise ValueError("Unsupported media format: " + fmt)
+            suffix = ".jpg" if kind == "image" and fmt == "jpeg" else "." + fmt
+            path = RUNTIME / ("telegram-" + str(uuid.uuid4()) + suffix)
+            path.write_bytes(raw)
+            created.append(path)
+            key = {"image": "image_path", "audio": "audio_path", "video": "video_path"}[kind]
+            paths[key] = str(path)
+        history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        result = infer(
+            str(payload.get("prompt") or "حلّل المرفق."),
+            history=history,
+            max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
+            temperature=float(payload.get("temperature") or 0.2),
+            use_tools=bool(payload.get("use_tools", True)),
+            image_path=paths["image_path"],
+            audio_path=paths["audio_path"],
+            video_path=paths["video_path"],
+        )
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}, ensure_ascii=False)
+    finally:
+        for path in created:
+            path.unlink(missing_ok=True)
+
 
 def _unsupported(test: dict, reason: str) -> dict:
     return {
@@ -706,7 +784,7 @@ def chat_with_media(prompt, image_path, audio_path, video_path, history):
     return transcript, transcript, json.dumps(summary, ensure_ascii=False, indent=2)
 
 def chat_ui(prompt: str, history_json: str = "[]", use_tools: bool = True) -> str:
-    """Stable text-only endpoint retained for the owner Mini App's direct candidate switch."""
+    """Stable text-only endpoint used by the isolated Telegram bot route."""
     try:
         history = json.loads(history_json or "[]")
         if not isinstance(history, list):
@@ -773,6 +851,15 @@ with demo:
         inputs=[legacy_prompt, legacy_history, legacy_tools],
         outputs=legacy_output,
         api_name="chat",
+    )
+    payload_box = gr.Textbox(visible=False)
+    payload_output = gr.Textbox(visible=False)
+    payload_button = gr.Button(visible=False)
+    payload_button.click(
+        chat_payload,
+        inputs=[payload_box],
+        outputs=payload_output,
+        api_name="chat_payload",
     )
 
     gr.Markdown("## تشغيل اختبار واحد")
