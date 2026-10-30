@@ -15,7 +15,7 @@ concurrency:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
     steps:
       - name: Query only the three explicitly named experiment Studios
         env:
@@ -53,6 +53,43 @@ jobs:
                   echo "model status HTTP $rcode"
                   cat status.sse 2>/dev/null | head -c 1500 || true
                   echo
+                  phase=$(python3 - status.sse <<'PY'
+          import json,sys
+          raw=open(sys.argv[1],encoding="utf-8",errors="replace").read()
+          for line in raw.splitlines():
+              if not line.startswith("data:"):
+                  continue
+              try:
+                  payload=json.loads(line[5:].strip())
+              except Exception:
+                  continue
+              values=payload if isinstance(payload,list) else [payload]
+              for value in values:
+                  if isinstance(value,str):
+                      try: value=json.loads(value)
+                      except Exception: continue
+                  if isinstance(value,dict) and value.get("phase"):
+                      print(value["phase"])
+                      raise SystemExit(0)
+          PY
+          )
+                  echo "candidate_phase=$phase"
+                  if [ "$phase" = "ready" ]; then
+                    mkdir -p "donor-bakeoff-output/$REPO"
+                    smoke_code=$(curl -sS --connect-timeout 8 --max-time 30 -o smoke-event.json -w '%{http_code}' \
+                      -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
+                      "$API/gradio_api/call/smoke_suite" || true)
+                    echo "smoke submit HTTP $smoke_code"
+                    if [ "$smoke_code" = "200" ]; then
+                      smoke_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))" 2>/dev/null || true)
+                      if [ -n "$smoke_id" ]; then
+                        smoke_result=$(curl -sS --connect-timeout 8 --max-time 1050 -o "donor-bakeoff-output/$REPO/smoke.sse" -w '%{http_code}' \
+                          -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$smoke_id" || true)
+                        echo "smoke result HTTP $smoke_result"
+                        cat "donor-bakeoff-output/$REPO/smoke.sse" || true
+                      fi
+                    fi
+                  fi
                 fi
               fi
               for kind in build run; do
@@ -84,3 +121,11 @@ jobs:
               echo
             fi
           done
+      - name: Upload ready-candidate smoke reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: donor-bakeoff-ready-candidate-reports
+          path: donor-bakeoff-output/
+          if-no-files-found: warn
+          retention-days: 14
