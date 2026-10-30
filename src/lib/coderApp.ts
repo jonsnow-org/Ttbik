@@ -226,7 +226,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "stop": {
       const runId = String(body.runId || "");
       const requestedSlot = typeof body.slot === "string" ? body.slot : "";
-      if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot) || requestedSlot.startsWith("donor:")) {
+      if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot) || requestedSlot.startsWith("donor:") || requestedSlot.startsWith("model:")) {
         const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
         const actualSlot = await taskSlot(runId, chatId, db);
         if (actualSlot !== requestedSlot) return { ok: false };
@@ -245,7 +245,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       let stopped = 0;
       for (const t of targets) {
         if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
-        if (!t.run_id.startsWith("sham-")) await stopRun(chatId, t.slot || "", t.run_id, db).catch(() => false);
+        if (!t.run_id.startsWith("sham-") && !String(t.slot || "").startsWith("model:")) await stopRun(chatId, t.slot || "", t.run_id, db).catch(() => false);
         if (await stopTaskRow(chatId, t.run_id, db)) stopped++;
       }
       return { ok: true, stopped };
