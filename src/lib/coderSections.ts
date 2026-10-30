@@ -476,7 +476,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const keyboard = new InlineKeyboard();
     for (const model of available) {
       const label = model.name.ar + (model.ownerOnly ? " · خاص" : "");
-      keyboard.text((st.model || "coder") === model.id ? "✓ " + label : label, "model_pick|" + model.id).row();
+      keyboard.text(((preloadedOwnerState?.model || "coder") === model.id) ? "✓ " + label : label, "model_pick|" + model.id).row();
     }
     await send(bot, chatId, "🤖 اختر النموذج الرئيسي. كل اختيار يوجّه الرسائل إلى مساره الخاص فقط.", { reply_markup: keyboard });
     return true;
