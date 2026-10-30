@@ -1,0 +1,256 @@
+name: "Deploy isolated Realistic Vision V6.0 photo-test Studio"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - experiments/realistic-vision-test/**
+      - .github/workflows/deploy-realistic-vision-test.yml
+  workflow_dispatch:
+
+concurrency:
+  group: realistic-vision-v6-isolated-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  MODEL_REPO: realistic-vision-v6-test-models
+  STUDIO_REPO: realistic-vision-v6-test
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout isolated experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: realistic-vision-v6-isolated-test
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Stage the single checkpoint and recommended VAE in a private ModelScope model repo
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PHOTO_MODEL_REPO: novaai2026/realistic-vision-v6-test-models
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          python -m pip install --upgrade pip
+          python -m pip install "modelscope>=1.26.0" "huggingface_hub>=0.24.0" safetensors
+          python -m py_compile experiments/realistic-vision-test/prepare_and_push.py
+          python experiments/realistic-vision-test/prepare_and_push.py
+
+      - name: Inspect free CPU hardware and existing isolated Studio (read-only)
+        id: inspect
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          api() { curl -fsS --connect-timeout 10 --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
+          api "/studios/hardware?sdk_type=gradio" > hardware.json
+          code=$(curl -sS --connect-timeout 10 --max-time 30 -o studio.json -w '%{http_code}' \
+            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO")
+          echo "existing Studio HTTP status: $code"
+          echo "STUDIO_HTTP=$code" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import json
+          d=json.load(open("hardware.json"))
+          items=d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items,dict):
+              items=items.get("items") or items.get("hardware") or []
+          print("Available non-paid CPU hardware candidates:")
+          for x in items:
+              if not isinstance(x,dict):
+                  continue
+              name=str(x.get("name") or x.get("hardware") or "")
+              typ=str(x.get("resource_type") or x.get("type") or "").lower()
+              price=x.get("price") or x.get("price_per_hour") or x.get("cost")
+              if "cpu" in name.lower() and not name.lower().startswith("paid/") and typ != "paid" and price in (None, "", 0, "0", "0.0"):
+                  print({k:x.get(k) for k in ("name","resource_type","type","price","memory","cpu","description") if k in x})
+          PY
+
+      - name: Create only the isolated private CPU Studio if it does not exist
+        if: env.STUDIO_HTTP != '200'
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, re, sys
+          d=json.load(open("hardware.json"))
+          items=d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items,dict):
+              items=items.get("items") or items.get("hardware") or []
+          candidates=[]
+          for x in items:
+              if not isinstance(x,dict):
+                  continue
+              name=str(x.get("name") or x.get("hardware") or "")
+              typ=str(x.get("resource_type") or x.get("type") or "").lower()
+              price=x.get("price") or x.get("price_per_hour") or x.get("cost")
+              paid = name.lower().startswith("paid/") or typ == "paid"
+              nonzero = price not in (None, "", 0, "0", "0.0")
+              if "cpu" in name.lower() and not paid and not nonzero:
+                  candidates.append(x)
+          if not candidates:
+              print("No explicitly non-paid CPU hardware was returned; refusing to create a potentially paid Studio.")
+              sys.exit(2)
+          def ram(x):
+              s=str(x.get("name") or x.get("hardware") or "")
+              m=re.search(r"(\d+)\s*g(?:b)?(?:-|$)",s.lower())
+              return int(m.group(1)) if m else 0
+          candidates.sort(key=ram, reverse=True)
+          selected=candidates[0]
+          hw=selected.get("name") or selected.get("hardware")
+          if not hw or str(hw).lower().startswith("paid/"):
+              raise SystemExit("The selected hardware is not verified as free CPU.")
+          body={
+              "owner": "novaai2026",
+              "repo_name": "realistic-vision-v6-test",
+              "sdk_type": "gradio",
+              "visibility": "private",
+              "hardware": hw,
+              "display_name": "Realistic Vision V6.0 isolated visual test",
+          }
+          json.dump(body,open("create-studio.json","w"))
+          print("Selected non-paid CPU hardware:",hw)
+          PY
+          code=$(curl -sS --connect-timeout 10 --max-time 60 -o create-studio-response.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            --data-binary @create-studio.json "$MS/openapi/v1/studios")
+          echo "Studio creation HTTP status: $code"
+          cat create-studio-response.json
+          test "$code" -ge 200 && test "$code" -lt 300 || {
+            echo "::error::ModelScope refused creation; no production Studio was targeted."
+            exit 1
+          }
+
+      - name: Ensure an existing isolated Studio is not paid hardware
+        if: env.STUDIO_HTTP == '200'
+        run: |
+          python - <<'PY'
+          import json,sys
+          d=json.load(open("studio.json"))
+          data=d.get("data") or d.get("Data") or d
+          text=json.dumps(data).lower()
+          if "paid/" in text:
+              print("The existing test Studio reports paid hardware; refusing to redeploy.")
+              sys.exit(2)
+          print("Existing test Studio found. No hardware changes will be made.")
+          PY
+
+      - name: Publish app code to the isolated Studio repository
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "Realistic Vision test CI"
+          git config --global user.email "photo-test-ci@users.noreply.github.com"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$STUDIO_REPO.git" ms-photo-studio 2>&1 | sed "s/$T/***/g"
+          cp experiments/realistic-vision-test/app.py ms-photo-studio/app.py
+          cp experiments/realistic-vision-test/requirements.txt ms-photo-studio/requirements.txt
+          cd ms-photo-studio
+          git add app.py requirements.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "deploy isolated Realistic Vision V6 photo test"
+            git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+          else
+            echo "Studio app files are already current."
+          fi
+
+      - name: Add the private model-read token to this Studio only
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python -m pip install -q "modelscope>=1.26.0"
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api=HubApi()
+          token=os.environ["MODELSCOPE_TOKEN"]
+          api.login(token)
+          sid="novaai2026/realistic-vision-v6-test"
+          try:
+              api.add_studio_secret(sid,"MODELSCOPE_API_TOKEN",token)
+          except Exception as exc:
+              message=str(exc).lower()
+              if "exist" not in message and "already" not in message and "duplicate" not in message:
+                  raise
+              api.update_studio_secret(sid,"MODELSCOPE_API_TOKEN",token)
+          print("Private model-read secret configured for the photo-test Studio.")
+          PY
+
+      - name: Deploy and wait for verified checkpoint and VAE loading
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
+          curl -fsS --connect-timeout 10 --max-time 60 -X POST \
+            -H "Authorization: Bearer $T" \
+            "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/deploy" | head -c 2000
+          echo
+          ready=0
+          for i in $(seq 1 100); do
+            sleep 30
+            studio=$(curl -sS --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO")
+            runtime=$(printf '%s' "$studio" | python -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d.get('Data') or d;print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true)
+            echo "$(date -u +%H:%M:%S) Studio runtime: $runtime"
+            case "$runtime" in
+              *ail*|*rror*|*topped*)
+                echo "::error::The isolated Studio failed during deployment."
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/build" | tail -c 5000 || true
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
+                exit 1;;
+            esac
+            case "$runtime" in
+              Running|running)
+                ev=$(curl -sS --connect-timeout 10 --max-time 45 -X POST \
+                  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                  -d '{"data":[]}' "$API/gradio_api/call/status" \
+                  | python -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                if [ -n "$ev" ]; then
+                  out=$(curl -sS --connect-timeout 10 --max-time 90 \
+                    -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true)
+                  if printf '%s' "$out" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"ready"'; then
+                    echo "$out" | tail -c 4000
+                    ready=1
+                    break
+                  fi
+                  if printf '%s' "$out" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"error"'; then
+                    echo "$out" | tail -c 4000
+                    echo "::error::Studio launched but rejected or failed to load checkpoint/VAE."
+                    curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
+                    exit 1
+                  fi
+                fi
+                ;;
+            esac
+          done
+          if [ "$ready" -ne 1 ]; then
+            curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
+            echo "::error::The Studio did not report phase=ready before timeout."
+            exit 1
+          fi
+          {
+            echo "## Realistic Vision V6.0 isolated visual test"
+            echo "- Studio: https://www.modelscope.cn/studios/$OWNER/$STUDIO_REPO"
+            echo "- API: $API"
+            echo "- Model repo: https://www.modelscope.cn/models/$OWNER/$MODEL_REPO"
+            echo "- Hardware: non-paid CPU only"
+            echo "- Production routes changed: no"
+            echo "- Status: checkpoint and recommended VAE passed hash verification and loaded."
+            echo "- Manual visual review is still required before any production routing change."
+          } >> "$GITHUB_STEP_SUMMARY"
