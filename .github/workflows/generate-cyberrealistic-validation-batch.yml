@@ -21,7 +21,7 @@ jobs:
 
       - name: Confirm isolated CyberRealistic Studio is running and ready
         env:
-          MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$MODELSCOPE_TOKEN"
@@ -108,7 +108,7 @@ jobs:
 
       - name: Generate full-body and close-up samples across three seeds
         env:
-          MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           echo "::add-mask::$MODELSCOPE_TOKEN"
