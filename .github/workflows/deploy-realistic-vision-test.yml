@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: realistic-vision-v6-isolated-test
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -24,7 +24,6 @@ env:
 
 jobs:
   deploy:
-    if: false # paused until a valid ModelScope write token is installed
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
