@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-30 10:14 UTC",
+  "generated_at": "2026-10-30 18:08 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -225,7 +225,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 4172.2,
       "last_updated": "2026-10-30",
       "progress": {},
       "has_key_files": true
@@ -252,20 +252,20 @@
       "size_mb": 35.7,
       "last_updated": "2026-10-30",
       "progress": {
-        "samples_consumed": 42960,
-        "step": 50199,
+        "samples_consumed": 54792,
+        "step": 51678,
         "last_run_sources": {
           "cv17-ar": 1000
         },
-        "codebook_usage": 2016,
-        "recon": 0.013025236423485555
+        "codebook_usage": 2012,
+        "recon": 0.012131622125362528
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 0.0,
+      "size_mb": 580.4,
       "last_updated": "2026-10-30",
       "progress": {},
       "has_key_files": true
@@ -276,13 +276,13 @@
       "size_mb": 145.0,
       "last_updated": "2026-10-30",
       "progress": {
-        "samples_consumed": 156900,
-        "step": 23485,
+        "samples_consumed": 163268,
+        "step": 25077,
         "last_run_sources": {
           "coco-karpathy": 1000
         },
-        "codebook_usage": 3108,
-        "recon": 0.05934702102659327
+        "codebook_usage": 2966,
+        "recon": 0.06171666387291182
       },
       "has_key_files": true
     },
@@ -321,10 +321,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 16.6,
+      "size_mb": 17.0,
       "last_updated": "2026-10-30",
       "progress": {
-        "videos_consumed": 4067
+        "videos_consumed": 4167
       },
       "has_key_files": true
     },
@@ -389,13 +389,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 42960,
-          "step": 50199,
+          "samples_consumed": 54792,
+          "step": 51678,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 2016,
-          "recon": 0.013025236423485555
+          "codebook_usage": 2012,
+          "recon": 0.012131622125362528
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -404,7 +404,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 4067
+          "videos_consumed": 4167
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
