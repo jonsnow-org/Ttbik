@@ -480,6 +480,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
     unavailable: lang === "ar" ? "تعذّر التحقق من الاستديو" : "Could not verify Studio",
     unknown: lang === "ar" ? "جارٍ فحص الاستديو…" : "Checking Studio…",
   } as Record<string, string>)[phase] || (lang === "ar" ? "جارٍ فحص الاستديو…" : "Checking Studio…");
+  const pick = async (id: string) => {
     if (switchingRef.current) return;
     switchingRef.current = true;
     setSwitching(true);
