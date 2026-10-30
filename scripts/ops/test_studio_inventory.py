@@ -39,7 +39,8 @@ class Pick(unittest.TestCase):
         self.assertNotIn("reason", json.dumps(out))
 
     def test_status_sse_and_direct_payload_parsing(self):
-        self.assertEqual(inv._decode_sse_status('data: ["{\\\"phase\\\": \\\"ready\\\"}"]\\n\\n'), {"phase": "ready"})
+        sse = 'data: ["{\\\"phase\\\": \\\"ready\\\"}"]' + chr(10) + chr(10)
+        self.assertEqual(inv._decode_sse_status(sse), {"phase": "ready"})
         self.assertEqual(inv._unwrap_direct_status({"data": ['{"phase":"ready"}']}), {"phase": "ready"})
 
     def test_known_names_cover_candidate_and_specialized_media_studios(self):

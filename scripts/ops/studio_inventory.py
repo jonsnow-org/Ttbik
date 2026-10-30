@@ -51,6 +51,7 @@ def pick(status: dict) -> dict:
             out[key] = {str(k): bool(v) for k, v in value.items() if isinstance(v, (bool, int))}
     ma = status.get("media_assets")
     if isinstance(ma, dict):
+        out["media_assets_ready"] = bool(ma.get("ready"))  # retained for existing dashboards/tests
         out["media_assets"] = {
             "ready": bool(ma.get("ready")),
             **({"image_bytes": int(ma["image_bytes"])} if isinstance(ma.get("image_bytes"), (int, float)) else {}),
