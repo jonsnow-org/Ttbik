@@ -269,6 +269,7 @@ export async function startImageGenerationTest(
   db: Db = prismaDb,
   expectedModel?: ImageGenerationTestId,
   fetchImpl: typeof fetch = globalThis.fetch,
+  botSecret = "",
 ): Promise<{ runId: string }> {
   if (tierFor(chatId) !== "owner") throw new Error("اختبارات توليد الصور متاحة للمالك فقط.");
   const cleanPrompt = String(prompt || "").trim();
@@ -293,8 +294,13 @@ export async function startImageGenerationTest(
   }
 
   const runId = "image-" + id + "-" + cryptoRandomId();
+  const seed = Math.floor(Math.random() * 2_000_000_000);
   const inFlight = { ...(state.imageTestInFlight || {}), [id]: runId };
   state.imageTestInFlight = inFlight;
+  state.imageTestJobs = {
+    ...(state.imageTestJobs || {}),
+    [id]: { runId, prompt: cleanPrompt, seed, attempt: 0 },
+  };
   await saveImageTestState(chatId, state, db);
   const label = configOf(id).name.ar;
   await taskStart(chatId, {
@@ -305,7 +311,7 @@ export async function startImageGenerationTest(
     botId,
   }, db);
   await taskEvent(runId, "info", "إرسال طلب صورة إلى الاستديو الخاص بالمرشح فقط.", db);
-  later(() => runImageGenerationTask(bot, chatId, runId, id, cleanPrompt, db, fetchImpl));
+  later(() => runImageGenerationTask(bot, chatId, runId, id, cleanPrompt, seed, botId, botSecret, db, fetchImpl));
   void bot.api.sendChatAction(chatId, "upload_photo").catch(() => null);
   return { runId };
 }
@@ -316,55 +322,234 @@ async function runImageGenerationTask(
   runId: string,
   id: ImageGenerationTestId,
   prompt: string,
+  seed: number,
+  botId: string,
+  botSecret: string,
   db: Db,
   fetchImpl: typeof fetch,
 ): Promise<void> {
   const config = configOf(id);
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  const seed = Math.floor(Math.random() * 2_000_000_000);
   try {
-    await taskEvent(runId, "info", "جارٍ توليد الصورة على معالج الاستديو الخاص بالمرشح…", db);
-    const started = Date.now();
-    const result = await postImage(id, prompt, seed, fetchImpl);
     if (!(await taskIsActive(runId, db))) return;
-    const elapsed = Math.round((Date.now() - started) / 1000);
+    await taskEvent(runId, "info", "إرسال مهمة التوليد إلى الاستديو الخاص بالمرشح…", db);
+    const token = tokenOf();
+    if (!token) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
+    const start = await fetchImpl(apiOf(config.studio) + "/gradio_api/call/image", {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify({ data: [prompt, config.negative, config.aspect, config.steps, config.cfg, seed] }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!start.ok) {
+      const detail = (await start.text().catch(() => "")).slice(0, 300);
+      throw new Error("رفض الاستديو الطلب: HTTP " + start.status + (detail ? " · " + detail : ""));
+    }
+    const started = await start.json().catch(() => ({})) as { event_id?: string };
+    if (!started.event_id) throw new Error("لم يُرجع الاستديو معرّف مهمة التوليد.");
+    const state = await loadImageTestState(chatId, db);
+    const job = state.imageTestJobs?.[id];
+    if (!job || job.runId !== runId) return;
+    state.imageTestJobs = {
+      ...(state.imageTestJobs || {}),
+      [id]: { ...job, eventId: started.event_id },
+    };
+    await saveImageTestState(chatId, state, db);
+    await taskEvent(runId, "info", "بدأ الاستديو التوليد فعلياً. تم تسجيل رقم المهمة ومتابعتها عبر جلسات تنفيذ مستقلة.", db);
+    await invokeImageContinuation(botId, chatId, runId, botSecret, fetchImpl);
+  } catch (error) {
+    await failImageTest(bot, chatId, runId, id, String((error as Error)?.message || error), db);
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+async function invokeImageContinuation(
+  botId: string,
+  chatId: number,
+  runId: string,
+  botSecret: string,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const { selfUrl, signContinue } = await import("@/lib/coderSections");
+  const sig = signContinue(botSecret || "", botId, String(chatId), runId);
+  const response = await fetchImpl(selfUrl() + "/api/image-test/continue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ botId, chatId: String(chatId), runId, sig }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok && response.status !== 202) {
+    const detail = (await response.text().catch(() => "")).slice(0, 300);
+    throw new Error("تعذّر تشغيل عامل متابعة التوليد: HTTP " + response.status + (detail ? " · " + detail : ""));
+  }
+}
+
+export async function continueImageGenerationTest(
+  bot: TelegramBot,
+  chatId: number,
+  botId: string,
+  botSecret: string,
+  runId: string,
+  db: Db = prismaDb,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<void> {
+  const state = await loadImageTestState(chatId, db);
+  const entry = Object.entries(state.imageTestJobs || {}).find(([, job]) => job?.runId === runId);
+  if (!entry) return;
+  const [rawId, job] = entry as [string, ImageTestJob];
+  if (!isImageGenerationTestId(rawId) || !job.eventId) return;
+  const id = rawId;
+  if (!(await taskIsActive(runId, db))) {
+    await clearImageTestJob(chatId, id, runId, db);
+    return;
+  }
+
+  const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
+  try {
+    await taskEvent(runId, "info", "متابعة نتيجة التوليد من الاستديو… المحاولة " + (job.attempt + 1) + ".", db);
+    let response: Response;
+    try {
+      response = await fetchImpl(
+        apiOf(configOf(id).studio) + "/gradio_api/call/image/" + encodeURIComponent(job.eventId),
+        {
+          headers: headers(tokenOf()),
+          cache: "no-store",
+          signal: AbortSignal.timeout(235_000),
+        },
+      );
+    } catch (error) {
+      const message = String((error as Error)?.message || error);
+      await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, "انقطع انتظار النتيجة مؤقتاً: " + message, db, fetchImpl);
+      return;
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => "")).slice(0, 300);
+      throw new Error("أعاد الاستديو HTTP " + response.status + (detail ? " · " + detail : ""));
+    }
+    let raw: string;
+    try {
+      raw = await readSse(response);
+    } catch (error) {
+      await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, String((error as Error)?.message || error), db, fetchImpl);
+      return;
+    }
+    if (!/(^|\r?\n)event:\s*complete(?:\r?\n|$)/m.test(raw)) {
+      await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, "لم يكتمل التدفق في جلسة المتابعة الحالية.", db, fetchImpl);
+      return;
+    }
+    const values = sseValues(raw);
+    const image = values.map(findImage).find(Boolean) || null;
+    const meta = values.map(findMeta).find(Boolean) || null;
+    if (!image) throw new Error("أكمل الاستديو الطلب دون إعادة ملف الصورة.");
+    const filePath = String(image.path || image.url || "");
+    let fileUrl: string;
+    if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+      fileUrl = filePath;
+    } else if (filePath.startsWith("/gradio_api/file=")) {
+      fileUrl = apiOf(configOf(id).studio) + filePath;
+    } else {
+      const normalized = filePath.startsWith("/") ? filePath : "/" + filePath;
+      fileUrl = apiOf(configOf(id).studio) + "/gradio_api/file=" + encodeURIComponent(normalized).replace(/%2F/gi, "/");
+    }
+    const token = tokenOf();
+    const downloaded = await fetchImpl(fileUrl, {
+      headers: { Authorization: "Bearer " + token },
+      cache: "no-store",
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!downloaded.ok) throw new Error("تعذّر تنزيل ملف الصورة من الاستديو: HTTP " + downloaded.status);
+    const bytes = new Uint8Array(await downloaded.arrayBuffer());
+    if (bytes.byteLength < 10_000 || bytes.byteLength > 48 * 1024 * 1024) {
+      throw new Error("حجم ملف الصورة غير صالح للاختبار: " + bytes.byteLength + " bytes.");
+    }
+    const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    if (!png && !jpeg) throw new Error("الملف المستلم ليس صورة PNG أو JPEG سليمة.");
+
+    if (!(await taskIsActive(runId, db))) return;
+    const config = configOf(id);
+    const seed = job.seed;
     const caption = [
       "🖼️ " + config.name.ar,
       "Seed: " + seed,
-      "الوقت: " + String(result.meta?.seconds ?? elapsed) + "s",
-      result.meta?.resolution ? "الدقة: " + String(result.meta.resolution) : "",
+      "الوقت: " + String(meta?.seconds ?? "—") + "s",
+      meta?.resolution ? "الدقة: " + String(meta.resolution) : "",
     ].filter(Boolean).join("\n").slice(0, 900);
-    const buffer = Buffer.from(result.bytes);
+    const buffer = Buffer.from(bytes);
     try {
       await bot.api.sendPhoto(chatId, new InputFile(buffer, id + ".png"), { caption });
     } catch {
       await bot.api.sendDocument(chatId, new InputFile(buffer, id + ".png"), { caption });
     }
-    await taskEvent(runId, "info", "اكتمل التوليد. Seed=" + seed + " · " + elapsed + "s · " + (result.bytes.byteLength) + " bytes.", db);
+    await taskEvent(runId, "info", "اكتمل التوليد. Seed=" + seed + " · " + bytes.byteLength + " bytes.", db);
     await taskStatus(runId, "done", undefined, db);
-    const state = await loadImageTestState(chatId, db);
-    if (state.imageTestInFlight?.[id] === runId) {
-      const next = { ...(state.imageTestInFlight || {}) };
-      delete next[id];
-      state.imageTestInFlight = next;
-      await saveImageTestState(chatId, state, db);
-    }
+    await clearImageTestJob(chatId, id, runId, db);
   } catch (error) {
-    const detail = String((error as Error)?.message || error).slice(0, 700);
-    const notice = "⚠️ تعذّر توليد الصورة عبر " + config.name.ar + ": " + detail + " لم يتم استخدام نموذج بديل.";
-    await taskEvent(runId, "failed", notice, db);
-    await taskStatus(runId, "failed", undefined, db);
-    await bot.api.sendMessage(chatId, notice).catch(() => null);
-    const state = await loadImageTestState(chatId, db);
-    if (state.imageTestInFlight?.[id] === runId) {
-      const next = { ...(state.imageTestInFlight || {}) };
-      delete next[id];
-      state.imageTestInFlight = next;
-      await saveImageTestState(chatId, state, db);
-    }
+    await failImageTest(bot, chatId, runId, id, String((error as Error)?.message || error), db);
   } finally {
     clearInterval(heartbeat);
   }
+}
+
+async function continueOrFail(
+  bot: TelegramBot,
+  chatId: number,
+  botId: string,
+  botSecret: string,
+  runId: string,
+  id: ImageGenerationTestId,
+  job: ImageTestJob,
+  reason: string,
+  db: Db,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const nextAttempt = (job.attempt || 0) + 1;
+  if (nextAttempt > 6) {
+    await failImageTest(bot, chatId, runId, id, "تجاوز التوليد الحد الأقصى لمدة المتابعة (نحو 24 دقيقة). " + reason, db);
+    return;
+  }
+  const state = await loadImageTestState(chatId, db);
+  if (state.imageTestJobs?.[id]?.runId !== runId) return;
+  state.imageTestJobs = {
+    ...(state.imageTestJobs || {}),
+    [id]: { ...job, attempt: nextAttempt },
+  };
+  await saveImageTestState(chatId, state, db);
+  await taskEvent(runId, "info", "لا يزال التوليد قيد التنفيذ؛ سأتابع في جلسة مستقلة أخرى. " + reason.slice(0, 180), db);
+  await invokeImageContinuation(botId, chatId, runId, botSecret, fetchImpl);
+}
+
+async function clearImageTestJob(chatId: number, id: ImageGenerationTestId, runId: string, db: Db): Promise<void> {
+  const state = await loadImageTestState(chatId, db);
+  if (state.imageTestInFlight?.[id] === runId) {
+    const next = { ...(state.imageTestInFlight || {}) };
+    delete next[id];
+    state.imageTestInFlight = next;
+  }
+  if (state.imageTestJobs?.[id]?.runId === runId) {
+    const next = { ...(state.imageTestJobs || {}) };
+    delete next[id];
+    state.imageTestJobs = next;
+  }
+  await saveImageTestState(chatId, state, db);
+}
+
+async function failImageTest(
+  bot: TelegramBot,
+  chatId: number,
+  runId: string,
+  id: ImageGenerationTestId,
+  message: string,
+  db: Db,
+): Promise<void> {
+  const notice = "⚠️ تعذّر توليد الصورة عبر " + configOf(id).name.ar + ": " + String(message || "").slice(0, 600) + " لم يتم استخدام نموذج بديل.";
+  await taskEvent(runId, "failed", notice, db);
+  await taskStatus(runId, "failed", undefined, db);
+  await bot.api.sendMessage(chatId, notice).catch(() => null);
+  await clearImageTestJob(chatId, id, runId, db);
 }
 
 export async function stopImageGenerationTest(chatId: number, db: Db = prismaDb): Promise<boolean> {
@@ -379,6 +564,11 @@ export async function stopImageGenerationTest(chatId: number, db: Db = prismaDb)
   const next = { ...(state.imageTestInFlight || {}) };
   delete next[id];
   state.imageTestInFlight = next;
+  if (state.imageTestJobs?.[id]?.runId === runId) {
+    const jobs = { ...(state.imageTestJobs || {}) };
+    delete jobs[id];
+    state.imageTestJobs = jobs;
+  }
   await saveImageTestState(chatId, state, db);
   await taskEvent(runId, "info", "أوقف المستخدم إرسال نتيجة الاختبار. قد يواصل الاستديو الحساب حتى ينتهي طلبه.", db);
   return true;
@@ -389,9 +579,11 @@ function cryptoRandomId(): string {
     || Math.random().toString(36).slice(2, 12);
 }
 
+type ImageTestJob = { runId: string; prompt: string; seed: number; eventId?: string; attempt: number };
 type ImageTestState = Record<string, any> & {
   imageTestModel?: ImageGenerationTestId;
   imageTestInFlight?: Partial<Record<ImageGenerationTestId, string>>;
+  imageTestJobs?: Partial<Record<ImageGenerationTestId, ImageTestJob>>;
 };
 
 async function loadImageTestState(chatId: number, db: Db): Promise<ImageTestState> {
