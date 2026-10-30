@@ -1,4 +1,4 @@
-name: "Inspect Realistic Vision live generation state"
+name: "Inspect Realistic Vision live generation state (retry)"
 
 on:
   push:
