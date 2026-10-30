@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r7"
+APP_REVISION = "donor-bakeoff-2026-10-30-r8"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -583,10 +583,43 @@ def _build_user_content(prompt: str, image_path=None, audio_path=None, video_pat
 def _parse_tool_calls(message: dict) -> list[dict]:
     return parse_tool_calls(message)
 
-def _execute_tool(name: str, arguments: dict) -> dict:
-    """Execute only explicitly allowlisted, read-only tools inside this private Studio."""
+def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
+    """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "Tool arguments must be an object."}
+    bridge_tools = tool_bridge.get("tools") if isinstance(tool_bridge, dict) else []
+    remote_names = {
+        str(item.get("function", {}).get("name") or "")
+        for item in bridge_tools if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    }
+    if name in remote_names:
+        bridge_url = str(tool_bridge.get("url") or "")
+        if not bridge_url.startswith("https://") or "/api/coder/app/donor-tools" not in bridge_url:
+            return {"ok": False, "error": "The scoped connector bridge URL is invalid."}
+        try:
+            response = requests.post(
+                bridge_url,
+                json={
+                    "ticket": tool_bridge.get("ticket"),
+                    "model": tool_bridge.get("model"),
+                    "name": name,
+                    "arguments": arguments,
+                },
+                headers={"Cache-Control": "no-store"},
+                timeout=(10, 38),
+            )
+            payload = response.json() if response.content else {}
+            if not isinstance(payload, dict):
+                return {"ok": False, "http_status": response.status_code, "error": "Connector bridge returned an invalid response."}
+            return {
+                "ok": payload.get("ok") is True,
+                "result": str(payload.get("result") or payload.get("error") or "")[:18000],
+                "approval_required": payload.get("approval_required") is True,
+                "http_status": response.status_code,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": "Connector bridge request failed: " + str(exc)[:400]}
+
     if name == "github_repo_scan":
         repo = str(arguments.get("repo") or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
@@ -716,6 +749,7 @@ def infer(
     image_path=None,
     audio_path=None,
     video_path=None,
+    tool_bridge: dict | None = None,
 ) -> dict:
     state = get_state()
     if state["phase"] != "ready":
@@ -723,6 +757,17 @@ def infer(
     try:
         content, media_labels = _build_user_content(prompt, image_path, audio_path, video_path)
         messages = _read_history(history)
+        if isinstance(tool_bridge, dict) and tool_bridge.get("connectors"):
+            connected = ", ".join(str(x) for x in tool_bridge.get("connectors", []) if isinstance(x, str))
+            messages.insert(0, {
+                "role": "system",
+                "content": (
+                    "Connected services available to this selected model: " + connected + ". "
+                    "Use connector_api for the user's linked accounts, and use the GitHub-specific tools for authenticated repository work. "
+                    "The app server executes those tools using the account's existing permissions; credentials are not present in this Studio. "
+                    "Never claim a tool ran unless its returned result confirms it."
+                ),
+            })
         messages.append({"role": "user", "content": content})
         options = {
             "model": CONFIG.get("id", "isolated-donor"),
@@ -731,7 +776,12 @@ def infer(
             "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
         if use_tools:
-            options["tools"] = TOOLS
+            by_name = {item["function"]["name"]: item for item in TOOLS}
+            if isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
+                for item in tool_bridge["tools"]:
+                    if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
+                        by_name[str(item["function"]["name"])] = item
+            options["tools"] = list(by_name.values())
             options["tool_choice"] = "auto"
         started = time.monotonic()
         token_count = 0
@@ -766,7 +816,7 @@ def infer(
                 name = str(call.get("name") or "")
                 arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
                 call_id = "call_" + uuid.uuid4().hex[:16]
-                tool_result = _execute_tool(name, arguments)
+                tool_result = _execute_tool(name, arguments, tool_bridge)
                 executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
                 assistant_calls.append({
                     "id": call_id,
@@ -847,6 +897,7 @@ def chat_payload(payload_json: str) -> str:
             max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
             temperature=payload.get("temperature"),
             use_tools=bool(payload.get("use_tools", True)),
+            tool_bridge=payload.get("tool_bridge") if isinstance(payload.get("tool_bridge"), dict) else None,
             image_path=paths["image_path"],
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],

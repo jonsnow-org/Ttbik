@@ -107,12 +107,21 @@ describe("coder models", () => {
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "sham", false).id).toBe("coder");                    // a user cannot use a hidden one
     expect(effectiveModel(all, "sham", true).id).toBe("sham");                 // the owner can try it
     expect(effectiveModel(all, "sham_loop", true).id).toBe("sham");                      // the former "Sham (advanced)" id is the old Sham now
     expect(effectiveModel(all, "sham_v2", true).id).toBe("sham_v2");                     // the new Sham is its own entry, tried beside the old one
+    for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+      const candidate = all.find((m) => m.id === id);
+      expect(candidate).toMatchObject({ ownerOnly: true, lockedOwnerOnly: true, visible: false });
+      expect(effectiveModel(all, id, true).id).toBe(id);
+      expect(effectiveModel(all, id, false).id).toBe("coder");
+    }
+    await updateModel("qwen35-9b", { visible: true }, db);
+    expect((await listModels(db)).find((m) => m.id === "qwen35-9b")?.visible).toBe(false);
+    expect(publicModels(await listModels(db), undefined).map((m) => m.id)).not.toContain("qwen35-9b");
     await updateModel("coder", { visible: false }, db);                                  // Nova has its own switch now (owner panel); the owner can hide it and bring it back
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(false);
     await updateModel("coder", { visible: true }, db);

@@ -517,8 +517,8 @@ describe("a poll the hub refuses for a moment does not end the task", () => {
 });
 
 
-describe("isolated Telegram donor route", () => {
-  it("sends owner messages directly to the selected candidate even when Nova is disabled, without fallback", async () => {
+describe("isolated primary candidate route", () => {
+  it("sends owner messages directly to the selected primary candidate even when Nova is disabled, without fallback", async () => {
     const db = memDb();
     const state = {
       mode: "coder" as const,
@@ -527,13 +527,15 @@ describe("isolated Telegram donor route", () => {
       notes: "",
       inbox: [],
       run: null,
-      donorTestModel: "qwen35-9b" as const,
+      model: "qwen35-9b",
     };
     await saveState(CHAT, state, db);
     const originalFetch = global.fetch;
     const originalModelScopeToken = process.env.MODELSCOPE_API_TOKEN;
     process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
     const originalOpenCoder = process.env.OPEN_CODER_STUDIO_URL;
+    const originalConnectorKey = process.env.CODER_TOKEN_KEY;
+    process.env.CODER_TOKEN_KEY = "test-candidate-tool-bridge-key";
     delete process.env.OPEN_CODER_STUDIO_URL;
 
     const calls: { url: string; method: string }[] = [];
@@ -553,13 +555,13 @@ describe("isolated Telegram donor route", () => {
       }
       if (url.endsWith("/gradio_api/run/status") && method === "POST") {
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-30-r7", media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-30-r8", media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/chat") && method === "POST") {
+      if (url.endsWith("/gradio_api/call/chat_payload") && method === "POST") {
         return new Response(JSON.stringify({ event_id: "chat-event" }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/chat/chat-event")) {
+      if (url.endsWith("/gradio_api/call/chat_payload/chat-event")) {
         return new Response(completed({ text: "رد مباشر من Qwen", tool_calls: [], seconds: 0.2, tokens_per_second: 12 }), { status: 200 });
       }
       return new Response("unexpected donor test request", { status: 500 });
@@ -576,7 +578,7 @@ describe("isolated Telegram donor route", () => {
       for (let i = 0; i < 100 && !sent.some((x) => x.text.includes("رد مباشر من Qwen")); i++) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/call/chat"))).toBe(true);
+      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/call/chat_payload"))).toBe(true);
       expect(calls.every((x) => !x.url.includes("coder.test"))).toBe(true);
       expect(sent.some((x) => x.text.includes("رد مباشر من Qwen"))).toBe(true);
       expect(sent.some((x) => /لم يتم تحويل الطلب إلى نموذج آخر/.test(x.text))).toBe(false);
@@ -586,6 +588,8 @@ describe("isolated Telegram donor route", () => {
       else process.env.MODELSCOPE_API_TOKEN = originalModelScopeToken;
       if (originalOpenCoder === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
       else process.env.OPEN_CODER_STUDIO_URL = originalOpenCoder;
+      if (originalConnectorKey === undefined) delete process.env.CODER_TOKEN_KEY;
+      else process.env.CODER_TOKEN_KEY = originalConnectorKey;
     }
   });
 });

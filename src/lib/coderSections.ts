@@ -315,11 +315,16 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // A selected donor remains reachable even when Nova's own coding Studio is disabled.
   const incomingChatId = update.message?.chat?.id;
   const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
-  const selectedDonor = preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
-    ? preloadedOwnerState.donorTestModel
-    : null;
+  const selectedDonor = isDonorTestId(preloadedOwnerState?.model || "")
+    ? preloadedOwnerState!.model as DonorTestId
+    : preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
+      ? preloadedOwnerState.donorTestModel
+      : null;
   const donorPickerAction = Boolean(
-    update.callback_query && String(update.callback_query.data || "").startsWith("donor_model|")
+    update.callback_query && (
+      String(update.callback_query.data || "").startsWith("donor_model|") ||
+      String(update.callback_query.data || "").startsWith("model_pick|")
+    )
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
@@ -362,6 +367,21 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
+    if (data.startsWith("model_pick|")) {
+      const id = data.slice("model_pick|".length);
+      const state = await loadStateStrict(chatId, db);
+      const models = await listModels(db);
+      if (!chooseModel(state, models, id, owner)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      state.donorTestModel = undefined;
+      await saveStateStrict(chatId, state, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
+      const selected = models.find((m) => m.id === id);
+      await send(bot, chatId, "✅ النموذج المحدد: " + (selected?.name.ar || id) + ". كل الرسائل التالية ستذهب إلى مساره فقط، دون تحويلها إلى نموذج آخر.");
+      return true;
+    }
     if (data.startsWith("donor_model|")) {
       if (!owner) {
         await bot.api.answerCallbackQuery(cq.id, { text: "اختبار المرشحين متاح للمالك فقط.", show_alert: true }).catch(() => null);
@@ -455,16 +475,15 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   if (cmd === "/model" || cmd === "/models") {
-    if (tierFor(chatId) !== "owner") {
-      await send(bot, chatId, "اختبار المرشحين متاح للمالك فقط.");
-      return true;
+    const ownerOnly = tierFor(chatId) === "owner";
+    const models = await listModels(db);
+    const available = models.filter((m) => modelUsableBy(m, ownerOnly));
+    const keyboard = new InlineKeyboard();
+    for (const model of available) {
+      const label = model.name.ar + (model.ownerOnly ? " · خاص" : "");
+      keyboard.text(((preloadedOwnerState?.model || "coder") === model.id) ? "✓ " + label : label, "model_pick|" + model.id).row();
     }
-    const keyboard = new InlineKeyboard()
-      .text("Qwen3.5-9B", "donor_model|qwen35-9b").row()
-      .text("Gemma 4 E4B", "donor_model|gemma4-e4b").row()
-      .text("MiniCPM-o 4.5", "donor_model|minicpmo45").row()
-      .text("↩️ العودة إلى النموذج المعتاد", "donor_model|off");
-    await send(bot, chatId, "🧪 اختر مرشح الاختبار. بعد الاختيار، أرسل رسالتك هنا في محادثة البوت نفسها.", { reply_markup: keyboard });
+    await send(bot, chatId, "🤖 اختر النموذج الرئيسي. كل اختيار يوجّه الرسائل إلى مساره الخاص فقط.", { reply_markup: keyboard });
     return true;
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
@@ -514,8 +533,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
-  if (st.donorTestModel && owner && isDonorTestId(st.donorTestModel)) {
-    const donorId = st.donorTestModel;
+  if (owner && (isDonorTestId(st.model || "") || (st.donorTestModel && isDonorTestId(st.donorTestModel)))) {
+    const donorId = isDonorTestId(st.model || "") ? st.model as DonorTestId : st.donorTestModel!;
     if (cmd === "/start" || cmd === "/help") {
       await send(bot, chatId, "🧪 وضع اختبار المرشح نشط: " + (DONOR_TESTS.find((x) => x.id === donorId)?.name.ar || donorId) + ". رسائلك هنا تصل إلى هذا المرشح فقط. أرسل /models لتغيير المرشح.");
       return true;
@@ -528,7 +547,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       }
       const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
       const actualSlot = await taskSlot(runId, chatId, db);
-      if (actualSlot !== "donor:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
+      if (actualSlot !== "model:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
         await send(bot, chatId, "تعذّر إيقاف الطلب؛ ربما اكتمل بالفعل.");
         return true;
       }
@@ -554,7 +573,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
         await send(bot, chatId, "أرسل نصاً أو أرفق صورة أو ملف صوت أو فيديو لهذا المرشح.");
         return true;
       }
-      await startDonorTestTelegramTask(bot, chatId, attachment.text, botRow.id, attachment.media, db);
+      await startCandidateTerminal(bot, chatId, donorId, attachment.text, botRow.id, attachment.media, db, "telegram");
     } catch (error) {
       const message = String((error as Error)?.message || error).slice(0, 600);
       await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
@@ -828,6 +847,12 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
 
+  // Each ModelScope candidate has its own terminal adapter and private Studio session.
+  if (isDonorTestId(st.model || "")) {
+    if (tierFor(chatId) !== "owner") throw new Error("candidate models are owner-only");
+    return startCandidateTerminal(bot, chatId, st.model as DonorTestId, content, botRow.id, undefined, db, "app");
+  }
+
   // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
   if (st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") {
     const known = await listModels(db);
@@ -876,7 +901,43 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   return { runId, queued: false };
 }
 
-/** Telegram chat path: this candidate receives the message directly; no production runner is invoked. */
+/**
+ * One shared mini-app terminal with a model-specific adapter. Each adapter validates the
+ * selected model id before opening that candidate's own Studio endpoint and state slot.
+ */
+async function startCandidateTerminal(
+  bot: TelegramBot,
+  chatId: number,
+  id: DonorTestId,
+  text: string,
+  botId: string,
+  media: DonorTestMedia | undefined,
+  db: Db,
+  surface: "telegram" | "app",
+): Promise<{ runId: string; queued: boolean }> {
+  switch (id) {
+    case "qwen35-9b": return startQwen35Terminal(bot, chatId, text, botId, media, db, surface);
+    case "gemma4-e4b": return startGemma4Terminal(bot, chatId, text, botId, media, db, surface);
+    case "minicpmo45": return startMiniCPMO45Terminal(bot, chatId, text, botId, media, db, surface);
+  }
+}
+
+export const startQwen35Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "qwen35-9b");
+
+export const startGemma4Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "gemma4-e4b");
+
+export const startMiniCPMO45Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "minicpmo45");
+
+/** Telegram chat path: the selected candidate receives the message directly; no production runner is invoked. */
 export async function startDonorTestTelegramTask(
   bot: TelegramBot,
   chatId: number,
@@ -885,11 +946,14 @@ export async function startDonorTestTelegramTask(
   media?: DonorTestMedia,
   db: Db = prismaDb,
   fetchImpl: typeof fetch = globalThis.fetch,
+  surface: "telegram" | "app" = "telegram",
+  expectedModel?: DonorTestId,
 ): Promise<{ runId: string; queued: boolean }> {
-  if (tierFor(chatId) !== "owner") throw new Error("اختبار المرشحين متاح للمالك فقط.");
+  if (tierFor(chatId) !== "owner") throw new Error("النماذج المرشحة متاحة للمالك فقط.");
   const st = await loadStateStrict(chatId, db);
-  const id = st.donorTestModel;
-  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار مرشح للاختبار.");
+  const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
+  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار نموذج مرشح.");
+  if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
     const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
@@ -909,14 +973,14 @@ export async function startDonorTestTelegramTask(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   await taskStart(chatId, {
     runId,
-    slot: "donor:" + id,
+    slot: "model:" + id,
     source: "interactive",
     title: "🧪 " + label + ": " + text.slice(0, 150),
     botId,
   }, db);
   await taskEvent(runId, "info", "🧪 رسالة تيليغرام متجهة مباشرة إلى " + label + " فقط.", db);
-  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media));
-  void bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media, surface));
+  if (surface === "telegram") void bot.api.sendChatAction(chatId, "typing").catch(() => null);
   return { runId, queued: false };
 }
 
@@ -930,13 +994,14 @@ async function runDonorTestTask(
   fetchImpl: typeof fetch,
   bot?: TelegramBot,
   media?: DonorTestMedia,
+  surface: "telegram" | "app" = "telegram",
 ): Promise<void> {
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  const typing = bot ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
+  const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, media, fetchImpl);
+    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db });
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
@@ -962,7 +1027,7 @@ async function runDonorTestTask(
     if (answer) {
       for (const piece of splitForTelegram(answer, 3600)) {
         await taskEvent(runId, "text", piece, db);
-        if (bot) await bot.api.sendMessage(chatId, piece).catch(() => null);
+        if (bot && surface === "telegram") await bot.api.sendMessage(chatId, piece).catch(() => null);
       }
     }
     if (executedTools.length) {
@@ -1004,12 +1069,12 @@ async function runDonorTestTask(
       });
       const note = "🧪 سجل تنفيذ الأدوات داخل الاستوديو المعزول (قراءة عامة فقط):\n" + auditLines.join("\n");
       await taskEvent(runId, "info", note.slice(0, 3500), db);
-      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
+      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
     }
     if (toolCalls.length) {
       const note = "⏸ استدعاءات بقيت دون تنفيذ بعد حد جولات الأدوات: " + JSON.stringify(toolCalls).slice(0, 1500);
       await taskEvent(runId, "info", note, db);
-      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
+      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
     }
     await taskEvent(
       runId,
@@ -1025,7 +1090,7 @@ async function runDonorTestTask(
     const notice = "تعذّر الاتصال بمرشح " + label + ": " + message + " لم يتم تحويل الطلب إلى نموذج آخر.";
     await taskEvent(runId, "failed", notice, db);
     await taskStatus(runId, "failed", undefined, db);
-    if (bot) await bot.api.sendMessage(chatId, notice).catch(() => null);
+    if (bot && surface === "telegram") await bot.api.sendMessage(chatId, notice).catch(() => null);
   } finally {
     clearInterval(heartbeat);
     if (typing) clearInterval(typing);

@@ -72,7 +72,7 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-10-30-r7",
+            app_revision: "donor-bakeoff-2026-10-30-r8",
             media_capabilities: { vision: true, audio: false, video: true },
             error: null,
           })],

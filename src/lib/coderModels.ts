@@ -11,7 +11,8 @@ export type CoderModel = {
   price_stars: number | null;          // null or 0 = no extra charge
   visible: boolean;                    // owner switch: shown to users
   isDefault?: boolean;
-  ownerOnly?: boolean;                 // owner-only UNTIL the owner turns the visible switch on (one tap makes it public); a model that is not ready (no Studio / key) is never shown to users either
+  ownerOnly?: boolean;                 // initially private; can be exposed by the owner
+  lockedOwnerOnly?: boolean;            // permanently private; owner cannot expose this candidate
   serveEnv?: string;                   // the env var that will hold its serving address (owner-side only)
   publicRolloutVersion?: number;       // one-time public rollout; preserve later owner visibility changes
   sort: number;
@@ -22,6 +23,11 @@ export const DEFAULT_MODELS: CoderModel[] = [
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي للجميع: يصلح مشاريع GitHub في حاسوب افتراضي ويدفع الإصلاح ويفتح طلب الدمج، يبحث ويجدول ويفهم الصور ويصنع صوراً وصوتاً. أبطأ في المهام الطويلة وفي وضع التفكير والدقة العالية. يتحسّن بتدريب خاص بنا على الكود والأدوات (Nova 1) يُستبدَل به حين يجهز.", en: "Practical coder and assistant for everyone: fixes GitHub projects in a private computer, pushes the fix and opens the pull request, searches, schedules, reads images and makes pictures and speech. Slower on long tasks and in thinking / high-accuracy mode. Improved by our own training on code and tools (Nova 1), which replaces its weights when ready." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي الذي بنيناه من الصفر، بمساره الخاص المنفصل تمامًا عن Nova (استوديوه وبحثه وذاكرته ونظامه هو). تُضاف تحسيناته في كوده وهيكله هو، لا في أدوات Nova. يقرر بنفسه أن يجيب أو يبحث أو يرسم أو ينطق. الدقة والسرعة تؤثران فيه فعلًا، أما التفكير فلا يدعمه جسمه. تدريبه غير مكتمل، فردوده أضعف من Nova AI. أدواته (حاسوب افتراضي وغيره) تعمل عليه حين يُفعَّل وكيله، وتبقى موافقتك شرطاً قبل أي رفع أو دمج.", en: "Our original model, built from scratch, on its own path fully separate from Nova (its own Studio, search, memory and system). Its improvements go into its own code and structure, not into Nova's tools. It decides by itself whether to answer, search, draw or speak. Accuracy and speed really change it; thinking is not supported by its body. Training is not finished, so its replies are weaker than Nova AI." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
   { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد (نموذج مفتوح المصدر مدرَّب داخل صنف شام) على استوديو منفصل ومسار منفصل، نجربه بجانب القديم. التفكير (فقرة تفكير قصيرة قبل الجواب) والدقة والسرعة تغيّر سلوكه فعلًا. له أدواته الخاصة: بحث الويب وقراءة GitHub وحاسوب افتراضي خاص به وذاكرة وجدولة وصنع صور وصوت، ولا يرفع تعديلاً ولا يفتح أو يدمج طلب دمج إلا بعد ضغطك «نفّذ». قيد التجربة.", en: "Sham with a new body (a trained open model inside Sham's class) on its own Studio and own path, tried beside the old one. Thinking (a short thought before the answer), accuracy and speed really change it. It has its own tools: web search, GitHub reading, its own private computer, memory, schedules and making pictures / sound, and it never pushes, opens or merges a pull request until you tap «Run». Under test." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
+  // Candidate weights are first-class model choices, owner-only until each passes real bot tests.
+  // Each routes to its own private ModelScope Studio; histories and in-flight slots stay keyed by candidate id.
+  { id: "qwen35-9b", name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" }, desc: { ar: "مرشح مستقل على استوديو ModelScope خاص به. مسار وأدوات وسياق منفصلة؛ متاح للمالك فقط أثناء التقييم.", en: "Independent candidate on its own private ModelScope Studio, route, tools and context. Owner-only during evaluation." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 3 },
+  { id: "gemma4-e4b", name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" }, desc: { ar: "مرشح مستقل على استوديو ModelScope خاص به. مسار وأدوات وسياق منفصلة؛ متاح للمالك فقط أثناء التقييم.", en: "Independent candidate on its own private ModelScope Studio, route, tools and context. Owner-only during evaluation." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 4 },
+  { id: "minicpmo45", name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" }, desc: { ar: "مرشح مستقل على استوديو ModelScope خاص به. مسار وأدوات وسياق منفصلة؛ متاح للمالك فقط أثناء التقييم.", en: "Independent candidate on its own private ModelScope Studio, route, tools and context. Owner-only during evaluation." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 5 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -74,7 +80,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
   if (!cur) throw new Error("unknown model");
   const next: CoderModel = {
     ...cur,
-    visible: patch.visible === undefined ? cur.visible : Boolean(patch.visible),
+    visible: cur.lockedOwnerOnly ? false : (patch.visible === undefined ? cur.visible : Boolean(patch.visible)),
     publicRolloutVersion: id === "sham_v2" && patch.visible !== undefined ? Math.max(1, cur.publicRolloutVersion || 0) : cur.publicRolloutVersion,
     price_stars: patch.price_stars === undefined ? cur.price_stars : cleanStars(patch.price_stars),
     name: { ar: String(patch.name?.ar ?? cur.name.ar).slice(0, 40), en: String(patch.name?.en ?? cur.name.en).slice(0, 40) },
@@ -92,7 +98,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
-const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || "").trim());
+const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
 /** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
 export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
 
@@ -101,7 +107,7 @@ export function modelReady(m: CoderModel): boolean {
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
-const openToUsers = (m: CoderModel): boolean => m.visible && modelReady(m);
+const openToUsers = (m: CoderModel): boolean => !m.lockedOwnerOnly && m.visible && modelReady(m);
 /** THE access check for a model, used by the bot and the Mini App alike: the owner may use every model; anyone else only a model the owner switched on for everyone AND that is ready. */
 export const modelUsableBy = (m: CoderModel, owner: boolean): boolean => owner || openToUsers(m);
 
@@ -156,7 +162,7 @@ export function ensureUsableModel(st: { model?: string; mode: "coder" | "sham" }
 export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
-  if ((m.id === "sham" || m.id === "sham_v2") && !studioTokenSet()) return false;                // they need the Studio token
+  if ((m.id === "sham" || m.id === "sham_v2" || m.lockedOwnerOnly) && !studioTokenSet()) return false;                // they need the Studio token
   st.model = m.id;
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios
   return true;
