@@ -32,6 +32,9 @@ jobs:
             code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio.json -w '%{http_code}' \
               -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
             echo "studio HTTP $code"
+            branch_info=$(git ls-remote --symref "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" HEAD 2>/dev/null || true)
+            studio_default_branch=$(printf '%s\n' "$branch_info" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
+            echo "Studio default git branch: \${studio_default_branch:-unknown}"
             if [ "$code" != "200" ]; then
               echo "{\"studio\":\"$REPO\",\"http_status\":\"$code\"}" > "donor-bakeoff-status/$REPO.json"
               continue
@@ -41,7 +44,7 @@ jobs:
               -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
               -d '{"data":[]}' "$API/gradio_api/run/status" || true)
             echo "direct status HTTP $code"
-            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json <<'PY'
+            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json "$studio_default_branch" <<'PY'
           import json,sys,os
           repo,code,source,target,studio_source=sys.argv[1:]
           payload={"studio":repo,"status_http":code}
