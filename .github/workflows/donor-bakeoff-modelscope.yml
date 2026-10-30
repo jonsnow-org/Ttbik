@@ -23,14 +23,6 @@ jobs:
       max-parallel: 1
       matrix:
         candidate:
-          - id: qwen35-9b
-            label: Qwen3.5-9B low-refusal
-            studio: sham-donor-qwen35-9b-test
-            config: qwen35-9b.json
-          - id: gemma4-e4b
-            label: Gemma 4 E4B low-refusal
-            studio: sham-donor-gemma4-e4b-test
-            config: gemma4-e4b.json
           - id: minicpmo45
             label: MiniCPM-o 4.5 multimodal
             studio: sham-donor-minicpmo45-test
