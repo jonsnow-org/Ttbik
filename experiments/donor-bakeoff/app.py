@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r7"
+APP_REVISION = "donor-bakeoff-2026-10-30-r8"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -169,9 +169,9 @@ TESTS = [
     {
         "id": "long_multistep_repo",
         "label": "مهمة طويلة متعددة المراحل: بحث وقراءة ملفات وتحليل",
-        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي.",
+        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل: افحص جذر المستودع jonsnow-org/Ttbik، ثم اقرأ package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2 مع التركيز على donorTestChat، ثم افحص حالة Vercel. اكتب تقريراً عربياً موجزاً يذكر اسم الحزمة وأمر build الحقيقي، ومدخلات donorTestChat ومسار الإرسال الذي تختاره عند وجود media أو عدم وجودها وحقول النتيجة التي تعيدها، ثم حالة فحص Vercel ووصفه. اعتمد على النصوص التي قرأتها فقط، ولا تخمّن.",
         "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
-        "max_tokens": 760,
+        "max_tokens": 460,
         "temperature": 0.0,
     },
     {
@@ -603,9 +603,9 @@ def _execute_tool(name: str, arguments: dict) -> dict:
             return {"ok": False, "error": "GitHub returned an unexpected directory listing."}
         files = [
             {"name": str(item.get("name") or ""), "type": str(item.get("type") or ""), "path": str(item.get("path") or "")}
-            for item in items[:60] if isinstance(item, dict)
+            for item in items[:24] if isinstance(item, dict)
         ]
-        return {"ok": True, "repo": repo, "count": len(files), "files": files}
+        return {"ok": True, "repo": repo, "count": len(items), "returned": len(files), "files": files}
     if name == "github_read_files":
         repo = str(arguments.get("repo") or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
@@ -651,7 +651,10 @@ def _execute_tool(name: str, arguments: dict) -> dict:
                 if matched:
                     selected = set()
                     for index in matched:
-                        selected.update(range(max(0, index - 3), min(len(lines), index + 4)))
+                        # Return the implementation body around a focused identifier,
+                        # not just its declaration line. Keep the window bounded so
+                        # smaller CPU-only contexts can still complete the tool loop.
+                        selected.update(range(max(0, index - 2), min(len(lines), index + 52)))
                     decoded = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
                 else:
                     decoded = decoded[:4_000]
@@ -985,6 +988,8 @@ def _run_one(test: dict) -> dict:
                 and "package.json" in text
                 and "donorTestChat" in text
                 and "scripts" in text
+                and "chat_payload" in text
+                and "executed_tools" in text
             )
         elif expected_tools:
             passed = tool_ok and bool(text.strip())
@@ -995,17 +1000,31 @@ def _run_one(test: dict) -> dict:
             passed = bool(text.strip()) and arabic_chars >= 8 and not leaked
         elif test["id"] == "code":
             passed = ("def " in text or "def\t" in text) and "assert " in text and not refusal
-        elif media_kind:
-            # This checks media ingestion + model completion only; semantic quality
-            # still requires review against the rendered media in the private Studio.
-            passed = bool(text.strip())
+        elif media_kind == "vision":
+            lower_text = text.lower()
+            has_red = any(term in lower_text for term in ("أحمر", "حمراء", "red"))
+            has_blue = any(term in lower_text for term in ("أزرق", "زرقاء", "blue"))
+            has_yellow = any(term in lower_text for term in ("أصفر", "صفراء", "yellow"))
+            has_number = "42" in text or "٤٢" in text
+            passed = has_red and has_blue and has_yellow and has_number
+        elif media_kind == "audio":
+            lower_text = text.lower()
+            describes_tone = any(term in lower_text for term in ("نغمة", "طنين", "صفير", "صوت مستمر", "تردد", "tone", "beep", "hum"))
+            invents_birds = any(term in lower_text for term in ("طيور", "عصافير", "birds"))
+            passed = describes_tone and not invents_birds
+        elif media_kind == "video":
+            lower_text = text.lower()
+            describes_object = "مربع" in lower_text or "square" in lower_text
+            describes_left = "يسار" in lower_text or "left" in lower_text
+            describes_right = "يمين" in lower_text or "right" in lower_text
+            passed = describes_object and describes_left and describes_right
         else:
             passed = not refusal
         return {
             "id": test["id"],
             "label": test["label"],
             "passed": bool(passed),
-            "check_type": "media_pipeline_only" if media_kind else ("executed_tool_loop" if expected_tools else "heuristic_smoke"),
+            "check_type": "media_semantic_smoke" if media_kind else ("executed_tool_loop" if expected_tools else "heuristic_smoke"),
             "arabic_chars": arabic_chars,
             "arabic_letter_ratio": round(arabic_chars / max(letters, 1), 3),
             "refusal_heuristic": refusal,
@@ -1034,7 +1053,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a latest GitHub commit status emitted by the Vercel integration; the status is the Vercel GitHub check, not arbitrary Vercel control-plane settings. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
+        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and reads the Vercel status context attached to GitHub's latest commit; this is not arbitrary Vercel control-plane access. Image, audio and video smoke tests use deterministic fixtures with narrow content assertions, not broad quality certification. This llama.cpp MTMD runner understands supported media input but does not generate image/audio/video output.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 

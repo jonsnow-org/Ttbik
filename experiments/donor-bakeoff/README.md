@@ -23,8 +23,8 @@ Each Studio downloads its own main GGUF and the candidate's compatible multimoda
 Images, audio, and video are sent as direct base64 payloads to the local model server. No external media API, remote URL fetch, or media-generation provider is used. The UI reports the actual capabilities detected from the loaded projector; a modality is marked unsupported when the runtime does not report it.
 
 - The Telegram bot accepts photos, voice/audio files, and video attachments. The selected candidate's loaded projector determines which modalities can be processed; unsupported modalities return an explicit error instead of falling back to another model.
-- The automated media smoke checks create small synthetic image/audio/video fixtures and verify that the media ingestion plus model inference pipeline completes.
-- A media smoke "pass" means the runtime accepted the media and produced a response; it is **not** a semantic accuracy score. Human review of the answer against the uploaded media is still needed.
+- The automated media smoke checks use deterministic fixtures: red/blue/yellow plus the number 42 in an image, a pure 440 Hz tone without speech, and a yellow square moving from left to right in a short video.
+- These are narrow semantic smoke assertions, not a general multimodal benchmark or quality certification. Human review of every candidate's actual answers remains necessary.
 - This round tests multimodal **input/understanding** from the Telegram chat. It does not add image generation, video generation, speech synthesis, or full-duplex audio output. MiniCPM-o's separate speech/TTS weight files are not loaded by this runtime.
 
 The main weight and projector are downloaded independently. The deployment wait can therefore be longer the first time each Studio receives a projector; retries reuse the existing private Studio and cached downloads whenever possible.

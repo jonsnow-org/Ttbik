@@ -28,6 +28,18 @@ class ToolParsingTests(unittest.TestCase):
         msg = {"content": '<tool_call>{"name":"github_repo_scan","arguments":{"repo":"a/b"}}</tool_call>'}
         self.assertEqual(parse_tool_calls(msg), [{"name": "github_repo_scan", "arguments": {"repo": "a/b"}}])
 
+    def test_minicpm_json_tool_call_with_surrounding_text(self):
+        msg = {
+            "content": 'Use the requested function now.\\n<tool_call>\\n'
+                       '{"name":"github_repo_scan","arguments":{"repo":"example/repo"}}\\n'
+                       '</tool_call>\\n',
+        }
+        self.assertEqual(
+            parse_tool_calls(msg),
+            [{"name": "github_repo_scan", "arguments": {"repo": "example/repo"}}],
+        )
+        self.assertNotIn("<tool_call>", strip_tool_call_markup(msg["content"]))
+
     def test_function_parameter_call(self):
         msg = {"content": '<function=github_repo_scan><parameter=repo>"a/b"</parameter></function>'}
         self.assertEqual(parse_tool_calls(msg), [{"name": "github_repo_scan", "arguments": {"repo": "a/b"}}])

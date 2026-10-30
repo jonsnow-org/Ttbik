@@ -1,7 +1,9 @@
 name: "Donor bake-off: three isolated ModelScope Studios"
 on:
   push:
-    branches: [claude/free-services-marketplace-h6rwk2]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+      - fix/donor-bakeoff-r8-full-bench
     paths:
       - "experiments/donor-bakeoff/**"
       - ".github/workflows/donor-bakeoff-modelscope.yml"
@@ -29,6 +31,10 @@ jobs:
             label: Gemma 4 E4B low-refusal
             studio: sham-donor-gemma4-e4b-test
             config: gemma4-e4b.json
+          - id: minicpmo45
+            label: MiniCPM-o 4.5 multimodal
+            studio: sham-donor-minicpmo45-test
+            config: minicpm-o45.json
     env:
       MS: https://www.modelscope.cn
       OWNER: novaai2026
