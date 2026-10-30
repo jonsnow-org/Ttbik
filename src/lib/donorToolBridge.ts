@@ -2,10 +2,11 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { coderChatKey, resolveConnections, tierFor, type Db } from "@/lib/coderAuth";
 import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool } from "@/lib/coderAgent";
 import { connectedIds, connectorApi, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
-import { isDonorTestId } from "@/lib/donorTests";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
 type TicketBody = { chatId: number; model: string; connectors: string[]; exp: number; nonce: string };
+const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
+const isCandidate = (id: string) => CANDIDATES.has(id);
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
 
 function encode(value: unknown): string {
@@ -33,7 +34,7 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
   if (!encoded || !supplied || extra || !safeEqual(signature(encoded), supplied)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as TicketBody;
-    if (!Number.isSafeInteger(parsed.chatId) || !isDonorTestId(parsed.model) || !Array.isArray(parsed.connectors)) return null;
+    if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
     if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 5 * 60_000) return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.length < 12) return null;
     return parsed;
@@ -45,7 +46,7 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
 /** Describe only services this owner has actually connected. Credentials remain in the app server. */
 export async function createDonorToolBridge(chatId: number, model: string, db: Db) {
   if (tierFor(chatId) !== "owner") throw new Error("Candidate models are owner-only.");
-  if (!isDonorTestId(model)) throw new Error("Unknown candidate model route.");
+  if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
   const tools = [
@@ -76,7 +77,7 @@ export async function executeDonorTool(input: {
   arguments: Record<string, unknown>;
 }, db: Db, fetchImpl: typeof fetch = globalThis.fetch): Promise<{ ok: boolean; result: string; approval_required?: boolean }> {
   const ticket = verifyDonorToolTicket(input.ticket);
-  if (!ticket || ticket.model !== input.model || !isDonorTestId(input.model)) {
+  if (!ticket || ticket.model !== input.model || !isCandidate(input.model)) {
     return { ok: false, result: "DENIED: invalid, expired, or cross-model tool ticket." };
   }
   if (tierFor(ticket.chatId) !== "owner") {
