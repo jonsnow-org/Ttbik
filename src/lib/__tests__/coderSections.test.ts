@@ -150,10 +150,16 @@ describe("guard (the only guardrail)", () => {
 });
 
 describe("sections and the loop", () => {
-  it("is off without OPEN_CODER_STUDIO_URL (Sham path unchanged)", async () => {
+  it("does not forward owner messages to Sham when OPEN_CODER_STUDIO_URL is off", async () => {
     delete process.env.OPEN_CODER_STUDIO_URL;
-    const { bot } = fakeBot();
-    expect(await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "hi" } }, memDb())).toBe(false);
+    const { bot, sent } = fakeBot();
+    expect(await handleCoderSections(
+      bot,
+      botRow,
+      { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "hi" } },
+      memDb(),
+    )).toBe(true);
+    expect(sent.some((x) => x.text.includes("لم أرسل طلبك إلى شام"))).toBe(true);
   });
 
   it("/mode switches to Sham (its own path: every message goes to the Sham handler) and back to Nova AI", async () => {

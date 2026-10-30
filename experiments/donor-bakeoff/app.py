@@ -44,7 +44,7 @@ SERVER_LOG = RUNTIME / "llama-server.log"
 MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 
 THREADS = max(1, min(int(os.cpu_count() or 2), 2))
-N_CTX = int(os.environ.get("DONOR_N_CTX", "4096"))
+N_CTX = int(os.environ.get("DONOR_N_CTX", "2048"))
 MAX_OUTPUT = 768
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 AUDIO_MAX_BYTES = 24 * 1024 * 1024
@@ -221,8 +221,8 @@ def _write_server_config(model_path: str, mmproj_path: str) -> None:
             "path": model_path,
             "n_gpu_layers": 0,
             "n_ctx": N_CTX,
-            "n_batch": 128,
-            "n_ubatch": 128,
+            "n_batch": 32,
+            "n_ubatch": 32,
             "n_seq_max": 1,
             "threads": THREADS,
             "threads_batch": THREADS,
@@ -236,7 +236,7 @@ def _write_server_config(model_path: str, mmproj_path: str) -> None:
                 "image_max_bytes": IMAGE_MAX_BYTES,
                 "audio_max_bytes": AUDIO_MAX_BYTES,
                 "video_max_bytes": VIDEO_MAX_BYTES,
-                "batch_max_tokens": 512,
+                "batch_max_tokens": 256,
                 "image_timeout_seconds": 10.0,
             },
         },
@@ -331,12 +331,18 @@ def load_model() -> None:
             })
         print("Candidate and MTMD server ready; detected media: " + json.dumps(media_caps), flush=True)
     except Exception as exc:
+        server_detail = _server_log_tail()
+        error_detail = f"{type(exc).__name__}: {str(exc)[:1400]}"
+        if server_detail and server_detail != "(no server log available)":
+            error_detail += "\\n--- local llama.cpp server log tail ---\\n" + server_detail[-5500:]
         with LOCK:
             STATE.update({
                 "phase": "error",
-                "error": f"{type(exc).__name__}: {str(exc)[:2200]}",
+                "error": error_detail[:7200],
                 "load_seconds": round(time.monotonic() - started, 2),
+                "media": {"vision": False, "audio": False, "video": False},
             })
+        print("Candidate load failed: " + error_detail[-6500:], flush=True)
         if process is not None and process.poll() is None:
             process.terminate()
 
@@ -360,6 +366,8 @@ def status() -> str:
             "backend": "llama.cpp MTMD / CPU only",
             "server_version": "llama-cpp-python v0.3.36 (pinned source)",
             "context_tokens": N_CTX,
+            "batch_size": 32,
+            "batch_tokens": 256,
             "threads": THREADS,
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
