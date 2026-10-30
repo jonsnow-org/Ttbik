@@ -16,7 +16,13 @@ describe("donor candidate Telegram transport", () => {
         return new Response(JSON.stringify({ event_id: "payload-event" }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/call/chat_payload/payload-event")) {
-        return new Response(complete({ text: "تم استلام المرفق", tool_calls: [], seconds: 0.1, tokens_per_second: 8 }), { status: 200 });
+        return new Response(complete({
+          text: "تم استلام المرفق",
+          tool_calls: [],
+          executed_tools: [{ name: "github_repo_scan", arguments: { repo: "public/example" }, result: { ok: true, count: 1, files: [{ name: "README.md" }] } }],
+          seconds: 0.1,
+          tokens_per_second: 8,
+        }), { status: 200 });
       }
       return new Response("unexpected request", { status: 500 });
     }) as any;
@@ -35,6 +41,9 @@ describe("donor candidate Telegram transport", () => {
     );
 
     expect(result.text).toBe("تم استلام المرفق");
+    expect(result.executed_tools).toEqual([
+      { name: "github_repo_scan", arguments: { repo: "public/example" }, result: { ok: true, count: 1, files: [{ name: "README.md" }] } },
+    ]);
     expect(calls).toHaveLength(2);
     expect(calls[0].url).toContain("studio-novaai2026-sham-donor-qwen35-9b-test.api-inference.modelscope.net");
     expect(calls[0].url).toContain("/gradio_api/call/chat_payload");

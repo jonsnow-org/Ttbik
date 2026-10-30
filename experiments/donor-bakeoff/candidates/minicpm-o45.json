@@ -7,5 +7,9 @@
   "family": "MiniCPM-o",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.03,
+  "context_tokens": 2048,
+  "max_output_tokens": 768,
+  "model_native_outputs": {"image": false, "audio": true, "video": false},
+  "runtime_generation_capabilities": {"image": false, "audio": false, "video": false},
   "purpose": "Arabic, code, tool-call shape and image/video input tests. Separate speech encoder/decoder GGUFs are not loaded unless the selected runtime supports them."
 }

@@ -1,8 +1,11 @@
 """CPU-only, isolated donor bake-off with direct text/vision/audio/video input.
 
 The app starts a pinned llama-cpp-python MTMD server as a local child process.
-All candidate traffic stays inside this private Studio. No production model,
-Nova agent, external generation API, GitHub API, or Vercel API is called.
+All candidate traffic stays inside this private Studio. It has no connection
+to production models, Nova, external media-generation providers, private
+connector credentials, or write operations. Its two optional tools are public
+read-only checks: a public GitHub repository-root listing and an HTTP
+reachability probe of ttbik.vercel.app (not Vercel deployment-control-plane data).
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ import threading
 import uuid
 import time
 import wave
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import gradio as gr
 import requests
@@ -26,7 +29,7 @@ from huggingface_hub import hf_hub_download
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r3"
+APP_REVISION = "donor-bakeoff-2026-10-30-r6"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -34,10 +37,7 @@ RUNTIME.mkdir(parents=True, exist_ok=True)
 
 SERVER_PORT = int(os.environ.get("DONOR_MODEL_PORT", "7861"))
 SERVER_BASE = f"http://127.0.0.1:{SERVER_PORT}"
-SERVER_SOURCE_URL = (
-    "https://raw.githubusercontent.com/abetlen/llama-cpp-python/"
-    "1652066e0af45f2313b339670ef9555e8a54e545/examples/server/server.py"
-)
+VENDORED_SERVER_SOURCE = ROOT / "vendor" / "llama_cpp_server.py"
 SERVER_SOURCE_SHA = "70a4a6e04d3e2efc292f52e86904c970598356b8"
 SERVER_SCRIPT = RUNTIME / "llama_cpp_server.py"
 SERVER_CONFIG = RUNTIME / "server-config.json"
@@ -45,8 +45,8 @@ SERVER_LOG = RUNTIME / "llama-server.log"
 MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 
 THREADS = max(1, min(int(os.cpu_count() or 2), 2))
-N_CTX = int(os.environ.get("DONOR_N_CTX", "2048"))
-MAX_OUTPUT = 512
+N_CTX = int(os.environ.get("DONOR_N_CTX", CONFIG.get("context_tokens", 2048)))
+MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", CONFIG.get("max_output_tokens", 768)))
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 AUDIO_MAX_BYTES = 24 * 1024 * 1024
 VIDEO_MAX_BYTES = 32 * 1024 * 1024
@@ -82,8 +82,26 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "github_read_files",
+            "description": "Read up to three named text files from a public GitHub repository and return their real contents. Use after github_repo_scan when the task requires examining source files. Read-only; no private repositories, credentials, or writes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Public repository in owner/name form"},
+                    "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
+                    "ref": {"type": "string", "description": "Branch, tag, or commit; use the exact requested ref"},
+                    "focus_terms": {"type": "array", "items": {"type": "string"}, "maxItems": 5, "description": "Optional identifiers or phrases to locate within the requested text files; matching lines are returned with nearby context."},
+                },
+                "required": ["repo", "paths", "ref"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "vercel_deployment_status",
-            "description": "Read-only check of a Vercel project's latest deployment status.",
+            "description": "Read-only HTTP reachability check of the public production website for project ttbik; this is not a Vercel control-plane deployment query.",
             "parameters": {
                 "type": "object",
                 "properties": {"project": {"type": "string", "description": "Vercel project slug"}},
@@ -100,6 +118,13 @@ TESTS = [
         "label": "العربية",
         "prompt": "أجب بالعربية الفصحى الطبيعية: اشرح الفرق بين الذاكرة العشوائية RAM والقرص SSD في ثلاث جمل، مع مثال عملي. لا تستخدم الإنجليزية إلا للمصطلحات.",
         "max_tokens": 300,
+        "temperature": 0.2,
+    },
+    {
+        "id": "reasoning_visibility",
+        "label": "إجابة نهائية دون تسريب التفكير",
+        "prompt": "مرحباً، من أنت؟ أجب بجملة عربية طبيعية واحدة.",
+        "max_tokens": 180,
         "temperature": 0.2,
     },
     {
@@ -127,9 +152,25 @@ TESTS = [
     {
         "id": "vercel_tool",
         "label": "مخطط أداة Vercel",
-        "prompt": "تحقق من حالة أحدث عملية نشر لمشروع Vercel المسمى ttbik. استدعِ أداة vercel_deployment_status باسم المشروع ttbik؛ لا تخمّن الحالة.",
+        "prompt": "تحقق من إتاحة الموقع العام للمشروع ttbik عبر أداة vercel_deployment_status. استدعِ الأداة واستخدم نتيجة الفحص الفعلية، ولا تخمّن.",
         "tool": "vercel_deployment_status",
         "max_tokens": 160,
+        "temperature": 0.0,
+    },
+    {
+        "id": "multi_step_tools",
+        "label": "مهمة متعددة الخطوات عبر الأدوات",
+        "prompt": "نفّذ المهمة على مرحلتين: استخدم github_repo_scan لفحص جذر المستودع jonsnow-org/Ttbik، ثم استخدم vercel_deployment_status لفحص الموقع العام ttbik. بعد وصول نتيجتي الأداتين، اكتب ملخصاً عربياً يذكر نتيجة كل فحص وثلاثة أسماء ملفات حقيقية من المستودع. لا تخمّن أي نتيجة.",
+        "tools": ["github_repo_scan", "vercel_deployment_status"],
+        "max_tokens": 300,
+        "temperature": 0.0,
+    },
+    {
+        "id": "long_multistep_repo",
+        "label": "مهمة طويلة متعددة المراحل: بحث وقراءة ملفات وتحليل",
+        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، ونتيجة فحص الموقع مع التنبيه أن فحص HTTP ليس حالة النشر من لوحة Vercel. لا تخمّن ولا تكرر طلبي.",
+        "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
+        "max_tokens": 760,
         "temperature": 0.0,
     },
     {
@@ -184,11 +225,14 @@ def _download_file(filename: str, label: str) -> str:
 
 def _prepare_server_source() -> None:
     if SERVER_SCRIPT.is_file() and SERVER_SCRIPT.stat().st_size > 300_000:
-        return
-    response = requests.get(SERVER_SOURCE_URL, timeout=(10, 90))
-    response.raise_for_status()
-    source = response.text
-    source_bytes = source.encode("utf-8")
+        existing = SERVER_SCRIPT.read_text(encoding="utf-8", errors="replace")
+        if "DONOR_MEDIA_CAPS_FILE" in existing and "DONOR_ENABLE_THINKING" in existing and "Union[Dict[str, Any], str]" in existing:
+            return
+        SERVER_SCRIPT.unlink(missing_ok=True)
+    if not VENDORED_SERVER_SOURCE.is_file():
+        raise RuntimeError("Pinned bundled multimodal server source is missing.")
+    source_bytes = VENDORED_SERVER_SOURCE.read_bytes()
+    source = source_bytes.decode("utf-8")
     git_blob_sha = hashlib.sha1(b"blob " + str(len(source_bytes)).encode("ascii") + b"\0" + source_bytes).hexdigest()
     if git_blob_sha != SERVER_SOURCE_SHA:
         raise RuntimeError("Pinned multimodal server source checksum mismatch.")
@@ -211,7 +255,27 @@ def _prepare_server_source() -> None:
     )
     if needle not in source:
         raise RuntimeError("Pinned server source changed: cannot attach the capability probe.")
-    SERVER_SCRIPT.write_text(source.replace(needle, replacement, 1), encoding="utf-8")
+    source = source.replace(needle, replacement, 1)
+    # Expose the native enable_thinking template variable to model chat templates.
+    thinking_needle = (
+        "                reasoning_effort=reasoning_effort,\n"
+        "                strftime_now=strftime_now,\n"
+    )
+    thinking_replacement = (
+        "                reasoning_effort=reasoning_effort,\n"
+        "                enable_thinking=os.environ.get('DONOR_ENABLE_THINKING', 'false').lower() in ('1', 'true', 'yes'),\n"
+        "                strftime_now=strftime_now,\n"
+    )
+    if thinking_needle not in source:
+        raise RuntimeError("Pinned server source changed: cannot attach native thinking mode.")
+    source = source.replace(thinking_needle, thinking_replacement, 1)
+    # Native Qwen chat templates need function arguments as a mapping when replaying tool-call history.
+    args_needle = "    arguments: Optional[str] = None"
+    args_replacement = "    arguments: Optional[Union[Dict[str, Any], str]] = None"
+    if args_needle not in source:
+        raise RuntimeError("Pinned server source changed: cannot extend tool-call history arguments.")
+    source = source.replace(args_needle, args_replacement, 1)
+    SERVER_SCRIPT.write_text(source, encoding="utf-8")
     print(f"Prepared pinned llama-cpp-python multimodal server ({SERVER_SOURCE_SHA}).", flush=True)
 
 def _write_server_config(model_path: str, mmproj_path: str) -> None:
@@ -295,6 +359,7 @@ def load_model() -> None:
         MEDIA_CAPS_FILE.unlink(missing_ok=True)
         child_env = os.environ.copy()
         child_env["DONOR_MEDIA_CAPS_FILE"] = str(MEDIA_CAPS_FILE)
+        child_env["DONOR_ENABLE_THINKING"] = str(CONFIG.get("enable_thinking", False)).lower()
         child_env["PYTHONUNBUFFERED"] = "1"
         with SERVER_LOG.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
@@ -422,11 +487,16 @@ def status() -> str:
             "backend": "llama.cpp MTMD / CPU only",
             "server_version": "llama-cpp-python v0.3.36 (pinned source)",
             "context_tokens": N_CTX,
+            "max_output_tokens": MAX_OUTPUT,
+            "thinking_enabled": bool(CONFIG.get("enable_thinking", False)),
             "batch_size": 32,
             "batch_tokens": 256,
             "threads": THREADS,
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
+            "model_native_outputs": CONFIG.get("model_native_outputs", {"image": False, "audio": False, "video": False}),
+            "runtime_generation_capabilities": CONFIG.get("runtime_generation_capabilities", {"image": False, "audio": False, "video": False}),
+            "generation_note": "The current llama.cpp MTMD benchmark runner does not expose native image, audio, or video generation. A model's advertised native output is reported separately from what this runtime can actually execute.",
             "runtime_resources": _resource_snapshot(STATE.get("server_pid")),
             "server_exit_code": STATE.get("server_process").poll() if STATE.get("server_process") is not None else None,
             "error": STATE["error"],
@@ -545,10 +615,125 @@ def _parse_tool_calls(message: dict) -> list[dict]:
         calls.append({"name": name, "arguments": args})
     return calls
 
+def _execute_tool(name: str, arguments: dict) -> dict:
+    """Execute only explicitly allowlisted, read-only tools inside this private Studio."""
+    if not isinstance(arguments, dict):
+        return {"ok": False, "error": "Tool arguments must be an object."}
+    if name == "github_repo_scan":
+        repo = str(arguments.get("repo") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+            return {"ok": False, "error": "Expected a repository in owner/name form."}
+        response = requests.get(
+            f"https://api.github.com/repos/{repo}/contents",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "Sham-Donor-Benchmark"},
+            timeout=(8, 20),
+        )
+        if response.status_code != 200:
+            return {"ok": False, "http_status": response.status_code, "error": response.text[:500]}
+        items = response.json()
+        if not isinstance(items, list):
+            return {"ok": False, "error": "GitHub returned an unexpected directory listing."}
+        files = [
+            {"name": str(item.get("name") or ""), "type": str(item.get("type") or ""), "path": str(item.get("path") or "")}
+            for item in items[:60] if isinstance(item, dict)
+        ]
+        return {"ok": True, "repo": repo, "count": len(files), "files": files}
+    if name == "github_read_files":
+        repo = str(arguments.get("repo") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+            return {"ok": False, "error": "Expected a public repository in owner/name form."}
+        paths = arguments.get("paths")
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 3 or not all(isinstance(p, str) for p in paths):
+            return {"ok": False, "error": "Provide one to three repository-relative text file paths."}
+        ref = str(arguments.get("ref") or "").strip()
+        if not ref or len(ref) > 200:
+            return {"ok": False, "error": "A branch, tag, or commit ref is required."}
+        focus_terms = arguments.get("focus_terms") or []
+        if not isinstance(focus_terms, list) or not all(isinstance(term, str) for term in focus_terms) or len(focus_terms) > 5:
+            return {"ok": False, "error": "focus_terms must contain up to five text identifiers."}
+        files = []
+        total_chars = 0
+        for raw_path in paths:
+            path = raw_path.strip()
+            parsed_path = PurePosixPath(path)
+            if not path or parsed_path.is_absolute() or ".." in parsed_path.parts or "\\" in path:
+                return {"ok": False, "error": "Unsafe repository-relative path: " + path[:160]}
+            response = requests.get(
+                f"https://api.github.com/repos/{repo}/contents/{path}",
+                params={"ref": ref},
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "Sham-Donor-Benchmark"},
+                timeout=(8, 20),
+            )
+            if response.status_code != 200:
+                return {"ok": False, "http_status": response.status_code, "path": path, "error": response.text[:400]}
+            item = response.json()
+            if not isinstance(item, dict) or item.get("type") != "file":
+                return {"ok": False, "path": path, "error": "Requested path is not a regular file."}
+            if item.get("encoding") != "base64" or not isinstance(item.get("content"), str):
+                return {"ok": False, "path": path, "error": "GitHub did not return a base64 text-file payload."}
+            try:
+                raw = base64.b64decode(item["content"], validate=False)
+                decoded = raw.decode("utf-8")
+            except Exception:
+                return {"ok": False, "path": path, "error": "File is not valid UTF-8 text."}
+            truncated = len(raw) > 48_000
+            if focus_terms:
+                lines = decoded.splitlines()
+                matched = [i for i, line in enumerate(lines) if any(term.lower() in line.lower() for term in focus_terms)]
+                if matched:
+                    selected = set()
+                    for index in matched:
+                        selected.update(range(max(0, index - 3), min(len(lines), index + 4)))
+                    decoded = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
+                else:
+                    decoded = decoded[:4_000]
+            else:
+                decoded = decoded[:4_000]
+            total_chars += len(decoded)
+            if total_chars > 7_000:
+                return {"ok": False, "error": "Combined text output exceeds the read-only benchmark limit."}
+            files.append({
+                "path": path,
+                "name": str(item.get("name") or parsed_path.name),
+                "bytes": len(raw),
+                "truncated": truncated or len(decoded) < len(raw),
+                "content": decoded,
+            })
+        return {"ok": True, "repo": repo, "ref": ref, "files": files}
+    if name == "vercel_deployment_status":
+        project = str(arguments.get("project") or "").strip().lower()
+        if project != "ttbik":
+            return {"ok": False, "error": "Only the configured public project ttbik is available in this read-only test."}
+        url = "https://ttbik.vercel.app/"
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Sham-Donor-Benchmark"},
+            timeout=(8, 25),
+            allow_redirects=True,
+            stream=True,
+        )
+        try:
+            final_host = response.url.split("/", 3)[2].lower()
+            if final_host != "ttbik.vercel.app" and not final_host.endswith(".vercel.app"):
+                return {"ok": False, "error": "The public-site probe redirected outside Vercel."}
+            return {
+                "ok": response.status_code < 500,
+                "project": project,
+                "url": url,
+                "http_status": response.status_code,
+                "final_url": response.url,
+                "reachable": response.status_code < 500,
+                "check_type": "public_site_http_probe_not_vercel_control_plane",
+            }
+        finally:
+            response.close()
+    return {"ok": False, "error": f"Tool is not allowlisted: {name}"}
+
+
 def infer(
     prompt: str,
-    max_tokens: int = 256,
-    temperature: float = 0.2,
+    max_tokens: int = MAX_OUTPUT,
+    temperature: float | None = None,
     use_tools: bool = False,
     history: list | None = None,
     image_path=None,
@@ -564,39 +749,77 @@ def infer(
         messages.append({"role": "user", "content": content})
         options = {
             "model": CONFIG.get("id", "isolated-donor"),
-            "messages": messages,
             "max_tokens": int(max(16, min(max_tokens, MAX_OUTPUT))),
-            "temperature": float(max(0.0, min(temperature, 1.2))),
-            "top_p": 0.9,
+            "temperature": float(max(0.0, min(CONFIG.get("temperature", 0.2) if temperature is None else temperature, 1.2))),
+            "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
         if use_tools:
             options["tools"] = TOOLS
             options["tool_choice"] = "auto"
         started = time.monotonic()
-        response = requests.post(
-            SERVER_BASE + "/v1/chat/completions",
-            json=options,
-            timeout=(10, 240),
-        )
-        response.raise_for_status()
-        data = response.json()
+        token_count = 0
+        executed_tools = []
+        pending_calls = []
+        choice_item = {}
+        choice = {}
+        # The model chooses when and which tool to call. Only allowlisted read-only
+        # tools execute here; their real results are fed back to the model.
+        for tool_round in range(4):
+            response = requests.post(
+                SERVER_BASE + "/v1/chat/completions",
+                json={**options, "messages": messages},
+                timeout=(10, 240),
+            )
+            response.raise_for_status()
+            data = response.json()
+            choice_item = (data.get("choices") or [{}])[0]
+            choice = choice_item.get("message") or {}
+            calls = _parse_tool_calls(choice)
+            usage = data.get("usage") or {}
+            token_count += int(usage.get("completion_tokens") or 0)
+            if not calls or not use_tools:
+                pending_calls = []
+                break
+            if tool_round == 3:
+                pending_calls = calls
+                break
+            assistant_calls = []
+            tool_results = []
+            for call in calls:
+                name = str(call.get("name") or "")
+                arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+                call_id = "call_" + uuid.uuid4().hex[:16]
+                tool_result = _execute_tool(name, arguments)
+                executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
+                assistant_calls.append({
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                })
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": json.dumps(tool_result, ensure_ascii=False)[:8000],
+                })
+            assistant_content = str(choice.get("content") or "")
+            assistant_content = re.sub(r"<tool_call>\s*.*?</tool_call>", "", assistant_content, flags=re.S).strip()
+            messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
+            messages.extend(tool_results)
         elapsed = time.monotonic() - started
-        choice_item = (data.get("choices") or [{}])[0]
-        choice = choice_item.get("message") or {}
-        calls = _parse_tool_calls(choice)
-        usage = data.get("usage") or {}
-        token_count = int(usage.get("completion_tokens") or 0)
         output = str(choice.get("content") or "")
-        if calls:
-            output = re.sub(r"<tool_call>\s*.*?\s*</tool_call>", "", output, flags=re.S).strip()
+        if pending_calls or executed_tools:
+            output = re.sub(r"<tool_call>\s*.*?</tool_call>", "", output, flags=re.S).strip()
         return {
             "text": output,
-            "tool_calls": calls,
+            "tool_calls": pending_calls,
+            "executed_tools": executed_tools,
             "media_attached": media_labels,
             "seconds": round(elapsed, 2),
             "completion_tokens": token_count,
             "tokens_per_second": round(token_count / max(elapsed, 0.01), 2),
             "finish_reason": choice_item.get("finish_reason"),
+            "tool_rounds": len(executed_tools),
         }
     except requests.HTTPError as exc:
         body = exc.response.text[:1200] if exc.response is not None else str(exc)
@@ -645,7 +868,7 @@ def chat_payload(payload_json: str) -> str:
             str(payload.get("prompt") or "حلّل المرفق."),
             history=history,
             max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
-            temperature=float(payload.get("temperature") or 0.2),
+            temperature=payload.get("temperature"),
             use_tools=bool(payload.get("use_tools", True)),
             image_path=paths["image_path"],
             audio_path=paths["audio_path"],
@@ -736,7 +959,7 @@ def _run_one(test: dict) -> dict:
             test["prompt"],
             max_tokens=test["max_tokens"],
             temperature=test["temperature"],
-            use_tools=bool(test.get("tool")),
+            use_tools=bool(test.get("tool") or test.get("tools")),
             image_path=image_path,
             audio_path=audio_path,
             video_path=video_path,
@@ -745,16 +968,32 @@ def _run_one(test: dict) -> dict:
             return {"id": test["id"], "label": test["label"], "passed": False, **result}
         text = result.get("text") or ""
         calls = result.get("tool_calls") or []
-        expected_tool = test.get("tool")
-        target = "jonsnow-org/Ttbik" if test["id"] == "github_tool" else "ttbik"
-        tool_ok = (not expected_tool) or any(
-            call.get("name") == expected_tool
-            and (
-                (test["id"] == "github_tool" and call.get("arguments", {}).get("repo") == target)
-                or (test["id"] == "vercel_tool" and call.get("arguments", {}).get("project") == target)
-            )
-            for call in calls
-        )
+        expected_tools = test.get("tools") or ([test["tool"]] if test.get("tool") else [])
+        executed = result.get("executed_tools") or []
+        executed_names = {
+            item.get("name") for item in executed
+            if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
+        }
+        expected_args = {
+            "github_repo_scan": {"repo": "jonsnow-org/Ttbik"},
+            "github_read_files": {
+                "repo": "jonsnow-org/Ttbik",
+                "paths": ["package.json", "src/lib/donorTests.ts"],
+                "ref": "claude/free-services-marketplace-h6rwk2",
+                "focus_terms": ["donorTestChat"],
+            },
+            "vercel_deployment_status": {"project": "ttbik"},
+        }
+        def executed_ok(name):
+            for item in executed:
+                if not isinstance(item, dict) or item.get("name") != name:
+                    continue
+                result_data = item.get("result") if isinstance(item.get("result"), dict) else {}
+                args_data = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
+                if result_data.get("ok") is True and all(args_data.get(k) == v for k, v in expected_args.get(name, {}).items()):
+                    return True
+            return False
+        tool_ok = all(executed_ok(name) for name in expected_tools) if expected_tools else True
         arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
         letters = len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
         refusal = bool(re.search(
@@ -762,10 +1001,21 @@ def _run_one(test: dict) -> dict:
             text,
             flags=re.I,
         ))
-        if expected_tool:
-            passed = tool_ok
+        if test["id"] == "long_multistep_repo":
+            passed = (
+                tool_ok
+                and bool(text.strip())
+                and "package.json" in text
+                and "donorTestChat" in text
+                and "scripts" in text
+            )
+        elif expected_tools:
+            passed = tool_ok and bool(text.strip())
         elif test["id"] == "arabic":
             passed = arabic_chars >= 35 and not refusal
+        elif test["id"] == "reasoning_visibility":
+            leaked = bool(re.search(r"<think>|</think>|here(?:'s| is) (?:my )?thinking process|analyze the input|determine the persona", text, flags=re.I))
+            passed = bool(text.strip()) and arabic_chars >= 8 and not leaked
         elif test["id"] == "code":
             passed = ("def " in text or "def\t" in text) and "assert " in text and not refusal
         elif media_kind:
@@ -778,7 +1028,7 @@ def _run_one(test: dict) -> dict:
             "id": test["id"],
             "label": test["label"],
             "passed": bool(passed),
-            "check_type": "media_pipeline_only" if media_kind else "heuristic_smoke",
+            "check_type": "media_pipeline_only" if media_kind else ("executed_tool_loop" if expected_tools else "heuristic_smoke"),
             "arabic_chars": arabic_chars,
             "arabic_letter_ratio": round(arabic_chars / max(letters, 1), 3),
             "refusal_heuristic": refusal,
@@ -807,7 +1057,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "GitHub/Vercel tests inspect model-emitted call structure only; no connector is called. Media pass means input pipeline and inference succeeded, not a semantic benchmark score.",
+        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a public-site HTTP reachability probe; the Vercel probe is not control-plane deployment status. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -819,8 +1069,11 @@ def _format_chat_history(history: list[dict], result: dict, attachments: list[st
         user_content += f"\n[مرفق: {user_label}]"
     transcript.append({"role": "user", "content": user_content})
     assistant_text = result.get("text") or result.get("error") or "(لم يصل رد نصي)"
+    executed = result.get("executed_tools") or []
+    if executed:
+        assistant_text += "\n\nأدوات نفذها المرشح داخل بيئة الاختبار (قراءة فقط):\n" + json.dumps(executed, ensure_ascii=False, indent=2)
     if result.get("tool_calls"):
-        assistant_text += "\n\nاستدعاءات أدوات مقترحة (لم تُنفّذ):\n" + json.dumps(result["tool_calls"], ensure_ascii=False, indent=2)
+        assistant_text += "\n\nاستدعاءات أدوات بقيت دون تنفيذ بعد بلوغ حد الجولات:\n" + json.dumps(result["tool_calls"], ensure_ascii=False, indent=2)
     transcript.append({"role": "assistant", "content": assistant_text})
     return transcript[-24:]
 
@@ -842,6 +1095,7 @@ def chat_with_media(prompt, image_path, audio_path, video_path, history):
     summary = {
         "text": result.get("text"),
         "tool_calls": result.get("tool_calls"),
+        "executed_tools": result.get("executed_tools"),
         "media_attached": result.get("media_attached"),
         "seconds": result.get("seconds"),
         "tokens_per_second": result.get("tokens_per_second"),
@@ -896,7 +1150,7 @@ with demo:
     with gr.Row():
         send_button = gr.Button("إرسال إلى هذا المرشح", variant="primary")
         clear_button = gr.Button("مسح المحادثة")
-    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة ومخطط الأدوات المقترح", lines=12, interactive=False)
+    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة وسجل تنفيذ الأدوات وقدرات التوليد الفعلية", lines=14, interactive=False)
     send_button.click(
         chat_with_media,
         inputs=[prompt_box, image_input, audio_input, video_input, history_state],
@@ -939,8 +1193,10 @@ with demo:
     run_test.click(smoke_test_ui, inputs=[test_selector], outputs=test_output, api_name="smoke_test")
 
     gr.Markdown(
-        "**تنبيه التقييم:** اختبارات الوسائط الآلية تثبت أن مسار الإدخال والاستدلال يعملان فقط؛ "
-        "ولا تمنح درجة جودة دلالية. اختبارات GitHub/Vercel تفحص بنية الاستدعاء المقترح ولا تنفّذ أدوات أو اتصالات."
+        "**تنبيه التقييم:** نجاح اختبار الوسائط يثبت وصول المرفق واكتمال الاستدلال فقط، ولا يقيس جودة الفهم الدلالي. "
+        "يمكن للمختبر فحص جذر مستودع GitHub عام وقراءة حتى ثلاثة ملفات نصية عامة منه، إضافة إلى فحص HTTP لموقع ttbik.vercel.app. "
+        "فحص الموقع لا يقرأ حالة النشر من لوحة Vercel. لا توجد رموز موصلات خاصة أو عمليات كتابة. "
+        "قدرات التوليد الأصلية المعلنة من النموذج منفصلة عن قدرات هذا المشغّل؛ مشغّل الاختبار الحالي لا ينفّذ توليد صورة أو صوت أو فيديو."
     )
     demo.load(status, inputs=[], outputs=state_box, queue=False)
 

@@ -200,9 +200,12 @@ jobs:
           cp experiments/donor-bakeoff/app.py experiment-studio/app.py
           cp experiments/donor-bakeoff/requirements.txt experiment-studio/requirements.txt
           cp "experiments/donor-bakeoff/candidates/$CANDIDATE_CONFIG" experiment-studio/candidate.json
-          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "GitHub/Vercel checks only inspect generated tool-call structure; no connector operation is executed." > experiment-studio/README.md
+          mkdir -p experiment-studio/vendor
+          cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiment-studio/vendor/llama_cpp_server.py
+          cp experiments/donor-bakeoff/vendor/LICENSE.md experiment-studio/vendor/LICENSE.md
+          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "Only two public read-only tools execute: public GitHub repository-root listing and HTTP reachability of ttbik.vercel.app; no connector credentials or write actions are available. The Vercel check is not deployment-control-plane status." > experiment-studio/README.md
           cd experiment-studio
-          git add app.py requirements.txt candidate.json README.md
+          git add app.py requirements.txt candidate.json README.md vendor/llama_cpp_server.py vendor/LICENSE.md
           git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
       - name: Deploy isolated Studio and wait for the model
@@ -212,7 +215,7 @@ jobs:
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r3"
+          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r6"
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
@@ -295,7 +298,7 @@ jobs:
           mkdir -p "$DIR"
           : > "$DIR/smoke-results.jsonl"
           TRANSPORT_ERRORS=0
-          for TEST_ID in arabic code benign_no_overrefusal github_tool vercel_tool image_smoke audio_smoke video_smoke; do
+          for TEST_ID in arabic reasoning_visibility code benign_no_overrefusal github_tool vercel_tool multi_step_tools long_multistep_repo image_smoke audio_smoke video_smoke; do
             echo "===== $CANDIDATE_ID / $TEST_ID ====="
             python3 - "$TEST_ID" > request.json <<'PY'
           import json,sys

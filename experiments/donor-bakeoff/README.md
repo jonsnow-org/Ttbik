@@ -35,9 +35,12 @@ Every smoke test is a separate Gradio event. This avoids the previous five-test 
 - Arabic answer quality (review the actual response, not only the Arabic-character heuristic).
 - Python code and benign read-only task completion.
 - Benign-request over-refusal heuristic.
-- Model-generated GitHub/Vercel tool-call structure and exact arguments.
+- The full tool loop: model-selected function call, allowlist validation, actual read-only execution, result hand-back to the model, and final answer.
+- A multi-stage source-analysis task: repository scan, reading actual `package.json` and `src/lib/donorTests.ts` contents, then the public-site HTTP probe. The final answer must contain identifiers found in the actual files, not merely a claim that tools were called.
 
-GitHub and Vercel schemas are exposed only to see whether the model proposes a correct tool call. **No connector credential is available inside the Studio and no GitHub/Vercel API operation is executed.**
+The isolated Studio can execute three allowlisted public read-only checks: `github_repo_scan` lists the root of a public GitHub repository; `github_read_files` reads up to three UTF-8 text files from a public GitHub repository and can return focused line excerpts; `vercel_deployment_status` checks HTTP reachability of `https://ttbik.vercel.app/`. The latter is **not** a Vercel control-plane query and does not establish deployment state. The Studio has no private GitHub/Vercel credentials and no write-capable operations.
+
+The long-task benchmark uses the candidate's configured context window (Gemma 4 E4B: 4,096 tokens in this test), not the model's advertised maximum context. It measures one bounded task only; it is not evidence of multi-hour persistence or unlimited context.
 
 The reports are uploaded as GitHub Actions artifacts for the donor workflow. A candidate is not declared a winner automatically; compare response quality, media understanding, code correctness, tool-call reliability, latency and memory use before deciding whether to continue training Sham v2 from its weights.
 
@@ -50,6 +53,7 @@ The candidate selector in the owner's Mini App only chooses which isolated candi
 - The route has a per-candidate conversation history and task slot. If the candidate is not ready, an upload fails, or inference errors, the bot shows the error and does not send the message to Nova, Sham v1, Sham v2, or another candidate.
 - Telegram photos, voice/audio files and video attachments are passed as bounded base64 payloads to the selected Studio's private chat_payload endpoint. No public media URL or external generation service is used.
 - The ModelScope Gradio UI is an implementation surface only; users are not asked to open it to chat. ModelScope links are not shown in the Mini App.
-- Proposed GitHub/Vercel calls are returned as model output for evaluation only. The candidate Studio has no production connector tokens and does not execute these calls.
+- The candidate's three allowlisted public read-only tools execute inside the isolated Studio, and the bot can display the execution audit, including files actually read. They do not use production connector credentials or permit writes.
+- The current benchmark runtime reports model-native output capability separately from runtime generation capability. It does not implement image, audio, or video generation, and it never substitutes an external generator.
 
 The owner can switch out of donor mode using `/models` → “return to normal model”, or by choosing a regular production model in the Mini App. Choosing a regular production model clears the active donor selection but does not alter any production weights.
