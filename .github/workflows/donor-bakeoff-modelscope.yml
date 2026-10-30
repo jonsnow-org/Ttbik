@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: donor-bakeoff-modelscope-exclusive
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   deploy-candidate:
     name: ${{ matrix.candidate.label }} — isolated Studio
@@ -125,7 +125,7 @@ jobs:
             case "$state" in
               *ail*|*rror*|*topped*) echo "::error::Experiment Studio terminal state: $state"; show_logs; exit 1 ;;
               Running|running|Ready|ready)
-                event_code=$(curl -sS --connect-timeout 5 --max-time 15 -o status-event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" || true)
+                event_code=$(curl -sS --connect-timeout 5 --max-time 15 -o status-event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/status" || true)
                 event_id=""
                 if [ "$event_code" = "200" ]; then event_id=$(python3 -c "import json;print(json.load(open('status-event.json')).get('event_id',''))" 2>/dev/null || true); fi
                 if [ -n "$event_id" ]; then
