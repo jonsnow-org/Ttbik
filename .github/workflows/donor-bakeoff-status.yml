@@ -61,6 +61,8 @@ jobs:
                       except Exception: continue
                   if isinstance(item,dict) and item.get("phase"):
                       payload.update(item)
+                      payload["expected_app_revision"] = "donor-bakeoff-2026-10-30-r7"
+                      payload["ready_for_bot"] = payload.get("phase") == "ready" and payload.get("app_revision") == payload["expected_app_revision"]
                       break
               payload["studio"]=repo
           except Exception as exc:
