@@ -38,6 +38,22 @@ class Pick(unittest.TestCase):
         self.assertTrue(out["media_assets"]["ready"])
         self.assertNotIn("reason", json.dumps(out))
 
+    def test_studio_list_url_supports_owner_me_and_pagination(self):
+        url = inv.studio_list_url(3, 50, "me")
+        self.assertIn("owner=me", url)
+        self.assertIn("status=all", url)
+        self.assertIn("page_number=3", url)
+        self.assertIn("page_size=50", url)
+
+    def test_extract_studio_page_accepts_top_level_and_wrapped_payloads(self):
+        items = [{"id": "owner/studio-a"}, {"repo_name": "studio-b"}]
+        direct, total, keys = inv.extract_studio_page({"studios": items, "total_count": 2})
+        self.assertEqual(direct, items)
+        self.assertEqual(total, 2)
+        wrapped, total2, _ = inv.extract_studio_page({"data": {"studios": items, "total_count": 2}})
+        self.assertEqual(wrapped, items)
+        self.assertEqual(total2, 2)
+
     def test_studio_list_url_requests_all_states_with_supported_pagination(self):
         url = inv.studio_list_url(2, 50)
         self.assertIn("owner=novaai2026", url)
