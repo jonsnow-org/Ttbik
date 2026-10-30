@@ -29,9 +29,8 @@ type ChatList = { model: string; selected: string; items: ChatItem[]; current: s
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
-type DonorTestOption = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; selected: boolean };
 type DonorTestStatus = { id: string; phase: string; detail?: string; media_capabilities?: { vision: boolean; audio: boolean; video: boolean } };
-type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[]; donorTests?: DonorTestOption[]; trialSelected?: string | null };
+type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
 const TABS: Tab[] = ["home", "chats", "auto", "settings"];
@@ -422,12 +421,11 @@ function useModels() {
   return { d, load };
 }
 const modelName = (d: Models | null, lang: Lang) => {
-  const trial = d?.donorTests?.find((x) => x.selected);
-  if (trial) return "🧪 " + trial.name[lang] + " · " + (lang === "ar" ? "اختبار مباشر" : "Direct test");
   const l = d ? d.owner || d.models : [];
   const m = l.find((x) => x.selected) || l[0];
   return m ? m.name[lang] : "Nova AI";
 };
+const CANDIDATE_MODEL_IDS = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 type Anchor = { top?: number; bottom?: number } | null;
 /** Under the anchor; if the anchor sits low on the screen, above it instead. */
 const anchorOf = (el: HTMLElement): Anchor => {
@@ -437,38 +435,19 @@ const anchorOf = (el: HTMLElement): Anchor => {
 function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; onPicked: () => void; onClose: () => void }) {
   const [pickError, setPickError] = useState("");
   const [switching, setSwitching] = useState(false);
-  const [trialStatuses, setTrialStatuses] = useState<Record<string, DonorTestStatus>>({});
+  const [candidateStatuses, setCandidateStatuses] = useState<Record<string, DonorTestStatus>>({});
   const switchingRef = useRef(false);
   useEffect(() => (at !== null ? bindBack(true, onClose) : undefined), [at, onClose]);
   useEffect(() => {
-    if (at === null || !d?.donorTests?.length) return;
+    if (at === null || !d?.owner?.some((model) => CANDIDATE_MODEL_IDS.has(model.id))) return;
     let alive = true;
     api<{ statuses: DonorTestStatus[] }>("donor_test_status").then((x) => {
-      if (alive) setTrialStatuses(Object.fromEntries((x.statuses || []).map((s) => [s.id, s])));
+      if (alive) setCandidateStatuses(Object.fromEntries((x.statuses || []).map((s) => [s.id, s])));
     }).catch(() => undefined);
     return () => { alive = false; };
-  }, [at, d?.donorTests?.length]);
+  }, [at, d?.owner?.length]);
   if (at === null) return null;
   const list = d ? d.owner || d.models : [];
-  const pickDonor = async (id: string) => {
-    if (switchingRef.current) return;
-    switchingRef.current = true;
-    setSwitching(true);
-    setPickError("");
-    try {
-      const saved = await api<{ ok?: boolean; trialSelected?: string | null }>("donor_test_select", { id });
-      if (!saved.ok || (saved.trialSelected || "") !== id) throw new Error("لم يؤكد الخادم حفظ وضع اختبار المرشح.");
-      haptic("success");
-      onPicked();
-      onClose();
-    } catch (e: any) {
-      haptic("error");
-      setPickError(e?.message || "تعذّر تفعيل اختبار المرشح.");
-    } finally {
-      switchingRef.current = false;
-      setSwitching(false);
-    }
-  };
   const phaseLabel = (phase: string) => ({
     ready: lang === "ar" ? "✅ جاهز للاختبار داخل البوت" : "✅ Ready to test in Telegram",
     loading: lang === "ar" ? "⏳ النموذج يُحمّل" : "⏳ Model loading",
@@ -506,64 +485,26 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
         {pickError && <p role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{pickError}</p>}
         {!d ? <Loading /> : list.map((m) => {
           const o = d.owner?.find((x) => x.id === m.id);
+          const isCandidate = CANDIDATE_MODEL_IDS.has(m.id);
+          const status = isCandidate ? candidateStatuses[m.id] : undefined;
+          const phase = status?.phase || "unknown";
           return (
             <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
               <span className="n-body">
                 <span className="n-t">{m.name[lang]}{m.price_stars ? <span className="n-pro">{n.pro}</span> : null}{o && !o.visible ? <span className="n-chip">{n.hidden}</span> : null}</span>
                 <span className="n-s">{m.desc[lang]}</span>
+                {isCandidate && <span className="n-s">{phaseLabel(phase)}{status?.detail ? " · " + status.detail : ""}</span>}
+                {status?.media_capabilities && <span className="n-s">
+                  {lang === "ar" ? "الوسائط المُعلنة من المشغّل: " : "Runner media input: "}
+                  {status.media_capabilities.vision ? "🖼️" : "—"}
+                  {" "}{status.media_capabilities.audio ? "🎧" : "—"}
+                  {" "}{status.media_capabilities.video ? "🎞️" : "—"}
+                </span>}
               </span>
               {m.selected && <span className="n-check" aria-hidden="true">✓</span>}
             </button>
           );
         })}
-        {d?.owner && (d.donorTests?.length || 0) > 0 && (
-          <>
-            <div className="n-s" style={{ padding: "12px 12px 5px", fontWeight: 800, color: "var(--c-accent)" }}>
-              🧪 {lang === "ar" ? "اختبار المرشحين · خاص بالمالك" : "Candidate test · owner only"}
-            </div>
-            <div className="n-s" style={{ padding: "0 12px 8px" }}>
-              {lang === "ar" ? "بعد الاختيار أرسل رسائلك في محادثة البوت على تيليغرام؛ ستذهب إلى المرشح مباشرة دون المرور بمسارات الإنتاج." : "After selecting a candidate, send messages in the Telegram bot chat. They go directly to that model, outside production routes."}
-            </div>
-            {d.donorTests!.map((m) => {
-              const phase = trialStatuses[m.id]?.phase || "unknown";
-              return (
-                <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching || phase !== "ready"} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pickDonor(m.id)}>
-                  <span className="n-body">
-                    <span className="n-t">🧪 {m.name[lang]}</span>
-                    <span className="n-s">{m.desc[lang]}</span>
-                    <span className="n-s">{phaseLabel(phase)}</span>
-                    {trialStatuses[m.id]?.media_capabilities && <span className="n-s">
-                      {lang === "ar" ? "الوسائط: " : "Media: "}
-                      {trialStatuses[m.id].media_capabilities!.vision ? "🖼️" : "—"}
-                      {" "}{trialStatuses[m.id].media_capabilities!.audio ? "🎧" : "—"}
-                      {" "}{trialStatuses[m.id].media_capabilities!.video ? "🎞️" : "—"}
-                    </span>}
-                  </span>
-                  {m.selected && <span className="n-check" aria-hidden="true">✓</span>}
-                </button>
-              );
-            })}
-            {d.trialSelected && (
-              <>
-                <div className="n-s" style={{ padding: "8px 12px 0" }}>
-                  {lang === "ar" ? "سجل مستقل لكل مرشح. ينفّذ المختبر فحوص قراءة فقط: قائمة المستودع، قراءة ملفات نصية عامة، وقراءة حالة فحص Vercel المسجلة على أحدث commit في GitHub. لا يستخدم رموزاً خاصة أو ينفّذ كتابة. قدرات التوليد الأصلية للنموذج منفصلة عن قدرات مشغّل هذا الاختبار؛ التوليد المرئي/الصوتي/الفيديو غير متاح في هذا المشغّل حالياً." : "Separate history per candidate. The isolated harness performs read-only checks: repository listing, public text-file reads, and the Vercel status check attached to the latest GitHub commit. No private tokens or writes. Model-native outputs are shown separately from runtime support; this runner currently does not generate image/audio/video output."}
-                </div>
-                <button type="button" disabled={switching} className="n-opt" onClick={() => pickDonor("")}>
-                  <span className="n-body"><span className="n-t">↩ {lang === "ar" ? "إيقاف وضع الاختبار والعودة للنموذج المعتاد" : "Exit test mode and return to normal model"}</span></span>
-                </button>
-                <button type="button" disabled={switching} className="n-opt" onClick={async () => {
-                  if (switchingRef.current) return;
-                  switchingRef.current = true; setSwitching(true);
-                  try { await api("donor_test_reset", { id: d.trialSelected }); haptic("success"); onPicked(); onClose(); }
-                  catch (e: any) { setPickError(e?.message || "تعذّر بدء محادثة اختبار جديدة."); }
-                  finally { switchingRef.current = false; setSwitching(false); }
-                }}>
-                  <span className="n-body"><span className="n-t">⌫ {lang === "ar" ? "مسح سجل هذا المرشح" : "Clear this candidate history"}</span></span>
-                </button>
-              </>
-            )}
-          </>
-        )}
       </div>
     </>
   );

@@ -102,9 +102,11 @@ const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN 
 /** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
 export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
 
+const MODEL_SCOPE_CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
+
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
-  if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
+  if (m.id === "sham" || m.id === "sham_v2" || MODEL_SCOPE_CANDIDATES.has(m.id)) return studioTokenSet();
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => !m.lockedOwnerOnly && m.visible && modelReady(m);
