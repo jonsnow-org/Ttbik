@@ -1,0 +1,208 @@
+name: "Diagnose and render one Realistic Vision V6 visual sample"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/diagnose-realistic-vision-test.yml
+
+concurrency:
+  group: realistic-vision-v6-diagnostic
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  STUDIO_REPO: realistic-vision-v6-test
+
+jobs:
+  visual-sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Wait for the existing isolated Studio to report its real loader state
+        env:
+          T: \${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
+          ready=0
+          for i in $(seq 1 40); do
+            studio=$(curl -sS --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO")
+            runtime=$(printf '%s' "$studio" | python -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d.get('Data') or d;print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true)
+            echo "Studio runtime: \${runtime:-unknown}"
+            ev=$(curl -sS --connect-timeout 10 --max-time 45 -X POST \
+              -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              -d '{"data":[]}' "$API/gradio_api/call/status" \
+              | python -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+            if [ -n "$ev" ]; then
+              out=$(curl -sS --connect-timeout 10 --max-time 90 \
+                -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true)
+              phase=$(STATUS_RESPONSE="$out" python - <<'PY'
+          import json, os
+          raw=os.environ.get("STATUS_RESPONSE","")
+          found=[]
+          def visit(v):
+              if isinstance(v,dict):
+                  if isinstance(v.get("phase"),str): found.append(v["phase"])
+                  for x in v.values(): visit(x)
+              elif isinstance(v,list):
+                  for x in v: visit(x)
+              elif isinstance(v,str):
+                  try: visit(json.loads(v))
+                  except Exception: pass
+          for line in raw.splitlines():
+              line=line.strip()
+              if line.startswith("data:"):
+                  try: visit(json.loads(line.split(":",1)[1].strip()))
+                  except Exception: pass
+          if not found:
+              try: visit(json.loads(raw))
+              except Exception: pass
+          print(found[-1] if found else "")
+          PY
+          )
+              echo "Realistic Vision loader phase: \${phase:-not-reported}"
+              echo "$out" | tail -c 2500
+              if [ "$phase" = "ready" ]; then
+                ready=1
+                break
+              fi
+              if [ "$phase" = "error" ]; then
+                echo "::error::The model loader reported an error."
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
+                exit 1
+              fi
+            fi
+            sleep 15
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::The existing Studio did not report phase=ready within the diagnostic window."
+            curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
+            exit 1
+          fi
+          echo "The checkpoint and VAE are loaded and the test Studio reports ready."
+
+      - name: Generate one photorealistic visual-review sample (CPU)
+        env:
+          T: \${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
+          PROMPT="A photorealistic candid RAW photograph of a middle-aged woman with natural skin texture, subtle expression lines, realistic eyes, wearing a simple dark blue coat, standing in a quiet old stone street after light rain, soft overcast daylight, 50mm photography, lifelike proportions, detailed hands visible, authentic documentary photography, no illustration, no CGI."
+          NEGATIVE="cartoon, anime, illustration, CGI, 3D render, painting, plastic skin, doll face, deformed eyes, asymmetrical eyes, extra fingers, fused fingers, malformed hands, deformed anatomy, extra limbs, duplicate person, blurry, low resolution, watermark, logo, text, oversaturated"
+          payload=$(python - <<'PY'
+          import json,os
+          print(json.dumps({"data":[
+            os.environ["PROMPT"],
+            os.environ["NEGATIVE"],
+            "512 × 512",
+            25,
+            5.5,
+            42
+          ]}))
+          PY
+          )
+          ev=$(curl -fsS --connect-timeout 10 --max-time 60 -X POST \
+            -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d "$payload" "$API/gradio_api/call/image" \
+            | python -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))")
+          test -n "$ev" || { echo "::error::The image endpoint did not return an event id."; exit 1; }
+          echo "Image generation event: $ev"
+          result=""
+          for i in $(seq 1 50); do
+            result=$(curl -sS --connect-timeout 10 --max-time 90 \
+              -H "Authorization: Bearer $T" "$API/gradio_api/call/image/$ev" || true)
+            if printf '%s' "$result" | grep -q '^data:'; then
+              if printf '%s' "$result" | grep -q 'event: complete'; then
+                break
+              fi
+            fi
+            sleep 10
+          done
+          test -n "$result" || { echo "::error::No image result was returned."; exit 1; }
+          printf '%s\n' "$result" | tail -c 5000
+          mkdir -p visual-review
+          RESULT_RESPONSE="$result" API_BASE="$API" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from urllib.parse import quote
+          raw=os.environ["RESULT_RESPONSE"]
+          api=os.environ["API_BASE"].rstrip("/")
+          objects=[]
+          for line in raw.splitlines():
+              line=line.strip()
+              if line.startswith("data:"):
+                  try:
+                      objects.append(json.loads(line.split(":",1)[1].strip()))
+                  except Exception:
+                      pass
+          if not objects:
+              raise SystemExit("No decodable Gradio data event in image result.")
+          image_obj=None
+          meta=None
+          def inspect(value):
+              global image_obj,meta
+              if isinstance(value,list):
+                  for item in value: inspect(item)
+              elif isinstance(value,dict):
+                  if image_obj is None and (value.get("url") or value.get("path")):
+                      image_obj=value
+                  if isinstance(value.get("result"),str) or value.get("model_repo"):
+                      meta=value
+          for item in objects: inspect(item)
+          if image_obj is None:
+              raise SystemExit("Gradio result had no image URL/path.")
+          url=image_obj.get("url")
+          path=image_obj.get("path")
+          if not url and path:
+              url=api+"/gradio_api/file="+quote(path.lstrip("/"),safe="/")
+          if not url.startswith("http"):
+              url=api+"/"+url.lstrip("/")
+          Path("visual-review/image-url.txt").write_text(url,encoding="utf-8")
+          Path("visual-review/result.json").write_text(
+              json.dumps({"image":image_obj,"metadata":meta,"raw_event_objects":objects},ensure_ascii=False,indent=2),
+              encoding="utf-8",
+          )
+          print("Image URL extracted. Metadata:",json.dumps(meta,ensure_ascii=False))
+          PY
+          IMAGE_URL=$(cat visual-review/image-url.txt)
+          curl -fsS --connect-timeout 10 --max-time 120 \
+            -H "Authorization: Bearer $T" "$IMAGE_URL" -o visual-review/realistic-vision-v6-sample.png
+          file visual-review/realistic-vision-v6-sample.png
+          test -s visual-review/realistic-vision-v6-sample.png
+          cat > visual-review/review-notes.txt <<'EOF'
+          Realistic Vision V6.0 — first CPU visual review sample
+          Prompt: photorealistic candid portrait, middle-aged woman in a blue coat, old stone street after rain.
+          Parameters: 512x512, DPM++ SDE Karras, 25 steps, CFG 5.5, seed 42.
+          Source checkpoint: SG161222/Realistic_Vision_V6.0_B1_noVAE FP16.
+          VAE: stabilityai/sd-vae-ft-mse-original, MSE 840000 EMA.
+          This output is a preliminary visual-review sample, not a production-quality certification.
+          Manually inspect face, eyes, skin texture, hands, anatomy, lighting and scene consistency.
+          No production media route was changed.
+          EOF
+
+      - name: Upload the visual-review sample
+        uses: actions/upload-artifact@v4
+        with:
+          name: realistic-vision-v6-first-visual-sample
+          path: visual-review/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Summarize test result
+        run: |
+          {
+            echo "## Realistic Vision V6.0 — first isolated visual test"
+            echo "- Studio: https://www.modelscope.cn/studios/$OWNER/$STUDIO_REPO"
+            echo "- Sample: artifact \`realistic-vision-v6-first-visual-sample\`"
+            echo "- Checkpoint and VAE: loaded and verified by the Studio status endpoint."
+            echo "- Production routes changed: no."
+            echo "- Visual inspection: still required before any production switch."
+          } >> "$GITHUB_STEP_SUMMARY"
