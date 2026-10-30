@@ -59,7 +59,23 @@ jobs:
                 lcode=$(curl -sS --connect-timeout 5 --max-time 12 -o log.txt -w '%{http_code}' \
                   -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
                 echo "$kind log HTTP $lcode"
-                if [ "$lcode" = "200" ]; then tail -c 1600 log.txt || true; echo; fi
+                if [ "$lcode" = "200" ]; then
+                  python3 - <<'PY'
+          import json
+          try:
+              d=json.load(open("log.txt",encoding="utf-8"))
+              data=d.get("data") or d.get("Data") or {}
+              logs=data.get("logs") or data.get("Logs") or []
+              if isinstance(logs,list):
+                  for line in logs[-18:]:
+                      print(str(line)[:1800])
+              else:
+                  print(json.dumps(logs,ensure_ascii=False)[:8000])
+          except Exception:
+              print(open("log.txt",encoding="utf-8",errors="replace").read()[-8000:])
+          PY
+                  echo
+                fi
               done
             elif [ "$code" = "404" ]; then
               echo "Experiment Studio has not been created yet."
