@@ -1,0 +1,25 @@
+{
+  "id": "juggernaut-ragnarok",
+  "label": "Juggernaut XL Ragnarok FP8",
+  "repo_id": "Kandoo/Juggernaut-XL-Ragnarok",
+  "revision": "main",
+  "filename": "juggernautXL_ragnarok_fp8_e4m3fn.safetensors",
+  "pipeline": "sdxl_single_file_fp8",
+  "base_config_repo": "stabilityai/stable-diffusion-xl-base-1.0",
+  "torch_dtype": "float16",
+  "sampler": "DPM++ SDE Karras",
+  "minimum_memory_gb": 15.0,
+  "resolutions": {
+    "768 × 1024": [768, 1024],
+    "1024 × 1024": [1024, 1024],
+    "1024 × 768": [1024, 768]
+  },
+  "default_resolution": [768, 1024],
+  "default_aspect": "768 × 1024",
+  "min_steps": 20,
+  "max_steps": 40,
+  "default_steps": 30,
+  "min_cfg": 3.0,
+  "max_cfg": 8.0,
+  "default_cfg": 5.0
+}
