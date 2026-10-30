@@ -1,0 +1,68 @@
+name: "Inspect isolated CyberRealistic Studio runtime"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/inspect-cyberrealistic-studio.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read CyberRealistic Studio runtime and loader state (no deployment, no generation)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/cyberrealistic-final-test"
+          model="novaai2026/cyberrealistic-final-test-models"
+          info=api.get_repo(repo,"studio")
+          runtime=getattr(info,"runtime",None) or {}
+          print("CYBER_STUDIO_RUNTIME",json.dumps(runtime,ensure_ascii=False))
+          try:
+              model_info=api.get_repo(model,"model")
+              print("CYBER_MODEL_REPO=VISIBLE")
+          except Exception as exc:
+              print("CYBER_MODEL_REPO_ERROR",type(exc).__name__,str(exc)[:700])
+
+          endpoint="https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          try:
+              health=session.get(endpoint+"/gradio_api/info",timeout=20)
+              print("CYBER_GRADIO_INFO_HTTP",health.status_code,health.text[:900])
+              if health.status_code==200:
+                  start=session.post(endpoint+"/gradio_api/call/status",json={"data":[]},timeout=30)
+                  print("CYBER_STATUS_POST_HTTP",start.status_code,start.text[:700])
+                  if start.status_code==200 and start.json().get("event_id"):
+                      event=start.json()["event_id"]
+                      result=session.get(endpoint+"/gradio_api/call/status/"+event,timeout=90)
+                      print("CYBER_STATUS_GET_HTTP",result.status_code)
+                      print("CYBER_STATUS_BODY",result.text[:5000])
+          except Exception as exc:
+              print("CYBER_INFERENCE_ERROR",type(exc).__name__,str(exc)[:700])
+
+          print("CYBER_RUN_LOGS_BEGIN")
+          try:
+              logs=api.get_repo_logs(repo,log_type="run",page_size=100)
+              print(json.dumps(logs,ensure_ascii=False)[-12000:])
+          except Exception as exc:
+              print("CYBER_RUN_LOGS_ERROR",type(exc).__name__,str(exc)[:700])
+          print("CYBER_RUN_LOGS_END")
+          PY
