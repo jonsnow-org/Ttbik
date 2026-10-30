@@ -68,6 +68,13 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
       description: String(tool.function.description || "").slice(0, 220),
     },
   }));
+  const url = siteBase().replace(/\/$/, "") + "/api/coder/app/donor-tools";
+  // A Studio with no linked services can still chat and use its public read-only tools.
+  // Authenticated app connectors require the same encryption/signing key used by the connector store.
+  if (!signingKey()) {
+    if (available.length) throw new Error("CODER_TOKEN_KEY is required to expose connected services to this candidate.");
+    return { url: "", ticket: "", model, connectors: [], tools: [] };
+  }
   const ticket = issueTicket({
     chatId,
     model,
@@ -75,13 +82,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
     exp: Date.now() + 3 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
-  return {
-    url: siteBase().replace(/\/$/, "") + "/api/coder/app/donor-tools",
-    ticket,
-    model,
-    connectors: available,
-    tools,
-  };
+  return { url, ticket, model, connectors: available, tools };
 }
 
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
