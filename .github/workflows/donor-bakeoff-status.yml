@@ -34,7 +34,24 @@ jobs:
             echo "studio HTTP $code"
             branch_info=$(git ls-remote --symref "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" HEAD 2>/dev/null || true)
             studio_default_branch=$(printf '%s\n' "$branch_info" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
-            echo "Studio default git branch: ${studio_default_branch:-unknown}"
+            studio_head_sha=$(printf '%s\n' "$branch_info" | awk '$2 == "HEAD" && $1 != "ref:" { print $1; exit }')
+            echo "Studio default git branch: \${studio_default_branch:-unknown}; commit: \${studio_head_sha:-unknown}"
+            source_dir="donor-bakeoff-status/$REPO/source"
+            mkdir -p "$source_dir"
+            if [ -n "$studio_default_branch" ]; then
+              git clone --depth 1 --branch "$studio_default_branch" "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" "$source_dir" 2>&1 | sed "s/$T/***/g" || true
+            fi
+            studio_source_revision=""
+            if [ -f "$source_dir/app.py" ]; then
+              studio_source_revision=$(python3 - "$source_dir/app.py" <<'PY'
+          import re,sys
+          text=open(sys.argv[1],encoding="utf-8",errors="replace").read()
+          match=re.search(r'APP_REVISION\s*=\s*["\x27]([^"\x27]+)',text)
+          print(match.group(1) if match else "")
+          PY
+              )
+            fi
+            echo "Studio repository APP_REVISION: \${studio_source_revision:-missing}"
             if [ "$code" != "200" ]; then
               echo "{\"studio\":\"$REPO\",\"http_status\":\"$code\"}" > "donor-bakeoff-status/$REPO.json"
               continue
@@ -44,10 +61,10 @@ jobs:
               -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
               -d '{"data":[]}' "$API/gradio_api/run/status" || true)
             echo "direct status HTTP $code"
-            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json "$studio_default_branch" <<'PY'
+            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json "$studio_default_branch" "$studio_head_sha" "$studio_source_revision" <<'PY'
           import json,sys,os
-          repo,code,source,target,studio_source,default_branch=sys.argv[1:]
-          payload={"studio":repo,"status_http":code,"studio_default_branch":default_branch or None}
+          repo,code,source,target,studio_source,default_branch,head_sha,source_revision=sys.argv[1:]
+          payload={"studio":repo,"status_http":code,"studio_default_branch":default_branch or None,"studio_head_sha":head_sha or None,"studio_source_revision":source_revision or None}
           try:
               studio=json.load(open(studio_source,encoding="utf-8"))
               data=studio.get("data") or studio.get("Data") or studio
