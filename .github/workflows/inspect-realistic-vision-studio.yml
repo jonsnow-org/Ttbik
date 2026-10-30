@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Inspect Studio runtime, Gradio health and startup logs (read-only)
         env:
-          T: \${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
