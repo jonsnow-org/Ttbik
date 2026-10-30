@@ -72,6 +72,7 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
+            app_revision: "donor-bakeoff-2026-10-30-r7",
             media_capabilities: { vision: true, audio: false, video: true },
             error: null,
           })],
@@ -91,4 +92,28 @@ describe("donor Studio readiness probe", () => {
       else process.env.MODELSCOPE_API_TOKEN = previous;
     }
   });
+  it("does not report an old isolated runner revision as ready for bot testing", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
+        return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
+        return new Response(JSON.stringify({
+          data: [JSON.stringify({
+            phase: "ready",
+            app_revision: "donor-bakeoff-2026-10-30-r6",
+            media_capabilities: { vision: true, audio: false, video: true },
+          })],
+        }), { status: 200 });
+      }
+      return new Response("unexpected readiness request", { status: 500 });
+    }) as any;
+    const status = await probeDonorTestStudio("qwen35-9b", fetchImpl);
+    expect(status.phase).toBe("deploying");
+    expect(status.studio).toBe("deploying");
+    expect(status.detail).toContain("تحديث مشغّل");
+  });
+
 });
