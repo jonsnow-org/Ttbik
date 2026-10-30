@@ -45,6 +45,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-30-r7";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -238,6 +239,15 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
     const direct = asObject(await callGradioDirect(config, "status", [], 20_000, fetchImpl));
     const statusValue = parseStatus(Array.isArray(direct.data) ? direct.data[0] : direct.data ?? direct);
     const phase = String(statusValue?.phase || "unavailable").toLowerCase();
+    const appRevision = String(statusValue?.app_revision || "");
+    if (phase === "ready" && appRevision !== EXPECTED_DONOR_APP_REVISION) {
+      return {
+        id: config.id,
+        phase: "deploying",
+        studio: "deploying",
+        detail: "يجري تحديث مشغّل المرشح قبل إتاحته للاختبار المباشر.",
+      };
+    }
     const caps = statusValue?.media_capabilities;
     return {
       id: config.id,
