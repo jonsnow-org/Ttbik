@@ -200,9 +200,9 @@ def _load_worker() -> None:
         _set_state(phase="error", error=detail[:1200], traceback=traceback.format_exc()[-5000:])
 
 
-def status_json() -> str:
+def status_json() -> dict:
     with _STATE_LOCK:
-        return json.dumps(dict(_STATE), ensure_ascii=False, indent=2)
+        return dict(_STATE)
 
 
 def generate_image(
@@ -313,7 +313,7 @@ with gr.Blocks(title="Realistic Vision V6.0 — isolated visual test") as demo:
         "يتم التحقق من SHA-256 للـ checkpoint والـ VAE قبل تحميلهما. "
         "الفحص الآلي يرفض الصورة الفارغة فقط؛ الحكم على واقعية الوجه واليدين والتفاصيل بصري."
     )
-    state_box = gr.Textbox(label="حالة تحميل النموذج", value=status_json(), lines=10)
+    state_box = gr.JSON(label="حالة تحميل النموذج", value=status_json())
     refresh = gr.Button("تحديث حالة الاستوديو")
     refresh.click(fn=status_json, inputs=[], outputs=state_box, api_name="status")
 
