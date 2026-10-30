@@ -150,7 +150,13 @@ export async function donorTestChat(
   history: DonorHistoryMessage[],
   media?: DonorTestMedia,
   fetchImpl: typeof fetch = globalThis.fetch,
-): Promise<{ text: string; tool_calls: { name?: string; arguments?: unknown }[]; seconds?: number; tokens_per_second?: number }> {
+): Promise<{
+  text: string;
+  tool_calls: { name?: string; arguments?: unknown }[];
+  executed_tools: { name?: string; arguments?: unknown; result?: unknown }[];
+  seconds?: number;
+  tokens_per_second?: number;
+}> {
   const config = configOf(id);
   const prior = (Array.isArray(history) ? history : [])
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
@@ -170,6 +176,7 @@ export async function donorTestChat(
   return {
     text: String(result.text || ""),
     tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
+    executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
     seconds: Number.isFinite(Number(result.seconds)) ? Number(result.seconds) : undefined,
     tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
   };

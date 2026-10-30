@@ -546,7 +546,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
             {d.trialSelected && (
               <>
                 <div className="n-s" style={{ padding: "8px 12px 0" }}>
-                  {lang === "ar" ? "سجل مستقل لكل مرشح. استدعاءات الأدوات تُعرض للفحص ولا تُنفّذ." : "Separate history per candidate. Tool calls are displayed for inspection only."}
+                  {lang === "ar" ? "سجل مستقل لكل مرشح. ينفّذ المختبر فحصين عامّين للقراءة فقط: قائمة مستودع GitHub عام وإتاحة ttbik.vercel.app عبر HTTP؛ ولا يستخدم رموزاً خاصة أو ينفّذ عمليات كتابة. فحص الموقع ليس حالة النشر من لوحة Vercel." : "Separate history per candidate. The isolated harness executes only two public read-only checks: a public GitHub repo-root listing and HTTP reachability of ttbik.vercel.app (not Vercel deployment status). No private tokens or write operations."}
                 </div>
                 <button type="button" disabled={switching} className="n-opt" onClick={() => pickDonor("")}>
                   <span className="n-body"><span className="n-t">↩ {lang === "ar" ? "إيقاف وضع الاختبار والعودة للنموذج المعتاد" : "Exit test mode and return to normal model"}</span></span>

@@ -940,7 +940,11 @@ async function runDonorTestTask(
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
-    const historyAnswer = answer || (toolCalls.length ? JSON.stringify(toolCalls) : "");
+    const executedTools = Array.isArray(result.executed_tools) ? result.executed_tools : [];
+    const auditForHistory = executedTools.length
+      ? "\n\n[سجل أدوات القراءة فقط]\n" + JSON.stringify(executedTools).slice(0, 3500)
+      : "";
+    const historyAnswer = (answer + auditForHistory).trim() || (toolCalls.length ? JSON.stringify(toolCalls) : "");
     const currentTurn: DonorHistoryMessage[] = [
       ...prior,
       { role: "user" as const, content: prompt.slice(0, 12_000) },
@@ -961,12 +965,46 @@ async function runDonorTestTask(
         if (bot) await bot.api.sendMessage(chatId, piece).catch(() => null);
       }
     }
-    if (toolCalls.length) {
-      const note = "استدعاءات أدوات اقترحها المرشح (للفحص فقط، لم تُنفّذ): " + JSON.stringify(toolCalls).slice(0, 1800);
-      await taskEvent(runId, "info", note, db);
-      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3900)).catch(() => null);
+    if (executedTools.length) {
+      const auditLines = executedTools.slice(0, 4).map((entry: any) => {
+        const name = String(entry?.name || "unknown_tool");
+        const output = entry?.result && typeof entry.result === "object" ? entry.result as Record<string, any> : {};
+        const args = entry?.arguments && typeof entry.arguments === "object" ? entry.arguments as Record<string, any> : {};
+        if (name === "github_repo_scan") {
+          if (output.ok === true) {
+            const names = Array.isArray(output.files)
+              ? output.files.slice(0, 8).map((file: any) => String(file?.name || file?.path || "")).filter(Boolean).join("، ")
+              : "";
+            return "✅ github_repo_scan: فُحص المستودع العام " + String(args.repo || output.repo || "") +
+              "؛ العناصر: " + String(output.count ?? "—") + (names ? "؛ أمثلة: " + names : "");
+          }
+          return "❌ github_repo_scan: " + String(output.error || ("HTTP " + (output.http_status ?? "—")));
+        }
+        if (name === "vercel_deployment_status") {
+          return (output.ok === true ? "✅ " : "❌ ") + "vercel_deployment_status: " +
+            "فحص HTTP للموقع العام فقط؛ الحالة " + String(output.http_status ?? "—") +
+            "؛ " + (output.reachable === true ? "استجابة متاحة" : "تعذّر تأكيد الاستجابة") +
+            " (ليس فحصاً لحالة النشر من لوحة Vercel).";
+        }
+        return (output.ok === true ? "✅ " : "❌ ") + name + ": " +
+          String(output.error || JSON.stringify(output)).slice(0, 500);
+      });
+      const note = "🧪 سجل تنفيذ الأدوات داخل الاستوديو المعزول (قراءة عامة فقط):\n" + auditLines.join("\n");
+      await taskEvent(runId, "info", note.slice(0, 3500), db);
+      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
     }
-    await taskEvent(runId, "info", "⏱ " + (result.seconds ?? "—") + "ث · " + (result.tokens_per_second ?? "—") + " token/s · " + toolCalls.length + " tool call(s) مقترحة", db);
+    if (toolCalls.length) {
+      const note = "⏸ استدعاءات بقيت دون تنفيذ بعد حد جولات الأدوات: " + JSON.stringify(toolCalls).slice(0, 1500);
+      await taskEvent(runId, "info", note, db);
+      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
+    }
+    await taskEvent(
+      runId,
+      "info",
+      "⏱ " + (result.seconds ?? "—") + "ث · " + (result.tokens_per_second ?? "—") +
+        " token/s · نُفّذت " + executedTools.length + " أداة قراءة فقط · بقي " + toolCalls.length + " غير منفّذ",
+      db,
+    );
     await taskEvent(runId, "done", "اكتمل الرد من " + label + ".", db);
     await taskStatus(runId, "done", undefined, db);
   } catch (error) {

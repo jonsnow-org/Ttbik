@@ -1,8 +1,11 @@
 """CPU-only, isolated donor bake-off with direct text/vision/audio/video input.
 
 The app starts a pinned llama-cpp-python MTMD server as a local child process.
-All candidate traffic stays inside this private Studio. No production model,
-Nova agent, external generation API, GitHub API, or Vercel API is called.
+All candidate traffic stays inside this private Studio. It has no connection
+to production models, Nova, external media-generation providers, private
+connector credentials, or write operations. Its two optional tools are public
+read-only checks: a public GitHub repository-root listing and an HTTP
+reachability probe of ttbik.vercel.app (not Vercel deployment-control-plane data).
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ from huggingface_hub import hf_hub_download
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r4"
+APP_REVISION = "donor-bakeoff-2026-10-30-r5"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -34,10 +37,7 @@ RUNTIME.mkdir(parents=True, exist_ok=True)
 
 SERVER_PORT = int(os.environ.get("DONOR_MODEL_PORT", "7861"))
 SERVER_BASE = f"http://127.0.0.1:{SERVER_PORT}"
-SERVER_SOURCE_URL = (
-    "https://raw.githubusercontent.com/abetlen/llama-cpp-python/"
-    "1652066e0af45f2313b339670ef9555e8a54e545/examples/server/server.py"
-)
+VENDORED_SERVER_SOURCE = ROOT / "vendor" / "llama_cpp_server.py"
 SERVER_SOURCE_SHA = "70a4a6e04d3e2efc292f52e86904c970598356b8"
 SERVER_SCRIPT = RUNTIME / "llama_cpp_server.py"
 SERVER_CONFIG = RUNTIME / "server-config.json"
@@ -203,10 +203,10 @@ def _prepare_server_source() -> None:
         if "DONOR_MEDIA_CAPS_FILE" in existing and "DONOR_ENABLE_THINKING" in existing and "Union[Dict[str, Any], str]" in existing:
             return
         SERVER_SCRIPT.unlink(missing_ok=True)
-    response = requests.get(SERVER_SOURCE_URL, timeout=(10, 90))
-    response.raise_for_status()
-    source = response.text
-    source_bytes = source.encode("utf-8")
+    if not VENDORED_SERVER_SOURCE.is_file():
+        raise RuntimeError("Pinned bundled multimodal server source is missing.")
+    source_bytes = VENDORED_SERVER_SOURCE.read_bytes()
+    source = source_bytes.decode("utf-8")
     git_blob_sha = hashlib.sha1(b"blob " + str(len(source_bytes)).encode("ascii") + b"\0" + source_bytes).hexdigest()
     if git_blob_sha != SERVER_SOURCE_SHA:
         raise RuntimeError("Pinned multimodal server source checksum mismatch.")
@@ -1045,7 +1045,7 @@ with demo:
     with gr.Row():
         send_button = gr.Button("إرسال إلى هذا المرشح", variant="primary")
         clear_button = gr.Button("مسح المحادثة")
-    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة ومخطط الأدوات المقترح", lines=12, interactive=False)
+    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة وسجل تنفيذ الأدوات", lines=12, interactive=False)
     send_button.click(
         chat_with_media,
         inputs=[prompt_box, image_input, audio_input, video_input, history_state],
@@ -1088,8 +1088,9 @@ with demo:
     run_test.click(smoke_test_ui, inputs=[test_selector], outputs=test_output, api_name="smoke_test")
 
     gr.Markdown(
-        "**تنبيه التقييم:** اختبارات الوسائط الآلية تثبت أن مسار الإدخال والاستدلال يعملان فقط؛ "
-        "ولا تمنح درجة جودة دلالية. اختبارات GitHub/Vercel تفحص بنية الاستدعاء المقترح ولا تنفّذ أدوات أو اتصالات."
+        "**تنبيه التقييم:** نجاح اختبار الوسائط يثبت وصول المرفق واكتمال الاستدلال فقط، ولا يقيس جودة الفهم الدلالي. "
+        "يمكن للمختبر تنفيذ فحصين عامّين للقراءة فقط: قائمة الجذر لمستودع GitHub عام، وفحص HTTP لموقع ttbik.vercel.app. "
+        "فحص الموقع لا يقرأ حالة النشر من لوحة Vercel. لا توجد رموز موصلات خاصة أو عمليات كتابة."
     )
     demo.load(status, inputs=[], outputs=state_box, queue=False)
 

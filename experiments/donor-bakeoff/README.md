@@ -35,9 +35,10 @@ Every smoke test is a separate Gradio event. This avoids the previous five-test 
 - Arabic answer quality (review the actual response, not only the Arabic-character heuristic).
 - Python code and benign read-only task completion.
 - Benign-request over-refusal heuristic.
-- Model-generated GitHub/Vercel tool-call structure and exact arguments.
+- The full tool loop: model-selected function call, allowlist validation, actual read-only execution, result hand-back to the model, and final answer.
+- A two-tool task that requires both the public GitHub repository-root scan and the public website HTTP probe to complete successfully.
 
-GitHub and Vercel schemas are exposed only to see whether the model proposes a correct tool call. **No connector credential is available inside the Studio and no GitHub/Vercel API operation is executed.**
+The isolated Studio can execute only two allowlisted public read-only checks: `github_repo_scan` lists the root of a public GitHub repository; `vercel_deployment_status` checks HTTP reachability of `https://ttbik.vercel.app/`. The latter is **not** a Vercel control-plane query and does not establish deployment state. The Studio has no private GitHub/Vercel credentials and no write-capable operations.
 
 The reports are uploaded as GitHub Actions artifacts for the donor workflow. A candidate is not declared a winner automatically; compare response quality, media understanding, code correctness, tool-call reliability, latency and memory use before deciding whether to continue training Sham v2 from its weights.
 
@@ -50,6 +51,6 @@ The candidate selector in the owner's Mini App only chooses which isolated candi
 - The route has a per-candidate conversation history and task slot. If the candidate is not ready, an upload fails, or inference errors, the bot shows the error and does not send the message to Nova, Sham v1, Sham v2, or another candidate.
 - Telegram photos, voice/audio files and video attachments are passed as bounded base64 payloads to the selected Studio's private chat_payload endpoint. No public media URL or external generation service is used.
 - The ModelScope Gradio UI is an implementation surface only; users are not asked to open it to chat. ModelScope links are not shown in the Mini App.
-- Proposed GitHub/Vercel calls are returned as model output for evaluation only. The candidate Studio has no production connector tokens and does not execute these calls.
+- The candidate's two allowlisted public read-only tools execute inside the isolated Studio, and the bot can display the execution audit. They do not use production connector credentials or permit writes.
 
 The owner can switch out of donor mode using `/models` → “return to normal model”, or by choosing a regular production model in the Mini App. Choosing a regular production model clears the active donor selection but does not alter any production weights.
