@@ -1,0 +1,74 @@
+name: "Read-only inspect Realistic Vision ModelScope Studio boot"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/inspect-realistic-vision-studio.yml
+
+permissions:
+  contents: read
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  STUDIO_REPO: realistic-vision-v6-test
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Studio runtime, Gradio health and startup logs (read-only)
+        env:
+          T: \${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          echo "::add-mask::$T"
+          API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
+          code=$(curl -sS --connect-timeout 10 --max-time 30 -o studio.json -w '%{http_code}' \
+            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO" || true)
+          echo "ModelScope Studio details HTTP: $code"
+          python - <<'PY'
+          import json
+          try:
+              root=json.load(open("studio.json"))
+          except Exception as exc:
+              print("Studio details response is not JSON:",type(exc).__name__)
+              print(open("studio.json",errors="replace").read()[:3000])
+              raise SystemExit(0)
+          d=root.get("data") or root.get("Data") or root
+          r=d.get("runtime") or {}
+          keys=("status","phase","hardware","hardware_name","sdk_type","visibility","url","endpoint","repo_name","owner")
+          print("Studio fields:",{k:d.get(k) for k in keys if k in d})
+          print("Runtime fields:",{k:r.get(k) for k in ("status","phase","error","message","started_at","updated_at") if k in r})
+          PY
+
+          for endpoint in "$API/gradio_api/info" "$API/config" "$API/"; do
+            status=$(curl -sS --connect-timeout 10 --max-time 20 -o endpoint-body.txt -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$endpoint" || true)
+            echo "Endpoint $endpoint -> HTTP $status"
+            head -c 1200 endpoint-body.txt || true
+            echo
+          done
+
+          code=$(curl -sS --connect-timeout 10 --max-time 40 -o status-start.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d '{"data":[]}' "$API/gradio_api/call/status" || true)
+          echo "Gradio status call HTTP: $code"
+          cat status-start.json 2>/dev/null | head -c 2000 || true
+          echo
+
+          echo "===== ModelScope build log (tail) ====="
+          curl -sS --connect-timeout 10 --max-time 30 -H "Authorization: Bearer $T" \
+            "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/build" -o build-log.txt || true
+          tail -c 6000 build-log.txt 2>/dev/null || true
+          echo
+          echo "===== ModelScope run log (tail) ====="
+          curl -sS --connect-timeout 10 --max-time 30 -H "Authorization: Bearer $T" \
+            "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" -o run-log.txt || true
+          tail -c 9000 run-log.txt 2>/dev/null || true
+          echo
+          echo "This workflow only reads the isolated Studio; it does not deploy, restart, change hardware, or touch production routes."
