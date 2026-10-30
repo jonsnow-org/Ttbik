@@ -82,7 +82,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
     chatId,
     model,
     connectors: available,
-    exp: Date.now() + 3 * 60_000,
+    exp: Date.now() + 6 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
   return { url, ticket, model, connectors: available, tools };
