@@ -134,34 +134,24 @@ jobs:
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
-            local event_code event_id result_code
-            event_code=$(curl -sS --connect-timeout 5 --max-time 15 -o status-event.json -w '%{http_code}' -X POST \\
-              -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \\
-              "$API/gradio_api/call/status" || true)
-            [ "$event_code" = "200" ] || return 1
-            event_id=$(python3 -c "import json;print(json.load(open('status-event.json')).get('event_id',''))" 2>/dev/null || true)
-            [ -n "$event_id" ] || return 1
-            result_code=$(curl -sS --connect-timeout 5 --max-time 25 -o status-result.txt -w '%{http_code}' \\
-              -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
-            [ "$result_code" = "200" ] || return 1
-            python3 - status-result.txt <<'PY'
+            local result_code
+            result_code=$(curl -sS --connect-timeout 5 --max-time 30 -o status-result.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
+              "$API/gradio_api/run/status" || true)
+            [ "$result_code" = "200" ] || { echo "status direct HTTP $result_code"; cat status-result.json 2>/dev/null || true; return 1; }
+            python3 - status-result.json <<'PY'
           import json,sys
-          raw=open(sys.argv[1],encoding="utf-8",errors="replace").read()
-          for line in raw.splitlines():
-              if not line.startswith("data:"):
-                  continue
-              try:
-                  payload=json.loads(line[5:].strip())
-              except Exception:
-                  continue
-              values=payload if isinstance(payload,list) else [payload]
-              for value in values:
-                  if isinstance(value,str):
-                      try: value=json.loads(value)
-                      except Exception: continue
-                  if isinstance(value,dict) and value.get("phase"):
-                      print(value["phase"])
-                      raise SystemExit(0)
+          raw=json.load(open(sys.argv[1],encoding="utf-8"))
+          values=raw.get("data") if isinstance(raw,dict) else None
+          if not isinstance(values,list): values=[raw]
+          for value in values:
+              if isinstance(value,str):
+                  try: value=json.loads(value)
+                  except Exception: continue
+              if isinstance(value,dict) and value.get("phase"):
+                  print(str(value["phase"]).lower())
+                  raise SystemExit(0)
+          raise SystemExit(1)
           PY
           }
           # Reuse an already-ready private Studio; do not redeploy/re-download a model

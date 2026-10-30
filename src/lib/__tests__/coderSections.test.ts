@@ -543,11 +543,10 @@ describe("isolated Telegram donor route", () => {
       if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
         return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/status") && method === "POST") {
-        return new Response(JSON.stringify({ event_id: "status-event" }), { status: 200 });
-      }
-      if (url.endsWith("/gradio_api/call/status/status-event")) {
-        return new Response(completed({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/status") && method === "POST") {
+        return new Response(JSON.stringify({
+          data: [JSON.stringify({ phase: "ready", media_capabilities: { vision: true, audio: false, video: true } })],
+        }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/call/chat") && method === "POST") {
         return new Response(JSON.stringify({ event_id: "chat-event" }), { status: 200 });
