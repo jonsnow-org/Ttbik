@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: donor-bakeoff-modelscope-exclusive
+  group: donor-bakeoff-modelscope-v2
   cancel-in-progress: true
 jobs:
   deploy-candidate:
