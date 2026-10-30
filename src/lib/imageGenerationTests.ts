@@ -69,8 +69,8 @@ async function readSse(response: Response, maxBytes = 4_000_000): Promise<string
       if (part.done) break;
       raw += decoder.decode(part.value, { stream: true });
       size += part.value.length;
-      if (/(^|\\n)event:\\s*complete(?:\\r?\\n|$)/m.test(raw)) return raw;
-      if (/(^|\\n)event:\\s*error(?:\\r?\\n|$)/m.test(raw)) {
+      if (/(^|\r?\n)event:\s*complete(?:\r?\n|$)/m.test(raw)) return raw;
+      if (/(^|\r?\n)event:\s*error(?:\r?\n|$)/m.test(raw)) {
         throw new Error("أعاد استديو التوليد حدث خطأ.");
       }
     }
