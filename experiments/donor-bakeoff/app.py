@@ -26,7 +26,7 @@ from huggingface_hub import hf_hub_download
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r3"
+APP_REVISION = "donor-bakeoff-2026-10-30-r4"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -46,7 +46,7 @@ MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 
 THREADS = max(1, min(int(os.cpu_count() or 2), 2))
 N_CTX = int(os.environ.get("DONOR_N_CTX", "2048"))
-MAX_OUTPUT = 512
+MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", "768"))
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 AUDIO_MAX_BYTES = 24 * 1024 * 1024
 VIDEO_MAX_BYTES = 32 * 1024 * 1024
@@ -83,7 +83,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "vercel_deployment_status",
-            "description": "Read-only check of a Vercel project's latest deployment status.",
+            "description": "Read-only HTTP reachability check of the public production website for project ttbik; this is not a Vercel control-plane deployment query.",
             "parameters": {
                 "type": "object",
                 "properties": {"project": {"type": "string", "description": "Vercel project slug"}},
@@ -100,6 +100,13 @@ TESTS = [
         "label": "العربية",
         "prompt": "أجب بالعربية الفصحى الطبيعية: اشرح الفرق بين الذاكرة العشوائية RAM والقرص SSD في ثلاث جمل، مع مثال عملي. لا تستخدم الإنجليزية إلا للمصطلحات.",
         "max_tokens": 300,
+        "temperature": 0.2,
+    },
+    {
+        "id": "reasoning_visibility",
+        "label": "إجابة نهائية دون تسريب التفكير",
+        "prompt": "مرحباً، من أنت؟ أجب بجملة عربية طبيعية واحدة.",
+        "max_tokens": 180,
         "temperature": 0.2,
     },
     {
@@ -127,9 +134,17 @@ TESTS = [
     {
         "id": "vercel_tool",
         "label": "مخطط أداة Vercel",
-        "prompt": "تحقق من حالة أحدث عملية نشر لمشروع Vercel المسمى ttbik. استدعِ أداة vercel_deployment_status باسم المشروع ttbik؛ لا تخمّن الحالة.",
+        "prompt": "تحقق من إتاحة الموقع العام للمشروع ttbik عبر أداة vercel_deployment_status. استدعِ الأداة واستخدم نتيجة الفحص الفعلية، ولا تخمّن.",
         "tool": "vercel_deployment_status",
         "max_tokens": 160,
+        "temperature": 0.0,
+    },
+    {
+        "id": "multi_step_tools",
+        "label": "مهمة متعددة الخطوات عبر الأدوات",
+        "prompt": "نفّذ المهمة على مرحلتين: استخدم github_repo_scan لفحص جذر المستودع jonsnow-org/Ttbik، ثم استخدم vercel_deployment_status لفحص الموقع العام ttbik. بعد وصول نتيجتي الأداتين، اكتب ملخصاً عربياً يذكر نتيجة كل فحص وثلاثة أسماء ملفات حقيقية من المستودع. لا تخمّن أي نتيجة.",
+        "tools": ["github_repo_scan", "vercel_deployment_status"],
+        "max_tokens": 300,
         "temperature": 0.0,
     },
     {
@@ -184,7 +199,10 @@ def _download_file(filename: str, label: str) -> str:
 
 def _prepare_server_source() -> None:
     if SERVER_SCRIPT.is_file() and SERVER_SCRIPT.stat().st_size > 300_000:
-        return
+        existing = SERVER_SCRIPT.read_text(encoding="utf-8", errors="replace")
+        if "DONOR_MEDIA_CAPS_FILE" in existing and "DONOR_ENABLE_THINKING" in existing and "Union[Dict[str, Any], str]" in existing:
+            return
+        SERVER_SCRIPT.unlink(missing_ok=True)
     response = requests.get(SERVER_SOURCE_URL, timeout=(10, 90))
     response.raise_for_status()
     source = response.text
@@ -211,7 +229,27 @@ def _prepare_server_source() -> None:
     )
     if needle not in source:
         raise RuntimeError("Pinned server source changed: cannot attach the capability probe.")
-    SERVER_SCRIPT.write_text(source.replace(needle, replacement, 1), encoding="utf-8")
+    source = source.replace(needle, replacement, 1)
+    # Expose the native enable_thinking template variable to model chat templates.
+    thinking_needle = (
+        "                reasoning_effort=reasoning_effort,\n"
+        "                strftime_now=strftime_now,\n"
+    )
+    thinking_replacement = (
+        "                reasoning_effort=reasoning_effort,\n"
+        "                enable_thinking=os.environ.get('DONOR_ENABLE_THINKING', 'false').lower() in ('1', 'true', 'yes'),\n"
+        "                strftime_now=strftime_now,\n"
+    )
+    if thinking_needle not in source:
+        raise RuntimeError("Pinned server source changed: cannot attach native thinking mode.")
+    source = source.replace(thinking_needle, thinking_replacement, 1)
+    # Native Qwen chat templates need function arguments as a mapping when replaying tool-call history.
+    args_needle = "    arguments: Optional[str] = None"
+    args_replacement = "    arguments: Optional[Union[Dict[str, Any], str]] = None"
+    if args_needle not in source:
+        raise RuntimeError("Pinned server source changed: cannot extend tool-call history arguments.")
+    source = source.replace(args_needle, args_replacement, 1)
+    SERVER_SCRIPT.write_text(source, encoding="utf-8")
     print(f"Prepared pinned llama-cpp-python multimodal server ({SERVER_SOURCE_SHA}).", flush=True)
 
 def _write_server_config(model_path: str, mmproj_path: str) -> None:
@@ -295,6 +333,7 @@ def load_model() -> None:
         MEDIA_CAPS_FILE.unlink(missing_ok=True)
         child_env = os.environ.copy()
         child_env["DONOR_MEDIA_CAPS_FILE"] = str(MEDIA_CAPS_FILE)
+        child_env["DONOR_ENABLE_THINKING"] = str(CONFIG.get("enable_thinking", False)).lower()
         child_env["PYTHONUNBUFFERED"] = "1"
         with SERVER_LOG.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
@@ -422,6 +461,8 @@ def status() -> str:
             "backend": "llama.cpp MTMD / CPU only",
             "server_version": "llama-cpp-python v0.3.36 (pinned source)",
             "context_tokens": N_CTX,
+            "max_output_tokens": MAX_OUTPUT,
+            "thinking_enabled": bool(CONFIG.get("enable_thinking", False)),
             "batch_size": 32,
             "batch_tokens": 256,
             "threads": THREADS,
@@ -545,10 +586,63 @@ def _parse_tool_calls(message: dict) -> list[dict]:
         calls.append({"name": name, "arguments": args})
     return calls
 
+def _execute_tool(name: str, arguments: dict) -> dict:
+    """Execute only explicitly allowlisted, read-only tools inside this private Studio."""
+    if not isinstance(arguments, dict):
+        return {"ok": False, "error": "Tool arguments must be an object."}
+    if name == "github_repo_scan":
+        repo = str(arguments.get("repo") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+            return {"ok": False, "error": "Expected a repository in owner/name form."}
+        response = requests.get(
+            f"https://api.github.com/repos/{repo}/contents",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "Sham-Donor-Benchmark"},
+            timeout=(8, 20),
+        )
+        if response.status_code != 200:
+            return {"ok": False, "http_status": response.status_code, "error": response.text[:500]}
+        items = response.json()
+        if not isinstance(items, list):
+            return {"ok": False, "error": "GitHub returned an unexpected directory listing."}
+        files = [
+            {"name": str(item.get("name") or ""), "type": str(item.get("type") or ""), "path": str(item.get("path") or "")}
+            for item in items[:60] if isinstance(item, dict)
+        ]
+        return {"ok": True, "repo": repo, "count": len(files), "files": files}
+    if name == "vercel_deployment_status":
+        project = str(arguments.get("project") or "").strip().lower()
+        if project != "ttbik":
+            return {"ok": False, "error": "Only the configured public project ttbik is available in this read-only test."}
+        url = "https://ttbik.vercel.app/"
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Sham-Donor-Benchmark"},
+            timeout=(8, 25),
+            allow_redirects=True,
+            stream=True,
+        )
+        try:
+            final_host = response.url.split("/", 3)[2].lower()
+            if final_host != "ttbik.vercel.app" and not final_host.endswith(".vercel.app"):
+                return {"ok": False, "error": "The public-site probe redirected outside Vercel."}
+            return {
+                "ok": response.status_code < 500,
+                "project": project,
+                "url": url,
+                "http_status": response.status_code,
+                "final_url": response.url,
+                "reachable": response.status_code < 500,
+                "check_type": "public_site_http_probe_not_vercel_control_plane",
+            }
+        finally:
+            response.close()
+    return {"ok": False, "error": f"Tool is not allowlisted: {name}"}
+
+
 def infer(
     prompt: str,
-    max_tokens: int = 256,
-    temperature: float = 0.2,
+    max_tokens: int = MAX_OUTPUT,
+    temperature: float | None = None,
     use_tools: bool = False,
     history: list | None = None,
     image_path=None,
@@ -564,39 +658,77 @@ def infer(
         messages.append({"role": "user", "content": content})
         options = {
             "model": CONFIG.get("id", "isolated-donor"),
-            "messages": messages,
             "max_tokens": int(max(16, min(max_tokens, MAX_OUTPUT))),
-            "temperature": float(max(0.0, min(temperature, 1.2))),
-            "top_p": 0.9,
+            "temperature": float(max(0.0, min(CONFIG.get("temperature", 0.2) if temperature is None else temperature, 1.2))),
+            "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
         if use_tools:
             options["tools"] = TOOLS
             options["tool_choice"] = "auto"
         started = time.monotonic()
-        response = requests.post(
-            SERVER_BASE + "/v1/chat/completions",
-            json=options,
-            timeout=(10, 240),
-        )
-        response.raise_for_status()
-        data = response.json()
+        token_count = 0
+        executed_tools = []
+        pending_calls = []
+        choice_item = {}
+        choice = {}
+        # The model chooses when and which tool to call. Only allowlisted read-only
+        # tools execute here; their real results are fed back to the model.
+        for tool_round in range(4):
+            response = requests.post(
+                SERVER_BASE + "/v1/chat/completions",
+                json={**options, "messages": messages},
+                timeout=(10, 240),
+            )
+            response.raise_for_status()
+            data = response.json()
+            choice_item = (data.get("choices") or [{}])[0]
+            choice = choice_item.get("message") or {}
+            calls = _parse_tool_calls(choice)
+            usage = data.get("usage") or {}
+            token_count += int(usage.get("completion_tokens") or 0)
+            if not calls or not use_tools:
+                pending_calls = []
+                break
+            if tool_round == 3:
+                pending_calls = calls
+                break
+            assistant_calls = []
+            tool_results = []
+            for call in calls:
+                name = str(call.get("name") or "")
+                arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+                call_id = "call_" + uuid.uuid4().hex[:16]
+                tool_result = _execute_tool(name, arguments)
+                executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
+                assistant_calls.append({
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                })
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": json.dumps(tool_result, ensure_ascii=False)[:8000],
+                })
+            assistant_content = str(choice.get("content") or "")
+            assistant_content = re.sub(r"<tool_call>\s*.*?</tool_call>", "", assistant_content, flags=re.S).strip()
+            messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
+            messages.extend(tool_results)
         elapsed = time.monotonic() - started
-        choice_item = (data.get("choices") or [{}])[0]
-        choice = choice_item.get("message") or {}
-        calls = _parse_tool_calls(choice)
-        usage = data.get("usage") or {}
-        token_count = int(usage.get("completion_tokens") or 0)
         output = str(choice.get("content") or "")
-        if calls:
-            output = re.sub(r"<tool_call>\s*.*?\s*</tool_call>", "", output, flags=re.S).strip()
+        if pending_calls or executed_tools:
+            output = re.sub(r"<tool_call>\s*.*?</tool_call>", "", output, flags=re.S).strip()
         return {
             "text": output,
-            "tool_calls": calls,
+            "tool_calls": pending_calls,
+            "executed_tools": executed_tools,
             "media_attached": media_labels,
             "seconds": round(elapsed, 2),
             "completion_tokens": token_count,
             "tokens_per_second": round(token_count / max(elapsed, 0.01), 2),
             "finish_reason": choice_item.get("finish_reason"),
+            "tool_rounds": len(executed_tools),
         }
     except requests.HTTPError as exc:
         body = exc.response.text[:1200] if exc.response is not None else str(exc)
@@ -645,7 +777,7 @@ def chat_payload(payload_json: str) -> str:
             str(payload.get("prompt") or "حلّل المرفق."),
             history=history,
             max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
-            temperature=float(payload.get("temperature") or 0.2),
+            temperature=payload.get("temperature"),
             use_tools=bool(payload.get("use_tools", True)),
             image_path=paths["image_path"],
             audio_path=paths["audio_path"],
@@ -745,16 +877,13 @@ def _run_one(test: dict) -> dict:
             return {"id": test["id"], "label": test["label"], "passed": False, **result}
         text = result.get("text") or ""
         calls = result.get("tool_calls") or []
-        expected_tool = test.get("tool")
-        target = "jonsnow-org/Ttbik" if test["id"] == "github_tool" else "ttbik"
-        tool_ok = (not expected_tool) or any(
-            call.get("name") == expected_tool
-            and (
-                (test["id"] == "github_tool" and call.get("arguments", {}).get("repo") == target)
-                or (test["id"] == "vercel_tool" and call.get("arguments", {}).get("project") == target)
-            )
-            for call in calls
-        )
+        expected_tools = test.get("tools") or ([test["tool"]] if test.get("tool") else [])
+        executed = result.get("executed_tools") or []
+        executed_names = {
+            item.get("name") for item in executed
+            if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
+        }
+        tool_ok = all(name in executed_names for name in expected_tools) if expected_tools else True
         arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
         letters = len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
         refusal = bool(re.search(
@@ -766,8 +895,13 @@ def _run_one(test: dict) -> dict:
             passed = tool_ok
         elif test["id"] == "arabic":
             passed = arabic_chars >= 35 and not refusal
+        elif test["id"] == "reasoning_visibility":
+            leaked = bool(re.search(r"<think>|</think>|here(?:'s| is) (?:my )?thinking process|analyze the input|determine the persona", text, flags=re.I))
+            passed = bool(text.strip()) and arabic_chars >= 8 and not leaked
         elif test["id"] == "code":
             passed = ("def " in text or "def\t" in text) and "assert " in text and not refusal
+        elif expected_tools:
+            passed = tool_ok and bool(text.strip())
         elif media_kind:
             # This checks media ingestion + model completion only; semantic quality
             # still requires review against the rendered media in the private Studio.
@@ -778,7 +912,7 @@ def _run_one(test: dict) -> dict:
             "id": test["id"],
             "label": test["label"],
             "passed": bool(passed),
-            "check_type": "media_pipeline_only" if media_kind else "heuristic_smoke",
+            "check_type": "media_pipeline_only" if media_kind else ("executed_tool_loop" if expected_tools else "heuristic_smoke"),
             "arabic_chars": arabic_chars,
             "arabic_letter_ratio": round(arabic_chars / max(letters, 1), 3),
             "refusal_heuristic": refusal,
@@ -807,7 +941,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "GitHub/Vercel tests inspect model-emitted call structure only; no connector is called. Media pass means input pipeline and inference succeeded, not a semantic benchmark score.",
+        "note": "GitHub/Vercel calls are selected by the model and executed by the isolated allowlisted read-only runner; the Vercel test checks public-site HTTP reachability, not the Vercel control plane. Media pass means input pipeline and inference succeeded, not a semantic benchmark score.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
