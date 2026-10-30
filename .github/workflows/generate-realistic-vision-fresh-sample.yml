@@ -102,7 +102,7 @@ jobs:
           python - <<'PY'
           import base64, json, os, time
           from pathlib import Path
-          from urllib.parse import quote
+          from urllib.parse import quote, urlsplit
           import requests
           from PIL import Image
           from io import BytesIO
@@ -170,19 +170,22 @@ jobs:
           for obj in objects: inspect(obj)
           if image_obj is None:
               raise SystemExit("The completed event contains no image file object.")
-          image_url=image_obj.get("url")
-          if not image_url:
-              path=image_obj.get("path")
-              if not path:
-                  raise SystemExit("Image output has neither url nor path.")
-              image_url=endpoint+"/gradio_api/file="+quote(path.lstrip("/"),safe="/")
-          elif image_url.startswith("/"):
-              image_url=endpoint+image_url
+          file_path=image_obj.get("path")
+          if not file_path and image_obj.get("url"):
+              parsed_path=urlsplit(image_obj["url"]).path
+              prefix="/gradio_api/file="
+              if prefix in parsed_path:
+                  file_path=parsed_path.split(prefix,1)[1]
+          if not file_path:
+              raise SystemExit("Image output has neither a Gradio file path nor a usable URL.")
+          if not file_path.startswith("/"):
+              file_path="/"+file_path.lstrip("/")
+          # ModelScope file downloads must use the API-specific host, not the ms.show UI host.
+          image_url=endpoint+"/gradio_api/file="+quote(file_path,safe="/")
           image_response=session.get(image_url,timeout=120)
           print("IMAGE_FILE_HTTP",image_response.status_code,"bytes",len(image_response.content))
           image_response.raise_for_status()
-          image=Image.open(BytesIO(image_response.content)).convert("RGB")
-          image.verify()
+          Image.open(BytesIO(image_response.content)).verify()
           image=Image.open(BytesIO(image_response.content)).convert("RGB")
           if image.size!=(512,512):
               raise SystemExit(f"Unexpected image size: {image.size}")
