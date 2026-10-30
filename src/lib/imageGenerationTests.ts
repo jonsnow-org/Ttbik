@@ -69,7 +69,7 @@ async function readSse(response: Response, maxBytes = 4_000_000): Promise<string
       if (part.done) break;
       raw += decoder.decode(part.value, { stream: true });
       size += part.value.length;
-      if (/(^|\r?\n)event:\s*complete(?:\r?\n|$)/m.test(raw)) return raw;
+      if (/(^|\r?\n)event:\s*complete\r?\ndata:[^\r\n]*(?:\r?\n\r?\n|$)/m.test(raw)) return raw;
       if (/(^|\r?\n)event:\s*error(?:\r?\n|$)/m.test(raw)) {
         throw new Error("أعاد استديو التوليد حدث خطأ.");
       }
@@ -198,68 +198,6 @@ export async function probeImageGenerationStudio(
   }
 }
 
-async function postImage(
-  id: ImageGenerationTestId,
-  prompt: string,
-  seed: number,
-  fetchImpl: typeof fetch,
-): Promise<{ bytes: Uint8Array; meta: Record<string, any> | null }> {
-  const config = configOf(id);
-  const token = tokenOf();
-  const base = apiOf(config.studio);
-  const start = await fetchImpl(base + "/gradio_api/call/image", {
-    method: "POST",
-    headers: headers(token),
-    body: JSON.stringify({ data: [prompt, config.negative, config.aspect, config.steps, config.cfg, seed] }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!start.ok) {
-    const detail = (await start.text().catch(() => "")).slice(0, 300);
-    throw new Error("رفض استديو " + config.name.ar + " الطلب: HTTP " + start.status + (detail ? " · " + detail : ""));
-  }
-  const started = await start.json().catch(() => ({})) as { event_id?: string };
-  if (!started.event_id) throw new Error("لم يُرجع الاستديو معرّف مهمة التوليد.");
-  const response = await fetchImpl(
-    base + "/gradio_api/call/image/" + encodeURIComponent(started.event_id),
-    {
-      headers: headers(token),
-      cache: "no-store",
-      signal: AbortSignal.timeout(20 * 60_000),
-    },
-  );
-  if (!response.ok) {
-    const detail = (await response.text().catch(() => "")).slice(0, 300);
-    throw new Error("تعذّر استلام نتيجة التوليد: HTTP " + response.status + (detail ? " · " + detail : ""));
-  }
-  const raw = await readSse(response);
-  const values = sseValues(raw);
-  const image = values.map(findImage).find(Boolean) || null;
-  const meta = values.map(findMeta).find(Boolean) || null;
-  if (!image) throw new Error("أكمل الاستديو الطلب دون إعادة ملف الصورة.");
-  let fileUrl: string;
-  const filePath = String(image.path || image.url || "");
-  if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-    fileUrl = filePath;
-  } else {
-    const normalized = filePath.startsWith("/gradio_api/file=") ? filePath : filePath.startsWith("/") ? filePath : "/" + filePath;
-    fileUrl = base + (normalized.startsWith("/gradio_api/file=") ? normalized : "/gradio_api/file=" + encodeURIComponent(normalized).replace(/%2F/gi, "/"));
-  }
-  const downloaded = await fetchImpl(fileUrl, {
-    headers: { Authorization: "Bearer " + token },
-    cache: "no-store",
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!downloaded.ok) throw new Error("تعذّر تنزيل ملف الصورة من الاستديو: HTTP " + downloaded.status);
-  const bytes = new Uint8Array(await downloaded.arrayBuffer());
-  if (bytes.byteLength < 10_000 || bytes.byteLength > 48 * 1024 * 1024) {
-    throw new Error("حجم ملف الصورة غير صالح للاختبار: " + bytes.byteLength + " bytes.");
-  }
-  const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
-  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (!png && !jpeg) throw new Error("الملف المستلم ليس صورة PNG أو JPEG سليمة.");
-  return { bytes, meta };
-}
 
 export async function startImageGenerationTest(
   bot: TelegramBot,
@@ -436,7 +374,7 @@ export async function continueImageGenerationTest(
       await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, String((error as Error)?.message || error), db, fetchImpl);
       return;
     }
-    if (!/(^|\r?\n)event:\s*complete(?:\r?\n|$)/m.test(raw)) {
+      if (/(^|\r?\n)event:\s*complete\r?\ndata:[^\r\n]*(?:\r?\n\r?\n|$)/m.test(raw)) return raw;
       await continueOrFail(bot, chatId, botId, botSecret, runId, id, job, "لم يكتمل التدفق في جلسة المتابعة الحالية.", db, fetchImpl);
       return;
     }
