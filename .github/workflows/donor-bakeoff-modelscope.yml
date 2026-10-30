@@ -281,7 +281,7 @@ jobs:
                 state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
                 echo "Waiting for isolated candidate stop: HTTP $studio_code; runtime=$state; attempt=$attempt/18"
                 case "$state_lc" in
-                  *stopped*|*stop*|*suspended*) STOPPED=1; break ;;
+                  stopped|stop|suspended) STOPPED=1; break ;;
                 esac
                 sleep 10
               done
