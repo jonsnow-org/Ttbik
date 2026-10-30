@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Wait for the existing isolated Studio to report its real loader state
         env:
-          T: \${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
@@ -91,7 +91,7 @@ jobs:
 
       - name: Generate one photorealistic visual-review sample (CPU)
         env:
-          T: \${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
