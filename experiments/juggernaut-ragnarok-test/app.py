@@ -98,10 +98,8 @@ def load_model():
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     import torch
-    if torch.cuda.is_available():
-        # Even if the platform exposes a CUDA device, this Studio deliberately
-        # keeps this candidate on CPU; there is no GPU fallback.
-        torch.cuda.set_device("cpu") if hasattr(torch.cuda, "set_device") else None
+    # The environment hides all CUDA devices before PyTorch is imported.
+    # This candidate never uses a GPU, even if the host has one.
 
     from huggingface_hub import hf_hub_download
     from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
