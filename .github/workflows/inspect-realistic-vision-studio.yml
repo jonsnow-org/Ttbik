@@ -27,6 +27,21 @@ jobs:
           set -euo pipefail
           test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
           echo "::add-mask::$T"
+          python -m pip install -q --upgrade modelscope-hub
+          MODELSCOPE_TOKEN="$T" python - <<'PY'
+          import os
+          from modelscope_hub import HubApi
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          for endpoint in ("https://modelscope.cn", "https://modelscope.ai"):
+              try:
+                  api=HubApi(token=token, endpoint=endpoint)
+                  user=api.login(token)
+                  print("MODEL SCOPE TOKEN VALID:", endpoint, "username=", getattr(user,"username","unknown"))
+                  break
+              except Exception as exc:
+                  print("MODEL SCOPE TOKEN CHECK:", endpoint, type(exc).__name__, str(exc)[:500])
+          PY
+          T="$(printf '%s' "$T" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
           code=$(curl -sS --connect-timeout 10 --max-time 30 -o studio.json -w '%{http_code}' \
             -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO" || true)
