@@ -1,3 +1,6 @@
+import type { Db } from "@/lib/coderAuth";
+import { createDonorToolBridge } from "@/lib/donorToolBridge";
+
 export type DonorTestId = "qwen35-9b" | "gemma4-e4b" | "minicpmo45";
 export type DonorHistoryMessage = { role: "user" | "assistant"; content: string };
 export type DonorTestMedia = {
@@ -151,6 +154,7 @@ export async function donorTestChat(
   history: DonorHistoryMessage[],
   media?: DonorTestMedia,
   fetchImpl: typeof fetch = globalThis.fetch,
+  context?: { chatId: number; db: Db },
 ): Promise<{
   text: string;
   tool_calls: { name?: string; arguments?: unknown }[];
@@ -159,19 +163,21 @@ export async function donorTestChat(
   tokens_per_second?: number;
 }> {
   const config = configOf(id);
+  const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db) : undefined;
   const prior = (Array.isArray(history) ? history : [])
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
     .slice(-12)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
   // Candidate-native prompt/history only. No Nova/Sham agent, system prompt, memory, connector credentials or fallback.
-  const raw = media
-    ? await callGradio(config, "chat_payload", [JSON.stringify({
-        prompt: prompt.slice(0, 12000),
-        history: prior,
-        use_tools: true,
-        media,
-      })], 240_000, fetchImpl)
-    : await callGradio(config, "chat", [prompt.slice(0, 12000), JSON.stringify(prior), true], 210_000, fetchImpl);
+  // All traffic, including plain text, uses the candidate's own Studio payload endpoint.
+  // The short-lived bridge ticket exposes only connected-service tool schemas; provider tokens never leave this app server.
+  const raw = await callGradio(config, "chat_payload", [JSON.stringify({
+    prompt: prompt.slice(0, 12000),
+    history: prior,
+    use_tools: true,
+    media: media || null,
+    tool_bridge: toolBridge || null,
+  })], 240_000, fetchImpl);
   const result = asObject(raw);
   if (result.error) throw new Error(String(result.error).slice(0, 700));
   return {
