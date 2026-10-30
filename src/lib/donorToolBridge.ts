@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { coderChatKey, resolveConnections, tierFor, type Db } from "@/lib/coderAuth";
 import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool } from "@/lib/coderAgent";
-import { connectedIds, connectorApi, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
+import { connectedIds, connectorById, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
 type TicketBody = { chatId: number; model: string; connectors: string[]; exp: number; nonce: string };
@@ -31,8 +31,9 @@ function issueTicket(body: TicketBody): string {
 
 export function verifyDonorToolTicket(ticket: string): TicketBody | null {
   const [encoded, supplied, extra] = String(ticket || "").split(".");
-  if (!encoded || !supplied || extra || !safeEqual(signature(encoded), supplied)) return null;
+  if (!encoded || !supplied || extra) return null;
   try {
+    if (!safeEqual(signature(encoded), supplied)) return null;
     const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as TicketBody;
     if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
     if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 5 * 60_000) return null;
@@ -49,10 +50,24 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
-  const tools = [
-    ...(connections.github?.token ? GITHUB_TOOLS : []),
-    ...(available.some((id) => id !== "github") ? CONNECTOR_TOOLS : []),
+  const ghNames = new Set([
+    "github_whoami", "github_list_repos", "github_repo_info", "github_repo_scan",
+    "github_repo_audit", "github_read_files", "github_read_file", "github_list_files",
+    "github_search_code", "github_list_branches", "github_commits", "github_compare",
+    "github_ci_logs", "github_create_branch", "github_update_file", "github_create_pull_request",
+  ]);
+  const rawTools = [
+    ...(connections.github?.token ? GITHUB_TOOLS.filter((tool) => ghNames.has(tool.function.name)) : []),
+    ...(available.some((id) => id !== "github") ? CONNECTOR_TOOLS.filter((tool) => tool.function.name === "connector_api") : []),
   ];
+  // Keep schemas small enough for the 2K-context Qwen test profile; argument schemas remain the real server contracts.
+  const tools = rawTools.map((tool) => ({
+    type: "function" as const,
+    function: {
+      ...tool.function,
+      description: String(tool.function.description || "").slice(0, 220),
+    },
+  }));
   const ticket = issueTicket({
     chatId,
     model,
@@ -106,7 +121,10 @@ export async function executeDonorTool(input: {
     const service = String(input.arguments?.service || "");
     const method = String(input.arguments?.method || "GET").toUpperCase();
     const path = String(input.arguments?.path || "");
-    const connectorUrl = path.startsWith("https://") ? path : "";
+    const def = connectorById(service);
+    const connectorUrl = path.startsWith("https://")
+      ? path
+      : def ? def.apiBases[0].replace(/\/$/, "") + "/" + path.replace(/^\//, "") : "";
     if (!allowed.includes(service)) return { ok: false, result: "DENIED: " + service + " is not connected for this owner." };
     if (!isReadOnlyCall(method, connectorUrl)) {
       return { ok: false, approval_required: true, result: "APPROVAL_REQUIRED: write operation blocked in this candidate bridge; no change was made." };
