@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Compare the exact existing token through the SDK and canonical HTTP hosts
         env:
-          MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::The existing repository secret is empty"; exit 1; }
