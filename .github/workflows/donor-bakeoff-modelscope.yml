@@ -234,7 +234,7 @@ jobs:
               if isinstance(value,dict) and value.get("phase"):
                   if value.get("error"):
                       print("Candidate diagnostic: " + str(value.get("error"))[:6500], file=sys.stderr)
-                  print("Candidate status detail: " + json.dumps({k:value.get(k) for k in ("phase","candidate","load_seconds","context_tokens","threads","media_capabilities")},ensure_ascii=False), file=sys.stderr)
+                  print("Candidate status detail: " + json.dumps({k:value.get(k) for k in ("phase","app_revision","candidate","load_seconds","context_tokens","threads","media_capabilities")},ensure_ascii=False), file=sys.stderr)
                   open("status-app-revision.txt","w",encoding="utf-8").write(str(value.get("app_revision") or ""))
                   print(str(value["phase"]).lower())
                   raise SystemExit(0)
@@ -244,6 +244,7 @@ jobs:
           # Reuse an already-ready private Studio; do not redeploy/re-download a model
           # merely because a GitHub Actions job was retried.
           READY=0
+          STALE_RUNNING=0
           studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \\
             -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
           state=""
@@ -256,10 +257,40 @@ jobs:
               phase=$(get_model_phase || true)
               revision=$(cat status-app-revision.txt 2>/dev/null || true)
               echo "Existing model phase=$phase; app_revision=$revision"
-              if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_APP_REVISION" ]; then READY=1; fi
+              if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_APP_REVISION" ]; then READY=1; else STALE_RUNNING=1; fi
               ;;
           esac
           if [ "$READY" -ne 1 ]; then
+            if [ "$STALE_RUNNING" -eq 1 ]; then
+              echo "Studio is running an old app revision; stopping only this isolated candidate before redeploy."
+              stop_code=$(curl -sS --connect-timeout 8 --max-time 30 -o stop-response.json -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/stop" || true)
+              echo "Isolated candidate stop HTTP $stop_code"
+              if [[ ! "$stop_code" =~ ^2[0-9][0-9]$ ]]; then
+                cat stop-response.json 2>/dev/null || true
+                echo "::error::Could not stop the stale isolated candidate runtime; refusing to stack another deployment."
+                show_logs
+                exit 1
+              fi
+              STOPPED=0
+              for attempt in $(seq 1 18); do
+                studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \
+                  -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+                state=""
+                if [ "$studio_code" = "200" ]; then state=$(python3 -c "import json;d=json.load(open('studio-status.json'));d=d.get('data') or d.get('Data') or d;print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true); fi
+                state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
+                echo "Waiting for isolated candidate stop: HTTP $studio_code; runtime=$state; attempt=$attempt/18"
+                case "$state_lc" in
+                  *stopped*|*stop*|*suspended*) STOPPED=1; break ;;
+                esac
+                sleep 10
+              done
+              if [ "$STOPPED" -ne 1 ]; then
+                echo "::error::ModelScope did not confirm the candidate runtime stopped; refusing to redeploy over a live process."
+                show_logs
+                exit 1
+              fi
+            fi
             deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true)
             echo "Experiment deploy HTTP $deploy_code"
             if [[ "$deploy_code" =~ ^[0-9]{3}$ ]] && [ "$deploy_code" -ge 400 ]; then cat deploy-response.json; exit 1; fi
