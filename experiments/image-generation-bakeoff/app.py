@@ -153,7 +153,17 @@ def _download_model():
         revision=revision,
         cache_dir=str(CACHE),
     ))
-    return checkpoint.parent, checkpoint
+    config_root = Path(snapshot_download(
+        repo_id=CONFIG["base_config_repo"],
+        cache_dir=str(CACHE),
+        allow_patterns=[
+            "model_index.json", "scheduler/*.json",
+            "text_encoder/*.json", "text_encoder_2/*.json",
+            "tokenizer/*", "tokenizer_2/*",
+            "unet/*.json", "vae/*.json",
+        ],
+    ))
+    return config_root, checkpoint
 
 
 def _load_pipeline():
@@ -206,7 +216,7 @@ def _load_pipeline():
             raise FileNotFoundError("The configured FP8 checkpoint was not downloaded.")
         pipe = StableDiffusionXLPipeline.from_single_file(
             str(checkpoint),
-            config=CONFIG["base_config_repo"],
+            config=str(root),
             torch_dtype=dtype,
             use_safetensors=True,
             local_files_only=True,
