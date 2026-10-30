@@ -1,5 +1,6 @@
 name: "Read-only status of isolated donor Studios"
 # This workflow reads only the three donor-test Studios; it never deploys or edits a model.
+# Follow-up health probe after mirror-enabled Qwen candidate deployment.
 on:
   push:
     branches: [claude/free-services-marketplace-h6rwk2]
@@ -41,8 +42,8 @@ jobs:
           PY
               API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
               ecode=$(curl -sS --connect-timeout 5 --max-time 15 -o event.json -w '%{http_code}' \
-                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
-                "$API/gradio_api/call/v2/status" || true)
+                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
+                "$API/gradio_api/call/status" || true)
               echo "app status submit HTTP $ecode"
               if [ "$ecode" = "200" ]; then
                 event_id=$(python3 -c "import json;print(json.load(open('event.json')).get('event_id',''))" 2>/dev/null || true)

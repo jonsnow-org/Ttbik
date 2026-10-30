@@ -98,11 +98,31 @@ TESTS = [
 def load_model() -> None:
     started = time.monotonic()
     try:
-        model_path = hf_hub_download(
-            repo_id=CONFIG["repo_id"],
-            filename=CONFIG["filename"],
-            local_dir=str(Path(__file__).with_name("model_cache")),
-        )
+        local_dir = str(Path(__file__).with_name("model_cache"))
+        configured_endpoint = os.environ.get("DONOR_HF_ENDPOINT") or os.environ.get("HF_ENDPOINT")
+        endpoints = []
+        for endpoint in (configured_endpoint, "https://hf-mirror.com", "https://huggingface.co"):
+            if endpoint and endpoint.rstrip("/") not in endpoints:
+                endpoints.append(endpoint.rstrip("/"))
+        download_errors = []
+        model_path = None
+        for endpoint in endpoints:
+            try:
+                print(f"Trying candidate download endpoint: {endpoint}", flush=True)
+                model_path = hf_hub_download(
+                    repo_id=CONFIG["repo_id"],
+                    filename=CONFIG["filename"],
+                    local_dir=local_dir,
+                    endpoint=endpoint,
+                    etag_timeout=5,
+                )
+                break
+            except Exception as download_exc:
+                detail = f"{endpoint}: {type(download_exc).__name__}: {str(download_exc)[:450]}"
+                download_errors.append(detail)
+                print(f"Candidate download endpoint failed: {detail}", flush=True)
+        if not model_path:
+            raise RuntimeError("Could not download candidate from any configured Hugging Face endpoint. " + " | ".join(download_errors))
         model = Llama(
             model_path=model_path,
             n_ctx=N_CTX,
