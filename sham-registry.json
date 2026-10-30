@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-30 18:08 UTC",
+  "generated_at": "2026-10-30 22:32 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -273,16 +273,16 @@
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 145.0,
+      "size_mb": 145.1,
       "last_updated": "2026-10-30",
       "progress": {
-        "samples_consumed": 163268,
-        "step": 25077,
+        "samples_consumed": 170496,
+        "step": 26884,
         "last_run_sources": {
           "coco-karpathy": 1000
         },
-        "codebook_usage": 2966,
-        "recon": 0.06171666387291182
+        "codebook_usage": 1931,
+        "recon": 0.05751794044460569
       },
       "has_key_files": true
     },
@@ -305,7 +305,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 0.0,
+      "size_mb": 4208.6,
       "last_updated": "2026-10-30",
       "progress": {},
       "has_key_files": true
