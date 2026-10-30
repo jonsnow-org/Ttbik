@@ -11,7 +11,8 @@ export type CoderModel = {
   price_stars: number | null;          // null or 0 = no extra charge
   visible: boolean;                    // owner switch: shown to users
   isDefault?: boolean;
-  ownerOnly?: boolean;                 // initially private; can be exposed by the owner\n  lockedOwnerOnly?: boolean;            // permanently private; owner cannot expose this candidate
+  ownerOnly?: boolean;                 // initially private; can be exposed by the owner
+  lockedOwnerOnly?: boolean;            // permanently private; owner cannot expose this candidate
   serveEnv?: string;                   // the env var that will hold its serving address (owner-side only)
   publicRolloutVersion?: number;       // one-time public rollout; preserve later owner visibility changes
   sort: number;
