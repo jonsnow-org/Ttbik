@@ -36,7 +36,8 @@ jobs:
           api.login(token)
           repo="novaai2026/realistic-vision-v6-test"
           endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
-          headers={"Authorization":"Bearer "+token}
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
           ready=False
           for attempt in range(15):
               info=api.get_repo(repo,"studio")
@@ -45,17 +46,17 @@ jobs:
               print("STUDIO_RUNTIME",attempt+1,status,json.dumps(runtime,ensure_ascii=False))
               if status.lower()=="running":
                   try:
-                      health=requests.get(endpoint+"/gradio_api/info",headers=headers,timeout=20)
+                      health=session.get(endpoint+"/gradio_api/info",timeout=20)
                       print("GRADIO_INFO_HTTP",health.status_code)
                       if health.status_code==200:
-                          start=requests.post(endpoint+"/gradio_api/call/status",
-                              headers=headers,json={"data":[]},timeout=30)
+                          start=session.post(endpoint+"/gradio_api/call/status",
+                              json={"data":[]},timeout=30)
                           print("STATUS_POST_HTTP",start.status_code,start.text[:600])
                           if start.status_code==200:
                               event=start.json().get("event_id")
                               if event:
-                                  stream=requests.get(endpoint+"/gradio_api/call/status/"+event,
-                                      headers=headers,timeout=60)
+                                  stream=session.get(endpoint+"/gradio_api/call/status/"+event,
+                                      timeout=60)
                                   print("STATUS_GET_HTTP",stream.status_code)
                                   found=[]
                                   def walk(v):
@@ -108,7 +109,8 @@ jobs:
 
           token=os.environ["MODELSCOPE_TOKEN"].strip()
           endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
-          headers={"Authorization":"Bearer "+token}
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
           payload={"data":[
               os.environ["PROMPT"],
               os.environ["NEGATIVE"],
@@ -117,7 +119,7 @@ jobs:
               5.5,
               42
           ]}
-          response=requests.post(endpoint+"/gradio_api/call/image",headers=headers,
+          response=session.post(endpoint+"/gradio_api/call/image",
               json=payload,timeout=60)
           print("IMAGE_SUBMIT_HTTP",response.status_code,response.text[:1000])
           response.raise_for_status()
@@ -127,8 +129,8 @@ jobs:
           print("FRESH_IMAGE_EVENT",event)
 
           # One stream request for this one event only. A 404 is not retried with the same event id.
-          result=requests.get(endpoint+"/gradio_api/call/image/"+event,
-              headers=headers,stream=True,timeout=(20,900))
+          result=session.get(endpoint+"/gradio_api/call/image/"+event,
+              stream=True,timeout=(20,900))
           print("IMAGE_STREAM_HTTP",result.status_code)
           result.raise_for_status()
           chunks=[]
@@ -176,7 +178,7 @@ jobs:
               image_url=endpoint+"/gradio_api/file="+quote(path.lstrip("/"),safe="/")
           elif image_url.startswith("/"):
               image_url=endpoint+image_url
-          image_response=requests.get(image_url,headers=headers,timeout=120)
+          image_response=session.get(image_url,timeout=120)
           print("IMAGE_FILE_HTTP",image_response.status_code,"bytes",len(image_response.content))
           image_response.raise_for_status()
           image=Image.open(BytesIO(image_response.content)).convert("RGB")
