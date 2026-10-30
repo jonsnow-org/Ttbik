@@ -29,10 +29,6 @@ jobs:
             label: Gemma 4 E4B low-refusal
             studio: sham-donor-gemma4-e4b-test
             config: gemma4-e4b.json
-          - id: minicpm-o45
-            label: MiniCPM-o 4.5
-            studio: sham-donor-minicpmo45-test
-            config: minicpm-o45.json
     env:
       MS: https://www.modelscope.cn
       OWNER: novaai2026
