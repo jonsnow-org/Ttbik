@@ -546,7 +546,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
             {d.trialSelected && (
               <>
                 <div className="n-s" style={{ padding: "8px 12px 0" }}>
-                  {lang === "ar" ? "سجل مستقل لكل مرشح. ينفّذ المختبر فحصين عامّين للقراءة فقط: قائمة مستودع GitHub عام وإتاحة ttbik.vercel.app عبر HTTP؛ ولا يستخدم رموزاً خاصة أو ينفّذ عمليات كتابة. فحص الموقع ليس حالة النشر من لوحة Vercel." : "Separate history per candidate. The isolated harness executes only two public read-only checks: a public GitHub repo-root listing and HTTP reachability of ttbik.vercel.app (not Vercel deployment status). No private tokens or write operations."}
+                  {lang === "ar" ? "سجل مستقل لكل مرشح. ينفّذ المختبر ثلاثة فحوص قراءة عامة فقط: قائمة المستودع، قراءة ملفات نصية عامة، وفحص HTTP لموقع ttbik.vercel.app (ليس حالة النشر من لوحة Vercel). لا يستخدم رموزاً خاصة أو ينفّذ كتابة. قدرات التوليد الأصلية للنموذج منفصلة عن قدرات مشغّل هذا الاختبار؛ التوليد المرئي/الصوتي/الفيديو غير متاح في هذا المشغّل حالياً." : "Separate history per candidate. The isolated harness executes only three public read-only checks: repository listing, public text-file reads, and an HTTP probe of ttbik.vercel.app (not Vercel deployment status). No private tokens or writes. Model-native outputs are shown separately from runtime support; this runner currently does not generate image/audio/video output."}
                 </div>
                 <button type="button" disabled={switching} className="n-opt" onClick={() => pickDonor("")}>
                   <span className="n-body"><span className="n-t">↩ {lang === "ar" ? "إيقاف وضع الاختبار والعودة للنموذج المعتاد" : "Exit test mode and return to normal model"}</span></span>

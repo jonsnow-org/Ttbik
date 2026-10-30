@@ -21,7 +21,7 @@ import threading
 import uuid
 import time
 import wave
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import gradio as gr
 import requests
@@ -29,7 +29,7 @@ from huggingface_hub import hf_hub_download
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r5"
+APP_REVISION = "donor-bakeoff-2026-10-30-r6"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -45,8 +45,8 @@ SERVER_LOG = RUNTIME / "llama-server.log"
 MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 
 THREADS = max(1, min(int(os.cpu_count() or 2), 2))
-N_CTX = int(os.environ.get("DONOR_N_CTX", "2048"))
-MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", "768"))
+N_CTX = int(os.environ.get("DONOR_N_CTX", CONFIG.get("context_tokens", 2048)))
+MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", CONFIG.get("max_output_tokens", 768)))
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 AUDIO_MAX_BYTES = 24 * 1024 * 1024
 VIDEO_MAX_BYTES = 32 * 1024 * 1024
@@ -75,6 +75,24 @@ TOOLS = [
                 "type": "object",
                 "properties": {"repo": {"type": "string", "description": "GitHub repository in owner/name form"}},
                 "required": ["repo"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_read_files",
+            "description": "Read up to three named text files from a public GitHub repository and return their real contents. Use after github_repo_scan when the task requires examining source files. Read-only; no private repositories, credentials, or writes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Public repository in owner/name form"},
+                    "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
+                    "ref": {"type": "string", "description": "Branch, tag, or commit; use the exact requested ref"},
+                    "focus_terms": {"type": "array", "items": {"type": "string"}, "maxItems": 5, "description": "Optional identifiers or phrases to locate within the requested text files; matching lines are returned with nearby context."},
+                },
+                "required": ["repo", "paths", "ref"],
                 "additionalProperties": False,
             },
         },
@@ -145,6 +163,14 @@ TESTS = [
         "prompt": "نفّذ المهمة على مرحلتين: استخدم github_repo_scan لفحص جذر المستودع jonsnow-org/Ttbik، ثم استخدم vercel_deployment_status لفحص الموقع العام ttbik. بعد وصول نتيجتي الأداتين، اكتب ملخصاً عربياً يذكر نتيجة كل فحص وثلاثة أسماء ملفات حقيقية من المستودع. لا تخمّن أي نتيجة.",
         "tools": ["github_repo_scan", "vercel_deployment_status"],
         "max_tokens": 300,
+        "temperature": 0.0,
+    },
+    {
+        "id": "long_multistep_repo",
+        "label": "مهمة طويلة متعددة المراحل: بحث وقراءة ملفات وتحليل",
+        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، ونتيجة فحص الموقع مع التنبيه أن فحص HTTP ليس حالة النشر من لوحة Vercel. لا تخمّن ولا تكرر طلبي.",
+        "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
+        "max_tokens": 760,
         "temperature": 0.0,
     },
     {
@@ -468,6 +494,9 @@ def status() -> str:
             "threads": THREADS,
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
+            "model_native_outputs": CONFIG.get("model_native_outputs", {"image": False, "audio": False, "video": False}),
+            "runtime_generation_capabilities": CONFIG.get("runtime_generation_capabilities", {"image": False, "audio": False, "video": False}),
+            "generation_note": "The current llama.cpp MTMD benchmark runner does not expose native image, audio, or video generation. A model's advertised native output is reported separately from what this runtime can actually execute.",
             "runtime_resources": _resource_snapshot(STATE.get("server_pid")),
             "server_exit_code": STATE.get("server_process").poll() if STATE.get("server_process") is not None else None,
             "error": STATE["error"],
@@ -609,6 +638,68 @@ def _execute_tool(name: str, arguments: dict) -> dict:
             for item in items[:60] if isinstance(item, dict)
         ]
         return {"ok": True, "repo": repo, "count": len(files), "files": files}
+    if name == "github_read_files":
+        repo = str(arguments.get("repo") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+            return {"ok": False, "error": "Expected a public repository in owner/name form."}
+        paths = arguments.get("paths")
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 3 or not all(isinstance(p, str) for p in paths):
+            return {"ok": False, "error": "Provide one to three repository-relative text file paths."}
+        ref = str(arguments.get("ref") or "").strip()
+        if not ref or len(ref) > 200:
+            return {"ok": False, "error": "A branch, tag, or commit ref is required."}
+        focus_terms = arguments.get("focus_terms") or []
+        if not isinstance(focus_terms, list) or not all(isinstance(term, str) for term in focus_terms) or len(focus_terms) > 5:
+            return {"ok": False, "error": "focus_terms must contain up to five text identifiers."}
+        files = []
+        total_chars = 0
+        for raw_path in paths:
+            path = raw_path.strip()
+            parsed_path = PurePosixPath(path)
+            if not path or parsed_path.is_absolute() or ".." in parsed_path.parts or "\\" in path:
+                return {"ok": False, "error": "Unsafe repository-relative path: " + path[:160]}
+            response = requests.get(
+                f"https://api.github.com/repos/{repo}/contents/{path}",
+                params={"ref": ref},
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "Sham-Donor-Benchmark"},
+                timeout=(8, 20),
+            )
+            if response.status_code != 200:
+                return {"ok": False, "http_status": response.status_code, "path": path, "error": response.text[:400]}
+            item = response.json()
+            if not isinstance(item, dict) or item.get("type") != "file":
+                return {"ok": False, "path": path, "error": "Requested path is not a regular file."}
+            if item.get("encoding") != "base64" or not isinstance(item.get("content"), str):
+                return {"ok": False, "path": path, "error": "GitHub did not return a base64 text-file payload."}
+            try:
+                raw = base64.b64decode(item["content"], validate=False)
+                decoded = raw.decode("utf-8")
+            except Exception:
+                return {"ok": False, "path": path, "error": "File is not valid UTF-8 text."}
+            truncated = len(raw) > 48_000
+            if focus_terms:
+                lines = decoded.splitlines()
+                matched = [i for i, line in enumerate(lines) if any(term.lower() in line.lower() for term in focus_terms)]
+                if matched:
+                    selected = set()
+                    for index in matched:
+                        selected.update(range(max(0, index - 3), min(len(lines), index + 4)))
+                    decoded = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
+                else:
+                    decoded = decoded[:4_000]
+            else:
+                decoded = decoded[:4_000]
+            total_chars += len(decoded)
+            if total_chars > 7_000:
+                return {"ok": False, "error": "Combined text output exceeds the read-only benchmark limit."}
+            files.append({
+                "path": path,
+                "name": str(item.get("name") or parsed_path.name),
+                "bytes": len(raw),
+                "truncated": truncated or len(decoded) < len(raw),
+                "content": decoded,
+            })
+        return {"ok": True, "repo": repo, "ref": ref, "files": files}
     if name == "vercel_deployment_status":
         project = str(arguments.get("project") or "").strip().lower()
         if project != "ttbik":
@@ -885,6 +976,12 @@ def _run_one(test: dict) -> dict:
         }
         expected_args = {
             "github_repo_scan": {"repo": "jonsnow-org/Ttbik"},
+            "github_read_files": {
+                "repo": "jonsnow-org/Ttbik",
+                "paths": ["package.json", "src/lib/donorTests.ts"],
+                "ref": "claude/free-services-marketplace-h6rwk2",
+                "focus_terms": ["donorTestChat"],
+            },
             "vercel_deployment_status": {"project": "ttbik"},
         }
         def executed_ok(name):
@@ -904,7 +1001,15 @@ def _run_one(test: dict) -> dict:
             text,
             flags=re.I,
         ))
-        if expected_tools:
+        if test["id"] == "long_multistep_repo":
+            passed = (
+                tool_ok
+                and bool(text.strip())
+                and "package.json" in text
+                and "donorTestChat" in text
+                and "scripts" in text
+            )
+        elif expected_tools:
             passed = tool_ok and bool(text.strip())
         elif test["id"] == "arabic":
             passed = arabic_chars >= 35 and not refusal
@@ -952,7 +1057,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "GitHub/Vercel calls are selected by the model and executed by the isolated allowlisted read-only runner; the Vercel test checks public-site HTTP reachability, not the Vercel control plane. Media pass means input pipeline and inference succeeded, not a semantic benchmark score.",
+        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a public-site HTTP reachability probe; the Vercel probe is not control-plane deployment status. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1045,7 +1150,7 @@ with demo:
     with gr.Row():
         send_button = gr.Button("إرسال إلى هذا المرشح", variant="primary")
         clear_button = gr.Button("مسح المحادثة")
-    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة وسجل تنفيذ الأدوات", lines=12, interactive=False)
+    response_box = gr.Textbox(label="تفاصيل الاستدلال والسرعة وسجل تنفيذ الأدوات وقدرات التوليد الفعلية", lines=14, interactive=False)
     send_button.click(
         chat_with_media,
         inputs=[prompt_box, image_input, audio_input, video_input, history_state],
@@ -1089,8 +1194,9 @@ with demo:
 
     gr.Markdown(
         "**تنبيه التقييم:** نجاح اختبار الوسائط يثبت وصول المرفق واكتمال الاستدلال فقط، ولا يقيس جودة الفهم الدلالي. "
-        "يمكن للمختبر تنفيذ فحصين عامّين للقراءة فقط: قائمة الجذر لمستودع GitHub عام، وفحص HTTP لموقع ttbik.vercel.app. "
-        "فحص الموقع لا يقرأ حالة النشر من لوحة Vercel. لا توجد رموز موصلات خاصة أو عمليات كتابة."
+        "يمكن للمختبر فحص جذر مستودع GitHub عام وقراءة حتى ثلاثة ملفات نصية عامة منه، إضافة إلى فحص HTTP لموقع ttbik.vercel.app. "
+        "فحص الموقع لا يقرأ حالة النشر من لوحة Vercel. لا توجد رموز موصلات خاصة أو عمليات كتابة. "
+        "قدرات التوليد الأصلية المعلنة من النموذج منفصلة عن قدرات هذا المشغّل؛ مشغّل الاختبار الحالي لا ينفّذ توليد صورة أو صوت أو فيديو."
     )
     demo.load(status, inputs=[], outputs=state_box, queue=False)
 

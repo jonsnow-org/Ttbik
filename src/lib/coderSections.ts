@@ -980,6 +980,19 @@ async function runDonorTestTask(
           }
           return "❌ github_repo_scan: " + String(output.error || ("HTTP " + (output.http_status ?? "—")));
         }
+        if (name === "github_read_files") {
+          if (output.ok === true) {
+            const names = Array.isArray(output.files)
+              ? output.files.map((file: any) => String(file?.path || file?.name || "")).filter(Boolean).join("، ")
+              : "";
+            const sizes = Array.isArray(output.files)
+              ? output.files.map((file: any) => String(file?.bytes ?? "—") + " بايت").join("، ")
+              : "";
+            return "✅ github_read_files: قُرئت ملفات عامة فعلياً من " + String(args.repo || output.repo || "") +
+              "؛ " + names + (sizes ? "؛ الأحجام: " + sizes : "");
+          }
+          return "❌ github_read_files: " + String(output.error || ("HTTP " + (output.http_status ?? "—")));
+        }
         if (name === "vercel_deployment_status") {
           return (output.ok === true ? "✅ " : "❌ ") + "vercel_deployment_status: " +
             "فحص HTTP للموقع العام فقط؛ الحالة " + String(output.http_status ?? "—") +
