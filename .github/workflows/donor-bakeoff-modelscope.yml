@@ -41,6 +41,26 @@ jobs:
       CANDIDATE_CONFIG: ${{ matrix.candidate.config }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate isolated donor app and candidate manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile experiments/donor-bakeoff/app.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          required = {
+              "qwen35-9b.json": "mmproj_filename",
+              "gemma4-e4b.json": "mmproj_filename",
+              "minicpm-o45.json": "mmproj_filename",
+          }
+          for filename, field in required.items():
+              path = Path("experiments/donor-bakeoff/candidates") / filename
+              data = json.loads(path.read_text(encoding="utf-8"))
+              if not data.get(field) or not data.get("filename") or not data.get("repo_id"):
+                  raise SystemExit(f"Invalid candidate manifest: {filename}")
+              print(f"{filename}: main GGUF and projector configured")
+          PY
       - name: Verify credentials and inspect free CPU hardware
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -185,23 +205,99 @@ jobs:
           fi
           if [ "$READY" -ne 1 ]; then echo "::error::Candidate not ready within 85 minutes."; show_logs; exit 1; fi
           echo "Candidate model ready; continuing to the smoke suite."
-      - name: Run Arabic, code, refusal, GitHub and Vercel smoke suite
+      - name: Run one short text, code, tool or supported-media test per Gradio event
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         shell: bash
         timeout-minutes: 20
         run: |
-          set -euo pipefail
+          set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          OUT="donor-bakeoff-output/$CANDIDATE_ID/smoke.sse"
-          mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
-          code=$(curl -sS --connect-timeout 8 --max-time 30 -o smoke-event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/call/v2/smoke_suite")
-          echo "Smoke submit HTTP $code"; [ "$code" = "200" ] || { cat smoke-event.json; exit 1; }
-          event_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))")
-          [ -n "$event_id" ] || { echo "::error::No Gradio event id"; exit 1; }
-          result_code=$(curl -sS --connect-timeout 8 --max-time 1050 -o "$OUT" -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$event_id")
-          echo "Smoke result HTTP $result_code"; cat "$OUT"
-          [ "$result_code" = "200" ] || { echo "::error::Smoke suite result unavailable"; exit 1; }
+          DIR="donor-bakeoff-output/$CANDIDATE_ID"
+          mkdir -p "$DIR"
+          : > "$DIR/smoke-results.jsonl"
+          TRANSPORT_ERRORS=0
+          for TEST_ID in arabic code benign_no_overrefusal github_tool vercel_tool image_smoke audio_smoke video_smoke; do
+            echo "===== $CANDIDATE_ID / $TEST_ID ====="
+            python3 - "$TEST_ID" > request.json <<'PY'
+          import json,sys
+          print(json.dumps({"data":[sys.argv[1]]}))
+          PY
+            submit_code=$(curl -sS --connect-timeout 8 --max-time 30 -o smoke-event.json -w '%{http_code}' \
+              -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              --data-binary @request.json "$API/gradio_api/call/smoke_test" || true)
+            echo "submit HTTP $submit_code"
+            if [ "$submit_code" != "200" ]; then
+              echo "{\"test\":\"$TEST_ID\",\"transport_error\":\"submit HTTP $submit_code\"}" >> "$DIR/smoke-results.jsonl"
+              TRANSPORT_ERRORS=1
+              continue
+            fi
+            event_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))" 2>/dev/null || true)
+            if [ -z "$event_id" ]; then
+              echo "{\"test\":\"$TEST_ID\",\"transport_error\":\"missing Gradio event id\"}" >> "$DIR/smoke-results.jsonl"
+              TRANSPORT_ERRORS=1
+              continue
+            fi
+            complete=0
+            for attempt in 1 2; do
+              poll_file="$DIR/$TEST_ID-attempt-$attempt.sse"
+              poll_code=$(curl -sS --connect-timeout 8 --max-time 92 -o "$poll_file" -w '%{http_code}' \
+                -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_test/$event_id" || true)
+              echo "poll $attempt HTTP $poll_code"
+              if grep -q '^event: complete' "$poll_file" 2>/dev/null; then
+                complete=1
+                break
+              fi
+              if grep -q '^event: error' "$poll_file" 2>/dev/null; then
+                cat "$poll_file"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$complete" -eq 1 ]; then
+              python3 - "$DIR/$TEST_ID-attempt-$attempt.sse" "$DIR/smoke-results.jsonl" "$TEST_ID" <<'PY'
+          import json,sys
+          source,target,test_id=sys.argv[1:]
+          raw=open(source,encoding="utf-8",errors="replace").read()
+          saved=False
+          for line in raw.splitlines():
+              if not line.startswith("data:"): continue
+              try: payload=json.loads(line[5:].strip())
+              except Exception: continue
+              values=payload if isinstance(payload,list) else [payload]
+              for value in values:
+                  if isinstance(value,str):
+                      try: value=json.loads(value)
+                      except Exception: continue
+                  if isinstance(value,dict):
+                      value.setdefault("test_id",test_id)
+                      with open(target,"a",encoding="utf-8") as f:
+                          f.write(json.dumps(value,ensure_ascii=False)+"\n")
+                      saved=True
+          if not saved:
+              with open(target,"a",encoding="utf-8") as f:
+                  f.write(json.dumps({"test_id":test_id,"transport_error":"empty complete event"})+"\n")
+          PY
+            else
+              echo "{\"test_id\":\"$TEST_ID\",\"transport_error\":\"no terminal complete event\"}" >> "$DIR/smoke-results.jsonl"
+              TRANSPORT_ERRORS=1
+              echo "::warning::No terminal result for $TEST_ID; continuing so remaining tests are collected."
+            fi
+          done
+          python3 - "$DIR/smoke-results.jsonl" "$DIR/report.json" "$CANDIDATE_ID" <<'PY'
+          import json,sys
+          source,target,candidate=sys.argv[1:]
+          rows=[]
+          for line in open(source,encoding="utf-8"):
+              try: rows.append(json.loads(line))
+              except Exception: pass
+          report={"candidate_id":candidate,"tests":rows,"completed_tests":sum(1 for x in rows if "result" in x),"transport_errors":sum(1 for x in rows if "transport_error" in x)}
+          with open(target,"w",encoding="utf-8") as f: json.dump(report,f,ensure_ascii=False,indent=2)
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          if [ "$TRANSPORT_ERRORS" -ne 0 ]; then
+            echo "::warning::Some per-test Gradio events did not complete; review the artifact before scoring this candidate."
+          fi
       - name: Upload candidate report, including failed model loads
         if: always()
         uses: actions/upload-artifact@v4

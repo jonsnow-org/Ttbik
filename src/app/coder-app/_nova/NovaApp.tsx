@@ -29,8 +29,8 @@ type ChatList = { model: string; selected: string; items: ChatItem[]; current: s
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
-type DonorTestOption = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; selected: boolean };
-type DonorTestStatus = { id: string; phase: string; detail?: string };
+type DonorTestOption = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; studioUrl?: string; selected: boolean };
+type DonorTestStatus = { id: string; phase: string; detail?: string; media_capabilities?: { vision: boolean; audio: boolean; video: boolean } };
 type DonorChatMessage = { role: "user" | "assistant"; content: string; runId?: string };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[]; donorTests?: DonorTestOption[]; trialSelected?: string | null };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
@@ -691,12 +691,22 @@ function DonorTestPanel({ c, candidate, revision }: { c: Ctx; candidate: DonorTe
           <div className="n-t">{candidate.name[lang]}</div>
           <div className="n-s">{candidate.desc[lang]}</div>
         </div>
-        <span className="n-chip">{ar ? "خاص بالمالك" : "Owner only"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className="n-chip">{ar ? "خاص بالمالك" : "Owner only"}</span>
+          {candidate.studioUrl && <a className="n-btn n-ghost" href={candidate.studioUrl} target="_blank" rel="noreferrer">
+            {ar ? "فتح مختبر الوسائط" : "Open media lab"} ↗
+          </a>}
+        </div>
       </div>
       <div className="n-s" role="status" style={{ margin: "10px 0", color: ready ? "var(--c-ok)" : "var(--c-warn)" }}>
         {phaseText[phase] || phaseText.checking}
         {status?.detail && phase !== "unavailable" ? " · " + status.detail : ""}
       </div>
+      {status?.media_capabilities && <div className="n-s" style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingBottom: 8 }}>
+        <span>{status.media_capabilities.vision ? "✅" : "—"} {ar ? "صور" : "Images"}</span>
+        <span>{status.media_capabilities.audio ? "✅" : "—"} {ar ? "صوت" : "Audio"}</span>
+        <span>{status.media_capabilities.video ? "✅" : "—"} {ar ? "فيديو" : "Video"}</span>
+      </div>}
       <div className="n-s" style={{ padding: "8px 0", borderTop: "1px solid var(--c-line)" }}>
         {ar
           ? "رسائلك هنا تصل إلى هذا المرشح فقط. لا نستخدم سجل Nova أو شام، ولا نمرّر أي بيانات أو مفاتيح إنتاجية إليه."
@@ -731,8 +741,8 @@ function DonorTestPanel({ c, candidate, revision }: { c: Ctx; candidate: DonorTe
       </div>
       <p className="n-meta" style={{ marginTop: 10 }}>
         {ar
-          ? "الفحص الحالي نصي. استدعاءات GitHub وVercel التي يقترحها النموذج تظهر في سجل الحدث فقط ولا تُنفّذ."
-          : "This round is text-only. GitHub/Vercel calls proposed by the model are logged for inspection, never executed."}
+          ? "المحادثة هنا نصية؛ افتح مختبر الوسائط لرفع الصور والصوت والفيديو وفق دعم المرشح. استدعاءات GitHub وVercel المقترحة لا تُنفّذ."
+          : "Direct chat here is text-only. Open the media lab for image/audio/video uploads when supported. Proposed GitHub/Vercel calls are logged only and never executed."}
       </p>
     </section>
   );

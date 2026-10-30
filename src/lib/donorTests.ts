@@ -5,24 +5,28 @@ export type DonorTestStatus = {
   phase: "ready" | "loading" | "error" | "deploying" | "not_created" | "unavailable" | "unconfigured";
   studio: "running" | "deploying" | "not_created" | "unknown";
   detail?: string;
+  media_capabilities?: { vision: boolean; audio: boolean; video: boolean };
 };
 
 export const DONOR_TESTS = [
   {
     id: "qwen35-9b",
     studio: "sham-donor-qwen35-9b-test",
+    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-qwen35-9b-test",
     name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" },
     desc: { ar: "مرشح Qwen مستقل · محادثة مباشرة", en: "Isolated Qwen candidate · direct chat" },
   },
   {
     id: "gemma4-e4b",
     studio: "sham-donor-gemma4-e4b-test",
+    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-gemma4-e4b-test",
     name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" },
     desc: { ar: "مرشح Gemma مستقل · محادثة مباشرة", en: "Isolated Gemma candidate · direct chat" },
   },
   {
     id: "minicpmo45",
     studio: "sham-donor-minicpmo45-test",
+    studioUrl: "https://modelscope.cn/studios/novaai2026/sham-donor-minicpmo45-test",
     name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" },
     desc: { ar: "مرشح متعدد الوسائط · اختبار النص في هذه الجولة", en: "Multimodal family · text chat in this round" },
   },
@@ -35,6 +39,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
   id: x.id,
   name: x.name,
   desc: x.desc,
+  studioUrl: x.studioUrl,
   selected: x.id === selected,
 }));
 
@@ -194,10 +199,18 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
     }
     const statusValue = parseStatus(await callGradio(config, "status", [], 20_000, fetchImpl));
     const phase = String(statusValue?.phase || "unavailable").toLowerCase();
+    const caps = statusValue?.media_capabilities;
     return {
       id: config.id,
       phase: phase === "ready" ? "ready" : phase === "loading" ? "loading" : phase === "error" ? "error" : "unavailable",
       studio: "running",
+      ...(caps && typeof caps === "object" ? {
+        media_capabilities: {
+          vision: caps.vision === true,
+          audio: caps.audio === true,
+          video: caps.video === true,
+        },
+      } : {}),
       ...(statusValue?.error ? { detail: String(statusValue.error).slice(0, 220) } : {}),
     };
   } catch (error) {

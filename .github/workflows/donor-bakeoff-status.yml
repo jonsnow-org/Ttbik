@@ -1,6 +1,5 @@
 name: "Read-only status of isolated donor Studios"
-# This workflow reads only the three donor-test Studios; it never deploys or edits a model.
-# Follow-up health probe after mirror-enabled Qwen candidate deployment.
+# Status only: never deploys, restarts, or changes candidate models.
 on:
   push:
     branches: [claude/free-services-marketplace-h6rwk2]
@@ -15,9 +14,9 @@ concurrency:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
-      - name: Query only the three explicitly named experiment Studios
+      - name: Read readiness and detected multimodal capabilities
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
           MS: https://www.modelscope.cn
@@ -26,144 +25,60 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          mkdir -p donor-bakeoff-status
           for REPO in sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do
             echo "===== $REPO (read-only) ====="
             code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio.json -w '%{http_code}' \
               -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
             echo "studio HTTP $code"
-            if [ "$code" = "200" ]; then
-              python3 - <<'PY'
-          import json
-          d=json.load(open("studio.json",encoding="utf-8"))
-          d=d.get("data") or d.get("Data") or d
-          runtime=d.get("runtime") or {}
-          print("runtime_status=",runtime.get("status") or d.get("status") or "unknown")
-          print("studio_state=",d.get("state") or d.get("visibility") or "not supplied")
-          PY
-              API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-              ecode=$(curl -sS --connect-timeout 5 --max-time 15 -o event.json -w '%{http_code}' \
-                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
-                "$API/gradio_api/call/status" || true)
-              echo "app status submit HTTP $ecode"
-              if [ "$ecode" = "200" ]; then
-                event_id=$(python3 -c "import json;print(json.load(open('event.json')).get('event_id',''))" 2>/dev/null || true)
-                if [ -n "$event_id" ]; then
-                  rcode=$(curl -sS --connect-timeout 5 --max-time 25 -o status.sse -w '%{http_code}' \
-                    -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
-                  echo "model status HTTP $rcode"
-                  cat status.sse 2>/dev/null | head -c 1500 || true
-                  echo
-                  phase=$(python3 - status.sse <<'PY'
-          import json,sys
-          raw=open(sys.argv[1],encoding="utf-8",errors="replace").read()
-          for line in raw.splitlines():
-              if not line.startswith("data:"):
-                  continue
-              try:
-                  payload=json.loads(line[5:].strip())
-              except Exception:
-                  continue
-              values=payload if isinstance(payload,list) else [payload]
-              for value in values:
-                  if isinstance(value,str):
-                      try: value=json.loads(value)
-                      except Exception: continue
-                  if isinstance(value,dict) and value.get("phase"):
-                      print(value["phase"])
-                      raise SystemExit(0)
-          PY
-          )
-                  echo "candidate_phase=$phase"
-                  if [ "$phase" = "ready" ]; then
-                    mkdir -p "donor-bakeoff-output/$REPO"
-                    smoke_code=$(curl -sS --connect-timeout 8 --max-time 30 -o smoke-event.json -w '%{http_code}' \
-                      -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
-                      "$API/gradio_api/call/smoke_suite" || true)
-                    echo "smoke submit HTTP $smoke_code"
-                    if [ "$smoke_code" = "200" ]; then
-                      smoke_id=$(python3 -c "import json;print(json.load(open('smoke-event.json')).get('event_id',''))" 2>/dev/null || true)
-                      if [ -n "$smoke_id" ]; then
-                        echo "smoke event id=$smoke_id"
-                        combined="donor-bakeoff-output/$REPO/smoke.sse"
-                        : > "$combined"
-                        smoke_complete=0
-                        for attempt in $(seq 1 12); do
-                          poll_file="donor-bakeoff-output/$REPO/smoke-poll-$attempt.sse"
-                          smoke_result=$(curl -sS --connect-timeout 8 --max-time 100 -o "$poll_file" -w '%{http_code}' \
-                            -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_suite/$smoke_id" || true)
-                          echo "smoke poll $attempt HTTP $smoke_result"
-                          cat "$poll_file" >> "$combined" 2>/dev/null || true
-                          cat "$poll_file" 2>/dev/null || true
-                          if grep -q '^event: complete' "$poll_file" 2>/dev/null; then
-                            smoke_complete=1
-                            break
-                          fi
-                          if grep -q '^event: error' "$poll_file" 2>/dev/null; then
-                            echo "::warning::Gradio returned an error event for the smoke suite."
-                            break
-                          fi
-                          sleep 3
-                        done
-                        if [ "$smoke_complete" -eq 1 ]; then
-                          echo "smoke_suite=complete"
-                          python3 - "$combined" <<'PY'
-          import json,sys
-          raw=open(sys.argv[1],encoding="utf-8",errors="replace").read()
-          for line in raw.splitlines():
-              if not line.startswith("data:"):
-                  continue
-              try: payload=json.loads(line[5:].strip())
-              except Exception: continue
-              values=payload if isinstance(payload,list) else [payload]
-              for value in values:
-                  if isinstance(value,str):
-                      try: value=json.loads(value)
-                      except Exception: continue
-                  if isinstance(value,dict):
-                      print(json.dumps(value,ensure_ascii=False,indent=2))
-          PY
-                        else
-                          echo "::warning::Gradio smoke suite did not emit a terminal complete event; no quality pass is recorded."
-                        fi
-                      fi
-                    fi
-                  fi
-                fi
-              fi
-              for kind in build run; do
-                lcode=$(curl -sS --connect-timeout 5 --max-time 12 -o log.txt -w '%{http_code}' \
-                  -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
-                echo "$kind log HTTP $lcode"
-                if [ "$lcode" = "200" ]; then
-                  python3 - <<'PY'
-          import json
-          try:
-              d=json.load(open("log.txt",encoding="utf-8"))
-              data=d.get("data") or d.get("Data") or {}
-              logs=data.get("logs") or data.get("Logs") or []
-              if isinstance(logs,list):
-                  for line in logs[-18:]:
-                      print(str(line)[:1800])
-              else:
-                  print(json.dumps(logs,ensure_ascii=False)[:8000])
-          except Exception:
-              print(open("log.txt",encoding="utf-8",errors="replace").read()[-8000:])
-          PY
-                  echo
-                fi
-              done
-            elif [ "$code" = "404" ]; then
-              echo "Experiment Studio has not been created yet."
-            else
-              head -c 600 studio.json || true
-              echo
+            if [ "$code" != "200" ]; then
+              echo "{\"studio\":\"$REPO\",\"http_status\":\"$code\"}" > "donor-bakeoff-status/$REPO.json"
+              continue
             fi
+            API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+            submit=$(curl -sS --connect-timeout 5 --max-time 20 -o status-event.json -w '%{http_code}' \
+              -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              -d '{"data":[]}' "$API/gradio_api/call/status" || true)
+            echo "status submit HTTP $submit"
+            if [ "$submit" != "200" ]; then
+              echo "{\"studio\":\"$REPO\",\"status_submit\":\"$submit\"}" > "donor-bakeoff-status/$REPO.json"
+              continue
+            fi
+            event_id=$(python3 -c "import json;print(json.load(open('status-event.json')).get('event_id',''))" 2>/dev/null || true)
+            if [ -z "$event_id" ]; then
+              echo "{\"studio\":\"$REPO\",\"error\":\"missing status event id\"}" > "donor-bakeoff-status/$REPO.json"
+              continue
+            fi
+            code=$(curl -sS --connect-timeout 5 --max-time 30 -o status.sse -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+            echo "status poll HTTP $code"
+            python3 - "$REPO" status.sse "donor-bakeoff-status/$REPO.json" <<'PY'
+          import json,sys
+          repo,source,target=sys.argv[1:]
+          raw=open(source,encoding="utf-8",errors="replace").read() if __import__("os").path.exists(source) else ""
+          payload={"studio":repo,"status_sse":raw[-3000:]}
+          for line in raw.splitlines():
+              if not line.startswith("data:"): continue
+              try: value=json.loads(line[5:].strip())
+              except Exception: continue
+              vals=value if isinstance(value,list) else [value]
+              for item in vals:
+                  if isinstance(item,str):
+                      try: item=json.loads(item)
+                      except Exception: continue
+                  if isinstance(item,dict) and item.get("phase"):
+                      payload=item
+                      payload["studio"]=repo
+                      break
+          with open(target,"w",encoding="utf-8") as f: json.dump(payload,f,ensure_ascii=False,indent=2)
+          print(json.dumps(payload,ensure_ascii=False,indent=2))
+          PY
           done
-      - name: Upload ready-candidate smoke reports
+      - name: Upload read-only status snapshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: donor-bakeoff-ready-candidate-reports
-          path: donor-bakeoff-output/
+          name: donor-bakeoff-status-snapshot
+          path: donor-bakeoff-status/
           if-no-files-found: warn
           retention-days: 14

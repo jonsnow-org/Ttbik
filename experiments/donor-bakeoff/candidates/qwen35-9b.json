@@ -3,8 +3,9 @@
   "label": "Qwen3.5-9B — uncensored community checkpoint (Q4_K_M)",
   "repo_id": "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
   "filename": "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+  "mmproj_filename": "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
   "family": "Qwen3.5",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.63,
-  "purpose": "Arabic, code, tool-call smoke testing; text-only inference in the first pass."
+  "purpose": "Arabic, code, tool-call shape, image and video input tests. Audio is enabled only if the MTMD projector reports support."
 }
