@@ -40,10 +40,17 @@ jobs:
               -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
               -d '{"data":[]}' "$API/gradio_api/run/status" || true)
             echo "direct status HTTP $code"
-            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" <<'PY'
-          import json,sys,os
-          repo,code,source,target=sys.argv[1:]
+            python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json <<'PY'
+          import json,sys
+          repo,code,source,target,studio_source=sys.argv[1:]
           payload={"studio":repo,"status_http":code}
+          try:
+              studio=json.load(open(studio_source,encoding="utf-8"))
+              data=studio.get("data") or studio.get("Data") or studio
+              runtime=data.get("runtime") or {}
+              payload["studio_runtime"]=runtime.get("status") or data.get("status")
+          except Exception as exc:
+              payload["studio_lookup_error"]=str(exc)
           try:
               raw=json.load(open(source,encoding="utf-8"))
               vals=raw.get("data") if isinstance(raw,dict) else None

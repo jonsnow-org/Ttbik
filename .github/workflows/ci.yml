@@ -9,7 +9,7 @@ jobs:
   sham-media-cpu-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -23,13 +23,14 @@ jobs:
           python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
           python -m py_compile ai-system/supervision/sham_v2_media_smoke.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_media_ready.py ai-system/colab/sham_small/sham_toolcall.py
+          python -m py_compile experiments/donor-bakeoff/app.py
           python ai-system/colab/sham_small/sham_media_ready.py
           python ai-system/colab/sham_small/sham_intent.py
 
   nova-media-client-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -50,7 +51,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: placeholder
       NEXT_PUBLIC_SITE_URL: https://example.com
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -63,7 +64,7 @@ jobs:
     # runs in parallel with build; errors fail it, warnings (React-Compiler rules, <a>/<img> advice) do not: see eslint.config.mjs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -74,7 +75,7 @@ jobs:
   sham-v2-runtime-code-sync-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -84,7 +85,7 @@ jobs:
   sham-v2-regression-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v7
         with:
           node-version: 22
