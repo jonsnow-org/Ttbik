@@ -21,3 +21,10 @@ These are chat / multimodal-understanding candidates, not image/video diffusion 
 - `novaai2026/sham-donor-minicpmo45-test`
 
 Workflow: `.github/workflows/donor-bakeoff-modelscope.yml`.
+
+
+## Direct owner chat from the Nova Mini App
+
+The owner-only model switch has a separate candidate-test section. Selecting one candidate sends Mini App messages directly to that candidate's own private Studio chat endpoint, with separate persisted conversation history for each candidate. It does not change the selected production model, invoke the Nova agent, enter Sham v1/v2 routing, or fall back to another Studio.
+
+The candidate chat endpoint supports native user/assistant history and exposes proposed GitHub/Vercel function-call JSON for inspection. These tool schemas are not executed and no GitHub/Vercel credentials are sent to the candidate Studios. This first pass is text chat plus tool-call-shape inspection; image, audio, and video input/output are not wired in this round, including for MiniCPM-o 4.5.

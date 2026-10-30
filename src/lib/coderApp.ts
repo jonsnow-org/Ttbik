@@ -132,6 +132,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
+        // Selecting a production model explicitly exits donor test mode; candidate history stays separate.
+        st.donorTestModel = undefined;
         // Model switching changes routing only. Never import or copy the previous model's conversation.
         // Connectors belong to the user account and remain available to every permitted model.
       }
@@ -224,7 +226,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "stop": {
       const runId = String(body.runId || "");
       const requestedSlot = typeof body.slot === "string" ? body.slot : "";
-      if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot)) {
+      if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot) || requestedSlot.startsWith("donor:")) {
         const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
         const actualSlot = await taskSlot(runId, chatId, db);
         if (actualSlot !== requestedSlot) return { ok: false };
@@ -379,14 +381,27 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const text = String(body.text || "").trim();
       if (!text) throw new AppError(400, "empty");
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
-      { // the owner's per-model switch holds for the Mini App too
+      const stNow = await loadStateStrict(chatId, db);
+      if (stNow.donorTestModel) {
+        if (user.tier !== "owner") throw new AppError(403, "donor test is owner only");
+        const { startDonorTestAppTask } = await import("@/lib/coderSections");
+        try {
+          return {
+            ok: true,
+            ...(await startDonorTestAppTask(chatId, text, deps.botRow.id, db, deps.fetchImpl || globalThis.fetch)),
+            donorTest: stNow.donorTestModel,
+          };
+        } catch (e) {
+          throw new AppError(503, String((e as Error)?.message || "could not start direct donor test").slice(0, 500));
+        }
+      }
+      { // The ordinary production model's availability check is unchanged.
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
-        const stNow = await loadStateStrict(chatId, db);
         const verdict = ensureUsableModel(stNow, await listModels(db), user.tier === "owner");
         if (verdict === "blocked") throw new AppError(403, "model not available");
         if (verdict === "moved") await saveState(chatId, stNow, db);
       }
-      // Do not create a fake task row: start the actual background agent so progress, output, stop and history all refer to one run.
+      // Normal messages still use the existing Nova/Sham runner.
       const { startAppTask } = await import("@/lib/coderSections");
       try {
         return { ok: true, ...(await startAppTask(deps.bot, deps.botRow, chatId, text, db)) };
@@ -473,7 +488,49 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { listModels, publicModels, ownerModels } = await import("@/lib/coderModels");
       const st = await loadState(chatId, db);
       const all = await listModels(db);
-      return { models: publicModels(all, st.model), ...(user.tier === "owner" ? { owner: ownerModels(all, st.model) } : {}) };
+      return {
+        models: publicModels(all, st.model),
+        ...(user.tier === "owner" ? {
+          owner: ownerModels(all, st.model),
+          donorTests: (await import("@/lib/donorTests")).donorTestOptions(st.donorTestModel),
+          trialSelected: st.donorTestModel || null,
+        } : {}),
+      };
+    }
+    case "donor_test_select": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const id = String(body.id || "").trim();
+      const D = await import("@/lib/donorTests");
+      if (id && !D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
+      const st = await loadStateStrict(chatId, db);
+      st.donorTestModel = id ? id as import("@/lib/donorTests").DonorTestId : undefined;
+      await saveStateStrict(chatId, st, db);
+      return { ok: true, trialSelected: st.donorTestModel || null, productionModel: st.model || "coder" };
+    }
+    case "donor_test_status": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const D = await import("@/lib/donorTests");
+      return { statuses: await D.probeDonorTestStudios(deps.fetchImpl || globalThis.fetch) };
+    }
+    case "donor_test_history": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const st = await loadStateStrict(chatId, db);
+      const id = String(body.id || st.donorTestModel || "");
+      const D = await import("@/lib/donorTests");
+      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
+      return { id, messages: st.donorTestHistory?.[id] || [], inFlight: st.donorTestInFlight?.[id] || null };
+    }
+    case "donor_test_reset": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const st = await loadStateStrict(chatId, db);
+      const id = String(body.id || st.donorTestModel || "");
+      const D = await import("@/lib/donorTests");
+      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
+      const history = { ...(st.donorTestHistory || {}) };
+      delete history[id];
+      st.donorTestHistory = history;
+      await saveStateStrict(chatId, st, db);
+      return { ok: true, id };
     }
     case "pressure": {
       // the owner's load switch (src/lib/pressureMode.ts): read / set; owner only, decided here from the verified id

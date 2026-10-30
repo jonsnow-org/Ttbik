@@ -28,10 +28,11 @@ import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
-import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, taskIsActive, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
+import { DONOR_TESTS, donorTestChat, isDonorTestId, type DonorHistoryMessage, type DonorTestId } from "@/lib/donorTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -53,7 +54,7 @@ export type Run = {
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>> };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
 export type { Db };
 export { coderChatKey };
 
@@ -783,6 +784,100 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
   later(() => frontAck(bot, chatId, runId, content, "app", db));
   return { runId, queued: false };
+}
+
+/**
+ * Owner-only direct candidate test. Its selection, history and task slot are separate from
+ * the production model, Nova conversation, Sham v1 and Sham v2.
+ */
+export async function startDonorTestAppTask(
+  chatId: number,
+  text: string,
+  botId: string,
+  db: Db = prismaDb,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<{ runId: string; queued: boolean }> {
+  if (tierFor(chatId) !== "owner") throw new Error("اختبار المرشحين متاح للمالك فقط.");
+  const st = await loadStateStrict(chatId, db);
+  const id = st.donorTestModel;
+  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار مرشح للاختبار.");
+  if (!(process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim()) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
+  const previousRun = st.donorTestInFlight?.[id];
+  if (previousRun && await taskIsActive(previousRun, db)) {
+    throw new Error("هناك رسالة اختبار قيد التنفيذ لهذا المرشح. انتظر نتيجتها أولاً.");
+  }
+  const inFlight = { ...(st.donorTestInFlight || {}) };
+  delete inFlight[id];
+  const runId = "donor-" + id + "-" + randomUUID().slice(0, 8);
+  const history = (st.donorTestHistory?.[id] || []).slice(-12);
+  st.donorTestInFlight = { ...inFlight, [id]: runId };
+  await saveStateStrict(chatId, st, db);
+  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
+  await taskStart(chatId, {
+    runId,
+    slot: "donor:" + id,
+    source: "interactive",
+    title: "🧪 " + label + ": " + text.slice(0, 150),
+    botId,
+  }, db);
+  await taskEvent(runId, "info", "🧪 اختبار مباشر عبر استديو " + label + " المستقل. لا يوجد تحويل إلى Nova أو Sham عند الفشل.", db);
+  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl));
+  return { runId, queued: false };
+}
+
+async function runDonorTestTask(
+  chatId: number,
+  runId: string,
+  id: DonorTestId,
+  prompt: string,
+  prior: DonorHistoryMessage[],
+  db: Db,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
+  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
+  try {
+    await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
+    const result = await donorTestChat(id, prompt, prior, fetchImpl);
+    if (!(await taskIsActive(runId, db))) return;
+    const answer = String(result.text || "").trim();
+    const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
+    const historyAnswer = answer || (toolCalls.length ? JSON.stringify(toolCalls) : "");
+    const currentTurn: DonorHistoryMessage[] = [
+      ...prior,
+      { role: "user" as const, content: prompt.slice(0, 12_000) },
+      { role: "assistant" as const, content: historyAnswer },
+    ];
+    const stored: DonorHistoryMessage[] = currentTurn.filter((x) => Boolean(x.content)).slice(-16);
+    const st = await loadStateStrict(chatId, db);
+    if (st.donorTestInFlight?.[id] === runId) {
+      st.donorTestHistory = { ...(st.donorTestHistory || {}), [id]: stored };
+      const active = { ...(st.donorTestInFlight || {}) };
+      delete active[id];
+      st.donorTestInFlight = active;
+      await saveStateStrict(chatId, st, db);
+    }
+    if (answer) for (const piece of splitForTelegram(answer, 3600)) await taskEvent(runId, "text", piece, db);
+    if (toolCalls.length) {
+      await taskEvent(runId, "info", "استدعاءات أدوات مقترحة فقط (لم تُنفّذ): " + JSON.stringify(toolCalls).slice(0, 1800), db);
+    }
+    await taskEvent(runId, "info", "⏱ " + (result.seconds ?? "—") + "ث · " + (result.tokens_per_second ?? "—") + " token/s · " + toolCalls.length + " tool call(s) مقترحة", db);
+    await taskEvent(runId, "done", "اكتمل الرد من " + label + ".", db);
+    await taskStatus(runId, "done", undefined, db);
+  } catch (error) {
+    const message = String((error as Error)?.message || error).slice(0, 700);
+    await taskEvent(runId, "failed", "تعذّر الاتصال بمرشح " + label + ": " + message, db);
+    await taskStatus(runId, "failed", undefined, db);
+  } finally {
+    clearInterval(heartbeat);
+    const st = await loadState(chatId, db);
+    if (st.donorTestInFlight?.[id] === runId) {
+      const active = { ...(st.donorTestInFlight || {}) };
+      delete active[id];
+      st.donorTestInFlight = active;
+      await saveState(chatId, st, db);
+    }
+  }
 }
 
 /** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */

@@ -53,6 +53,31 @@ describe("mini app api", () => {
     await expect(appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "nova_pro" }, { db, bot, botRow })).rejects.toBeInstanceOf(AppError);     // removed: not even the owner can pick it
   });
 
+  it("donor candidates are owner-only and keep production model/history settings untouched", async () => {
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    const owner = { chatId: OWNER, tier: "owner" as const };
+    const user = { chatId: USER, tier: "user" as const };
+    const before = await loadState(OWNER, db);
+    await expect(appOp(user, "donor_test_select", { id: "qwen35-9b" }, { db, bot, botRow })).rejects.toMatchObject({ status: 403 });
+    const selected = await appOp(owner, "donor_test_select", { id: "qwen35-9b" }, { db, bot, botRow });
+    expect(selected).toMatchObject({ ok: true, trialSelected: "qwen35-9b", productionModel: "coder" });
+    const after = await loadState(OWNER, db);
+    expect(after.donorTestModel).toBe("qwen35-9b");
+    expect(after.model).toBe(before.model);
+    expect(after.mode).toBe(before.mode);
+    const ownerModels = await appOp(owner, "models", {}, { db, bot, botRow });
+    expect(ownerModels.donorTests.map((x: any) => x.id)).toEqual(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
+    expect(ownerModels.donorTests.find((x: any) => x.selected)?.id).toBe("qwen35-9b");
+    const publicModels = await appOp(user, "models", {}, { db, bot, botRow });
+    expect(publicModels.donorTests).toBeUndefined();
+    await appOp(owner, "settings", { model: "coder" }, { db, bot, botRow });
+    expect((await loadState(OWNER, db)).donorTestModel).toBeUndefined();
+    await appOp(owner, "donor_test_select", { id: "gemma4-e4b" }, { db, bot, botRow });
+    await appOp(owner, "donor_test_reset", { id: "gemma4-e4b" }, { db, bot, botRow });
+    expect((await loadState(OWNER, db)).donorTestHistory?.["gemma4-e4b"]).toBeUndefined();
+  });
+
   it("policy rules: set, scope, reset", async () => {
     const db = fakeDb();
     const { bot } = fakeBot();
