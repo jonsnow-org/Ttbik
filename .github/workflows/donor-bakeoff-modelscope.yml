@@ -71,7 +71,7 @@ jobs:
           curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" > account.json
           curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
           python3 - <<'PY' >> "$GITHUB_ENV"
-          import json,re
+          import json,re,sys
           raw=json.load(open("hardware.json",encoding="utf-8"))
           items=raw.get("data") or raw.get("Data") or raw.get("items") or []
           if isinstance(items,dict):
@@ -97,7 +97,7 @@ jobs:
           best=max(free,key=lambda x:(x[0],x[1]))
           print("HW="+best[2])
           print("HW_MEM_GB="+str(best[0]))
-          print("Available free CPU Studio hardware: "+json.dumps([{"name":n,"memory_gb":m,"vcpus":c} for m,c,n in free]))
+          print("Available free CPU Studio hardware: "+json.dumps([{"name":n,"memory_gb":m,"vcpus":c} for m,c,n in free]),file=sys.stderr)
           PY
           echo "ModelScope account authenticated; token and account identifiers were not printed."
       - name: Create or safely upgrade only this private candidate Studio
