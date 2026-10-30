@@ -868,7 +868,7 @@ def _run_one(test: dict) -> dict:
             test["prompt"],
             max_tokens=test["max_tokens"],
             temperature=test["temperature"],
-            use_tools=bool(test.get("tool")),
+            use_tools=bool(test.get("tool") or test.get("tools")),
             image_path=image_path,
             audio_path=audio_path,
             video_path=video_path,
@@ -883,7 +883,20 @@ def _run_one(test: dict) -> dict:
             item.get("name") for item in executed
             if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
         }
-        tool_ok = all(name in executed_names for name in expected_tools) if expected_tools else True
+        expected_args = {
+            "github_repo_scan": {"repo": "jonsnow-org/Ttbik"},
+            "vercel_deployment_status": {"project": "ttbik"},
+        }
+        def executed_ok(name):
+            for item in executed:
+                if not isinstance(item, dict) or item.get("name") != name:
+                    continue
+                result_data = item.get("result") if isinstance(item.get("result"), dict) else {}
+                args_data = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
+                if result_data.get("ok") is True and all(args_data.get(k) == v for k, v in expected_args.get(name, {}).items()):
+                    return True
+            return False
+        tool_ok = all(executed_ok(name) for name in expected_tools) if expected_tools else True
         arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
         letters = len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
         refusal = bool(re.search(
@@ -891,8 +904,8 @@ def _run_one(test: dict) -> dict:
             text,
             flags=re.I,
         ))
-        if expected_tool:
-            passed = tool_ok
+        if expected_tools:
+            passed = tool_ok and bool(text.strip())
         elif test["id"] == "arabic":
             passed = arabic_chars >= 35 and not refusal
         elif test["id"] == "reasoning_visibility":
@@ -900,8 +913,6 @@ def _run_one(test: dict) -> dict:
             passed = bool(text.strip()) and arabic_chars >= 8 and not leaked
         elif test["id"] == "code":
             passed = ("def " in text or "def\t" in text) and "assert " in text and not refusal
-        elif expected_tools:
-            passed = tool_ok and bool(text.strip())
         elif media_kind:
             # This checks media ingestion + model completion only; semantic quality
             # still requires review against the rendered media in the private Studio.
@@ -953,8 +964,11 @@ def _format_chat_history(history: list[dict], result: dict, attachments: list[st
         user_content += f"\n[مرفق: {user_label}]"
     transcript.append({"role": "user", "content": user_content})
     assistant_text = result.get("text") or result.get("error") or "(لم يصل رد نصي)"
+    executed = result.get("executed_tools") or []
+    if executed:
+        assistant_text += "\n\nأدوات نفذها المرشح داخل بيئة الاختبار (قراءة فقط):\n" + json.dumps(executed, ensure_ascii=False, indent=2)
     if result.get("tool_calls"):
-        assistant_text += "\n\nاستدعاءات أدوات مقترحة (لم تُنفّذ):\n" + json.dumps(result["tool_calls"], ensure_ascii=False, indent=2)
+        assistant_text += "\n\nاستدعاءات أدوات بقيت دون تنفيذ بعد بلوغ حد الجولات:\n" + json.dumps(result["tool_calls"], ensure_ascii=False, indent=2)
     transcript.append({"role": "assistant", "content": assistant_text})
     return transcript[-24:]
 
@@ -976,6 +990,7 @@ def chat_with_media(prompt, image_path, audio_path, video_path, history):
     summary = {
         "text": result.get("text"),
         "tool_calls": result.get("tool_calls"),
+        "executed_tools": result.get("executed_tools"),
         "media_attached": result.get("media_attached"),
         "seconds": result.get("seconds"),
         "tokens_per_second": result.get("tokens_per_second"),
