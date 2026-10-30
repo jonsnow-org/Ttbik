@@ -177,12 +177,20 @@ def status() -> str:
         }
     return json.dumps(payload, ensure_ascii=False)
 
-def infer(prompt: str, max_tokens: int = 256, temperature: float = 0.2, use_tools: bool = False) -> dict:
+def infer(prompt: str, max_tokens: int = 256, temperature: float = 0.2, use_tools: bool = False, history: list | None = None) -> dict:
     model, phase, error = get_model()
     if phase != "ready" or model is None:
         return {"error": f"Model not ready: {phase}", "detail": error}
+    messages = []
+    for item in (history or [])[-12:]:
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            messages.append({"role": item["role"], "content": content[:4000]})
+    messages.append({"role": "user", "content": str(prompt)[:12000]})
     options = {
-        "messages": [{"role": "user", "content": str(prompt)[:12000]}],
+        "messages": messages,
         "max_tokens": int(max(16, min(max_tokens, 768))),
         "temperature": float(max(0.0, min(temperature, 1.2))),
         "top_p": 0.9,
@@ -283,10 +291,17 @@ def smoke_suite() -> str:
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
-def chat_ui(prompt: str) -> str:
+def chat_ui(prompt: str, history_json: str = "[]", use_tools: bool = True) -> str:
     if not str(prompt or "").strip():
-        return "اكتب سؤالاً للاختبار."
-    return json.dumps(infer(prompt), ensure_ascii=False, indent=2)
+        return json.dumps({"text": "اكتب سؤالاً للاختبار.", "tool_calls": []}, ensure_ascii=False)
+    try:
+        history = json.loads(history_json or "[]")
+        if not isinstance(history, list):
+            history = []
+    except Exception:
+        history = []
+    result = infer(prompt, history=history, use_tools=bool(use_tools))
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 demo = gr.Blocks(title="Isolated Donor Bake-off")
 with demo:
@@ -306,9 +321,11 @@ with demo:
     suite_box = gr.Textbox(label="تقرير الاختبار", lines=25, interactive=False)
     run_all.click(smoke_suite, inputs=[], outputs=suite_box, api_name="smoke_suite")
     prompt_box = gr.Textbox(label="رسالة اختبار حرة", lines=4, placeholder="اكتب بالعربية أو اطلب كوداً.")
+    history_box = gr.Textbox(label="سياق المرشح", value="[]", visible=False)
+    tools_box = gr.Checkbox(label="مخطط استدعاء الأدوات (دون تنفيذ)", value=True, visible=False)
     chat_btn = gr.Button("اختبار رد النموذج")
-    chat_output = gr.Textbox(label="الرد وقياس السرعة", lines=12, interactive=False)
-    chat_btn.click(chat_ui, inputs=prompt_box, outputs=chat_output, api_name="chat")
+    chat_output = gr.Textbox(label="الرد وقياس السرعة واستدعاءات الأدوات المقترحة", lines=12, interactive=False)
+    chat_btn.click(chat_ui, inputs=[prompt_box, history_box, tools_box], outputs=chat_output, api_name="chat")
     demo.load(status, inputs=[], outputs=state_box)
 
 threading.Thread(target=load_model, daemon=True, name="donor-model-loader").start()
