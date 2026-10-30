@@ -362,6 +362,21 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
+    if (data.startsWith("model_pick|")) {
+      const id = data.slice("model_pick|".length);
+      const state = await loadStateStrict(chatId, db);
+      const models = await listModels(db);
+      if (!chooseModel(state, models, id, owner)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      state.donorTestModel = undefined;
+      await saveStateStrict(chatId, state, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
+      const selected = models.find((m) => m.id === id);
+      await send(bot, chatId, "✅ النموذج المحدد: " + (selected?.name.ar || id) + ". كل الرسائل التالية ستذهب إلى مساره فقط، دون تحويلها إلى نموذج آخر.");
+      return true;
+    }
     if (data.startsWith("donor_model|")) {
       if (!owner) {
         await bot.api.answerCallbackQuery(cq.id, { text: "اختبار المرشحين متاح للمالك فقط.", show_alert: true }).catch(() => null);
@@ -455,16 +470,15 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   if (cmd === "/model" || cmd === "/models") {
-    if (tierFor(chatId) !== "owner") {
-      await send(bot, chatId, "اختبار المرشحين متاح للمالك فقط.");
-      return true;
+    const ownerOnly = tierFor(chatId) === "owner";
+    const models = await listModels(db);
+    const available = models.filter((m) => modelUsableBy(m, ownerOnly));
+    const keyboard = new InlineKeyboard();
+    for (const model of available) {
+      const label = model.name.ar + (model.ownerOnly ? " · خاص" : "");
+      keyboard.text((st.model || "coder") === model.id ? "✓ " + label : label, "model_pick|" + model.id).row();
     }
-    const keyboard = new InlineKeyboard()
-      .text("Qwen3.5-9B", "donor_model|qwen35-9b").row()
-      .text("Gemma 4 E4B", "donor_model|gemma4-e4b").row()
-      .text("MiniCPM-o 4.5", "donor_model|minicpmo45").row()
-      .text("↩️ العودة إلى النموذج المعتاد", "donor_model|off");
-    await send(bot, chatId, "🧪 اختر مرشح الاختبار. بعد الاختيار، أرسل رسالتك هنا في محادثة البوت نفسها.", { reply_markup: keyboard });
+    await send(bot, chatId, "🤖 اختر النموذج الرئيسي. كل اختيار يوجّه الرسائل إلى مساره الخاص فقط.", { reply_markup: keyboard });
     return true;
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
@@ -514,8 +528,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
-  if (st.donorTestModel && owner && isDonorTestId(st.donorTestModel)) {
-    const donorId = st.donorTestModel;
+  if (owner && (isDonorTestId(st.model || "") || (st.donorTestModel && isDonorTestId(st.donorTestModel)))) {
+    const donorId = isDonorTestId(st.model || "") ? st.model as DonorTestId : st.donorTestModel!;
     if (cmd === "/start" || cmd === "/help") {
       await send(bot, chatId, "🧪 وضع اختبار المرشح نشط: " + (DONOR_TESTS.find((x) => x.id === donorId)?.name.ar || donorId) + ". رسائلك هنا تصل إلى هذا المرشح فقط. أرسل /models لتغيير المرشح.");
       return true;
@@ -528,7 +542,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       }
       const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
       const actualSlot = await taskSlot(runId, chatId, db);
-      if (actualSlot !== "donor:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
+      if (actualSlot !== "model:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
         await send(bot, chatId, "تعذّر إيقاف الطلب؛ ربما اكتمل بالفعل.");
         return true;
       }
@@ -828,6 +842,12 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
 
+  // Each ModelScope candidate has its own terminal adapter and private Studio session.
+  if (isDonorTestId(st.model || "")) {
+    if (tierFor(chatId) !== "owner") throw new Error("candidate models are owner-only");
+    return startDonorTestTelegramTask(bot, chatId, content, botRow.id, undefined, db, globalThis.fetch, "app");
+  }
+
   // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
   if (st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") {
     const known = await listModels(db);
@@ -885,10 +905,11 @@ export async function startDonorTestTelegramTask(
   media?: DonorTestMedia,
   db: Db = prismaDb,
   fetchImpl: typeof fetch = globalThis.fetch,
+  surface: "telegram" | "app" = "telegram",
 ): Promise<{ runId: string; queued: boolean }> {
   if (tierFor(chatId) !== "owner") throw new Error("اختبار المرشحين متاح للمالك فقط.");
   const st = await loadStateStrict(chatId, db);
-  const id = st.donorTestModel;
+  const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
   if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار مرشح للاختبار.");
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
@@ -909,14 +930,14 @@ export async function startDonorTestTelegramTask(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   await taskStart(chatId, {
     runId,
-    slot: "donor:" + id,
+    slot: "model:" + id,
     source: "interactive",
     title: "🧪 " + label + ": " + text.slice(0, 150),
     botId,
   }, db);
   await taskEvent(runId, "info", "🧪 رسالة تيليغرام متجهة مباشرة إلى " + label + " فقط.", db);
-  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media));
-  void bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media, surface));
+  if (surface === "telegram") void bot.api.sendChatAction(chatId, "typing").catch(() => null);
   return { runId, queued: false };
 }
 
@@ -930,9 +951,10 @@ async function runDonorTestTask(
   fetchImpl: typeof fetch,
   bot?: TelegramBot,
   media?: DonorTestMedia,
+  surface: "telegram" | "app" = "telegram",
 ): Promise<void> {
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  const typing = bot ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
+  const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
@@ -962,7 +984,7 @@ async function runDonorTestTask(
     if (answer) {
       for (const piece of splitForTelegram(answer, 3600)) {
         await taskEvent(runId, "text", piece, db);
-        if (bot) await bot.api.sendMessage(chatId, piece).catch(() => null);
+        if (bot && surface === "telegram") await bot.api.sendMessage(chatId, piece).catch(() => null);
       }
     }
     if (executedTools.length) {
@@ -1004,12 +1026,12 @@ async function runDonorTestTask(
       });
       const note = "🧪 سجل تنفيذ الأدوات داخل الاستوديو المعزول (قراءة عامة فقط):\n" + auditLines.join("\n");
       await taskEvent(runId, "info", note.slice(0, 3500), db);
-      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
+      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
     }
     if (toolCalls.length) {
       const note = "⏸ استدعاءات بقيت دون تنفيذ بعد حد جولات الأدوات: " + JSON.stringify(toolCalls).slice(0, 1500);
       await taskEvent(runId, "info", note, db);
-      if (bot) await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
+      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
     }
     await taskEvent(
       runId,
@@ -1025,7 +1047,7 @@ async function runDonorTestTask(
     const notice = "تعذّر الاتصال بمرشح " + label + ": " + message + " لم يتم تحويل الطلب إلى نموذج آخر.";
     await taskEvent(runId, "failed", notice, db);
     await taskStatus(runId, "failed", undefined, db);
-    if (bot) await bot.api.sendMessage(chatId, notice).catch(() => null);
+    if (bot && surface === "telegram") await bot.api.sendMessage(chatId, notice).catch(() => null);
   } finally {
     clearInterval(heartbeat);
     if (typing) clearInterval(typing);
