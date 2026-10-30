@@ -82,8 +82,8 @@ async function readSse(response: Response, maxBytes = 4_000_000): Promise<string
 
 function sseValues(raw: string): unknown[] {
   const out: unknown[] = [];
-  for (const block of raw.split(/\\r?\\n\\r?\\n/)) {
-    for (const line of block.split(/\\r?\\n/)) {
+  for (const block of raw.split(/\r?\n\r?\n/)) {
+    for (const line of block.split(/\r?\n/)) {
       if (!line.startsWith("data:")) continue;
       try { out.push(JSON.parse(line.slice(5).trim())); } catch { /* ignore heartbeat */ }
     }
@@ -126,10 +126,10 @@ function findMeta(value: unknown): Record<string, any> | null {
 }
 
 function validateImagePrompt(prompt: string): void {
-  const minor = /\\b(?:child|children|minor|underage|teen|teenager|schoolgirl|schoolboy|loli|shota)\\b|طفل|طفلة|قاصر|قاصرة|مراهق|مراهقة|تلميذ|تلميذة/iu;
-  const sexual = /\\b(?:nude|naked|nudity|sex|sexual|erotic|porn|explicit|undress)\\b|عاري|عارية|تعري|جنس|جنسي|إباحي|إباحية/iu;
-  const nonconsensual = /\\b(?:non[- ]consensual|without consent|revenge porn|deepfake|undress (?:her|him|them)|make (?:her|him|them) naked)\\b|بدون موافقة|دون موافقة|صور حميمة مسربة|تعرية شخص|انتهاك الخصوصية/iu;
-  const realPerson = /\\b(?:real person|celebrity|public figure|my ex|my wife|my girlfriend|my colleague|my coworker)\\b|شخص حقيقي|شخصية عامة|مشهور|مشاهير|زوجتي|زوجة|طليقتي|حبيبتي|زميلتي|زميلي/iu;
+  const minor = /\b(?:child|children|minor|underage|teen|teenager|schoolgirl|schoolboy|loli|shota)\b|طفل|طفلة|قاصر|قاصرة|مراهق|مراهقة|تلميذ|تلميذة/iu;
+  const sexual = /\b(?:nude|naked|nudity|sex|sexual|erotic|porn|explicit|undress)\b|عاري|عارية|تعري|جنس|جنسي|إباحي|إباحية/iu;
+  const nonconsensual = /\b(?:non[- ]consensual|without consent|revenge porn|deepfake|undress (?:her|him|them)|make (?:her|him|them) naked)\b|بدون موافقة|دون موافقة|صور حميمة مسربة|تعرية شخص|انتهاك الخصوصية/iu;
+  const realPerson = /\b(?:real person|celebrity|public figure|my ex|my wife|my girlfriend|my colleague|my coworker)\b|شخص حقيقي|شخصية عامة|مشهور|مشاهير|زوجتي|زوجة|طليقتي|حبيبتي|زميلتي|زميلي/iu;
   if (minor.test(prompt) && sexual.test(prompt)) {
     throw new Error("لا يمكن إرسال طلب يصوّر قاصراً أو شخصاً يبدو قاصراً في سياق جنسي.");
   }
@@ -239,11 +239,11 @@ async function postImage(
   if (!image) throw new Error("أكمل الاستديو الطلب دون إعادة ملف الصورة.");
   let fileUrl: string;
   const filePath = String(image.path || image.url || "");
-  if (/^https?:\\/\\//i.test(filePath)) {
+  if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
     fileUrl = filePath;
   } else {
-    const normalized = filePath.startsWith("/") ? filePath : "/" + filePath;
-    fileUrl = base + "/gradio_api/file=" + encodeURIComponent(normalized).replace(/%2F/gi, "/");
+    const normalized = filePath.startsWith("/gradio_api/file=") ? filePath : filePath.startsWith("/") ? filePath : "/" + filePath;
+    fileUrl = base + (normalized.startsWith("/gradio_api/file=") ? normalized : "/gradio_api/file=" + encodeURIComponent(normalized).replace(/%2F/gi, "/"));
   }
   const downloaded = await fetchImpl(fileUrl, {
     headers: { Authorization: "Bearer " + token },
@@ -389,27 +389,20 @@ function cryptoRandomId(): string {
     || Math.random().toString(36).slice(2, 12);
 }
 
-type ImageTestState = {
+type ImageTestState = Record<string, any> & {
   imageTestModel?: ImageGenerationTestId;
   imageTestInFlight?: Partial<Record<ImageGenerationTestId, string>>;
 };
 
 async function loadImageTestState(chatId: number, db: Db): Promise<ImageTestState> {
-  const rows = await db.query<{ state: Record<string, any> }>(
-    "SELECT state FROM coder_chat_state WHERE chat_key = (SELECT \"tgc:\" || substr(encode(digest(($1::text), 'sha256'), 'hex'), 1, 32))",
-    chatId,
-  ).catch(() => []);
-  // The bot state key includes the configured salt; use the shared state helpers below instead.
-  void rows;
   const { loadStateStrict } = await import("@/lib/coderSections");
   return await loadStateStrict(chatId, db) as ImageTestState;
 }
 
 async function saveImageTestState(chatId: number, state: ImageTestState, db: Db): Promise<void> {
   const { saveStateStrict } = await import("@/lib/coderSections");
-  await saveStateStrict(chatId, state as never, db);
+  await saveStateStrict(chatId, state as any, db);
 }
-
 export function isImageGenerationTestId(value: string): value is ImageGenerationTestId {
   return IMAGE_GENERATION_TESTS.some((item) => item.id === value);
 }
