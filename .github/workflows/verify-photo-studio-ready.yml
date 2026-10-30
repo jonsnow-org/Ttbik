@@ -1,0 +1,95 @@
+name: "Verify Realistic Vision Studio ready after deployment"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/verify-photo-studio-ready.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify live Studio runtime and Gradio loader status (read-only)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time
+          import requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/realistic-vision-v6-test"
+          inference="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          headers={"Authorization":"Bearer "+token}
+          phase=""
+          for attempt in range(10):
+              info=api.get_repo(repo,"studio")
+              runtime=getattr(info,"runtime",None) or {}
+              status=str(runtime.get("status") or "")
+              print("STUDIO_RUNTIME",attempt+1,json.dumps(runtime,ensure_ascii=False))
+              if status.lower()=="running":
+                  try:
+                      r=requests.get(inference+"/gradio_api/info",headers=headers,timeout=20)
+                      print("GRADIO_INFO_HTTP",r.status_code, r.text[:800])
+                      if r.status_code==200:
+                          start=requests.post(inference+"/gradio_api/call/status",
+                              headers=headers,json={"data":[]},timeout=30)
+                          print("STATUS_POST_HTTP",start.status_code,start.text[:1000])
+                          if start.status_code==200:
+                              event=start.json().get("event_id")
+                              if event:
+                                  poll=requests.get(inference+"/gradio_api/call/status/"+event,
+                                      headers=headers,timeout=90)
+                                  print("STATUS_GET_HTTP",poll.status_code)
+                                  print("STATUS_GET_BODY",poll.text[:5000])
+                                  values=[]
+                                  def walk(v):
+                                      if isinstance(v,dict):
+                                          if isinstance(v.get("phase"),str): values.append(v["phase"])
+                                          for x in v.values(): walk(x)
+                                      elif isinstance(v,list):
+                                          for x in v: walk(x)
+                                      elif isinstance(v,str):
+                                          try: walk(json.loads(v))
+                                          except Exception: pass
+                                  for line in poll.text.splitlines():
+                                      line=line.strip()
+                                      if line.startswith("data:"):
+                                          try: walk(json.loads(line.split(":",1)[1].strip()))
+                                          except Exception: pass
+                                  phase=values[-1] if values else ""
+                                  print("MODEL_LOADER_PHASE",phase or "not-reported")
+                                  if phase=="ready":
+                                      print("READY_CHECK=SUCCESS")
+                                      break
+                                  if phase=="error":
+                                      print("READY_CHECK=MODEL_LOAD_ERROR")
+                                      break
+                  except Exception as exc:
+                      print("INFERENCE_PROBE_ERROR",type(exc).__name__,str(exc)[:500])
+              time.sleep(20)
+
+          print("FINAL_PHASE",phase or "not-reported")
+          print("RUN_LOGS_BEGIN")
+          try:
+              logs=api.get_repo_logs(repo,log_type="run",page_size=100)
+              print(json.dumps(logs,ensure_ascii=False)[-12000:])
+          except Exception as exc:
+              print("RUN_LOGS_ERROR",type(exc).__name__,str(exc)[:500])
+          print("RUN_LOGS_END")
+          if phase!="ready":
+              raise SystemExit("The Studio is not yet verified ready; no image generation was started.")
+          PY
