@@ -224,12 +224,47 @@ jobs:
                 if [ -n "$ev" ]; then
                   out=$(curl -sS --connect-timeout 10 --max-time 90 \
                     -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true)
-                  if printf '%s' "$out" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"ready"'; then
+                  phase=$(STATUS_RESPONSE="$out" python - <<'PY'
+          import json, os
+          raw=os.environ.get("STATUS_RESPONSE","")
+          found=[]
+          def visit(value):
+              if isinstance(value, dict):
+                  if isinstance(value.get("phase"), str):
+                      found.append(value["phase"])
+                  for child in value.values():
+                      visit(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      visit(child)
+              elif isinstance(value, str):
+                  try:
+                      visit(json.loads(value))
+                  except Exception:
+                      pass
+          for line in raw.splitlines():
+              line=line.strip()
+              if line.startswith("data:"):
+                  payload=line.split(":",1)[1].strip()
+                  try:
+                      visit(json.loads(payload))
+                  except Exception:
+                      pass
+          if not found:
+              try:
+                  visit(json.loads(raw))
+              except Exception:
+                  pass
+          print(found[-1] if found else "")
+          PY
+          )
+                  echo "model-loader phase: ${phase:-not-reported}"
+                  if [ "$phase" = "ready" ]; then
                     echo "$out" | tail -c 4000
                     ready=1
                     break
                   fi
-                  if printf '%s' "$out" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"error"'; then
+                  if [ "$phase" = "error" ]; then
                     echo "$out" | tail -c 4000
                     echo "::error::Studio launched but rejected or failed to load checkpoint/VAE."
                     curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO_REPO/logs/run" | tail -c 7000 || true
