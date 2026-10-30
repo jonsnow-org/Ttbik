@@ -958,7 +958,7 @@ async function runDonorTestTask(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, media, fetchImpl);
+    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db });
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
