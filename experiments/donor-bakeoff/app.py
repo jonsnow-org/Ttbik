@@ -26,10 +26,11 @@ from pathlib import Path, PurePosixPath
 import gradio as gr
 import requests
 from huggingface_hub import hf_hub_download
+from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r6"
+APP_REVISION = "donor-bakeoff-2026-10-30-r7"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -152,7 +153,7 @@ TESTS = [
     {
         "id": "vercel_tool",
         "label": "مخطط أداة Vercel",
-        "prompt": "تحقق من إتاحة الموقع العام للمشروع ttbik عبر أداة vercel_deployment_status. استدعِ الأداة واستخدم نتيجة الفحص الفعلية، ولا تخمّن.",
+        "prompt": "تحقق من حالة آخر نشر Vercel لمشروع ttbik عبر أداة vercel_deployment_status. استدعِ الأداة واستخدم نتيجة الفحص الفعلية، ولا تخمّن.",
         "tool": "vercel_deployment_status",
         "max_tokens": 160,
         "temperature": 0.0,
@@ -160,7 +161,7 @@ TESTS = [
     {
         "id": "multi_step_tools",
         "label": "مهمة متعددة الخطوات عبر الأدوات",
-        "prompt": "نفّذ المهمة على مرحلتين: استخدم github_repo_scan لفحص جذر المستودع jonsnow-org/Ttbik، ثم استخدم vercel_deployment_status لفحص الموقع العام ttbik. بعد وصول نتيجتي الأداتين، اكتب ملخصاً عربياً يذكر نتيجة كل فحص وثلاثة أسماء ملفات حقيقية من المستودع. لا تخمّن أي نتيجة.",
+        "prompt": "نفّذ المهمة على مرحلتين: استخدم github_repo_scan لفحص جذر المستودع jonsnow-org/Ttbik، ثم استخدم vercel_deployment_status لقراءة حالة فحص Vercel على أحدث commit. بعد وصول نتيجتي الأداتين، اكتب ملخصاً عربياً يذكر نتيجة كل فحص وثلاثة أسماء ملفات حقيقية من المستودع. لا تخمّن أي نتيجة.",
         "tools": ["github_repo_scan", "vercel_deployment_status"],
         "max_tokens": 300,
         "temperature": 0.0,
@@ -168,7 +169,7 @@ TESTS = [
     {
         "id": "long_multistep_repo",
         "label": "مهمة طويلة متعددة المراحل: بحث وقراءة ملفات وتحليل",
-        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، ونتيجة فحص الموقع مع التنبيه أن فحص HTTP ليس حالة النشر من لوحة Vercel. لا تخمّن ولا تكرر طلبي.",
+        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي.",
         "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
         "max_tokens": 760,
         "temperature": 0.0,
@@ -580,40 +581,7 @@ def _build_user_content(prompt: str, image_path=None, audio_path=None, video_pat
     return (parts if len(parts) > 1 else str(prompt or "")), labels
 
 def _parse_tool_calls(message: dict) -> list[dict]:
-    calls = []
-    for call in (message.get("tool_calls") or []):
-        fn = call.get("function") or {}
-        args = fn.get("arguments") or {}
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except json.JSONDecodeError:
-                args = {"_invalid_json": args}
-        calls.append({"name": fn.get("name"), "arguments": args})
-    content = str(message.get("content") or "")
-    for match in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", content, flags=re.S):
-        try:
-            item = json.loads(match.group(1))
-            if isinstance(item, dict) and item.get("name"):
-                calls.append({
-                    "name": str(item.get("name")),
-                    "arguments": item.get("arguments") if isinstance(item.get("arguments"), dict) else {},
-                })
-        except Exception:
-            continue
-    if calls:
-        return calls
-    for match in re.finditer(r"<function=([^>\n]+)>\s*(.*?)</function>", content, flags=re.S):
-        name, body = match.group(1).strip(), match.group(2)
-        args = {}
-        for param in re.finditer(r"<parameter=([^>\n]+)>\s*(.*?)\s*</parameter>", body, flags=re.S):
-            key, value = param.group(1).strip(), param.group(2).strip()
-            try:
-                args[key] = json.loads(value)
-            except Exception:
-                args[key] = value
-        calls.append({"name": name, "arguments": args})
-    return calls
+    return parse_tool_calls(message)
 
 def _execute_tool(name: str, arguments: dict) -> dict:
     """Execute only explicitly allowlisted, read-only tools inside this private Studio."""
@@ -704,29 +672,38 @@ def _execute_tool(name: str, arguments: dict) -> dict:
         project = str(arguments.get("project") or "").strip().lower()
         if project != "ttbik":
             return {"ok": False, "error": "Only the configured public project ttbik is available in this read-only test."}
-        url = "https://ttbik.vercel.app/"
-        response = requests.get(
-            url,
-            headers={"User-Agent": "Sham-Donor-Benchmark"},
-            timeout=(8, 25),
-            allow_redirects=True,
-            stream=True,
-        )
-        try:
-            final_host = response.url.split("/", 3)[2].lower()
-            if final_host != "ttbik.vercel.app" and not final_host.endswith(".vercel.app"):
-                return {"ok": False, "error": "The public-site probe redirected outside Vercel."}
-            return {
-                "ok": response.status_code < 500,
-                "project": project,
-                "url": url,
-                "http_status": response.status_code,
-                "final_url": response.url,
-                "reachable": response.status_code < 500,
-                "check_type": "public_site_http_probe_not_vercel_control_plane",
-            }
-        finally:
-            response.close()
+        # ModelScope CPU Studios cannot reach arbitrary public sites. Read the
+        # actual Vercel status context emitted on GitHub's latest commit instead.
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "Sham-Donor-Benchmark"}
+        repo_url = "https://api.github.com/repos/jonsnow-org/Ttbik"
+        commits_response = requests.get(repo_url + "/commits", params={"per_page": 1}, headers=headers, timeout=(8, 20))
+        if commits_response.status_code != 200:
+            return {"ok": False, "error": "GitHub could not resolve the latest project commit.", "http_status": commits_response.status_code}
+        commits = commits_response.json()
+        if not isinstance(commits, list) or not commits or not isinstance(commits[0], dict):
+            return {"ok": False, "error": "GitHub returned no latest project commit."}
+        commit_sha = str(commits[0].get("sha") or "")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+            return {"ok": False, "error": "GitHub returned an invalid commit SHA."}
+        status_response = requests.get(repo_url + "/commits/" + commit_sha + "/status", headers=headers, timeout=(8, 20))
+        if status_response.status_code != 200:
+            return {"ok": False, "error": "Could not read the Vercel check on the latest commit.", "http_status": status_response.status_code}
+        combined = status_response.json()
+        statuses = combined.get("statuses") if isinstance(combined, dict) else []
+        vercel = next((x for x in (statuses or []) if isinstance(x, dict) and str(x.get("context") or "").strip().lower() == "vercel"), None)
+        if not vercel:
+            return {"ok": False, "project": project, "commit": commit_sha, "error": "The latest commit has no Vercel status check yet.", "check_type": "github_commit_status_from_vercel"}
+        state = str(vercel.get("state") or combined.get("state") or "pending").lower()
+        return {
+            "ok": state == "success",
+            "project": project,
+            "commit": commit_sha,
+            "state": state,
+            "description": str(vercel.get("description") or ""),
+            "target_url": str(vercel.get("target_url") or ""),
+            "updated_at": str(vercel.get("updated_at") or ""),
+            "check_type": "github_commit_status_from_vercel",
+        }
     return {"ok": False, "error": f"Tool is not allowlisted: {name}"}
 
 
@@ -803,13 +780,13 @@ def infer(
                     "content": json.dumps(tool_result, ensure_ascii=False)[:8000],
                 })
             assistant_content = str(choice.get("content") or "")
-            assistant_content = re.sub(r"<tool_call>\s*.*?</tool_call>", "", assistant_content, flags=re.S).strip()
+            assistant_content = strip_tool_call_markup(assistant_content)
             messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
             messages.extend(tool_results)
         elapsed = time.monotonic() - started
         output = str(choice.get("content") or "")
         if pending_calls or executed_tools:
-            output = re.sub(r"<tool_call>\s*.*?</tool_call>", "", output, flags=re.S).strip()
+            output = strip_tool_call_markup(output)
         return {
             "text": output,
             "tool_calls": pending_calls,
@@ -1057,7 +1034,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a public-site HTTP reachability probe; the Vercel probe is not control-plane deployment status. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
+        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a latest GitHub commit status emitted by the Vercel integration; the status is the Vercel GitHub check, not arbitrary Vercel control-plane settings. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
