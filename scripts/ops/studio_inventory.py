@@ -49,6 +49,13 @@ def pick(status: dict) -> dict:
         value = status.get(key)
         if isinstance(value, dict):
             out[key] = {str(k): bool(v) for k, v in value.items() if isinstance(v, (bool, int))}
+    resources = status.get("runtime_resources")
+    if isinstance(resources, dict):
+        resource_keys = ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree", "process_VmRSS", "process_VmHWM", "process_Threads")
+        out["runtime_resources"] = {
+            key: str(resources[key])[:40]
+            for key in resource_keys if key in resources and isinstance(resources[key], (str, int, float))
+        }
     ma = status.get("media_assets")
     if isinstance(ma, dict):
         out["media_assets_ready"] = bool(ma.get("ready"))  # retained for existing dashboards/tests
@@ -145,33 +152,45 @@ def app_status(name: str, token: str) -> tuple[int, dict]:
     return last_code, {}
 
 
+def studio_list_url(page_number: int, page_size: int = 50) -> str:
+    """ModelScope Studio listing uses page_number and a maximum page_size of 50."""
+    return (
+        f"{MS}/openapi/v1/studios?owner={OWNER}&status=all"
+        f"&page_number={page_number}&page_size={page_size}"
+    )
+
+
 def main() -> int:
     token = os.environ.get("MODELSCOPE_TOKEN", "")
     listed_set = set()
     code = 0
-    # The account can have more than 12 Studios; page through the API, not only this repository's static list.
-    for page in range(1, 21):
-        page_code, txt = _http(f"{MS}/openapi/v1/studios?owner={OWNER}&page={page}&page_size=100", token)
+    total_count = None
+    page_size = 50
+    # status=all includes sleeping Studios; status defaults to running in some account-list queries.
+    for page in range(1, 61):
+        page_code, txt = _http(studio_list_url(page, page_size), token)
         if page == 1:
             code = page_code
         if page_code != 200:
             break
         try:
             root = json.loads(txt)
-            data = root.get("data") or root.get("Data") or {}
-            items = data if isinstance(data, list) else (data.get("studios") or data.get("items") or data.get("list") or [])
+            # Unlike most ModelScope OpenAPI methods, GET /studios returns the collection at the top level.
+            items = root.get("studios") or []
+            if total_count is None:
+                total_count = int(root.get("total_count") or 0)
             page_names = {
                 str(item.get("repo_name") or item.get("name") or item.get("repo") or "").strip()
                 for item in items if isinstance(item, dict)
             } - {""}
             new_names = page_names - listed_set
             listed_set.update(new_names)
-            if len(items) < 100 or not new_names:
+            if not items or not new_names or len(listed_set) >= total_count > 0 or len(items) < page_size:
                 break
         except (ValueError, TypeError, AttributeError):
             break
     listed = sorted(listed_set)
-    print(f"studios listed by the API (http {code}): {listed}")
+    print(f"studios listed by the API (http {code}; total={total_count}): {listed}")
     names = sorted(set(KNOWN) | set(listed))
     for n in names:
         c, t = _http(f"{MS}/openapi/v1/studios/{OWNER}/{n}", token)
