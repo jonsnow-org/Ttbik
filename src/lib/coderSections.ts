@@ -843,11 +843,12 @@ async function runDonorTestTask(
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
     const historyAnswer = answer || (toolCalls.length ? JSON.stringify(toolCalls) : "");
-    const stored: DonorHistoryMessage[] = [
+    const currentTurn: DonorHistoryMessage[] = [
       ...prior,
-      { role: "user", content: prompt.slice(0, 12_000) },
-      { role: "assistant", content: historyAnswer },
-    ].filter((x) => x.content).slice(-16);
+      { role: "user" as const, content: prompt.slice(0, 12_000) },
+      { role: "assistant" as const, content: historyAnswer },
+    ];
+    const stored: DonorHistoryMessage[] = currentTurn.filter((x) => Boolean(x.content)).slice(-16);
     const st = await loadStateStrict(chatId, db);
     if (st.donorTestInFlight?.[id] === runId) {
       st.donorTestHistory = { ...(st.donorTestHistory || {}), [id]: stored };
