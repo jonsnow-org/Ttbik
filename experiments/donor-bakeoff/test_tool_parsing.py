@@ -30,9 +30,9 @@ class ToolParsingTests(unittest.TestCase):
 
     def test_minicpm_json_tool_call_with_surrounding_text(self):
         msg = {
-            "content": 'Use the requested function now.\\n<tool_call>\\n'
-                       '{"name":"github_repo_scan","arguments":{"repo":"example/repo"}}\\n'
-                       '</tool_call>\\n',
+            "content": 'Use the requested function now.\n<tool_call>\n'
+                       '{"name":"github_repo_scan","arguments":{"repo":"example/repo"}}\n'
+                       '</tool_call>\n',
         }
         self.assertEqual(
             parse_tool_calls(msg),
