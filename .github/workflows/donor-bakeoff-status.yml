@@ -41,7 +41,7 @@ jobs:
               -d '{"data":[]}' "$API/gradio_api/run/status" || true)
             echo "direct status HTTP $code"
             python3 - "$REPO" "$code" status-result.json "donor-bakeoff-status/$REPO.json" studio.json <<'PY'
-          import json,sys
+          import json,sys,os
           repo,code,source,target,studio_source=sys.argv[1:]
           payload={"studio":repo,"status_http":code}
           try:
