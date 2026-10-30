@@ -1,0 +1,57 @@
+name: "Inspect Realistic Vision live generation state"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/inspect-realistic-vision-now.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read live Studio state and run logs without restarting it
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time
+          import requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/realistic-vision-v6-test"
+          info=api.get_repo(repo,"studio")
+          print("STUDIO_RUNTIME",json.dumps(getattr(info,"runtime",None),ensure_ascii=False))
+          print("RUN_LOGS_BEGIN")
+          try:
+              logs=api.get_repo_logs(repo,log_type="run",page_size=100)
+              print(json.dumps(logs,ensure_ascii=False)[-16000:])
+          except Exception as exc:
+              print("RUN_LOGS_ERROR",type(exc).__name__,str(exc)[:600])
+          print("RUN_LOGS_END")
+
+          endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          headers={"Authorization":"Bearer "+token}
+          try:
+              response=requests.post(endpoint+"/gradio_api/call/status",headers=headers,json={"data":[]},timeout=30)
+              print("STATUS_CALL_HTTP",response.status_code)
+              print("STATUS_CALL_BODY",response.text[:1000])
+              event=response.json().get("event_id")
+              if event:
+                  response=requests.get(endpoint+"/gradio_api/call/status/"+event,headers=headers,timeout=60)
+                  print("STATUS_EVENT_HTTP",response.status_code)
+                  print("STATUS_EVENT_BODY",response.text[:3500])
+          except Exception as exc:
+              print("STATUS_API_ERROR",type(exc).__name__,str(exc)[:600])
+          PY
