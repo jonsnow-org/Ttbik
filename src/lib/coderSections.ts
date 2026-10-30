@@ -573,7 +573,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
         await send(bot, chatId, "أرسل نصاً أو أرفق صورة أو ملف صوت أو فيديو لهذا المرشح.");
         return true;
       }
-      await startDonorTestTelegramTask(bot, chatId, attachment.text, botRow.id, attachment.media, db);
+      await startCandidateTerminal(bot, chatId, donorId, attachment.text, botRow.id, attachment.media, db, "telegram");
     } catch (error) {
       const message = String((error as Error)?.message || error).slice(0, 600);
       await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
@@ -850,7 +850,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   // Each ModelScope candidate has its own terminal adapter and private Studio session.
   if (isDonorTestId(st.model || "")) {
     if (tierFor(chatId) !== "owner") throw new Error("candidate models are owner-only");
-    return startDonorTestTelegramTask(bot, chatId, content, botRow.id, undefined, db, globalThis.fetch, "app");
+    return startCandidateTerminal(bot, chatId, st.model as DonorTestId, content, botRow.id, undefined, db, "app");
   }
 
   // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
@@ -901,7 +901,43 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   return { runId, queued: false };
 }
 
-/** Telegram chat path: this candidate receives the message directly; no production runner is invoked. */
+/**
+ * One shared mini-app terminal with a model-specific adapter. Each adapter validates the
+ * selected model id before opening that candidate's own Studio endpoint and state slot.
+ */
+async function startCandidateTerminal(
+  bot: TelegramBot,
+  chatId: number,
+  id: DonorTestId,
+  text: string,
+  botId: string,
+  media: DonorTestMedia | undefined,
+  db: Db,
+  surface: "telegram" | "app",
+): Promise<{ runId: string; queued: boolean }> {
+  switch (id) {
+    case "qwen35-9b": return startQwen35Terminal(bot, chatId, text, botId, media, db, surface);
+    case "gemma4-e4b": return startGemma4Terminal(bot, chatId, text, botId, media, db, surface);
+    case "minicpmo45": return startMiniCPMO45Terminal(bot, chatId, text, botId, media, db, surface);
+  }
+}
+
+export const startQwen35Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "qwen35-9b");
+
+export const startGemma4Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "gemma4-e4b");
+
+export const startMiniCPMO45Terminal = (
+  bot: TelegramBot, chatId: number, text: string, botId: string,
+  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
+) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "minicpmo45");
+
+/** Telegram chat path: the selected candidate receives the message directly; no production runner is invoked. */
 export async function startDonorTestTelegramTask(
   bot: TelegramBot,
   chatId: number,
@@ -911,11 +947,13 @@ export async function startDonorTestTelegramTask(
   db: Db = prismaDb,
   fetchImpl: typeof fetch = globalThis.fetch,
   surface: "telegram" | "app" = "telegram",
+  expectedModel?: DonorTestId,
 ): Promise<{ runId: string; queued: boolean }> {
-  if (tierFor(chatId) !== "owner") throw new Error("اختبار المرشحين متاح للمالك فقط.");
+  if (tierFor(chatId) !== "owner") throw new Error("النماذج المرشحة متاحة للمالك فقط.");
   const st = await loadStateStrict(chatId, db);
   const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
-  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار مرشح للاختبار.");
+  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار نموذج مرشح.");
+  if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
     const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
