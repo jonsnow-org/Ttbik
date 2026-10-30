@@ -1,0 +1,294 @@
+name: "Isolated image-generation candidate Studios"
+on:
+  push:
+    branches: [realistic-vision-v6-isolated-test]
+    paths:
+      - "experiments/image-generation-bakeoff/**"
+      - ".github/workflows/image-generation-bakeoff-modelscope.yml"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: image-generation-bakeoff-modelscope
+  cancel-in-progress: false
+jobs:
+  deploy-image-candidate:
+    name: ${{ matrix.candidate.label }} — private ModelScope Studio
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        candidate:
+          - id: umranz
+            label: Umranz SD1.5 Uncensored Photoreal
+            studio: umranz-sd15-image-test
+            config: umranz.json
+            min_ram_gb: 8
+            expected_width: 512
+            expected_height: 768
+          - id: juggernaut-ragnarok
+            label: Juggernaut XL Ragnarok FP8
+            studio: juggernaut-ragnarok-image-test
+            config: juggernaut-ragnarok.json
+            min_ram_gb: 16
+            expected_width: 768
+            expected_height: 1024
+    env:
+      MS: https://www.modelscope.cn
+      OWNER: novaai2026
+      REPO: ${{ matrix.candidate.studio }}
+      CANDIDATE_ID: ${{ matrix.candidate.id }}
+      CANDIDATE_CONFIG: ${{ matrix.candidate.config }}
+      REQUIRED_RAM_GB: ${{ matrix.candidate.min_ram_gb }}
+      EXPECTED_WIDTH: ${{ matrix.candidate.expected_width }}
+      EXPECTED_HEIGHT: ${{ matrix.candidate.expected_height }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate app and candidate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile experiments/image-generation-bakeoff/app.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads((Path('experiments/image-generation-bakeoff/candidates') / '${{ matrix.candidate.config }}').read_text())
+          for key in ('id','label','repo_id','pipeline','minimum_memory_gb','resolutions','default_aspect'):
+              if key not in d: raise SystemExit('Missing candidate setting: '+key)
+          if d['id'] != '${{ matrix.candidate.id }}': raise SystemExit('Candidate ID mismatch')
+          print('Candidate configuration validated:', d['label'], d['repo_id'])
+          PY
+      - name: Authenticate and select only free CPU hardware
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is missing"; exit 1; }
+          echo "::add-mask::$T"
+          curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" >/dev/null
+          curl -fsS --connect-timeout 8 --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
+          python3 - "$REQUIRED_RAM_GB" <<'PY' >> "$GITHUB_ENV"
+          import json,re,sys
+          required=int(sys.argv[1])
+          raw=json.load(open('hardware.json',encoding='utf-8'))
+          items=raw.get('data') or raw.get('Data') or raw.get('items') or []
+          if isinstance(items,dict): items=items.get('items') or items.get('hardware') or items.get('resources') or []
+          free=[]
+          for item in items if isinstance(items,list) else []:
+              if not isinstance(item,dict): continue
+              name=str(item.get('name') or item.get('hardware') or '')
+              kind=str(item.get('resource_type') or item.get('type') or '').lower()
+              m=re.search(r'(\d+)\s*g(?:b)?(?:[-_/]|$)',name.lower())
+              ram=int(m.group(1)) if m else 0
+              if 'cpu' not in name.lower() or ram < required: continue
+              if 'paid' in name.lower() or kind=='paid' or item.get('is_paid') is True: continue
+              if item.get('available') is False or item.get('is_available') is False: continue
+              free.append((ram,name))
+          print('Detected free CPU hardware:', json.dumps([{'ram_gb':r,'name':n} for r,n in free]),file=sys.stderr)
+          if not free:
+              raise SystemExit(f'No FREE ModelScope CPU Studio hardware with at least {required} GB RAM. No paid resource will be selected.')
+          ram,name=max(free,key=lambda x:(x[0],x[1]))
+          print('IMAGE_STUDIO_HARDWARE='+name)
+          print(f'IMAGE_STUDIO_HARDWARE_RAM_GB={ram}')
+          PY
+      - name: Create only this private candidate Studio when missing
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          echo "Private Studio lookup HTTP $code"
+          if [ "$code" = "200" ]; then
+            echo "This isolated Studio already exists; reusing it."
+          elif [ "$code" = "404" ]; then
+            python3 - "$OWNER" "$REPO" "$IMAGE_STUDIO_HARDWARE" > create.json <<'PY'
+          import json,sys
+          print(json.dumps({'owner':sys.argv[1],'repo_name':sys.argv[2],'sdk_type':'gradio','visibility':'private','hardware':sys.argv[3],'display_name':sys.argv[2]}))
+          PY
+            create_code=$(curl -sS --connect-timeout 8 --max-time 30 -o create-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @create.json "$MS/openapi/v1/studios")
+            echo "Private Studio create HTTP $create_code"
+            if [[ ! "$create_code" =~ ^2[0-9][0-9]$ ]]; then cat create-response.json; echo "::error::Could not create the private isolated Studio."; exit 1; fi
+          else
+            cat studio.json
+            echo "::error::Unexpected Studio lookup status; refusing to modify an unknown target."
+            exit 1
+          fi
+      - name: Push isolated Gradio app to its private Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          git config --global user.name "image candidate benchmark CI"
+          git config --global user.email "image-candidate-test@users.noreply.github.com"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" studio 2>&1 | sed "s/$T/***/g"
+          cp experiments/image-generation-bakeoff/app.py studio/app.py
+          cp experiments/image-generation-bakeoff/requirements.txt studio/requirements.txt
+          cp "experiments/image-generation-bakeoff/candidates/$CANDIDATE_CONFIG" studio/candidate.json
+          printf '%s\n' "Private image-generation test only: $CANDIDATE_ID" "No Nova, Sham, or Sham v2 production weights or routes are loaded or modified." > studio/README.md
+          cd studio
+          git add app.py requirements.txt candidate.json README.md
+          git diff --cached --quiet || git commit -m "Deploy isolated image candidate $CANDIDATE_ID"
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Deploy private Studio and wait for the exact app revision
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          EXPECTED_REVISION="image-generation-bakeoff-2026-10-31-r1"
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          echo "Isolated Studio deploy HTTP $deploy_code"
+          if [[ ! "$deploy_code" =~ ^2[0-9][0-9]$ ]]; then cat deploy-response.json; exit 1; fi
+          mkdir -p "image-bakeoff-output/$CANDIDATE_ID"
+          ready=0
+          for attempt in $(seq 1 270); do
+            status_code=$(curl -sS --connect-timeout 8 --max-time 25 -o status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+            phase=""
+            revision=""
+            if [ "$status_code" = "200" ]; then
+              readarray -t values < <(python3 - <<'PY'
+          import json
+          d=json.load(open('status.json',encoding='utf-8'))
+          vals=d.get('data') if isinstance(d,dict) else None
+          vals=vals if isinstance(vals,list) else [d]
+          phase=''; revision=''
+          for v in vals:
+              if isinstance(v,str):
+                  try: v=json.loads(v)
+                  except Exception: continue
+              if isinstance(v,dict) and v.get('phase'):
+                  phase=str(v.get('phase','')).lower(); revision=str(v.get('app_revision',''))
+                  print(phase); print(revision)
+                  if v.get('error'): print('LOAD_ERROR='+str(v['error'])[:800],file=__import__('sys').stderr)
+                  break
+          PY
+              )
+              phase="${values[0]:-}"
+              revision="${values[1]:-}"
+            fi
+            echo "$(date -u +%H:%M:%S) Studio status HTTP=$status_code phase=$phase revision=$revision attempt=$attempt/270"
+            if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_REVISION" ]; then ready=1; break; fi
+            if [ "$phase" = "error" ]; then cat status.json; echo "::error::Candidate loader reported an error."; exit 1; fi
+            sleep 20
+          done
+          if [ "$ready" -ne 1 ]; then
+            logs=$(curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" || true)
+            printf '%s\n' "$logs" | tail -c 10000
+            echo "::error::Candidate did not become ready within 90 minutes."
+            exit 1
+          fi
+          cp status.json "image-bakeoff-output/$CANDIDATE_ID/status.json"
+      - name: Run one benign photorealistic image smoke test
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          DIR="image-bakeoff-output/$CANDIDATE_ID"
+          python3 - <<'PY' > request.json
+          import json
+          prompt=('A realistic editorial photograph of an adult woman in a charcoal coat walking on a quiet stone street after rain, full body, both hands visible, natural skin texture, soft overcast daylight, 50mm documentary photography.')
+          negative='cartoon, illustration, cgi, deformed hands, extra fingers, blurry, watermark, text'
+          print(json.dumps({'data':[prompt,negative,'${{ matrix.candidate.id }}'=='juggernaut-ragnarok' and '768 × 1024' or '512 × 768',30,5.0,42]}))
+          PY
+          submit_code=$(curl -sS --connect-timeout 8 --max-time 30 -o event.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @request.json "$API/gradio_api/call/image")
+          echo "Image generation submit HTTP $submit_code"
+          [ "$submit_code" = "200" ] || { cat event.json; exit 1; }
+          event_id=$(python3 -c "import json;print(json.load(open('event.json')).get('event_id',''))")
+          test -n "$event_id"
+          poll_code=$(curl -sS --connect-timeout 8 --max-time 1200 -o image.sse -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/image/$event_id")
+          echo "Image generation poll HTTP $poll_code"
+          [ "$poll_code" = "200" ] || { cat image.sse; exit 1; }
+          grep -q '^event: complete' image.sse || { cat image.sse; echo "::error::Image generation did not complete."; exit 1; }
+          python3 - <<'PY'
+          import json,sys
+          raw=open('image.sse',encoding='utf-8').read()
+          values=[]
+          for block in raw.split('\n\n'):
+              if 'data:' not in block: continue
+              try: values.append(json.loads(block.split('data:',1)[1].strip()))
+              except Exception: pass
+          image=None; meta=None
+          def walk(x):
+              global image,meta
+              if isinstance(x,list):
+                  for y in x: walk(y)
+              elif isinstance(x,dict):
+                  if image is None and (x.get('path') or x.get('url')): image=x
+                  if x.get('result')=='image_generated': meta=x
+                  for y in x.values():
+                      if isinstance(y,(dict,list)): walk(y)
+          for v in values: walk(v)
+          if image is None: raise SystemExit('No generated image file was returned.')
+          p=image.get('path') or image.get('url')
+          if not p: raise SystemExit('Image file path missing.')
+          open('image-path.txt','w',encoding='utf-8').write(str(p))
+          open('image-meta.json','w',encoding='utf-8').write(json.dumps(meta or {},ensure_ascii=False,indent=2))
+          PY
+          file_path=$(cat image-path.txt)
+          if [[ "$file_path" = http* ]]; then file_url="$file_path"; else file_url="$API/gradio_api/file=$file_path"; fi
+          curl -fsS --connect-timeout 8 --max-time 120 -H "Authorization: Bearer $T" "$file_url" -o "$DIR/${CANDIDATE_ID}-seed-42.png"
+          python3 - "$DIR/${CANDIDATE_ID}-seed-42.png" "$EXPECTED_WIDTH" "$EXPECTED_HEIGHT" <<'PY'
+          import hashlib,json,sys
+          from pathlib import Path
+          from PIL import Image
+          path=Path(sys.argv[1]); expected=(int(sys.argv[2]),int(sys.argv[3]))
+          im=Image.open(path); im.verify()
+          im=Image.open(path).convert('RGB')
+          if im.size != expected: raise SystemExit(f'Unexpected image dimensions {im.size}; expected {expected}')
+          data=path.read_bytes()
+          result={'status':'smoke_pass','resolution':f'{im.width}x{im.height}','bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'file':str(path)}
+          Path(path.parent/'smoke-result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          print(json.dumps(result))
+          PY
+      - name: Upload smoke result and image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-bakeoff-${{ matrix.candidate.id }}
+          path: image-bakeoff-output/${{ matrix.candidate.id }}/
+          if-no-files-found: warn
+          retention-days: 14
+  inspect-existing-cyberrealistic:
+    name: Inspect existing CyberRealistic Studio without restarting it
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check only the existing CyberRealistic status endpoint
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T"
+          echo "::add-mask::$T"
+          API="https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          CODE=$(curl -sS --connect-timeout 8 --max-time 30 -o cyber-status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+          echo "CyberRealistic status HTTP $CODE"
+          if [ "$CODE" != "200" ]; then echo "::warning::Existing CyberRealistic Studio is not reachable right now. It was not restarted or changed."; exit 0; fi
+          python3 - <<'PY'
+          import json
+          d=json.load(open('cyber-status.json',encoding='utf-8'))
+          vals=d.get('data') if isinstance(d,dict) else None
+          vals=vals if isinstance(vals,list) else [d]
+          for v in vals:
+              if isinstance(v,str):
+                  try: v=json.loads(v)
+                  except Exception: continue
+              if isinstance(v,dict) and v.get('phase'):
+                  print('Existing CyberRealistic phase:',v.get('phase'))
+                  print('Verified creator SHA:',v.get('creator_sha256_verified'))
+                  if v.get('error'): print('Current diagnostic:',str(v.get('error'))[:600])
+                  break
+          PY
+          echo "No deploy, stop, restart, or generation request was sent to CyberRealistic."
