@@ -1,0 +1,68 @@
+name: "Read-only status of isolated donor Studios"
+on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - ".github/workflows/donor-bakeoff-status.yml"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: donor-bakeoff-status-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Query only the three explicitly named experiment Studios
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          MS: https://www.modelscope.cn
+          OWNER: novaai2026
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
+          for REPO in sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do
+            echo "===== $REPO (read-only) ====="
+            code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio.json -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+            echo "studio HTTP $code"
+            if [ "$code" = "200" ]; then
+              python3 - <<'PY'
+          import json
+          d=json.load(open("studio.json",encoding="utf-8"))
+          d=d.get("data") or d.get("Data") or d
+          runtime=d.get("runtime") or {}
+          print("runtime_status=",runtime.get("status") or d.get("status") or "unknown")
+          print("studio_state=",d.get("state") or d.get("visibility") or "not supplied")
+          PY
+              API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+              ecode=$(curl -sS --connect-timeout 5 --max-time 15 -o event.json -w '%{http_code}' \
+                -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
+                "$API/gradio_api/call/v2/status" || true)
+              echo "app status submit HTTP $ecode"
+              if [ "$ecode" = "200" ]; then
+                event_id=$(python3 -c "import json;print(json.load(open('event.json')).get('event_id',''))" 2>/dev/null || true)
+                if [ -n "$event_id" ]; then
+                  rcode=$(curl -sS --connect-timeout 5 --max-time 25 -o status.sse -w '%{http_code}' \
+                    -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                  echo "model status HTTP $rcode"
+                  cat status.sse 2>/dev/null | head -c 1500 || true
+                  echo
+                fi
+              fi
+              for kind in build run; do
+                lcode=$(curl -sS --connect-timeout 5 --max-time 12 -o log.txt -w '%{http_code}' \
+                  -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
+                echo "$kind log HTTP $lcode"
+                if [ "$lcode" = "200" ]; then tail -c 1600 log.txt || true; echo; fi
+              done
+            elif [ "$code" = "404" ]; then
+              echo "Experiment Studio has not been created yet."
+            else
+              head -c 600 studio.json || true
+              echo
+            fi
+          done
