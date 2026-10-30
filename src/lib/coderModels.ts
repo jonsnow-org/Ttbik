@@ -97,7 +97,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
-const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || "").trim());
+const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
 /** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
 export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
 
