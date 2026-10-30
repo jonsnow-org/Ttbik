@@ -8,7 +8,7 @@ on:
       - .github/workflows/diagnose-realistic-vision-test.yml
 
 concurrency:
-  group: realistic-vision-v6-diagnostic
+  group: realistic-vision-v6-diagnostic-v2
   cancel-in-progress: false
 
 permissions:
@@ -97,6 +97,7 @@ jobs:
           API="https://studio-$OWNER-$STUDIO_REPO.api-inference.modelscope.net"
           PROMPT="A photorealistic candid RAW photograph of a middle-aged woman with natural skin texture, subtle expression lines, realistic eyes, wearing a simple dark blue coat, standing in a quiet old stone street after light rain, soft overcast daylight, 50mm photography, lifelike proportions, detailed hands visible, authentic documentary photography, no illustration, no CGI."
           NEGATIVE="cartoon, anime, illustration, CGI, 3D render, painting, plastic skin, doll face, deformed eyes, asymmetrical eyes, extra fingers, fused fingers, malformed hands, deformed anatomy, extra limbs, duplicate person, blurry, low resolution, watermark, logo, text, oversaturated"
+          export PROMPT NEGATIVE
           payload=$(python - <<'PY'
           import json,os
           print(json.dumps({"data":[
@@ -117,7 +118,7 @@ jobs:
           echo "Image generation event: $ev"
           result=""
           for i in $(seq 1 50); do
-            result=$(curl -sS --connect-timeout 10 --max-time 90 \
+            result=$(curl -sS --connect-timeout 10 --max-time 900 \
               -H "Authorization: Bearer $T" "$API/gradio_api/call/image/$ev" || true)
             if printf '%s' "$result" | grep -q '^data:'; then
               if printf '%s' "$result" | grep -q 'event: complete'; then
