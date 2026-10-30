@@ -7,5 +7,8 @@
   "family": "Qwen3.5",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.63,
-  "purpose": "Arabic, code, tool-call shape, image and video input tests. Audio is enabled only if the MTMD projector reports support."
+  "purpose": "Arabic, code, tool-call shape, image and video input tests. Audio is enabled only if the MTMD projector reports support.",
+  "enable_thinking": false,
+  "temperature": 0.7,
+  "top_p": 0.8
 }
