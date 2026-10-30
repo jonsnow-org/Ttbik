@@ -1,4 +1,5 @@
 name: "Read-only status of isolated donor Studios"
+# This workflow reads only the three donor-test Studios; it never deploys or edits a model.
 on:
   push:
     branches: [claude/free-services-marketplace-h6rwk2]
