@@ -315,11 +315,16 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // A selected donor remains reachable even when Nova's own coding Studio is disabled.
   const incomingChatId = update.message?.chat?.id;
   const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
-  const selectedDonor = preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
-    ? preloadedOwnerState.donorTestModel
-    : null;
+  const selectedDonor = isDonorTestId(preloadedOwnerState?.model || "")
+    ? preloadedOwnerState!.model as DonorTestId
+    : preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
+      ? preloadedOwnerState.donorTestModel
+      : null;
   const donorPickerAction = Boolean(
-    update.callback_query && String(update.callback_query.data || "").startsWith("donor_model|")
+    update.callback_query && (
+      String(update.callback_query.data || "").startsWith("donor_model|") ||
+      String(update.callback_query.data || "").startsWith("model_pick|")
+    )
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
