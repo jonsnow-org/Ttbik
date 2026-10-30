@@ -314,30 +314,58 @@ def load_model() -> None:
                     f"Multimodal model server exited with code {process.returncode}.\n{_server_log_tail()}"
                 )
             try:
-                response = requests.get(SERVER_BASE + "/healthz", timeout=2)
-                if response.status_code == 200:
+                # /healthz is a liveness response in llama-cpp-python 0.3.36.
+                # /metrics additionally verifies that CompletionService is attached.
+                health = requests.get(SERVER_BASE + "/healthz", timeout=3)
+                metrics = requests.get(SERVER_BASE + "/metrics", timeout=5) if health.status_code == 200 else None
+                if health.status_code == 200 and metrics is not None and metrics.status_code == 200:
                     healthy = True
                     break
             except requests.RequestException:
                 pass
             time.sleep(2)
         if not healthy:
-            raise RuntimeError("Multimodal model server did not become healthy in 15 minutes.\n" + _server_log_tail())
+            raise RuntimeError("Multimodal inference service did not become ready in 15 minutes.\n" + _server_log_tail())
 
-        warmup = requests.post(
-            SERVER_BASE + "/v1/chat/completions",
-            json={
-                "model": CONFIG.get("id", "donor"),
-                "messages": [{"role": "user", "content": "Reply with the single word READY."}],
-                "max_tokens": 8,
-                "temperature": 0.0,
-            },
-            timeout=(10, 90),
-        )
-        warmup.raise_for_status()
-        warmup_data = warmup.json()
-        if not (warmup_data.get("choices") or []):
-            raise RuntimeError("The multimodal server started but its inference warm-up failed.")
+        # CPU-only first-token latency can exceed a short HTTP read timeout on
+        # cold start. Retry a tiny warm-up before marking a live candidate unavailable.
+        warmup_payload = {
+            "model": CONFIG.get("id", "donor"),
+            "messages": [{"role": "user", "content": "Reply READY."}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+        }
+        warmup_data = {}
+        warmup_errors = []
+        for attempt in range(1, 4):
+            try:
+                warmup = requests.post(
+                    SERVER_BASE + "/v1/chat/completions",
+                    json=warmup_payload,
+                    timeout=(10, 360),
+                )
+                warmup.raise_for_status()
+                warmup_data = warmup.json()
+                if warmup_data.get("choices"):
+                    break
+                warmup_errors.append(f"attempt {attempt}: empty choices")
+            except requests.RequestException as warmup_exc:
+                warmup_errors.append(f"attempt {attempt}: {type(warmup_exc).__name__}: {str(warmup_exc)[:400]}")
+                print("Candidate warm-up attempt failed: " + warmup_errors[-1], flush=True)
+                if process.poll() is not None:
+                    raise RuntimeError(
+                        f"Multimodal model server exited during warm-up ({process.returncode}).\n"
+                        + _server_log_tail()
+                    )
+            if attempt < 3:
+                time.sleep(5)
+        if not warmup_data.get("choices"):
+            raise RuntimeError(
+                "The multimodal server did not complete warm-up after 3 attempts: "
+                + " | ".join(warmup_errors)[-1800:]
+                + "\n"
+                + _server_log_tail()
+            )
         try:
             media_caps = json.loads(MEDIA_CAPS_FILE.read_text(encoding="utf-8"))
         except Exception:
@@ -385,6 +413,7 @@ def get_state() -> dict:
 def status() -> str:
     with LOCK:
         payload = {
+            "app_revision": APP_REVISION,
             "phase": STATE["phase"],
             "candidate": STATE["candidate"],
             "repo_id": CONFIG.get("repo_id"),
