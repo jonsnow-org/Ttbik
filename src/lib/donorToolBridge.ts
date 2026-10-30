@@ -50,14 +50,17 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
-  const ghNames = new Set([
+  // Candidate sessions share connected accounts, but expose strictly read-only GitHub capabilities.
+  // Write actions remain unavailable until a first-class confirmation flow exists in the shared terminal.
+  const READ_ONLY_GITHUB_TOOLS = new Set([
     "github_whoami", "github_list_repos", "github_repo_info", "github_repo_scan",
     "github_repo_audit", "github_read_files", "github_read_file", "github_list_files",
-    "github_search_code", "github_list_branches", "github_commits", "github_compare",
-    "github_ci_logs", "github_create_branch", "github_update_file", "github_create_pull_request",
+    "github_search_code", "github_search_repos", "github_list_branches",
+    "github_list_prs", "github_list_issues", "github_ci_status", "github_ci_logs",
+    "github_pr_info", "github_commits", "github_compare",
   ]);
   const rawTools = [
-    ...(connections.github?.token ? GITHUB_TOOLS.filter((tool) => ghNames.has(tool.function.name)) : []),
+    ...(connections.github?.token ? GITHUB_TOOLS.filter((tool) => READ_ONLY_GITHUB_TOOLS.has(tool.function.name)) : []),
     ...(available.some((id) => id !== "github") ? CONNECTOR_TOOLS.filter((tool) => tool.function.name === "connector_api") : []),
   ];
   // Keep schemas small enough for the 2K-context Qwen test profile; argument schemas remain the real server contracts.
@@ -108,9 +111,16 @@ export async function executeDonorTool(input: {
     type: "function",
     function: { name: input.name, arguments: JSON.stringify(input.arguments || {}) },
   };
+  const READ_ONLY_GITHUB_TOOLS = new Set([
+    "github_whoami", "github_list_repos", "github_repo_info", "github_repo_scan",
+    "github_repo_audit", "github_read_files", "github_read_file", "github_list_files",
+    "github_search_code", "github_search_repos", "github_list_branches",
+    "github_list_prs", "github_list_issues", "github_ci_status", "github_ci_logs",
+    "github_pr_info", "github_commits", "github_compare",
+  ]);
   const allowedSchemas = [
-    ...(gh ? GITHUB_TOOLS : []),
-    ...(allowed.some((id) => id !== "github") ? CONNECTOR_TOOLS : []),
+    ...(gh ? GITHUB_TOOLS.filter((tool) => READ_ONLY_GITHUB_TOOLS.has(tool.function.name)) : []),
+    ...(allowed.some((id) => id !== "github") ? CONNECTOR_TOOLS.filter((tool) => tool.function.name === "connector_api") : []),
   ];
   if (!allowedSchemas.some((tool) => tool.function.name === input.name)) {
     return { ok: false, result: "DENIED: this tool is not enabled for the services connected to the current account." };
@@ -123,10 +133,19 @@ export async function executeDonorTool(input: {
     const method = String(input.arguments?.method || "GET").toUpperCase();
     const path = String(input.arguments?.path || "");
     const def = connectorById(service);
+    if (!allowed.includes(service) || !def) return { ok: false, result: "DENIED: " + service + " is not connected for this owner." };
     const connectorUrl = path.startsWith("https://")
       ? path
-      : def ? def.apiBases[0].replace(/\/$/, "") + "/" + path.replace(/^\//, "") : "";
-    if (!allowed.includes(service)) return { ok: false, result: "DENIED: " + service + " is not connected for this owner." };
+      : def.apiBases[0].replace(/\/$/, "") + "/" + path.replace(/^\//, "");
+    let target: URL | null = null;
+    try { target = new URL(connectorUrl); } catch { target = null; }
+    const trustedBase = target && def.apiBases.some((base) => {
+      try {
+        const origin = new URL(base);
+        return target!.origin === origin.origin && target!.pathname.startsWith(origin.pathname);
+      } catch { return false; }
+    });
+    if (!trustedBase) return { ok: false, result: "DENIED: connector URL is outside the connected service API." };
     if (!isReadOnlyCall(method, connectorUrl)) {
       return { ok: false, approval_required: true, result: "APPROVAL_REQUIRED: write operation blocked in this candidate bridge; no change was made." };
     }

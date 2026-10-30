@@ -1,5 +1,5 @@
 import type { Db } from "@/lib/coderAuth";
-import { effectiveModel, listModels, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
+import { chooseModel, effectiveModel, listModels, modelReady, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
 
 function modelsDb(): Db {
   const rows = new Map<string, any>();
@@ -101,6 +101,42 @@ describe("coder models", () => {
     } finally {
       if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
       else process.env.MODELSCOPE_API_TOKEN = previous;
+    }
+  });
+
+  it("treats each private donor Studio as ready only when a ModelScope token is configured", async () => {
+    const previousApi = process.env.MODELSCOPE_API_TOKEN;
+    const previousFallback = process.env.MODELSCOPE_TOKEN;
+    delete process.env.MODELSCOPE_API_TOKEN;
+    delete process.env.MODELSCOPE_TOKEN;
+    try {
+      const all = await listModels(modelsDb());
+      const ids = ["qwen35-9b", "gemma4-e4b", "minicpmo45"] as const;
+      for (const id of ids) {
+        const model = all.find((item) => item.id === id)!;
+        expect(modelReady(model)).toBe(false);
+        expect(chooseModel({ mode: "coder" }, all, id, true)).toBe(false);
+        expect(chooseModel({ mode: "coder" }, all, id, false)).toBe(false);
+      }
+
+      process.env.MODELSCOPE_TOKEN = "test-fallback-token";
+      for (const id of ids) {
+        const model = all.find((item) => item.id === id)!;
+        expect(modelReady(model)).toBe(true);
+        expect(chooseModel({ mode: "coder" }, all, id, true)).toBe(true);
+      }
+
+      delete process.env.MODELSCOPE_TOKEN;
+      process.env.MODELSCOPE_API_TOKEN = "test-api-token";
+      for (const id of ids) {
+        const model = all.find((item) => item.id === id)!;
+        expect(modelReady(model)).toBe(true);
+      }
+    } finally {
+      if (previousApi === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previousApi;
+      if (previousFallback === undefined) delete process.env.MODELSCOPE_TOKEN;
+      else process.env.MODELSCOPE_TOKEN = previousFallback;
     }
   });
 
