@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         candidate:
           - id: qwen35-9b
@@ -71,19 +71,36 @@ jobs:
           curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" > account.json
           curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
           python3 - <<'PY' >> "$GITHUB_ENV"
-          import json
-          d=json.load(open("hardware.json",encoding="utf-8"))
-          items=d.get("data") or d.get("Data") or d.get("items") or []
-          if isinstance(items,dict): items=items.get("items") or items.get("hardware") or []
-          free=[x for x in items if isinstance(x,dict) and str(x.get("resource_type","")).lower()!="paid" and not str(x.get("name","")).startswith("paid/")]
-          cpu=[x for x in free if "cpu" in str(x.get("name","")).lower()]
-          mem16=[x for x in cpu if "16g" in str(x.get("name","")).lower() or "16gb" in str(x.get("name","")).lower()]
-          choices=mem16 or cpu
-          if not choices: raise SystemExit("No free CPU Studio hardware; refusing paid hardware.")
-          print("HW="+str(choices[-1].get("name") or ""))
+          import json,re,sys
+          raw=json.load(open("hardware.json",encoding="utf-8"))
+          items=raw.get("data") or raw.get("Data") or raw.get("items") or []
+          if isinstance(items,dict):
+              items=items.get("items") or items.get("hardware") or items.get("resources") or []
+          def mem_gb(item):
+              name=str(item.get("name") or item.get("hardware") or "").lower()
+              nums=re.findall(r"(\d+)\s*g(?:b)?(?:-|$)",name)
+              return max(map(int,nums),default=0)
+          def cpu_count(item):
+              m=re.search(r"(\d+)v-cpu",str(item.get("name") or "").lower())
+              return int(m.group(1)) if m else 0
+          free=[]
+          for item in items if isinstance(items,list) else []:
+              if not isinstance(item,dict): continue
+              name=str(item.get("name") or item.get("hardware") or "")
+              kind=str(item.get("resource_type") or item.get("type") or "").lower()
+              if not name or "cpu" not in name.lower() or kind=="paid" or name.lower().startswith("paid/") or item.get("is_paid") is True:
+                  continue
+              if item.get("available") is False or item.get("is_available") is False:
+                  continue
+              free.append((mem_gb(item),cpu_count(item),name))
+          if not free: raise SystemExit("No free CPU Studio hardware; refusing paid hardware.")
+          best=max(free,key=lambda x:(x[0],x[1]))
+          print("HW="+best[2])
+          print("HW_MEM_GB="+str(best[0]))
+          print("Available free CPU Studio hardware: "+json.dumps([{"name":n,"memory_gb":m,"vcpus":c} for m,c,n in free]),file=sys.stderr)
           PY
-          echo "ModelScope account authenticated; no account identifiers or token values printed."
-      - name: Create only this candidate's private Studio if missing
+          echo "ModelScope account authenticated; token and account identifiers were not printed."
+      - name: Create or safely upgrade only this private candidate Studio
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         shell: bash
@@ -92,7 +109,71 @@ jobs:
           code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
           echo "Experiment Studio lookup HTTP $code"
           if [ "$code" = "200" ]; then
-            echo "Refreshing only this named donor experiment Studio."
+            echo "Existing private candidate Studio found."
+            # Retry only the two failed candidates on a larger free CPU flavor, when
+            # ModelScope explicitly reports that flavor as available to this Studio.
+            if [ "$CANDIDATE_ID" != "qwen35-9b" ]; then
+              hw_code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio-hardware.json -w '%{http_code}' \
+                --get --data-urlencode "sdk_type=gradio" --data-urlencode "studio=$OWNER/$REPO" \
+                -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware")
+              echo "Per-Studio hardware availability HTTP $hw_code"
+              if [ "$hw_code" = "200" ]; then
+                python3 - <<'PY' > upgrade-hardware.json
+          import json,re,sys
+          raw=json.load(open("studio-hardware.json",encoding="utf-8"))
+          items=raw.get("data") or raw.get("Data") or raw.get("items") or []
+          if isinstance(items,dict):
+              items=items.get("items") or items.get("hardware") or items.get("resources") or []
+          def mem_gb(item):
+              name=str(item.get("name") or item.get("hardware") or "").lower()
+              nums=re.findall(r"(\d+)\s*g(?:b)?(?:-|$)",name)
+              return max(map(int,nums),default=0)
+          def cpu_count(item):
+              m=re.search(r"(\d+)v-cpu",str(item.get("name") or "").lower())
+              return int(m.group(1)) if m else 0
+          free=[]
+          for item in items if isinstance(items,list) else []:
+              if not isinstance(item,dict): continue
+              name=str(item.get("name") or item.get("hardware") or "")
+              kind=str(item.get("resource_type") or item.get("type") or "").lower()
+              if not name or "cpu" not in name.lower() or kind=="paid" or name.lower().startswith("paid/") or item.get("is_paid") is True:
+                  continue
+              if item.get("available") is False or item.get("is_available") is False:
+                  continue
+              free.append((mem_gb(item),cpu_count(item),name))
+          candidates=[x for x in free if x[0]>=16]
+          print("Available per-Studio FREE CPU choices: "+json.dumps([{"name":n,"memory_gb":m,"vcpus":c} for m,c,n in free]),file=sys.stderr)
+          if candidates:
+              best=max(candidates,key=lambda x:(x[0],x[1]))
+              print(json.dumps({"hardware":best[2],"memory_gb":best[0],"vcpus":best[1]}))
+          else:
+              print("{}")
+          PY
+                upgrade_hw=$(python3 -c "import json;print(json.load(open('upgrade-hardware.json')).get('hardware',''))")
+                if [ -n "$upgrade_hw" ]; then
+                  echo "Upgrading $CANDIDATE_ID to a free $upgrade_hw flavor."
+                  python3 - "$upgrade_hw" <<'PY' > settings.json
+          import json,sys
+          print(json.dumps({"hardware":sys.argv[1]}))
+          PY
+                  patch_code=$(curl -sS --connect-timeout 8 --max-time 30 -o settings-response.json -w '%{http_code}' \
+                    -X PATCH -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                    --data-binary @settings.json "$MS/openapi/v1/studios/$OWNER/$REPO/settings")
+                  echo "Free hardware settings HTTP $patch_code"
+                  if [ "$patch_code" -lt 200 ] || [ "$patch_code" -ge 300 ]; then cat settings-response.json; exit 1; fi
+                  python3 - <<'PY'
+          import json
+          d=json.load(open("settings-response.json",encoding="utf-8"))
+          if d.get("success") is False: raise SystemExit("ModelScope rejected the free hardware upgrade.")
+          print("ModelScope accepted the candidate's free hardware upgrade.")
+          PY
+                else
+                  echo "::warning::No free 16GB-or-larger CPU flavor is available for $CANDIDATE_ID; no paid resource was selected."
+                fi
+              else
+                echo "::warning::Could not query candidate-specific free hardware; keeping the current Studio flavor."
+              fi
+            fi
           elif [ "$code" = "404" ]; then
             export OWNER REPO HW
             python3 - <<'PY' > create.json
@@ -131,6 +212,7 @@ jobs:
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r3"
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
@@ -149,6 +231,10 @@ jobs:
                   try: value=json.loads(value)
                   except Exception: continue
               if isinstance(value,dict) and value.get("phase"):
+                  if value.get("error"):
+                      print("Candidate diagnostic: " + str(value.get("error"))[:6500], file=sys.stderr)
+                  print("Candidate status detail: " + json.dumps({k:value.get(k) for k in ("phase","candidate","load_seconds","context_tokens","threads","media_capabilities")},ensure_ascii=False), file=sys.stderr)
+                  open("status-app-revision.txt","w",encoding="utf-8").write(str(value.get("app_revision") or ""))
                   print(str(value["phase"]).lower())
                   raise SystemExit(0)
           raise SystemExit(1)
@@ -167,8 +253,9 @@ jobs:
           case "$state" in
             Running|running|Ready|ready)
               phase=$(get_model_phase || true)
-              echo "Existing model phase=$phase"
-              if [ "$phase" = "ready" ]; then READY=1; fi
+              revision=$(cat status-app-revision.txt 2>/dev/null || true)
+              echo "Existing model phase=$phase; app_revision=$revision"
+              if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_APP_REVISION" ]; then READY=1; fi
               ;;
           esac
           if [ "$READY" -ne 1 ]; then
@@ -185,8 +272,9 @@ jobs:
                 *ail*|*rror*|*topped*) echo "::error::Experiment Studio terminal state: $state"; show_logs; exit 1 ;;
                 Running|running|Ready|ready)
                   phase=$(get_model_phase || true)
-                  echo "Candidate model phase=$phase"
-                  if [ "$phase" = "ready" ]; then READY=1; break; fi
+                  revision=$(cat status-app-revision.txt 2>/dev/null || true)
+                  echo "Candidate model phase=$phase; app_revision=$revision"
+                  if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_APP_REVISION" ]; then READY=1; break; fi
                   if [ "$phase" = "error" ]; then echo "::error::Candidate failed to load."; show_logs; exit 1; fi
                   ;;
               esac
@@ -194,12 +282,12 @@ jobs:
             done
           fi
           if [ "$READY" -ne 1 ]; then echo "::error::Candidate not ready within 85 minutes."; show_logs; exit 1; fi
-          echo "Candidate model ready; continuing to the smoke suite."
+          echo "Candidate model ready on app revision $EXPECTED_APP_REVISION; continuing to the smoke suite."
       - name: Run one short text, code, tool or supported-media test per Gradio event
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         shell: bash
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
@@ -231,7 +319,7 @@ jobs:
             complete=0
             for attempt in 1 2; do
               poll_file="$DIR/$TEST_ID-attempt-$attempt.sse"
-              poll_code=$(curl -sS --connect-timeout 8 --max-time 92 -o "$poll_file" -w '%{http_code}' \
+              poll_code=$(curl -sS --connect-timeout 8 --max-time 280 -o "$poll_file" -w '%{http_code}' \
                 -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_test/$event_id" || true)
               echo "poll $attempt HTTP $poll_code"
               if grep -q '^event: complete' "$poll_file" 2>/dev/null; then
@@ -281,12 +369,27 @@ jobs:
           for line in open(source,encoding="utf-8"):
               try: rows.append(json.loads(line))
               except Exception: pass
-          report={"candidate_id":candidate,"tests":rows,"completed_tests":sum(1 for x in rows if "result" in x),"transport_errors":sum(1 for x in rows if "transport_error" in x)}
+          results=[x.get("result") for x in rows if isinstance(x.get("result"),dict)]
+          report={
+              "candidate_id":candidate,
+              "tests":rows,
+              "completed_tests":len(results),
+              "passed_tests":sum(1 for x in results if x.get("passed") is True),
+              "failed_tests":sum(1 for x in results if x.get("passed") is False),
+              "unsupported_tests":sum(1 for x in results if x.get("status")=="unsupported" or x.get("passed") is None),
+              "transport_errors":sum(1 for x in rows if "transport_error" in x),
+          }
           with open(target,"w",encoding="utf-8") as f: json.dump(report,f,ensure_ascii=False,indent=2)
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
           if [ "$TRANSPORT_ERRORS" -ne 0 ]; then
-            echo "::warning::Some per-test Gradio events did not complete; review the artifact before scoring this candidate."
+            echo "::error::One or more Gradio test events failed at the transport layer."
+            exit 1
+          fi
+          failed_tests=$(python3 -c "import json;d=json.load(open('$DIR/report.json'));print(d['failed_tests'])")
+          if [ "$failed_tests" -ne 0 ]; then
+            echo "::error::$failed_tests model smoke test(s) did not pass; see the candidate artifact."
+            exit 1
           fi
       - name: Upload candidate report, including failed model loads
         if: always()
