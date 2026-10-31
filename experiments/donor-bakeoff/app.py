@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r8"
+APP_REVISION = "donor-bakeoff-2026-10-31-r9"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -583,10 +583,172 @@ def _build_user_content(prompt: str, image_path=None, audio_path=None, video_pat
 def _parse_tool_calls(message: dict) -> list[dict]:
     return parse_tool_calls(message)
 
+def _decode_gradio_data(raw: str):
+    for line in raw.splitlines():
+        if not line.startswith("data:"):
+            continue
+        try:
+            value = json.loads(line[5:].strip())
+        except Exception:
+            continue
+        for _ in range(3):
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                    continue
+                except Exception:
+                    break
+            break
+        return value
+    return None
+
+
+def _walk_objects(value):
+    if isinstance(value, list):
+        for item in value:
+            yield from _walk_objects(item)
+    elif isinstance(value, dict):
+        yield value
+        for child in value.values():
+            if isinstance(child, (dict, list)):
+                yield from _walk_objects(child)
+
+
+def _photo_status(profile: dict, token: str) -> dict:
+    base = str(profile.get("studio_api") or "").rstrip("/")
+    repo = str(profile.get("model_repo") or "")
+    if not base.startswith("https://studio-novaai2026-") or not base.endswith(".api-inference.modelscope.net"):
+        raise RuntimeError("Candidate image Studio address is not an approved private ModelScope endpoint.")
+    if not repo.startswith("novaai2026/"):
+        raise RuntimeError("Candidate image model repo is not in the private ModelScope namespace.")
+    start = requests.post(
+        base + "/gradio_api/call/status",
+        json={"data": []},
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        timeout=(8, 20),
+    )
+    start.raise_for_status()
+    event_id = str((start.json() or {}).get("event_id") or "")
+    if not event_id:
+        raise RuntimeError("Image Studio status returned no event id.")
+    poll = requests.get(
+        base + "/gradio_api/call/status/" + event_id,
+        headers={"Authorization": "Bearer " + token},
+        timeout=(8, 45),
+    )
+    poll.raise_for_status()
+    raw = poll.text
+    if "event: error" in raw:
+        raise RuntimeError("The candidate's dedicated image Studio returned a status error.")
+    payload = _decode_gradio_data(raw)
+    items = payload if isinstance(payload, list) else [payload]
+    status = next((x for x in _walk_objects(items) if isinstance(x.get("phase"), str)), None)
+    if not status or status.get("phase") != "ready":
+        raise RuntimeError("Candidate's own image Studio is not ready: " + str((status or {}).get("phase") or "unreadable"))
+    actual_repo = str(status.get("model_repo") or status.get("modelscope_model_repo") or "")
+    checkpoint_sha = str(status.get("checkpoint_sha256") or "")
+    expected_sha = str(profile.get("expected_checkpoint_sha256") or "").lower()
+    if actual_repo != repo or not re.fullmatch(r"[a-f0-9]{64}", checkpoint_sha):
+        raise RuntimeError("Dedicated image Studio did not prove its assigned model repo and checkpoint SHA-256.")
+    if expected_sha and checkpoint_sha.lower() != expected_sha:
+        raise RuntimeError("Dedicated image Studio checkpoint hash differs from this candidate's pinned weight.")
+    return {"base": base, "model_repo": actual_repo, "checkpoint_sha256": checkpoint_sha}
+
+
+def _generate_candidate_image(arguments: dict) -> dict:
+    profile = CONFIG.get("image_generation")
+    route_id = str(CONFIG.get("route_id") or "")
+    if not isinstance(profile, dict) or profile.get("for_candidate") != route_id:
+        return {"ok": False, "error": "This candidate has no valid, unique image-weight assignment."}
+    prompt = str(arguments.get("prompt") or "").strip()
+    negative = str(arguments.get("negative_prompt") or "").strip()[:1800]
+    if len(prompt) < 8 or len(prompt) > 1800:
+        return {"ok": False, "error": "Image prompt must be between 8 and 1800 characters."}
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    if not token:
+        return {"ok": False, "error": "The candidate Studio has no ModelScope token for its private image Studio."}
+    try:
+        proof = _photo_status(profile, token)
+        seed = int(arguments.get("seed")) if str(arguments.get("seed", "")).strip() else int(time.time()) % 2147483647
+        request_data = [
+            prompt,
+            negative,
+            str(profile.get("resolution") or "512 × 512"),
+            int(profile.get("steps") or 25),
+            float(profile.get("cfg") or 5.5),
+            seed,
+        ]
+        submit = requests.post(
+            proof["base"] + "/gradio_api/call/image",
+            json={"data": request_data},
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            timeout=(8, 30),
+        )
+        submit.raise_for_status()
+        event_id = str((submit.json() or {}).get("event_id") or "")
+        if not event_id:
+            raise RuntimeError("Image Studio returned no generation event id.")
+        result = requests.get(
+            proof["base"] + "/gradio_api/call/image/" + event_id,
+            headers={"Authorization": "Bearer " + token},
+            timeout=(8, 540),
+        )
+        result.raise_for_status()
+        raw = result.text
+        if "event: error" in raw or "event: complete" not in raw:
+            raise RuntimeError("The dedicated image Studio did not complete generation.")
+        payload = _decode_gradio_data(raw)
+        values = payload if isinstance(payload, list) else [payload]
+        objects = list(_walk_objects(values))
+        image_file = next((x for x in objects if isinstance(x.get("path"), str) and x.get("path")), None)
+        metadata = next((x for x in objects if x.get("result") == "image_generated"), None)
+        if not image_file or not metadata:
+            raise RuntimeError("Image Studio completed without an image file and generation metadata.")
+        if metadata.get("model_repo") != proof["model_repo"] or str(metadata.get("checkpoint_sha256") or "").lower() != proof["checkpoint_sha256"].lower():
+            raise RuntimeError("Generated image metadata does not match this candidate's private Studio.")
+        relative = str(image_file.get("path") or "").replace("\\", "/")
+        marker = "/gradio_api/file="
+        if marker in relative:
+            relative = relative.split(marker, 1)[1]
+        relative = relative.lstrip("/")
+        if not relative or ".." in Path(relative).parts or "\x00" in relative or relative.startswith("http"):
+            raise RuntimeError("Image Studio returned an unsafe file path.")
+        from urllib.parse import quote
+        file_response = requests.get(
+            proof["base"] + "/gradio_api/file=" + quote(relative, safe="/"),
+            headers={"Authorization": "Bearer " + token},
+            timeout=(8, 90),
+        )
+        file_response.raise_for_status()
+        mime = (file_response.headers.get("content-type") or "image/png").split(";", 1)[0].lower()
+        image_bytes = file_response.content
+        if not mime.startswith("image/") or len(image_bytes) < 1000:
+            raise RuntimeError("Candidate image Studio returned an invalid or empty image file.")
+        return {
+            "ok": True,
+            "message": "Image generated by this candidate's own dedicated image-weight Studio.",
+            "_generated_media": {
+                "kind": "image",
+                "mime": mime,
+                "b64": base64.b64encode(image_bytes).decode("ascii"),
+                "metadata": metadata,
+                "candidate": route_id,
+                "model_repo": proof["model_repo"],
+                "checkpoint_sha256": proof["checkpoint_sha256"],
+                "seed": seed,
+                "bytes": len(image_bytes),
+            },
+        }
+    except Exception as exc:
+        return {"ok": False, "error": "The selected candidate's own image Studio failed: " + f"{type(exc).__name__}: {str(exc)[:650]}"}
+
+
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
     """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "Tool arguments must be an object."}
+    if name == "generate_image":
+        return _generate_candidate_image(arguments)
     bridge_tools = tool_bridge.get("tools") if isinstance(tool_bridge, dict) else []
     remote_names = {
         str(item.get("function", {}).get("name") or "")
