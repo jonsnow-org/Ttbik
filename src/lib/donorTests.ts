@@ -14,6 +14,7 @@ export type DonorTestStatus = {
   studio: "running" | "deploying" | "not_created" | "unknown";
   detail?: string;
   media_capabilities?: { vision: boolean; audio: boolean; video: boolean };
+  image_generation?: { enabled: boolean; candidate: string; model_repo: string; studio_api: string };
 };
 
 export const DONOR_TESTS = [
@@ -48,7 +49,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-30-r8";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-31-r9";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -161,6 +162,7 @@ export async function donorTestChat(
   executed_tools: { name?: string; arguments?: unknown; result?: unknown }[];
   seconds?: number;
   tokens_per_second?: number;
+  generated_media: { kind: "image"; mime: string; b64: string; metadata: Record<string, unknown>; candidate: string; model_repo: string; checkpoint_sha256: string; seed?: number; bytes?: number }[];
 }> {
   const config = configOf(id);
   const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db) : undefined;
@@ -177,13 +179,14 @@ export async function donorTestChat(
     use_tools: true,
     media: media || null,
     tool_bridge: toolBridge || null,
-  })], 240_000, fetchImpl);
+  })], 900_000, fetchImpl);
   const result = asObject(raw);
   if (result.error) throw new Error(String(result.error).slice(0, 700));
   return {
     text: String(result.text || ""),
     tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
     executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
+    generated_media: Array.isArray(result.generated_media) ? result.generated_media.filter((item: any) => item && item.kind === "image" && typeof item.b64 === "string").map((item: any) => ({ ...item, metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {} })) : [],
     seconds: Number.isFinite(Number(result.seconds)) ? Number(result.seconds) : undefined,
     tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
   };
@@ -255,10 +258,15 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
       };
     }
     const caps = statusValue?.media_capabilities;
+    const imageAssignment = statusValue?.image_generation_assignment;
+    const imageGeneration = imageAssignment && imageAssignment.for_candidate === config.id && imageAssignment.model_repo && imageAssignment.studio_api
+      ? { enabled: statusValue?.runtime_generation_capabilities?.image === true, candidate: String(imageAssignment.for_candidate), model_repo: String(imageAssignment.model_repo), studio_api: String(imageAssignment.studio_api) }
+      : undefined;
     return {
       id: config.id,
       phase: phase === "ready" ? "ready" : phase === "loading" ? "loading" : phase === "error" ? "error" : "unavailable",
       studio: "running",
+      ...(imageGeneration ? { image_generation: imageGeneration } : {}),
       ...(caps && typeof caps === "object" ? {
         media_capabilities: {
           vision: caps.vision === true,
