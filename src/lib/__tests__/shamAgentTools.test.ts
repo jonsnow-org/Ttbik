@@ -143,13 +143,13 @@ describe("delegate: helper agents inside Sham v2", () => {
     let t = 0;
     const seen: string[] = [];
     const ask: ShamAsk = async (prompt) => { seen.push(prompt); return (/نتيجة الأداة/.test(prompt) ? text("سأقرأ بنفسي.") : text(call("delegate", { tasks: [{ title: "a", task: "اقرأ شيئاً" }] }))) as any; };
-    await shamVariant.run("v2", () => shamAgentRun({ text: "x", ctx: mkCtx(), tools, budgetMs: 21000, now: () => (t += 0), ask, exec: async () => "x" }));
+    await shamVariant.run("v2", () => shamAgentRun({ text: "افحص مستودع GitHub o/example واقرأ ملفاته باستخدام الوكلاء", ctx: mkCtx(), tools, budgetMs: 21000, now: () => (t += 0), ask, exec: async () => "x" }));
     expect(seen[1]).toMatch(/not enough time left to delegate/);
   });
   it("bad arguments: tasks missing is caught by the schema check before anything runs", async () => {
     const seen: string[] = [];
     const ask: ShamAsk = async (prompt) => { seen.push(prompt); return (seen.length === 1 ? text(call("delegate", {})) : text("لم أستطع.")) as any; };
-    const r = await shamVariant.run("v2", () => shamAgentRun({ text: "x", ctx: mkCtx(), tools, budgetMs: 60000, now: () => Date.now(), ask, exec: async () => "x" }));
+    const r = await shamVariant.run("v2", () => shamAgentRun({ text: "افحص مستودع GitHub o/example واقرأ ملفاته باستخدام الوكلاء", ctx: mkCtx(), tools, budgetMs: 60000, now: () => Date.now(), ask, exec: async () => "x" }));
     expect(seen[1]).toMatch(/tasks/);                                      // the model is told which argument is missing
     expect(r.kind).toBe("text");
   });
