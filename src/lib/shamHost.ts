@@ -10,6 +10,7 @@ import { connectedIds, connectorApi, mcpRequest } from "@/lib/coderConnectors";
 import { memoryTool } from "@/lib/coderMemory";
 import * as S from "@/lib/coderSchedules";
 import { prismaDb as shamDb } from "@/lib/shamDb";
+import { cloudComputerAction, cloudComputerExecute, cloudComputerReadFile, cloudComputerScreenshot, cloudComputerStatus, cloudComputerWriteFile } from "@/lib/cloudComputer";
 import type { ShamHost } from "@/lib/shamExec";
 
 /** Sham's own db handle stands for the platform's real one, so the platform creates its tables as usual; a test double passes through. */
@@ -27,6 +28,14 @@ export const shamHost: ShamHost = {
   },
   bank: { add: (runId, chatKey, step, tool, label, body, db) => bankAdd(runId, chatKey, step, tool, label, body, d(db)), recall: (runId, chatKey, query, n, db) => bankRecall(runId, chatKey, query, n, d(db)) },
   sandbox: { readFile: (c, p, cwd) => readSandboxFile(c, p, cwd), has: (n) => SANDBOX_TOOLS.has(n), run: (name, args, c) => runSandboxTool(name, args, { ...c, db: d(c.db) }) },
+  computer: {
+    status: (c) => cloudComputerStatus({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }),
+    execute: (c, command, cwd, timeoutMs) => cloudComputerExecute({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, command, cwd, timeoutMs),
+    writeFile: (c, path, content) => cloudComputerWriteFile({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, path, content),
+    readFile: (c, path) => cloudComputerReadFile({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, path),
+    action: (c, action, args) => cloudComputerAction({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, action, args),
+    screenshot: (c) => cloudComputerScreenshot({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }),
+  },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
     const connectors = (await connectedIds(chatId, d(db)).catch(() => [] as string[])).filter((x) => x !== "github");
