@@ -523,7 +523,7 @@ export async function cloudComputerAction(ctx: CloudComputerContext, action: str
     const query = new URLSearchParams();
     query.set("format", args.format === "jpeg" ? "jpeg" : "png");
     query.set("quality", String(Math.max(1, Math.min(100, Number(args.quality) || 85))));
-    query.set("scale", String(Math.max(0.1, Math.min(1, Number(args.scale) || 1)));
+    query.set("scale", String(Math.max(0.1, Math.min(1, Number(args.scale) || 1))));
     return screenshotEndpoint(ctx, sandbox, `/computeruse/screenshot/compressed?${query.toString()}`);
   }
   if (action === "screenshot_region" || action === "screenshot_region_compressed") {
