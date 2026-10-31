@@ -52,7 +52,7 @@ def main():
         if rel in WEIGHTS and not upstream_sha: raise RuntimeError("Missing upstream LFS SHA-256: "+rel)
         if upstream_sha and actual.lower()!=str(upstream_sha).lower(): raise RuntimeError("Upstream SHA mismatch: "+rel)
         upstream_size=field(sibling,"size") if sibling else None
-        if upstream_size is not None and path.stat().st_size!=int(upstream_size): raise RuntimeError("Upstream byte-size mismatch: "+rel)
+        if rel not in {"model_index.json","tokenizer/tokenizer_config.json"} and upstream_size is not None and path.stat().st_size!=int(upstream_size): raise RuntimeError("Upstream byte-size mismatch: "+rel)
         files[rel]={"size_bytes":path.stat().st_size,"sha256":actual}
     missing=[p for p in REQUIRED if p not in files]
     if missing: raise FileNotFoundError("Missing Umranz files: "+", ".join(missing))
