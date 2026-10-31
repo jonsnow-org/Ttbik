@@ -1052,7 +1052,7 @@ def infer(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
 
-def _deliver_candidate_result(tool_bridge: dict | None, result: dict) -> tuple[bool, str]:
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str) -> tuple[bool, str]:
     if not isinstance(tool_bridge, dict):
         return False, "no signed owner task ticket"
     ticket = str(tool_bridge.get("ticket") or "")
@@ -1097,6 +1097,7 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict) -> tuple[b
                 "ticket": ticket,
                 "model": model,
                 "run_id": run_id,
+                "prompt": str(prompt or "")[:12000],
                 "text": str(result.get("text") or "")[:12000],
                 "generated_media": outgoing_media,
             },
@@ -1162,7 +1163,7 @@ def chat_payload(payload_json: str) -> str:
             video_path=paths["video_path"],
         )
         if "error" not in result and bridge:
-            delivered, delivery_error = _deliver_candidate_result(bridge, result)
+            delivered, delivery_error = _deliver_candidate_result(bridge, result, str(payload.get("prompt") or ""))
             result["delivered_to_telegram"] = delivered
             if delivered:
                 # The signed callback has already delivered the final text and image. Do not
