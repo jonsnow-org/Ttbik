@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r13"
+APP_REVISION = "donor-bakeoff-2026-11-01-r14"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
