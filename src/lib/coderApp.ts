@@ -711,6 +711,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileDownload(ctx, String(body.path || ""))));
     case "computer_files_upload":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileUpload(ctx, String(body.path || ""), String(body.base64 || ""))));
+    case "computer_files_write_text":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerWriteFile(ctx, String(body.path || ""), String(body.content ?? ""))));
     case "computer_terminal_resize":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalResize(ctx, String(body.sessionId || ""), Number(body.cols), Number(body.rows))));
     case "status": {
