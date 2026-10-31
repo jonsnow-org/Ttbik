@@ -1,0 +1,38 @@
+name: Nova task timing (real coder Studio, nothing sent to Telegram)
+
+# Sends one TASK message (default: read a repository and explain it) to the production chat handler against the REAL coder Studio and prints a timeline of every event and message with seconds since the request.
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "the task message"
+        required: false
+        default: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة"
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts && (cd athar && npm ci --no-audit --no-fund)
+      - name: Generate the Prisma client (types only, no database)
+        run: npx prisma generate
+      - name: Run the live fast-lane check
+        env:
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
+          PROBE_TEXT: ${{ inputs.text }}
+          OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
+          PROBE_OUT: ${{ runner.temp }}
+        run: |
+          cd athar
+          set -o pipefail
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/novaTask.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-500 | head -200
