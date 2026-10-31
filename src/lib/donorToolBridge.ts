@@ -225,7 +225,7 @@ export async function executeDonorTool(input: {
     );
     return {
       ok: true,
-      result: baseDescription + "\nVisible screen text (OCR in this same isolated computer):\\n" + ocr +
+      result: baseDescription + "\nVisible screen text (OCR in this same isolated computer):\n" + ocr +
         "\nThis model cannot decode the screenshot pixels with its current projector, but it can still inspect the UI tree, active windows, exact visible text and control the same desktop using mouse/keyboard/accessibility tools. Never guess missing visual details.",
     };
   }
