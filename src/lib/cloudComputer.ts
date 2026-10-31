@@ -939,23 +939,6 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
   const passed = results.filter((r) => r.ok).length;
   return { ok: passed === results.length, passed, total: results.length, results };
 }
-; then",
-    "  if command -v dnf >/dev/null 2>&1; then sudo dnf install -y tesseract-langpack-ara >/tmp/ttbik-ocr-ar.log 2>&1",
-    "  elif command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y tesseract-ocr-ara >/tmp/ttbik-ocr-ar.log 2>&1; fi",
-    "fi",
-    "if command -v tesseract >/dev/null 2>&1 then",
-
-    "  LANGS=$(tesseract --list-langs 2>/dev/null | grep -q '^ara$' && echo eng+ara || echo eng)",
-    "  tesseract " + quoted + " stdout -l \\"$LANGS\\" 2>/dev/null",
-    "else echo '__TTBIK_OCR_UNAVAILABLE__'; fi",
-    "rm -f " + quoted,
-  ].join("\\n");
-  const shellQuote = (value: string) => "'" + value.replace(/'/g, "'\\\\''") + "'";
-  const result = await cloudComputerExecute(ctx, "bash -lc " + shellQuote(script), "/home/daytona", 120000);
-  const text = String(result.stdout || "").trim();
-  if (!text || text.includes("__TTBIK_OCR_UNAVAILABLE__")) {
-    return "OCR fallback is not installed in this model's private computer. The accessibility tree and window list are still available for computer interaction.";
-  }
   return text.slice(0, 14000);
 }
 
