@@ -3,7 +3,7 @@ import { Bot, InputFile } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { tierFor } from "@/lib/coderAuth";
 import { verifyDonorToolTicket } from "@/lib/donorToolBridge";
-import { photoWeightProfile } from "@/lib/photoWeightMedia";
+import { candidateMediaStudio, photoWeightProfile } from "@/lib/photoWeightMedia";
 import { taskEvent, taskIsActive, taskStatus } from "@/lib/coderTasks";
 import { recordDonorAsyncDelivery } from "@/lib/coderSections";
 
@@ -19,6 +19,9 @@ type GeneratedImage = {
   checkpoint_sha256?: string;
   metadata?: Record<string, unknown>;
   seed?: number;
+  media_repo?: string;
+  media_studio?: string;
+  bytes?: number;
 };
 
 function chunks(value: string, max = 3500): string[] {
@@ -66,7 +69,24 @@ export async function POST(req: NextRequest) {
   if (!profile) return NextResponse.json({ ok: false, error: "no dedicated media assignment exists for this candidate" }, { status: 403 });
 
   const prepared: { bytes: Buffer; mime: string; extension: string; seed?: number }[] = [];
+  const clips: { kind: "audio" | "video"; bytes: Buffer; mime: string; extension: string }[] = [];
+  const mediaStudio = candidateMediaStudio(ticket.model);
   for (const item of media) {
+    if (item && (item.kind === "audio" || item.kind === "video")) {
+      // speech / video come only from THIS candidate's own media Studio (its own repo): anything else is refused
+      const mime = String(item.mime || "").toLowerCase();
+      const okMime = item.kind === "audio" ? mime === "audio/wav" : mime === "video/mp4";
+      if (!mediaStudio || item.candidate !== ticket.model || item.media_studio !== mediaStudio.base || item.media_repo !== mediaStudio.repo || !okMime ||
+          typeof item.b64 !== "string" || item.b64.length > 3_600_000) {
+        return NextResponse.json({ ok: false, error: "generated " + item.kind + " failed candidate/studio validation" }, { status: 422 });
+      }
+      const bytes = Buffer.from(item.b64, "base64");
+      if (bytes.length < 1000 || bytes.length > 2_700_000) {
+        return NextResponse.json({ ok: false, error: "generated " + item.kind + " exceeds the callback transfer limit" }, { status: 413 });
+      }
+      clips.push({ kind: item.kind, bytes, mime, extension: item.kind === "audio" ? "wav" : "mp4" });
+      continue;
+    }
     if (!item || item.kind !== "image" || item.candidate !== ticket.model ||
         item.model_repo !== profile.modelRepo ||
         !/^[a-f0-9]{64}$/i.test(String(item.checkpoint_sha256 || "")) ||
@@ -87,7 +107,7 @@ export async function POST(req: NextRequest) {
     prepared.push({ bytes, mime, extension: mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png", seed: item.seed });
   }
 
-  if (!text && !prepared.length) {
+  if (!text && !prepared.length && !clips.length) {
     return NextResponse.json({ ok: false, error: "callback contains no user-visible result" }, { status: 400 });
   }
 
@@ -113,10 +133,19 @@ export async function POST(req: NextRequest) {
       }
       await taskEvent(ticket.runId, "info", "✅ تم تسليم الصورة من الوزن المستقل " + profile.sourceModel + " إلى محادثة المرشح " + ticket.model + ".");
     }
+    for (const [index, clip] of clips.entries()) {
+      const file = new InputFile(clip.bytes, ticket.model + "-generated-" + (index + 1) + "." + clip.extension);
+      if (clip.kind === "video") {
+        await bot.api.sendVideo(chatId, file, { caption: "🎬 مقطع فيديو من استوديو الوسائط الخاص بـ " + ticket.model });
+      } else {
+        await bot.api.sendDocument(chatId, file, { caption: "🔊 تسجيل صوتي من استوديو الوسائط الخاص بـ " + ticket.model });
+      }
+      await taskEvent(ticket.runId, "info", "✅ تم تسليم " + (clip.kind === "video" ? "الفيديو" : "الصوت") + " من استوديو الوسائط الخاص بالمرشح " + ticket.model + ".");
+    }
     await recordDonorAsyncDelivery(chatId, ticket.runId, ticket.model as "qwen35-9b" | "gemma4-e4b" | "minicpmo45", String(body.prompt || ""), text).catch(() => false);
     await taskEvent(ticket.runId, "done", "اكتمل رد المرشح وتسليم الوسائط من استوديوه المخصص.");
     await taskStatus(ticket.runId, "done");
-    return NextResponse.json({ ok: true, delivered: true, media_count: prepared.length }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, delivered: true, media_count: prepared.length + clips.length }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const reason = String((error as Error)?.message || error).slice(0, 500);
     await taskEvent(ticket.runId, "failed", "تعذّر تسليم نتيجة المرشح إلى تيليغرام: " + reason);

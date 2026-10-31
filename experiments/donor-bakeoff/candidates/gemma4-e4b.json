@@ -16,8 +16,8 @@
   },
   "runtime_generation_capabilities": {
     "image": true,
-    "audio": false,
-    "video": false
+    "audio": true,
+    "video": true
   },
   "purpose": "Arabic, code, tool-call shape, image/audio/video input tests gated by the actual MTMD capabilities of the loaded projector.",
   "route_id": "gemma4-e4b",
@@ -29,5 +29,10 @@
     "resolution": "512 × 512",
     "steps": 25,
     "cfg": 5.5
+  },
+  "media_generation": {
+    "for_candidate": "gemma4-e4b",
+    "studio_api": "https://studio-novaai2026-sham-donor-gemma4-e4b-media.api-inference.modelscope.net",
+    "media_repo": "novaai2026/gemma4-e4b-media-models"
   }
 }

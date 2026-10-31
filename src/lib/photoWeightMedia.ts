@@ -271,3 +271,9 @@ export async function photoWeightStatus(fetchImpl: typeof fetch = fetch): Promis
     }
   }));
 }
+
+/** The dedicated speech + video Studio of a candidate (its own Studio, its own copy of the media weights). Only the three candidates have one. */
+export function candidateMediaStudio(model: string | undefined): { base: string; repo: string } | null {
+  if (model !== "qwen35-9b" && model !== "gemma4-e4b" && model !== "minicpmo45") return null;
+  return { base: `https://studio-novaai2026-sham-donor-${model}-media.api-inference.modelscope.net`, repo: `novaai2026/${model}-media-models` };
+}
