@@ -278,13 +278,14 @@ async function startDesktop(ctx: CloudComputerContext, sandbox: SandboxInfo): Pr
   return started || { status: "started" };
 }
 
-async function readSignedPreview(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<string> {
+async function readSignedPreview(ctx: CloudComputerContext, sandbox: SandboxInfo, port = VNC_PORT): Promise<string> {
+  const safePort = Math.max(1, Math.min(65535, Math.floor(Number(port) || VNC_PORT)));
   const response = await providerRequest<Json>(
     ctx,
-    `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/ports/${VNC_PORT}/signed-preview-url?expiresInSeconds=${PREVIEW_TTL_SECONDS}`,
+    `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/ports/${safePort}/signed-preview-url?expiresInSeconds=${PREVIEW_TTL_SECONDS}`,
   );
   const url = String(response?.url || response?.signedUrl || response?.signedPreviewUrl || "").trim();
-  if (!/^https:\/\//i.test(url)) throw new Error("Daytona did not return a valid signed desktop preview link.");
+  if (!/^https:\/\//i.test(url)) throw new Error("Daytona did not return a valid signed preview link.");
   return url;
 }
 
@@ -576,16 +577,13 @@ export async function cloudComputerTerminalTicket(ctx: CloudComputerContext, ses
   if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
   const { sandbox } = await openSandbox(ctx);
   await ensureTerminalPty(ctx, sandbox);
-  const preview = await providerRequest<Json>(
-    ctx,
-    `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/ports/2280/preview-url`,
-  );
-  const scopedToken = String(preview?.token || "").trim();
-  if (!scopedToken) throw new Error("Daytona did not return a port-scoped terminal access token.");
-  const proxy = String(sandbox.toolboxProxyUrl || terminalToolboxBase()).replace(/\\/+$/, "");
-  const wsBase = proxy.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
-  const url = `${wsBase}/${encodeURIComponent(sandbox.id)}/processes/${encodeURIComponent(expected)}/attach?rlp_token=${encodeURIComponent(scopedToken)}`;
-  return { url, transport: "websocket", expiresAt: preview?.expiresAt || null, sandboxId: sandbox.id, sessionId: expected };
+  // Signed preview URLs embed a short-lived credential bound to this single Toolbox port.
+  // The project's Daytona API key is never exposed to the browser or placed in a URL.
+  const signedPreview = await readSignedPreview(ctx, sandbox, 2280);
+  const socketUrl = new URL(signedPreview);
+  socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+  socketUrl.pathname = `/toolbox/${encodeURIComponent(sandbox.id)}/processes/${encodeURIComponent(expected)}/attach`;
+  return { url: socketUrl.toString(), transport: "websocket", sandboxId: sandbox.id, sessionId: expected };
 }
 
 /** Forward xterm's measured dimensions to the PTY so TUI applications receive SIGWINCH. */
