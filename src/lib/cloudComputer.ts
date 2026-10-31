@@ -703,6 +703,49 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     const url = await readSignedPreview(ctx, sandbox);
     return { https: url.startsWith("https://"), expiresInSeconds: PREVIEW_TTL_SECONDS };
   });
+  await check("advanced mouse movement, drag and cursor position", async () => {
+    await cloudComputerAction(ctx, "move", { x: 30, y: 30 });
+    await cloudComputerAction(ctx, "drag", { start_x: 30, start_y: 30, end_x: 55, end_y: 55, button: "left" });
+    const position = await cloudComputerAction(ctx, "mouse_position");
+    return { move: true, drag: true, position: Boolean(position) };
+  });
+  await check("accessibility tree, find and controls", async () => {
+    const tree = await cloudComputerAction(ctx, "accessibility_tree", { scope: "all", max_depth: 2 });
+    const found = await cloudComputerAction(ctx, "accessibility_find", { scope: "all", limit: 5 });
+    const nodes = Array.isArray(found.nodes) ? found.nodes : Array.isArray(tree.nodes) ? tree.nodes : [];
+    if (nodes[0]?.id) {
+      const nodeId = String(nodes[0].id);
+      await cloudComputerAction(ctx, "accessibility_focus", { node_id: nodeId });
+      await cloudComputerAction(ctx, "accessibility_invoke", { node_id: nodeId });
+      await cloudComputerAction(ctx, "accessibility_set_value", { node_id: nodeId, value: "TTBIK accessibility check" });
+    }
+    return { tree: Boolean(tree), search: Boolean(found), controlsTested: Boolean(nodes[0]?.id) };
+  });
+  await check("display information and desktop process diagnostics", async () => {
+    const display = await cloudComputerAction(ctx, "display_info");
+    const status = await cloudComputerAction(ctx, "process_status", { process: "desktop" });
+    await cloudComputerAction(ctx, "process_logs", { process: "desktop" });
+    await cloudComputerAction(ctx, "process_errors", { process: "desktop" });
+    return { display: Boolean(display), process: Boolean(status) };
+  });
+  await check("screen recording lifecycle and download to persistent disk", async () => {
+    const started = await cloudComputerAction(ctx, "recording_start", { name: "ttbik-acceptance" });
+    const recordingId = String(started.id || "");
+    if (!recordingId) throw new Error("Recording API returned no id.");
+    await cloudComputerAction(ctx, "recording_stop", { id: recordingId });
+    await cloudComputerAction(ctx, "recording_list");
+    await cloudComputerAction(ctx, "recording_get", { id: recordingId });
+    const downloaded = await cloudComputerAction(ctx, "recording_download", { id: recordingId, path: "/home/daytona/recordings/ttbik-acceptance.mp4" });
+    await cloudComputerAction(ctx, "recording_delete", { id: recordingId });
+    return downloaded;
+  });
+  await check("full, regional and compressed screenshots", async () => {
+    const region = await cloudComputerScreenshot(ctx, { region: { x: 0, y: 0, width: 320, height: 240 } });
+    const compressed = await cloudComputerScreenshot(ctx, { compressed: true, format: "jpeg", quality: 80, scale: 0.5 });
+    if (!region?.bytes.length || !compressed?.bytes.length) throw new Error("A screenshot mode returned no data.");
+    return { regionBytes: region.bytes.length, compressedBytes: compressed.bytes.length };
+  });
+
   const passed = results.filter((r) => r.ok).length;
   return { ok: passed === results.length, passed, total: results.length, results };
 }
