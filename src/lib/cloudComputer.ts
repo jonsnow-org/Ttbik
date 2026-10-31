@@ -161,7 +161,7 @@ async function readRow(ctx: CloudComputerContext, chatKey: string): Promise<Comp
   return rows[0] || null;
 }
 
-async function saveRow(ctx: CloudComputerContext, row: Omit<ComputerRow, "chat_id" | "created_at" | "updated_at" | "last_billed_at">): Promise<void> {
+async function saveRow(ctx: CloudComputerContext, row: Omit<ComputerRow, "created_at" | "updated_at" | "last_billed_at"> & { chat_id?: number }): Promise<void> {
   const db = dbOf(ctx);
   await ensureTable(db);
   await db.exec(
