@@ -10,6 +10,7 @@ type Opt = { id: string; ar: string; en: string; hint: { ar: string; en: string 
 type Probe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string };
 type Line = { kind: "image" | "audio" | "video"; ar: string; en: string; studio: string };
 type ModelMedia = { id: string; engine: string; options: Opt[]; lines: Line[]; studios: Probe[] };
+type PhotoWeight = { modelId: string; displayName: string; sourceModel: string; modelRepo: string; endpoint: string; ready: boolean; phase: string; checkpointSha256: string | null; sourceRevision: string | null; memoryGb: number | null; detail: string };
 type OwnerModel = { id: string; name: { ar: string; en: string }; price_stars: number | null; visible: boolean; isDefault: boolean; ready: boolean; access?: "everyone" | "owner_only" | "on_but_not_ready" };
 
 const ICON = { image: "🖼", audio: "🔊", video: "🎬" } as const;
@@ -23,6 +24,7 @@ export function accessText(m: OwnerModel, ar: boolean): string {
 
 export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { ar: boolean; api: Api; haptic: (k: "success" | "error") => void; models: OwnerModel[]; reload: () => void | Promise<void> }) {
   const [media, setMedia] = useState<ModelMedia[] | null>(null);
+  const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
@@ -30,7 +32,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const loadMedia = useCallback(async () => {
     setBusy("status");
     setErr("");
-    try { setMedia((await api<{ models: ModelMedia[] }>("media_status")).models); } catch (e: any) { setErr(String(e?.message || e)); }
+    try { const result = await api<{ models: ModelMedia[]; photoWeights?: PhotoWeight[] }>("media_status"); setMedia(result.models); setPhotoWeights(result.photoWeights || []); } catch (e: any) { setErr(String(e?.message || e)); }
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
@@ -86,6 +88,22 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             ))}
           </div>
         ))}
+        <Section
+          header={ar ? "🧬 أوزان الصور المستقلة لكل نموذج" : "🧬 Independent image weights for every model"}
+          footer={ar ? "كل صف يربط النموذج باستوديوه ومستودع أوزانه الخاصين. لا يُقبل التوليد إلا عندما تكون الحالة جاهزة والمستودع وبصمة checkpoint مطابقين. لا يوجد تحويل تلقائي إلى نموذج آخر." : "Each row maps one selected model to its own private image Studio and weight repository. Generation is accepted only when the Studio is ready and its repository and checkpoint SHA-256 match. There is no automatic switch to another model."}
+        >
+          {!photoWeights.length && !err && <Cell before={<Spinner size="s" />}>{ar ? "جارٍ فحص أوزان الصور…" : "Checking image weights…"}</Cell>}
+          {photoWeights.map((w) => {
+            const memory = w.memoryGb == null ? "" : " · " + w.memoryGb.toFixed(2) + " GB RAM";
+            const hash = w.checkpointSha256 ? w.checkpointSha256.slice(0, 12) + "…" : (ar ? "لا توجد بصمة" : "no checkpoint hash");
+            const detail = w.detail ? " · " + w.detail : "";
+            const subtitle = w.sourceModel + " · " + w.modelRepo + " · " + hash + memory + detail;
+            const labels: Record<string, string> = { coder: "Nova", "qwen35-9b": "Qwen3.5-9B", "gemma4-e4b": "Gemma 4 E4B", minicpmo45: "MiniCPM-o 4.5", sham_v2: "Sham v2" };
+            return <Cell key={w.modelId} multiline after={w.ready ? "✅" : "❌"} subtitle={subtitle}>
+              {(ar ? (labels[w.modelId] || w.displayName) : w.displayName) + " — " + (ar ? (w.ready ? "جاهز" : "غير جاهز") : w.phase)}
+            </Cell>;
+          })}
+        </Section>
         <Cell><Button size="s" mode="bezeled" loading={busy === "status"} onClick={() => void loadMedia()}>{ar ? "🔄 افحص الآن" : "🔄 Check now"}</Button></Cell>
       </Section>
     </>
