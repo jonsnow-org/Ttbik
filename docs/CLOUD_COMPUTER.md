@@ -54,7 +54,7 @@ For each eligible user/model:
 - Mouse click, typing, key presses, hotkeys and scrolling.
 - Window enumeration and desktop status.
 - Screenshots and accessibility metadata. If the selected runtime accepts images, the screenshot goes to that model's own projector; otherwise bilingual Arabic/English OCR runs inside the same model VM and the model receives OCR text, active-window metadata and its accessibility tree. This prevents a missing projector from blocking desktop operation, without routing the screen to another model.
-- A persistent PTY shell integrated in the same computer, with interactive stdin, live output cursors and reconnection. PTY runtime is recreated after a full VM stop/start; the filesystem persists.
+- A persistent shell session integrated in the same computer, with interactive stdin, command output polling and reconnection. This is not yet a full terminal PTY/WebSocket implementation; the shell session is recreated after a full VM stop/start while the filesystem persists.
 - Browser/desktop use through the signed VNC preview inside the Mini App (with an external-browser fallback).
 
 Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Donor candidates get their native screenshot image only when their own MTMD runtime reports vision capability; otherwise OCR and accessibility metadata are computed in that same candidate VM. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
@@ -100,3 +100,8 @@ The owner self-test calls the actual Daytona provider and exercises the live des
 The bot must acknowledge Telegram updates quickly; the model/agent run is not held open by the webhook. The current implementation uses a persisted run/task state, task event log, a 30-second execution leg, a signed continuation endpoint, and the Oracle one-minute sweeper to resume orphaned runs. The user can send a new message while a task runs; it enters the run inbox and is consumed on the next step. Progress and final reports are sent as Telegram messages, while Mini App tasks keep their output in the activity stream.
 
 This is an incremental continuation design, not yet a standalone always-on queue consumer. To remove Vercel invocation lifetime as a long-term dependency, the next architecture milestone is a durable Postgres-backed work queue and an always-on worker process (existing Oracle worker or a separately provisioned worker service). That worker should claim jobs with leases, checkpoint each model/tool step, persist media/file references, retry transient errors, and deliver notifications independently of a Telegram webhook or Vercel request. Do not claim this milestone is deployed until the worker service and queue are actually wired and live-tested.
+
+
+## Remaining terminal milestone
+
+The current in-tab terminal is backed by Daytona's persistent shell-session API and supports command execution, interactive stdin, output polling and reconnect. It must not be described as a full PTY terminal yet: true xterm.js rendering, PTY resize, terminal escape-sequence fidelity and a secure WebSocket attach path through a signed preview/proxy remain acceptance work. Daytona's official TypeScript SDK provides `createPty` / `connectPty`; use that API (or its documented stable V0 HTTP endpoints) rather than copying the V2-alpha endpoint examples. Do not expose the Daytona provider API key to the browser.
