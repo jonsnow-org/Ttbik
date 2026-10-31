@@ -209,11 +209,11 @@ export async function executeDonorTool(input: {
     const visionReady = input.mediaCapabilities?.vision === true;
     const baseDescription =
       "Computer screen captured from this model's own persistent VM. Active windows: " + windows +
-      "\\nAccessibility tree (UI elements, roles, labels and state): " + accessibility;
+      "\nAccessibility tree (UI elements, roles, labels and state): " + accessibility;
     if (visionReady) {
       return {
         ok: true,
-        result: baseDescription + "\\nThe screenshot image is attached directly to the next inference turn of this same model, using its own loaded multimodal projector. Inspect the visual layout and correlate it with the accessibility tree.",
+        result: baseDescription + "\nThe screenshot image is attached directly to the next inference turn of this same model, using its own loaded multimodal projector. Inspect the visual layout and correlate it with the accessibility tree.",
         vision: {
           mimeType: "image/jpeg",
           b64: file.bytes.toString("base64"),
@@ -225,8 +225,8 @@ export async function executeDonorTool(input: {
     );
     return {
       ok: true,
-      result: baseDescription + "\\nVisible screen text (OCR in this same isolated computer):\\n" + ocr +
-        "\\nThis model cannot decode the screenshot pixels with its current projector, but it can still inspect the UI tree, active windows, exact visible text and control the same desktop using mouse/keyboard/accessibility tools. Never guess missing visual details.",
+      result: baseDescription + "\nVisible screen text (OCR in this same isolated computer):\\n" + ocr +
+        "\nThis model cannot decode the screenshot pixels with its current projector, but it can still inspect the UI tree, active windows, exact visible text and control the same desktop using mouse/keyboard/accessibility tools. Never guess missing visual details.",
     };
   }
 
