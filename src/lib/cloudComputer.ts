@@ -427,104 +427,130 @@ export async function cloudComputerRefreshPreview(ctx: CloudComputerContext): Pr
 }
 
 function terminalSessionId(chatKey: string): string {
-  return "ttbik-shell-" + createHash("sha256").update("ttbik-cloud-shell-v1|" + chatKey).digest("hex").slice(0, 20);
+  return "ttbik-shell-" + createHash("sha256").update("ttbik-cloud-shell-v2|" + chatKey).digest("hex").slice(0, 20);
 }
 
-async function ensureTerminalSession(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<{ sessionId: string; created: boolean }> {
+function terminalToolboxBase(sandbox: SandboxInfo): string {
+  return (process.env.DAYTONA_TOOLBOX_V2_URL || sandbox.toolboxProxyUrl || "https://toolbox.daytona.com/toolbox").trim().replace(/\\/+$/, "");
+}
+
+async function terminalRequest<T = any>(
+  ctx: CloudComputerContext,
+  sandbox: SandboxInfo,
+  path: string,
+  init: RequestInit = {},
+  notFoundIsNull = false,
+): Promise<T | null> {
+  const base = terminalToolboxBase(sandbox);
+  return providerRequest<T>(ctx, `${base}/${encodeURIComponent(sandbox.id)}${path}`, init, notFoundIsNull);
+}
+
+async function ensureTerminalPty(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<string> {
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
-  const sessionId = terminalSessionId(identity.chatKey);
-  const existing = await toolboxRequest<Json>(ctx, sandbox, "/process/session/" + encodeURIComponent(sessionId), {}, true);
-  if (existing) return { sessionId, created: false };
-  await toolboxRequest(ctx, sandbox, "/process/session", {
+  const id = terminalSessionId(identity.chatKey);
+  const existing = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(id), {}, true);
+  const state = String(existing?.state || "").toLowerCase();
+  if (existing && ["running", "queued", "starting"].includes(state)) return id;
+  if (existing) {
+    await terminalRequest(ctx, sandbox, "/processes/" + encodeURIComponent(id), { method: "DELETE" }, true);
+  }
+  await terminalRequest(ctx, sandbox, "/processes", {
     method: "POST",
-    body: JSON.stringify({ sessionId, cwd: "/home/daytona", shell: "bash", login: true }),
+    body: JSON.stringify({
+      kind: "pty",
+      name: id,
+      shellCommand: "/bin/bash -l",
+      cwd: "/home/daytona",
+      stdin: "open",
+      keepLogs: "until_cleanup",
+      terminal: { cols: 120, rows: 32 },
+    }),
+    signal: AbortSignal.timeout(30000),
   });
-  return { sessionId, created: true };
+  const created = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(id), {}, true);
+  const createdState = String(created?.state || "").toLowerCase();
+  if (!created || !["running", "queued", "starting"].includes(createdState)) {
+    throw new Error("Daytona did not start the persistent interactive shell (state: " + (createdState || "unknown") + ").");
+  }
+  return id;
 }
 
+/** One PTY shell per verified account and selected model, inside that model's persistent cloud computer. */
 export async function cloudComputerTerminalOpen(ctx: CloudComputerContext): Promise<Json> {
   await requireComputeAllowance(ctx);
   const { sandbox } = await openSandbox(ctx);
-  const session = await ensureTerminalSession(ctx, sandbox);
-  const info = await toolboxRequest<Json>(ctx, sandbox, "/process/session/" + encodeURIComponent(session.sessionId));
-  return { ok: true, sessionId: session.sessionId, created: session.created, cwd: info?.cwd || "/home/daytona", shell: info?.shell || "bash" };
-}
-
-export async function cloudComputerTerminalExecute(
-  ctx: CloudComputerContext,
-  command: string,
-  options: { async?: boolean; timeoutSeconds?: number } = {},
-): Promise<Json> {
-  await requireComputeAllowance(ctx);
-  const text = String(command || "").trimEnd();
-  if (!text.trim()) throw new Error("A shell command is required.");
-  if (text.length > MAX_COMMAND_CHARS) throw new Error("The shell command is too long.");
-  const { sandbox } = await openSandbox(ctx);
-  const { sessionId } = await ensureTerminalSession(ctx, sandbox);
-  const started = Date.now();
-  try {
-    const result = await toolboxRequest<Json>(ctx, sandbox, "/process/session/" + encodeURIComponent(sessionId) + "/exec", {
-      method: "POST",
-      body: JSON.stringify({
-        command: text,
-        runAsync: options.async === true,
-        timeout: Math.max(1, Math.min(300, Math.ceil(options.timeoutSeconds || 120))),
-      }),
-      signal: AbortSignal.timeout(options.async ? 30000 : Math.max(15000, Math.min(310000, (options.timeoutSeconds || 120) * 1000 + 10000))),
-    });
-    const commandId = String(result?.cmdId || result?.commandId || result?.id || "");
-    if (options.async) {
-      if (!commandId) throw new Error("The cloud terminal did not return a command id.");
-      return { ok: true, sessionId, commandId, state: "running" };
-    }
-    return {
-      ok: true,
-      sessionId,
-      exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
-      stdout: String(result?.stdout || result?.output || result?.result || "").slice(0, 16000),
-      stderr: String(result?.stderr || "").slice(0, 6000),
-      commandId: commandId || undefined,
-    };
-  } finally {
-    await chargeCompute(ctx, Date.now() - started);
-  }
-}
-
-export async function cloudComputerTerminalPoll(ctx: CloudComputerContext, commandId: string): Promise<Json> {
-  const id = String(commandId || "").trim();
-  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(id)) throw new Error("Invalid terminal command id.");
-  const { sandbox } = await openSandbox(ctx);
-  const { sessionId } = await ensureTerminalSession(ctx, sandbox);
-  const [state, logs] = await Promise.all([
-    toolboxRequest<Json>(ctx, sandbox, "/process/session/" + encodeURIComponent(sessionId) + "/command/" + encodeURIComponent(id), {}, true),
-    toolboxRequest<Json>(ctx, sandbox, "/process/session/" + encodeURIComponent(sessionId) + "/command/" + encodeURIComponent(id) + "/logs", {}, true),
-  ]);
-  const payload = logs || state || {};
-  const exitCode = typeof state?.exitCode === "number" ? state.exitCode : typeof payload?.exitCode === "number" ? payload.exitCode : null;
-  const complete = exitCode !== null || ["completed", "finished", "failed", "error"].includes(String(state?.status || state?.state || "").toLowerCase());
+  const sessionId = await ensureTerminalPty(ctx, sandbox);
+  const info = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(sessionId));
   return {
+    ok: true,
     sessionId,
-    commandId: id,
-    complete,
-    exitCode,
-    stdout: String(payload?.stdout || payload?.output || state?.stdout || "").slice(0, 16000),
-    stderr: String(payload?.stderr || state?.stderr || "").slice(0, 6000),
-    state: state?.status || state?.state || (complete ? "completed" : "running"),
+    state: info?.state || "running",
+    cwd: info?.cwd || "/home/daytona",
+    shell: "/bin/bash",
+    terminal: info?.terminal || { cols: 120, rows: 32 },
+    computerSandboxId: sandbox.id,
   };
 }
 
-export async function cloudComputerTerminalInput(ctx: CloudComputerContext, commandId: string, data: string): Promise<Json> {
-  const id = String(commandId || "").trim();
-  const input = String(data ?? "");
-  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(id)) throw new Error("Invalid terminal command id.");
-  if (!input || input.length > 4000) throw new Error("Terminal input must contain 1 to 4000 characters.");
+/** Send a command to the live PTY. The shell, cwd and environment stay attached to this VM session. */
+export async function cloudComputerTerminalExecute(ctx: CloudComputerContext, command: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const text = String(command || "");
+  if (!text.trim()) throw new Error("A shell command is required.");
+  if (text.length > MAX_COMMAND_CHARS) throw new Error("The shell command is too long.");
   const { sandbox } = await openSandbox(ctx);
-  const { sessionId } = await ensureTerminalSession(ctx, sandbox);
-  await toolboxRequest(ctx, sandbox, "/process/session/" + encodeURIComponent(sessionId) + "/command/" + encodeURIComponent(id) + "/input", {
+  const sessionId = await ensureTerminalPty(ctx, sandbox);
+  await terminalRequest(ctx, sandbox, "/processes/" + encodeURIComponent(sessionId) + "/stdin", {
+    method: "POST",
+    body: JSON.stringify({ data: text.replace(/\\r?\\n$/, "") + "\\n" }),
+  });
+  return { ok: true, sessionId };
+}
+
+/** Read only the PTY log frames after the supplied cursor; this is safe to poll from the integrated computer panel. */
+export async function cloudComputerTerminalPoll(ctx: CloudComputerContext, sessionId: string, cursor?: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
+  const expected = terminalSessionId(identity.chatKey);
+  if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
+  const { sandbox } = await openSandbox(ctx);
+  const query = new URLSearchParams({ limit: "500" });
+  if (cursor) query.set("cursor", String(cursor).slice(0, 300));
+  const [page, info] = await Promise.all([
+    terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected) + "/logs?" + query.toString()),
+    terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected)),
+  ]);
+  const items = Array.isArray(page?.items) ? page.items : [];
+  const output = items.map((frame: any) => String(frame?.data || "")).join("");
+  const nextCursor = items.length ? String(items[items.length - 1]?.cursor || cursor || "") : String(cursor || "");
+  const state = String(info?.state || "unknown").toLowerCase();
+  const complete = ["terminal", "failed", "killed", "exited"].includes(state);
+  return {
+    sessionId: expected,
+    output: output.slice(-24000),
+    cursor: nextCursor,
+    state,
+    complete,
+    exitCode: typeof info?.exitCode === "number" ? info.exitCode : null,
+    cwd: info?.cwd || null,
+  };
+}
+
+/** Send text, interactive input, or a raw control byte (for example Ctrl+C = U+0003) to this model's PTY. */
+export async function cloudComputerTerminalInput(ctx: CloudComputerContext, sessionId: string, data: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
+  const expected = terminalSessionId(identity.chatKey);
+  if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
+  const input = String(data ?? "");
+  if (!input || input.length > 12000) throw new Error("Terminal input must contain 1 to 12000 characters.");
+  const { sandbox } = await openSandbox(ctx);
+  await ensureTerminalPty(ctx, sandbox);
+  await terminalRequest(ctx, sandbox, "/processes/" + encodeURIComponent(expected) + "/stdin", {
     method: "POST",
     body: JSON.stringify({ data: input }),
   });
-  return { ok: true, sessionId, commandId: id };
+  return { ok: true, sessionId: expected };
 }
 
 export async function cloudComputerExecute(ctx: CloudComputerContext, command: string, cwd?: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<Json> {
