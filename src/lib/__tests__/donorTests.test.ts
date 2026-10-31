@@ -75,7 +75,7 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-10-31-r11",
+            app_revision: "donor-bakeoff-2026-10-31-r12",
             media_capabilities: { vision: true, audio: false, video: true },
             runtime_generation_capabilities: { image: true, audio: false, video: false },
             image_generation_assignment: {
@@ -126,4 +126,21 @@ describe("donor Studio readiness probe", () => {
     expect(status.detail).toContain("تحديث مشغّل");
   });
 
+});
+
+describe("donor background jobs", () => {
+  it("starts a job and reads its state with short polls", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const { donorJobPoll } = await import("@/lib/donorTests");
+    const answers = [
+      { state: "running" },
+      { state: "done", result: JSON.stringify({ text: "تم", tool_calls: [] }) },
+      { state: "unknown" },
+    ];
+    const fetchImpl = jest.fn(async () => new Response(JSON.stringify({ data: [JSON.stringify(answers.shift())] }), { status: 200 })) as any;
+    expect((await donorJobPoll("qwen35-9b", "j", fetchImpl)).state).toBe("running");
+    const done = await donorJobPoll("qwen35-9b", "j", fetchImpl);
+    expect(done.state === "done" && done.result.text).toBe("تم");
+    expect((await donorJobPoll("qwen35-9b", "j", fetchImpl)).state).toBe("unknown");
+  });
 });

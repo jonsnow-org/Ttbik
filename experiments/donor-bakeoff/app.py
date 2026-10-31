@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r11"
+APP_REVISION = "donor-bakeoff-2026-10-31-r12"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -1332,7 +1332,7 @@ def infer(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
 
-def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str, failed: bool = False) -> tuple[bool, str]:
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str) -> tuple[bool, str]:
     if not isinstance(tool_bridge, dict):
         return False, "no signed owner task ticket"
     ticket = str(tool_bridge.get("ticket") or "")
@@ -1387,7 +1387,6 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
                 "prompt": str(prompt or "")[:12000],
                 "text": str(result.get("text") or "")[:12000],
                 "generated_media": outgoing_media,
-                "failed": bool(failed),
             },
             headers={"Cache-Control": "no-store"},
             timeout=(8, 28),
@@ -1450,9 +1449,6 @@ def chat_payload(payload_json: str) -> str:
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],
         )
-        if "error" in result and bridge:
-            # The Vercel request that started this may be long gone (60 s webhook limit): tell the chat instead of failing silently.
-            _deliver_candidate_result(bridge, {"text": "⚠️ تعذّر إكمال الطلب: " + str(result.get("error"))[:600]}, str(payload.get("prompt") or ""), failed=True)
         if "error" not in result and bridge:
             delivered, delivery_error = _deliver_candidate_result(bridge, result, str(payload.get("prompt") or ""))
             result["delivered_to_telegram"] = delivered
@@ -1468,6 +1464,49 @@ def chat_payload(payload_json: str) -> str:
     finally:
         for path in created:
             path.unlink(missing_ok=True)
+
+
+# ---- background jobs: the app starts a job and polls it with short calls, so a dropped connection never loses or fails a long answer
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+JOB_RUN_LOCK = threading.Lock()          # one inference at a time on the 2-vCPU Studio; later jobs wait their turn
+JOB_TTL_SECONDS = 3 * 3600
+
+
+def _purge_jobs() -> None:
+    cutoff = time.time() - JOB_TTL_SECONDS
+    with JOBS_LOCK:
+        for key in [k for k, v in JOBS.items() if v.get("finished") and v["finished"] < cutoff]:
+            JOBS.pop(key, None)
+
+
+def _run_job(job_id: str, payload_json: str) -> None:
+    with JOB_RUN_LOCK:
+        with JOBS_LOCK:
+            JOBS[job_id]["state"] = "running"
+            JOBS[job_id]["started"] = time.time()
+        raw = chat_payload(payload_json)
+    with JOBS_LOCK:
+        JOBS[job_id].update({"state": "done", "result": raw, "finished": time.time()})
+
+
+def chat_start(payload_json: str) -> str:
+    _purge_jobs()
+    job_id = uuid.uuid4().hex
+    with JOBS_LOCK:
+        JOBS[job_id] = {"state": "queued", "created": time.time()}
+    threading.Thread(target=_run_job, args=(job_id, payload_json), daemon=True, name="donor-job-" + job_id[:8]).start()
+    return json.dumps({"job_id": job_id}, ensure_ascii=False)
+
+
+def chat_poll(job_id: str) -> str:
+    with JOBS_LOCK:
+        job = JOBS.get(str(job_id or ""))
+        if not job:
+            return json.dumps({"state": "unknown"}, ensure_ascii=False)
+        if job["state"] != "done":
+            return json.dumps({"state": job["state"], "elapsed": int(time.time() - job.get("started", job["created"]))}, ensure_ascii=False)
+        return json.dumps({"state": "done", "result": job["result"]}, ensure_ascii=False)
 
 
 def _unsupported(test: dict, reason: str) -> dict:
@@ -1842,6 +1881,15 @@ with demo:
         outputs=payload_output,
         api_name="chat_payload",
     )
+
+    job_start_box = gr.Textbox(visible=False)
+    job_start_out = gr.Textbox(visible=False)
+    job_start_button = gr.Button(visible=False)
+    job_start_button.click(chat_start, inputs=[job_start_box], outputs=job_start_out, api_name="chat_start", queue=False)
+    job_poll_box = gr.Textbox(visible=False)
+    job_poll_out = gr.Textbox(visible=False)
+    job_poll_button = gr.Button(visible=False)
+    job_poll_button.click(chat_poll, inputs=[job_poll_box], outputs=job_poll_out, api_name="chat_poll", queue=False)
 
     gr.Markdown("## تشغيل اختبار واحد")
     test_selector = gr.Dropdown(

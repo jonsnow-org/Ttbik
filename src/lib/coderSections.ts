@@ -32,7 +32,7 @@ import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskS
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
-import { DONOR_TESTS, donorTestChat, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
+import { DONOR_TESTS, donorJobPoll, donorJobStart, type DonorChatResult, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -1013,6 +1013,29 @@ export async function recordDonorAsyncDelivery(
   return true;
 }
 
+const DONOR_LEG_MS = (surface: "telegram" | "app") => (surface === "app" ? 240_000 : 45_000);
+const DONOR_TOTAL_MS = 40 * 60_000;
+const donorPause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** The next leg of a long candidate task: the previous leg (a 60 s webhook) hands the running Studio job to /api/coder/donor-continue. */
+async function donorHandOff(botRow: BotRow, chatId: number, state: DonorChain): Promise<void> {
+  const chain = Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
+  const who = String(chatId);
+  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
+  const res = await fetch(`${selfUrl()}/api/coder/donor-continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000), cache: "no-store" });
+  if (res.status !== 202) throw new Error(`donor continuation was not accepted (HTTP ${res.status})`);
+}
+export type DonorChain = { runId: string; id: DonorTestId; jobId: string; prompt: string; surface: "telegram" | "app"; started: number; botId: string };
+
+export async function continueDonorRun(botRow: BotRow, chatId: number, chain: DonorChain, db: Db = prismaDb, fetchImpl: typeof fetch = globalThis.fetch): Promise<void> {
+  const st = await loadState(chatId, db);
+  const prior = (st.donorTestHistory?.[chain.id] || []).slice(-12);
+  // A Bot instance only to send messages: the token never leaves this process.
+  const { Bot } = await import("grammy");
+  const bot = chain.surface === "telegram" ? new Bot(botRow.token) : undefined;
+  await followDonorJob(chatId, chain, prior, db, fetchImpl, bot, botRow);
+}
+
 async function runDonorTestTask(
   chatId: number,
   runId: string,
@@ -1026,12 +1049,85 @@ async function runDonorTestTask(
   surface: "telegram" | "app" = "telegram",
   botId?: string,
 ): Promise<void> {
-  const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db, runId, botId });
+    const jobId = await donorJobStart(id, prompt, prior, media, { chatId, db, runId, botId }, fetchImpl);
+    await followDonorJob(chatId, { runId, id, jobId, prompt, surface, started: Date.now(), botId: botId || "" }, prior, db, fetchImpl, bot);
+  } catch (error) {
+    await failDonorRun(chatId, runId, id, label, error, db, bot, surface);
+  }
+}
+
+async function failDonorRun(chatId: number, runId: string, id: DonorTestId, label: string, error: unknown, db: Db, bot: TelegramBot | undefined, surface: "telegram" | "app"): Promise<void> {
+  const message = String((error as Error)?.message || error).slice(0, 700);
+  const notice = "تعذّر الرد من " + label + ": " + message;
+  await taskEvent(runId, "failed", notice, db);
+  await taskStatus(runId, "failed", undefined, db);
+  if (bot && surface === "telegram") await bot.api.sendMessage(chatId, notice).catch(() => null);
+  const st = await loadState(chatId, db);
+  if (st.donorTestInFlight?.[id] === runId) {
+    const active = { ...(st.donorTestInFlight || {}) };
+    delete active[id];
+    st.donorTestInFlight = active;
+    await saveState(chatId, st, db);
+  }
+}
+
+/** Follow one Studio job with short polls. A failed poll is not a failed task; a leg that runs out of time hands the job on instead of giving up. */
+async function followDonorJob(
+  chatId: number, chain: DonorChain, prior: DonorHistoryMessage[], db: Db, fetchImpl: typeof fetch, bot?: TelegramBot, botRow?: BotRow,
+): Promise<void> {
+  const { runId, id, jobId, prompt, surface } = chain;
+  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
+  const legEnd = Date.now() + DONOR_LEG_MS(surface);
+  const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
+  const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
+  try {
+    let pollFailures = 0;
+    let result: Awaited<ReturnType<typeof donorJobPoll>> | null = null;
+    while (true) {
+      if (!(await taskIsActive(runId, db))) return;
+      try {
+        result = await donorJobPoll(id, jobId, fetchImpl);
+        pollFailures = 0;
+      } catch (error) {
+        // A reset connection or a Studio gateway hiccup: the job keeps running inside the Studio. Only a long outage is reported.
+        pollFailures += 1;
+        if (pollFailures >= 40) throw new Error("انقطع الاتصال باستوديو النموذج لأكثر من ثلاث دقائق.");
+        result = null;
+      }
+      if (result?.state === "done") break;
+      if (result?.state === "unknown") throw new Error("فقد الاستوديو هذه المهمة (أُعيد تشغيله). أعد إرسال الطلب.");
+      if (Date.now() - chain.started > DONOR_TOTAL_MS) throw new Error("تجاوز الطلب الحد الأقصى للمدة (40 دقيقة).");
+      if (Date.now() >= legEnd) {
+        let row = botRow || null;
+        if (!row && chain.botId) {
+          const { prisma } = await import("@/lib/prisma");
+          row = await prisma.bot.findUnique({ where: { id: chain.botId } }).catch(() => null);
+        }
+        if (!row) throw new Error("تعذّر متابعة الطلب الطويل: لم يُعثر على البوت.");
+        await donorHandOff(row, chatId, chain);
+        return;
+      }
+      await donorPause(4_000);
+    }
+    const doneResult = (result as { state: "done"; result: DonorChatResult }).result;
+    await finishDonorRun(chatId, chain, prior, doneResult, db, bot);
+  } catch (error) {
+    await failDonorRun(chatId, runId, id, label, error, db, bot, surface);
+  } finally {
+    clearInterval(heartbeat);
+    if (typing) clearInterval(typing);
+  }
+}
+
+async function finishDonorRun(
+  chatId: number, chain: DonorChain, prior: DonorHistoryMessage[], result: DonorChatResult, db: Db, bot?: TelegramBot,
+): Promise<void> {
+  const { runId, id, prompt, surface } = chain;
+  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
+  {
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
@@ -1154,22 +1250,6 @@ async function runDonorTestTask(
     );
     await taskEvent(runId, "done", "اكتمل الرد من " + label + ".", db);
     await taskStatus(runId, "done", undefined, db);
-  } catch (error) {
-    const message = String((error as Error)?.message || error).slice(0, 700);
-    const notice = "تعذّر الاتصال بالنموذج " + label + ": " + message + " لم يتم تحويل الطلب إلى نموذج آخر.";
-    await taskEvent(runId, "failed", notice, db);
-    await taskStatus(runId, "failed", undefined, db);
-    if (bot && surface === "telegram") await bot.api.sendMessage(chatId, notice).catch(() => null);
-  } finally {
-    clearInterval(heartbeat);
-    if (typing) clearInterval(typing);
-    const st = await loadState(chatId, db);
-    if (st.donorTestInFlight?.[id] === runId) {
-      const active = { ...(st.donorTestInFlight || {}) };
-      delete active[id];
-      st.donorTestInFlight = active;
-      await saveState(chatId, st, db);
-    }
   }
 }
 
