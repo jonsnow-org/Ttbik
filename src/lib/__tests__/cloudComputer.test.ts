@@ -4,6 +4,7 @@ import {
   cloudComputerIdentity,
   cloudComputerOpen,
   cloudComputerOcrScreenshot,
+  cloudComputerScreenshot,
   cloudComputerTerminalExecute,
   cloudComputerTerminalInput,
   cloudComputerTerminalOpen,
