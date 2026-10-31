@@ -2133,7 +2133,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             if (!(await anyVisionStudio())) out = "error: no Studio reads pictures yet (vision is not switched on). Say so to the user; do not guess what the picture shows.";
             else if (call.function.name === "cloud_computer_screenshot") {
               const { cloudComputerScreenshot } = await import("@/lib/cloudComputer");
-              const file = await cloudComputerScreenshot({ chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db });
+              const shotArgs = parseArgs(call);
+              const rawRegion = shotArgs.region && typeof shotArgs.region === "object" ? shotArgs.region as Record<string, unknown> : null;
+              const options = {
+                ...(rawRegion ? { region: { x: Number(rawRegion.x) || 0, y: Number(rawRegion.y) || 0, width: Number(rawRegion.width) || 1, height: Number(rawRegion.height) || 1 } } : {}),
+                compressed: shotArgs.compressed === true,
+                format: shotArgs.format === "jpeg" ? "jpeg" as const : "png" as const,
+                quality: Number(shotArgs.quality) || 85,
+                scale: Number(shotArgs.scale) || 1,
+              };
+              const file = await cloudComputerScreenshot({ chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db }, options);
               const img = file ? await toModelImage(file.bytes, 1024) : null;
               if (img) { shown = [img]; from = "the selected model cloud desktop"; }
               else out = "error: the cloud desktop screenshot could not be read by the selected vision model.";
