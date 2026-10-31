@@ -707,7 +707,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         const file = await computer.cloudComputerReadFile(cloudCtx, String(a.path || ""));
         return file ? clip(file.bytes.toString("utf8"), 16000) : "error: file not found";
       }
-      const action = name.replace("cloud_computer_", "");
+      const action = name === "cloud_computer_action" ? String(a.action || "") : name.replace("cloud_computer_", "");
       if (action === "screenshot") return "Screenshot capture is routed through the visual result handler.";
       const result = await computer.cloudComputerAction(cloudCtx, action, a);
       return clip(JSON.stringify(result), 6000);
