@@ -1,0 +1,84 @@
+name: "Recover Realistic Vision generated image artifact"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/recover-realistic-image-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install image inspection tools
+        run: |
+          python -m pip install -q pillow
+
+      - name: Download the completed Gradio image through the API-specific host
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import hashlib, json, os
+          from io import BytesIO
+          from pathlib import Path
+          import requests
+          from PIL import Image
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          file_path="/tmp/gradio/346bce7be5ad509ad60593cc3349fd54fb243bd16199ff3f3334edee6dae8aaa/image.webp"
+          url=endpoint+"/gradio_api/file="+file_path
+          response=requests.get(url,headers={"Authorization":"Bearer "+token},timeout=120)
+          print("IMAGE_FILE_HTTP",response.status_code)
+          print("IMAGE_FILE_BYTES",len(response.content))
+          print("IMAGE_FILE_CONTENT_TYPE",response.headers.get("Content-Type"))
+          response.raise_for_status()
+
+          Image.open(BytesIO(response.content)).verify()
+          image=Image.open(BytesIO(response.content)).convert("RGB")
+          print("IMAGE_DIMENSIONS",image.size)
+          if image.size!=(512,512):
+              raise SystemExit("Expected a 512x512 image from the recorded generation metadata.")
+          Path("visual-review").mkdir(exist_ok=True)
+          output=Path("visual-review/realistic-vision-v6-sample.png")
+          image.save(output,format="PNG",optimize=True)
+          digest=hashlib.sha256(output.read_bytes()).hexdigest()
+          metadata={
+              "model":"Realistic Vision V6.0 B1 noVAE FP16",
+              "model_repo":"novaai2026/realistic-vision-v6-test-models",
+              "checkpoint_sha256":"c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
+              "vae":"stabilityai/sd-vae-ft-mse-original / MSE 840000 EMA",
+              "vae_sha256":"735e4c3a447a3255760d7f86845f09f937809baa529c17370d83e4c3758f3c75",
+              "sampler":"DPM++ SDE Karras",
+              "steps":25,
+              "cfg":5.5,
+              "seed":42,
+              "resolution":"512x512",
+              "device":"CPU / platform/2v-cpu-8g-mem",
+              "generation_seconds":198.16,
+              "source_file":"ModelScope Gradio FileData /tmp/gradio/.../image.webp",
+              "download_host":"api-inference.modelscope.net (required for SDK Token authentication)",
+              "downloaded_png_sha256":digest,
+              "production_routes_changed":False,
+              "visual_review_required":True
+          }
+          Path("visual-review/metadata.json").write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding="utf-8")
+          print("IMAGE_RECOVERY=SUCCESS")
+          PY
+
+      - name: Upload recovered image
+        uses: actions/upload-artifact@v4
+        with:
+          name: realistic-vision-v6-visual-review
+          path: visual-review/
+          if-no-files-found: error
+          retention-days: 7

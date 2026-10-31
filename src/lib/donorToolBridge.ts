@@ -1,10 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { coderChatKey, resolveConnections, tierFor, type Db } from "@/lib/coderAuth";
-import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool } from "@/lib/coderAgent";
+import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool, toolGroups } from "@/lib/coderAgent";
 import { connectedIds, connectorById, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
-type TicketBody = { chatId: number; model: string; connectors: string[]; exp: number; nonce: string };
+type TicketBody = { chatId: number; model: string; connectors: string[]; runId?: string; botId?: string; exp: number; nonce: string };
 const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 const isCandidate = (id: string) => CANDIDATES.has(id);
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
@@ -23,6 +23,48 @@ function safeEqual(a: string, b: string): boolean {
   return aa.length === bb.length && timingSafeEqual(aa, bb);
 }
 
+
+// ------------------------------------------------------------------ tool groups for the candidate models
+// Every candidate gets the standard assistant tool set (GitHub, a private computer, the web, linked services) through the SAME shared executor Nova's loop
+// uses (the terminal / connectors layer is common platform), but loads it in groups so a 2K-4K window is not spent on schemas it does not need:
+// the model sees `load_tools` first and asks for a group. What a candidate must NOT get from here, because it would reach into another model:
+//   make_media (each candidate makes media only through its OWN generate_* tool in its OWN Studio), delegate (sub-agents of Nova's engine),
+//   schedule_* (a scheduled run is executed by Nova's loop), memory_* / recall / plan (Nova's long-term memory), send_file / ask_user / view_* (need Nova's chat loop).
+export const CANDIDATE_GROUPS = ["github", "computer", "web", "connectors"] as const;
+export type CandidateGroup = (typeof CANDIDATE_GROUPS)[number];
+const BLOCKED_FOR_CANDIDATES = new Set([
+  "make_media", "delegate", "schedule_create", "schedule_list", "schedule_delete",
+  "memory_note", "memory_save", "memory_search", "memory_forget", "recall", "plan",
+  "send_file", "ask_user", "view_image", "view_video",
+]);
+const LOAD_TOOLS_DEF = {
+  type: "function" as const,
+  function: {
+    name: "load_tools",
+    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (a private Linux VM: clone, run commands and tests, edit files), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
+    parameters: {
+      type: "object",
+      properties: { groups: { type: "array", items: { type: "string", enum: [...CANDIDATE_GROUPS] }, minItems: 1, maxItems: 4 } },
+      required: ["groups"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** The tools of the requested groups that exist for this account right now (github needs a linked token, connectors need a linked service), schemas kept short. */
+export function candidateToolsFor(groups: readonly string[], hasGithub: boolean, hasConnectors: boolean): Array<{ type: "function"; function: { name: string; description: string; parameters: unknown } }> {
+  const all = toolGroups(hasGithub, hasConnectors);
+  const out = new Map<string, { type: "function"; function: { name: string; description: string; parameters: unknown } }>();
+  for (const g of groups) {
+    if (!(CANDIDATE_GROUPS as readonly string[]).includes(g)) continue;
+    for (const t of all[g] || []) {
+      if (BLOCKED_FOR_CANDIDATES.has(t.function.name)) continue;
+      out.set(t.function.name, { type: "function", function: { ...t.function, description: String(t.function.description || "").slice(0, 170) } });
+    }
+  }
+  return [...out.values()];
+}
+
 /** Short-lived, owner/model-scoped permission ticket. It contains no provider token. */
 function issueTicket(body: TicketBody): string {
   const encoded = encode(body);
@@ -36,7 +78,9 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
     if (!safeEqual(signature(encoded), supplied)) return null;
     const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as TicketBody;
     if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
-    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 5 * 60_000) return null;
+    if (parsed.runId !== undefined && (typeof parsed.runId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.runId))) return null;
+    if (parsed.runId !== undefined && (typeof parsed.botId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.botId))) return null;
+    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 16 * 60_000) return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.length < 12) return null;
     return parsed;
   } catch {
@@ -45,47 +89,33 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
 }
 
 /** Describe only services this owner has actually connected. Credentials remain in the app server. */
-export async function createDonorToolBridge(chatId: number, model: string, db: Db) {
+export async function createDonorToolBridge(chatId: number, model: string, db: Db, runId?: string, botId?: string) {
   if (tierFor(chatId) !== "owner") throw new Error("Candidate models are owner-only.");
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
+  if (runId && !botId) throw new Error("The originating bot ID is required for signed candidate media delivery.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
   // Candidate sessions share connected accounts, but expose strictly read-only GitHub capabilities.
   // Write actions remain unavailable until a first-class confirmation flow exists in the shared terminal.
-  const READ_ONLY_GITHUB_TOOLS = new Set([
-    "github_whoami", "github_list_repos", "github_repo_info", "github_repo_scan",
-    "github_repo_audit", "github_read_files", "github_read_file", "github_list_files",
-    "github_search_code", "github_search_repos", "github_list_branches",
-    "github_list_prs", "github_list_issues", "github_ci_status", "github_ci_logs",
-    "github_pr_info", "github_commits", "github_compare",
-  ]);
-  const rawTools = [
-    ...(connections.github?.token ? GITHUB_TOOLS.filter((tool) => READ_ONLY_GITHUB_TOOLS.has(tool.function.name)) : []),
-    ...(available.some((id) => id !== "github") ? CONNECTOR_TOOLS.filter((tool) => tool.function.name === "connector_api") : []),
-  ];
-  // Keep schemas small enough for the 2K-context Qwen test profile; argument schemas remain the real server contracts.
-  const tools = rawTools.map((tool) => ({
-    type: "function" as const,
-    function: {
-      ...tool.function,
-      description: String(tool.function.description || "").slice(0, 220),
-    },
-  }));
+  // The model starts with one short schema (load_tools); the groups it asks for are fetched from this bridge (name "__schemas__").
+  const tools = [LOAD_TOOLS_DEF];
   const url = siteBase().replace(/\/$/, "") + "/api/coder/app/donor-tools";
   // A Studio with no linked services can still chat and use its public read-only tools.
   // Authenticated app connectors require the same encryption/signing key used by the connector store.
   if (!signingKey()) {
+    if (runId) throw new Error("CODER_TOKEN_KEY is required for signed, asynchronous candidate media delivery.");
     if (available.length) throw new Error("CODER_TOKEN_KEY is required to expose connected services to this candidate.");
-    return { url: "", ticket: "", model, connectors: [], tools: [] };
+    return { url: "", ticket: "", model, run_id: "", bot_id: "", connectors: [], tools: [] };
   }
   const ticket = issueTicket({
     chatId,
     model,
     connectors: available,
-    exp: Date.now() + 6 * 60_000,
+    ...(runId ? { runId, botId } : {}),
+    exp: Date.now() + 14 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
-  return { url, ticket, model, connectors: available, tools };
+  return { url, ticket, model, run_id: runId || "", bot_id: botId || "", connectors: available, tools };
 }
 
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
@@ -111,19 +141,15 @@ export async function executeDonorTool(input: {
     type: "function",
     function: { name: input.name, arguments: JSON.stringify(input.arguments || {}) },
   };
-  const READ_ONLY_GITHUB_TOOLS = new Set([
-    "github_whoami", "github_list_repos", "github_repo_info", "github_repo_scan",
-    "github_repo_audit", "github_read_files", "github_read_file", "github_list_files",
-    "github_search_code", "github_search_repos", "github_list_branches",
-    "github_list_prs", "github_list_issues", "github_ci_status", "github_ci_logs",
-    "github_pr_info", "github_commits", "github_compare",
-  ]);
-  const allowedSchemas = [
-    ...(gh ? GITHUB_TOOLS.filter((tool) => READ_ONLY_GITHUB_TOOLS.has(tool.function.name)) : []),
-    ...(allowed.some((id) => id !== "github") ? CONNECTOR_TOOLS.filter((tool) => tool.function.name === "connector_api") : []),
-  ];
+  const hasGithub = Boolean(gh);
+  const hasConnectors = allowed.some((id) => id !== "github");
+  if (input.name === "__schemas__") {
+    const asked = Array.isArray(input.arguments?.groups) ? (input.arguments.groups as unknown[]).map(String) : [];
+    return { ok: true, result: JSON.stringify(candidateToolsFor(asked, hasGithub, hasConnectors)) };
+  }
+  const allowedSchemas = candidateToolsFor(CANDIDATE_GROUPS, hasGithub, hasConnectors);
   if (!allowedSchemas.some((tool) => tool.function.name === input.name)) {
-    return { ok: false, result: "DENIED: this tool is not enabled for the services connected to the current account." };
+    return { ok: false, result: "DENIED: this tool is not enabled for this model or for the services connected to the current account." };
   }
 
   // Connector API calls are read-only in the candidate test path. Writes need the standard approval UI,
@@ -160,7 +186,7 @@ export async function executeDonorTool(input: {
     addNote: (_text: string) => undefined,
     fetchImpl,
     runId: "candidate-" + input.model + "-" + ticket.chatId + "-" + ticket.nonce,
-    chatKey: coderChatKey(ticket.chatId),
+    chatKey: coderChatKey(ticket.chatId + ":" + input.model),   // the candidate's own computer / scope, never Nova's
     githubToken: connections.github?.token || null,
     userId: ticket.chatId,
     db,

@@ -7,9 +7,27 @@
   "family": "MiniCPM-o",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.03,
-  "context_tokens": 2048,
+  "context_tokens": 4096,
   "max_output_tokens": 768,
-  "model_native_outputs": {"image": false, "audio": true, "video": false},
-  "runtime_generation_capabilities": {"image": false, "audio": false, "video": false},
-  "purpose": "Arabic, code, tool-call shape and image/video input tests. Separate speech encoder/decoder GGUFs are not loaded unless the selected runtime supports them."
+  "model_native_outputs": {
+    "image": false,
+    "audio": true,
+    "video": false
+  },
+  "runtime_generation_capabilities": {
+    "image": true,
+    "audio": false,
+    "video": false
+  },
+  "purpose": "Arabic, code, tool-call shape and image/video input tests. Separate speech encoder/decoder GGUFs are not loaded unless the selected runtime supports them.",
+  "route_id": "minicpmo45",
+  "image_generation": {
+    "for_candidate": "minicpmo45",
+    "model_repo": "novaai2026/umranz-sd15-test-models",
+    "studio_api": "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
+    "expected_checkpoint_sha256": "",
+    "resolution": "512 × 768",
+    "steps": 30,
+    "cfg": 6.5
+  }
 }

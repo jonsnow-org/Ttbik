@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-30-r8"
+APP_REVISION = "donor-bakeoff-2026-10-31-r10"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -113,6 +113,25 @@ TOOLS = [
     },
 ]
 
+IMAGE_GENERATION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "generate_image",
+        "description": "Create an actual image using ONLY this candidate's own dedicated private ModelScope image-weight Studio. Call it when the user asks to generate an image. Do not claim success without a returned image file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string"},
+                "negative_prompt": {"type": "string"},
+                "seed": {"type": "integer"}
+            },
+            "required": ["prompt"],
+            "additionalProperties": False
+        }
+    }
+}
+
+
 TESTS = [
     {
         "id": "arabic",
@@ -172,6 +191,14 @@ TESTS = [
         "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي.",
         "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
         "max_tokens": 760,
+        "temperature": 0.0,
+    },
+    {
+        "id": "image_generation",
+        "label": "توليد صورة فعلية من الوزن الخاص بالمرشح",
+        "prompt": "أنشئ صورة فوتوغرافية واقعية لمشهد شارع حجري هادئ بعد المطر عند ضوء النهار. استخدم أداة generate_image فعلياً، ولا تقل إن الصورة أُنشئت ما لم تُرجع الأداة ملف الصورة.",
+        "tool": "generate_image",
+        "max_tokens": 180,
         "temperature": 0.0,
     },
     {
@@ -496,8 +523,9 @@ def status() -> str:
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
             "model_native_outputs": CONFIG.get("model_native_outputs", {"image": False, "audio": False, "video": False}),
-            "runtime_generation_capabilities": CONFIG.get("runtime_generation_capabilities", {"image": False, "audio": False, "video": False}),
-            "generation_note": "The current llama.cpp MTMD benchmark runner does not expose native image, audio, or video generation. A model's advertised native output is reported separately from what this runtime can actually execute.",
+            "runtime_generation_capabilities": {"image": isinstance(CONFIG.get("image_generation"), dict), "audio": False, "video": False},
+            "image_generation_assignment": {k: v for k, v in (CONFIG.get("image_generation") or {}).items() if k in {"for_candidate", "model_repo", "studio_api", "expected_checkpoint_sha256"}},
+            "generation_note": "Image creation is routed only through this candidate's own dedicated private ModelScope image-weight Studio. Audio/video output are not enabled in this candidate bake-off.",
             "runtime_resources": _resource_snapshot(STATE.get("server_pid")),
             "server_exit_code": STATE.get("server_process").poll() if STATE.get("server_process") is not None else None,
             "error": STATE["error"],
@@ -583,10 +611,293 @@ def _build_user_content(prompt: str, image_path=None, audio_path=None, video_pat
 def _parse_tool_calls(message: dict) -> list[dict]:
     return parse_tool_calls(message)
 
+def _decode_gradio_data(raw: str):
+    """The payload of a Gradio SSE call result.
+
+    A long generation sends `event: heartbeat` / `generating` frames (data: null or partial values) BEFORE `event: complete`; the answer is the data of the
+    `complete` event. Taking the first `data:` line returned null for every slow (image) call, which looked like "completed without an image file".
+    """
+    event = ""
+    complete = None
+    last = None
+    for line in raw.splitlines():
+        if line.startswith("event:"):
+            event = line[6:].strip()
+            continue
+        if not line.startswith("data:"):
+            continue
+        try:
+            value = json.loads(line[5:].strip())
+        except Exception:
+            continue
+        for _ in range(3):
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                    continue
+                except Exception:
+                    break
+            break
+        if value is None:
+            continue
+        if event == "complete":
+            complete = value
+        last = value
+    return complete if complete is not None else last
+
+
+def _walk_objects(value):
+    if isinstance(value, list):
+        for item in value:
+            yield from _walk_objects(item)
+    elif isinstance(value, dict):
+        yield value
+        for child in value.values():
+            if isinstance(child, (dict, list)):
+                yield from _walk_objects(child)
+
+
+def _photo_status(profile: dict, token: str) -> dict:
+    base = str(profile.get("studio_api") or "").rstrip("/")
+    repo = str(profile.get("model_repo") or "")
+    if not base.startswith("https://studio-novaai2026-") or not base.endswith(".api-inference.modelscope.net"):
+        raise RuntimeError("Candidate image Studio address is not an approved private ModelScope endpoint.")
+    if not repo.startswith("novaai2026/"):
+        raise RuntimeError("Candidate image model repo is not in the private ModelScope namespace.")
+    start = requests.post(
+        base + "/gradio_api/call/status",
+        json={"data": []},
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        timeout=(8, 20),
+    )
+    start.raise_for_status()
+    event_id = str((start.json() or {}).get("event_id") or "")
+    if not event_id:
+        raise RuntimeError("Image Studio status returned no event id.")
+    poll = requests.get(
+        base + "/gradio_api/call/status/" + event_id,
+        headers={"Authorization": "Bearer " + token},
+        timeout=(8, 45),
+    )
+    poll.raise_for_status()
+    raw = poll.text
+    if "event: error" in raw:
+        raise RuntimeError("The candidate's dedicated image Studio returned a status error.")
+    payload = _decode_gradio_data(raw)
+    items = payload if isinstance(payload, list) else [payload]
+    status = next((x for x in _walk_objects(items) if isinstance(x.get("phase"), str)), None)
+    if not status or status.get("phase") != "ready":
+        raise RuntimeError("Candidate's own image Studio is not ready: " + str((status or {}).get("phase") or "unreadable"))
+    actual_repo = str(status.get("model_repo") or status.get("modelscope_model_repo") or "")
+    checkpoint_sha = str(status.get("checkpoint_sha256") or "")
+    expected_sha = str(profile.get("expected_checkpoint_sha256") or "").lower()
+    if actual_repo != repo or not re.fullmatch(r"[a-f0-9]{64}", checkpoint_sha):
+        raise RuntimeError("Dedicated image Studio did not prove its assigned model repo and checkpoint SHA-256.")
+    if expected_sha and checkpoint_sha.lower() != expected_sha:
+        raise RuntimeError("Dedicated image Studio checkpoint hash differs from this candidate's pinned weight.")
+    return {"base": base, "model_repo": actual_repo, "checkpoint_sha256": checkpoint_sha}
+
+
+def _generate_candidate_image(arguments: dict) -> dict:
+    profile = CONFIG.get("image_generation")
+    route_id = str(CONFIG.get("route_id") or "")
+    if not isinstance(profile, dict) or profile.get("for_candidate") != route_id:
+        return {"ok": False, "error": "This candidate has no valid, unique image-weight assignment."}
+    prompt = str(arguments.get("prompt") or "").strip()
+    negative = str(arguments.get("negative_prompt") or "").strip()[:1800]
+    if len(prompt) < 8 or len(prompt) > 1800:
+        return {"ok": False, "error": "Image prompt must be between 8 and 1800 characters."}
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    if not token:
+        return {"ok": False, "error": "The candidate Studio has no ModelScope token for its private image Studio."}
+    try:
+        proof = _photo_status(profile, token)
+        seed = int(arguments.get("seed")) if str(arguments.get("seed", "")).strip() else int(time.time()) % 2147483647
+        request_data = [
+            prompt,
+            negative,
+            str(profile.get("resolution") or "512 × 512"),
+            int(profile.get("steps") or 25),
+            float(profile.get("cfg") or 5.5),
+            seed,
+        ]
+        submit = requests.post(
+            proof["base"] + "/gradio_api/call/image",
+            json={"data": request_data},
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            timeout=(8, 30),
+        )
+        submit.raise_for_status()
+        event_id = str((submit.json() or {}).get("event_id") or "")
+        if not event_id:
+            raise RuntimeError("Image Studio returned no generation event id.")
+        result = requests.get(
+            proof["base"] + "/gradio_api/call/image/" + event_id,
+            headers={"Authorization": "Bearer " + token},
+            timeout=(8, 540),
+        )
+        result.raise_for_status()
+        raw = result.text
+        if "event: error" in raw or "event: complete" not in raw:
+            why = re.sub(r"\s+", " ", raw[-420:]).strip()
+            raise RuntimeError("The dedicated image Studio did not complete generation. Its last answer: " + why)
+        payload = _decode_gradio_data(raw)
+        values = payload if isinstance(payload, list) else [payload]
+        objects = list(_walk_objects(values))
+        image_file = next((x for x in objects if isinstance(x.get("path"), str) and x.get("path")), None)
+        metadata = next((x for x in objects if x.get("result") == "image_generated"), None)
+        if not image_file or not metadata:
+            raise RuntimeError("Image Studio completed without an image file and generation metadata.")
+        if metadata.get("model_repo") != proof["model_repo"] or str(metadata.get("checkpoint_sha256") or "").lower() != proof["checkpoint_sha256"].lower():
+            raise RuntimeError("Generated image metadata does not match this candidate's private Studio.")
+        relative = str(image_file.get("path") or "").replace("\\", "/")
+        marker = "/gradio_api/file="
+        if marker in relative:
+            relative = relative.split(marker, 1)[1]
+        relative = relative.lstrip("/")
+        if not relative or ".." in Path(relative).parts or "\x00" in relative or relative.startswith("http"):
+            raise RuntimeError("Image Studio returned an unsafe file path.")
+        from urllib.parse import quote
+        file_response = requests.get(
+            proof["base"] + "/gradio_api/file=/" + quote(relative, safe="/"),
+            headers={"Authorization": "Bearer " + token},
+            timeout=(8, 90),
+        )
+        file_response.raise_for_status()
+        mime = (file_response.headers.get("content-type") or "image/png").split(";", 1)[0].lower()
+        image_bytes = file_response.content
+        if not mime.startswith("image/") or len(image_bytes) < 1000:
+            raise RuntimeError("Candidate image Studio returned an invalid or empty image file.")
+        return {
+            "ok": True,
+            "message": "Image generated by this candidate's own dedicated image-weight Studio.",
+            "_generated_media": {
+                "kind": "image",
+                "mime": mime,
+                "b64": base64.b64encode(image_bytes).decode("ascii"),
+                "metadata": metadata,
+                "candidate": route_id,
+                "model_repo": proof["model_repo"],
+                "checkpoint_sha256": proof["checkpoint_sha256"],
+                "seed": seed,
+                "bytes": len(image_bytes),
+            },
+        }
+    except Exception as exc:
+        return {"ok": False, "error": "The selected candidate's own image Studio failed: " + f"{type(exc).__name__}: {str(exc)[:650]}"}
+
+
+def _approx_tokens(text: str) -> int:
+    """A cautious token estimate (Arabic and JSON tokenise densely: about 2.4 characters per token)."""
+    return int(len(text) / 2.4) + 1
+
+
+def _text_tools_system(tools: list) -> str:
+    """For a runtime whose chat template cannot take a `tools` list (MiniCPM answered every such request with HTTP 500): the tools are described in
+    plain text and the model answers with <tool_call>{...}</tool_call>, which tool_parsing.py already reads. The model still decides when to call."""
+    lines = []
+    for item in tools:
+        fn = item.get("function") or {}
+        lines.append("- " + str(fn.get("name")) + ": " + str(fn.get("description") or "")[:260] + " | parameters: " + json.dumps(fn.get("parameters") or {}, ensure_ascii=False)[:420])
+    return (
+        "You can call these tools when they are needed:\n" + "\n".join(lines) +
+        "\nTo call a tool answer ONLY with <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call> and wait for the result. "
+        "Never claim a tool ran unless its result was returned to you."
+    )
+
+
+def _text_tool_payload(options: dict, messages: list) -> dict:
+    """The same conversation without the `tools` field: tool calls and results become ordinary text turns."""
+    wire = []
+    for m in messages:
+        role = m.get("role")
+        if role == "assistant" and m.get("tool_calls"):
+            calls = "".join(
+                "<tool_call>" + json.dumps({"name": c["function"]["name"], "arguments": c["function"]["arguments"]}, ensure_ascii=False) + "</tool_call>"
+                for c in m["tool_calls"]
+            )
+            wire.append({"role": "assistant", "content": (str(m.get("content") or "") + calls)})
+        elif role == "tool":
+            wire.append({"role": "user", "content": "[tool result: " + str(m.get("name")) + "]\n" + str(m.get("content") or "")})
+        else:
+            wire.append({"role": role, "content": m.get("content") if m.get("content") is not None else ""})
+    wire.insert(0, {"role": "system", "content": _text_tools_system(options.get("tools") or [])})
+    body = {k: v for k, v in options.items() if k not in ("tools", "tool_choice")}
+    body["messages"] = wire
+    return body
+
+
+def _fit_tool_result(tool_result, messages: list, options: dict, call_count: int) -> str:
+    """A tool result is cut to what the context window still has room for (the prompt, the tool schemas and the answer to come are counted first),
+    instead of a fixed 8000 characters that overflows a 2048-token window. The cut keeps the start and the end and says so."""
+    text = json.dumps(tool_result, ensure_ascii=False)
+    used = sum(_approx_tokens(str(m.get("content") or "")) + 8 for m in messages)
+    used += _approx_tokens(json.dumps(options.get("tools") or [], ensure_ascii=False))
+    free = N_CTX - used - int(options.get("max_tokens") or 0) - 160
+    budget_chars = max(500, int(free * 2.4 / max(1, call_count)))
+    budget_chars = min(budget_chars, 8000)
+    if len(text) <= budget_chars:
+        return text
+    head = int(budget_chars * 0.7)
+    tail = budget_chars - head - 40
+    return text[:head] + " …[cut to fit the context window]… " + text[-max(0, tail):]
+
+
+def _mentions_script(text: str, executed_tools: list) -> bool:
+    """The report names a real package.json script: the word "scripts", or a `"name": "command"` pair that the file-reading tool really returned."""
+    if re.search(r"\bscripts?\b|سكربت|أوامر التشغيل", text, flags=re.I):
+        return True
+    returned = " ".join(json.dumps(t.get("result"), ensure_ascii=False) for t in executed_tools if t.get("name") == "github_read_files")
+    for name, command in re.findall(r'"([A-Za-z0-9:_-]{2,30})"\s*:\s*"([^"]{3,120})"', text):
+        if command in returned and name in returned:
+            return True
+    return False
+
+
+def _merge_tool_schemas(existing: list, loaded: list) -> list:
+    """Adds the freshly loaded tool schemas to the bridge tool list (by name, no duplicates, `load_tools` stays first)."""
+    seen = {str((t.get("function") or {}).get("name")) for t in existing if isinstance(t, dict)}
+    merged = list(existing)
+    for t in loaded:
+        name = str(((t or {}).get("function") or {}).get("name") or "")
+        if name and name not in seen:
+            seen.add(name)
+            merged.append(t)
+    return merged
+
+
+def _load_tool_groups(arguments: dict, tool_bridge: dict | None) -> dict:
+    """`load_tools`: ask the app bridge for the schemas of the requested groups; the next model step sees them."""
+    if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
+        return {"ok": False, "error": "No connector bridge is available for this conversation."}
+    groups = arguments.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return {"ok": False, "error": "Give groups: a list such as [\"github\", \"computer\", \"web\", \"connectors\"]."}
+    try:
+        response = requests.post(
+            str(tool_bridge["url"]),
+            json={"ticket": tool_bridge.get("ticket"), "model": tool_bridge.get("model"), "name": "__schemas__", "arguments": {"groups": [str(g) for g in groups][:4]}},
+            headers={"Cache-Control": "no-store"},
+            timeout=(10, 30),
+        )
+        payload = response.json() if response.content else {}
+        loaded = json.loads(str(payload.get("result") or "[]")) if isinstance(payload, dict) and payload.get("ok") else []
+        if not isinstance(loaded, list) or not loaded:
+            return {"ok": False, "error": "No tools exist for those groups on this account (github needs a linked GitHub account)."}
+        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], loaded)
+        return {"ok": True, "loaded": [t["function"]["name"] for t in loaded], "note": "These tools are available from your next step."}
+    except Exception as exc:
+        return {"ok": False, "error": "Could not load the tool groups: " + str(exc)[:300]}
+
+
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
     """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "Tool arguments must be an object."}
+    if name == "generate_image":
+        return _generate_candidate_image(arguments)
+    if name == "load_tools":
+        return _load_tool_groups(arguments, tool_bridge)
     bridge_tools = tool_bridge.get("tools") if isinstance(tool_bridge, dict) else []
     remote_names = {
         str(item.get("function", {}).get("name") or "")
@@ -777,6 +1088,9 @@ def infer(
         }
         if use_tools:
             by_name = {item["function"]["name"]: item for item in TOOLS}
+            if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
+                by_name["generate_image"] = IMAGE_GENERATION_TOOL
+                messages.insert(0, {"role": "system", "content": "When the user requests image creation, call generate_image using this candidate's own private image Studio. Do not claim success without a returned image."})
             if isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
                 for item in tool_bridge["tools"]:
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
@@ -786,7 +1100,9 @@ def infer(
         started = time.monotonic()
         token_count = 0
         executed_tools = []
+        generated_media = []
         pending_calls = []
+        text_tool_mode = False
         choice_item = {}
         choice = {}
         # The model chooses when and which tool to call. Only allowlisted read-only
@@ -794,9 +1110,12 @@ def infer(
         for tool_round in range(4):
             response = requests.post(
                 SERVER_BASE + "/v1/chat/completions",
-                json={**options, "messages": messages},
+                json=_text_tool_payload(options, messages) if text_tool_mode else {**options, "messages": messages},
                 timeout=(10, 240),
             )
+            if response.status_code >= 500 and options.get("tools") and not text_tool_mode:
+                text_tool_mode = True      # this runtime's chat template cannot take a tools list: describe the tools in text instead
+                response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, 240))
             response.raise_for_status()
             data = response.json()
             choice_item = (data.get("choices") or [{}])[0]
@@ -817,6 +1136,9 @@ def infer(
                 arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
                 call_id = "call_" + uuid.uuid4().hex[:16]
                 tool_result = _execute_tool(name, arguments, tool_bridge)
+                generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
+                if isinstance(generated, dict):
+                    generated_media.append(generated)
                 executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
                 assistant_calls.append({
                     "id": call_id,
@@ -827,12 +1149,17 @@ def infer(
                     "role": "tool",
                     "tool_call_id": call_id,
                     "name": name,
-                    "content": json.dumps(tool_result, ensure_ascii=False)[:8000],
+                    "content": _fit_tool_result(tool_result, messages, options, len(calls)),
                 })
             assistant_content = str(choice.get("content") or "")
             assistant_content = strip_tool_call_markup(assistant_content)
             messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
             messages.extend(tool_results)
+            if use_tools and isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
+                for item in tool_bridge["tools"]:      # tools loaded by load_tools in this round are shown from the next one
+                    if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
+                        by_name[str(item["function"]["name"])] = item
+                options["tools"] = list(by_name.values())
         elapsed = time.monotonic() - started
         output = str(choice.get("content") or "")
         if pending_calls or executed_tools:
@@ -841,6 +1168,7 @@ def infer(
             "text": output,
             "tool_calls": pending_calls,
             "executed_tools": executed_tools,
+            "generated_media": generated_media,
             "media_attached": media_labels,
             "seconds": round(elapsed, 2),
             "completion_tokens": token_count,
@@ -853,6 +1181,69 @@ def infer(
         return {"error": f"Model API HTTP error: {body}"}
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
+
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str) -> tuple[bool, str]:
+    if not isinstance(tool_bridge, dict):
+        return False, "no signed owner task ticket"
+    ticket = str(tool_bridge.get("ticket") or "")
+    model = str(tool_bridge.get("model") or "")
+    run_id = str(tool_bridge.get("run_id") or "")
+    bot_id = str(tool_bridge.get("bot_id") or "")
+    bridge_url = str(tool_bridge.get("url") or "").rstrip("/")
+    if not ticket or model != str(CONFIG.get("route_id") or "") or not run_id or not bot_id:
+        return False, "no valid candidate-scoped delivery ticket"
+    suffix = "/api/coder/app/donor-tools"
+    if not bridge_url.startswith("https://") or not bridge_url.endswith(suffix):
+        return False, "candidate delivery bridge URL is invalid"
+    callback_url = bridge_url[:-len("donor-tools")] + "donor-media"
+    outgoing_media = []
+    for item in (result.get("generated_media") or [])[:2]:
+        if not isinstance(item, dict) or item.get("candidate") != model:
+            continue
+        try:
+            image_bytes = base64.b64decode(str(item.get("b64") or ""), validate=True)
+            from PIL import Image
+            from io import BytesIO
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=84, optimize=True)
+            jpeg = output.getvalue()
+            if len(jpeg) > 2_800_000:
+                output = BytesIO()
+                image.save(output, format="JPEG", quality=76, optimize=True)
+                jpeg = output.getvalue()
+            if len(jpeg) > 3_000_000 or len(jpeg) < 1000:
+                raise ValueError("compressed image exceeds the signed callback transfer limit")
+            outgoing = dict(item)
+            outgoing["mime"] = "image/jpeg"
+            outgoing["b64"] = base64.b64encode(jpeg).decode("ascii")
+            outgoing["bytes"] = len(jpeg)
+            outgoing_media.append(outgoing)
+        except Exception as exc:
+            return False, "generated image could not be prepared for secure Telegram delivery: " + str(exc)[:300]
+    try:
+        response = requests.post(
+            callback_url,
+            json={
+                "ticket": ticket,
+                "model": model,
+                "run_id": run_id,
+                "bot_id": bot_id,
+                "prompt": str(prompt or "")[:12000],
+                "text": str(result.get("text") or "")[:12000],
+                "generated_media": outgoing_media,
+            },
+            headers={"Cache-Control": "no-store"},
+            timeout=(8, 28),
+        )
+        payload = response.json() if response.content else {}
+        if response.status_code != 200 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("delivered") is not True:
+            detail = payload.get("error") if isinstance(payload, dict) else "invalid callback response"
+            return False, "Telegram delivery callback refused the result: " + str(detail or response.status_code)[:350]
+        return True, ""
+    except Exception as exc:
+        return False, "Telegram delivery callback failed: " + f"{type(exc).__name__}: {str(exc)[:300]}"
+
 
 def chat_payload(payload_json: str) -> str:
     """Direct bot ingress; Telegram media is decoded only inside this private candidate Studio."""
@@ -891,17 +1282,27 @@ def chat_payload(payload_json: str) -> str:
             key = {"image": "image_path", "audio": "audio_path", "video": "video_path"}[kind]
             paths[key] = str(path)
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        bridge = payload.get("tool_bridge") if isinstance(payload.get("tool_bridge"), dict) else None
         result = infer(
             str(payload.get("prompt") or "حلّل المرفق."),
             history=history,
             max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
             temperature=payload.get("temperature"),
             use_tools=bool(payload.get("use_tools", True)),
-            tool_bridge=payload.get("tool_bridge") if isinstance(payload.get("tool_bridge"), dict) else None,
+            tool_bridge=bridge,
             image_path=paths["image_path"],
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],
         )
+        if "error" not in result and bridge:
+            delivered, delivery_error = _deliver_candidate_result(bridge, result, str(payload.get("prompt") or ""))
+            result["delivered_to_telegram"] = delivered
+            if delivered:
+                # The signed callback has already delivered the final text and image. Do not
+                # send another copy if the original bot request is still alive.
+                result["generated_media"] = []
+            elif delivery_error:
+                result["delivery_callback_error"] = delivery_error
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}, ensure_ascii=False)
@@ -1003,6 +1404,7 @@ def _run_one(test: dict) -> dict:
             if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
         }
         expected_args = {
+            "generate_image": {},
             "github_repo_scan": {"repo": "jonsnow-org/Ttbik"},
             "github_read_files": {
                 "repo": "jonsnow-org/Ttbik",
@@ -1022,6 +1424,29 @@ def _run_one(test: dict) -> dict:
                     return True
             return False
         tool_ok = all(executed_ok(name) for name in expected_tools) if expected_tools else True
+        generation_ok = True
+        generation_summary = []
+        if test["id"] == "image_generation":
+            generation_ok = False
+            output_dir = RUNTIME / "generated-smoke-images"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for item in (result.get("generated_media") or []):
+                if not isinstance(item, dict) or item.get("candidate") != CONFIG.get("route_id"):
+                    continue
+                try:
+                    image_bytes = base64.b64decode(str(item.get("b64") or ""), validate=True)
+                except Exception:
+                    continue
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                if len(image_bytes) < 1000 or metadata.get("result") != "image_generated" or metadata.get("model_repo") != item.get("model_repo") or metadata.get("checkpoint_sha256") != item.get("checkpoint_sha256"):
+                    continue
+                filename = "image-" + str(CONFIG.get("route_id")) + "-" + str(int(time.time())) + ".png"
+                target = output_dir / filename
+                target.write_bytes(image_bytes)
+                generation_summary.append({"filename": filename, "bytes": len(image_bytes), "candidate": item.get("candidate"), "model_repo": item.get("model_repo"), "checkpoint_sha256": item.get("checkpoint_sha256"), "seed": item.get("seed")})
+                generation_ok = True
+                break
+            result["generation_outputs"] = generation_summary
         arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
         letters = len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
         refusal = bool(re.search(
@@ -1035,8 +1460,10 @@ def _run_one(test: dict) -> dict:
                 and bool(text.strip())
                 and "package.json" in text
                 and "donorTestChat" in text
-                and "scripts" in text
+                and _mentions_script(text, executed)
             )
+        elif test["id"] == "image_generation":
+            passed = tool_ok and generation_ok and bool(text.strip())
         elif expected_tools:
             passed = tool_ok and bool(text.strip())
         elif test["id"] == "arabic":
@@ -1085,7 +1512,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a latest GitHub commit status emitted by the Vercel integration; the status is the Vercel GitHub check, not arbitrary Vercel control-plane settings. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
+        "note": "Image generation uses only this candidate's dedicated private ModelScope image Studio. The tool result is verified against that candidate's model repo and checkpoint hash. Audio/video output are not enabled here.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1122,6 +1549,7 @@ def chat_with_media(prompt, image_path, audio_path, video_path, history):
     transcript = _format_chat_history(history or [], result, attachments)
     summary = {
         "text": result.get("text"),
+        "generated_media": [{k: v for k, v in item.items() if k != "b64"} for item in (result.get("generated_media") or [])],
         "tool_calls": result.get("tool_calls"),
         "executed_tools": result.get("executed_tools"),
         "media_attached": result.get("media_attached"),

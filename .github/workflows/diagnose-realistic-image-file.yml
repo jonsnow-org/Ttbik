@@ -1,0 +1,72 @@
+name: "Diagnose Realistic Vision generated-file retrieval"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/diagnose-realistic-image-file.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare Gradio file-route hosts and auth modes (read-only, no generation)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import os
+          import requests
+          from urllib.parse import quote
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          path="/tmp/gradio/346bce7be5ad509ad60593cc3349fd54fb243bd16199ff3f3334edee6dae8aaa/image.webp"
+          api="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          show="https://novaai2026-realistic-vision-v6-test.ms.show"
+          targets=[
+              ("ms_show_file_no_auth",show+"/gradio_api/file="+quote(path,safe="/"),{}),
+              ("ms_show_file_bearer",show+"/gradio_api/file="+quote(path,safe="/"),{"Authorization":"Bearer "+token}),
+              ("api_host_file_bearer",api+"/gradio_api/file="+quote(path,safe="/"),{"Authorization":"Bearer "+token}),
+              ("api_host_file_no_auth",api+"/gradio_api/file="+quote(path,safe="/"),{}),
+              ("ms_show_file_referer",show+"/gradio_api/file="+quote(path,safe="/"),{
+                  "Authorization":"Bearer "+token,
+                  "Referer":"https://www.modelscope.cn/studios/novaai2026/realistic-vision-v6-test",
+                  "Origin":"https://www.modelscope.cn",
+              }),
+          ]
+          for name,url,headers in targets:
+              try:
+                  response=requests.get(url,headers=headers,timeout=25,allow_redirects=True)
+                  print("PROBE",name,"status",response.status_code,
+                        "final_url",response.url[:240],
+                        "content_type",response.headers.get("Content-Type"),
+                        "bytes",len(response.content),
+                        "body",response.text[:300].replace(token,"***") if len(response.content)<2000 else "<binary>")
+              except Exception as exc:
+                  print("PROBE",name,"ERROR",type(exc).__name__,str(exc)[:400])
+
+          # The permanent output file created by the app is in the Studio project directory.
+          # Check whether its public Studio URL pattern is served independently of the temp file.
+          saved="/visual-test-results/realistic-v6-42-1793398289.png"
+          for name,url,headers in (
+              ("saved_project_file_no_auth",show+saved,{}),
+              ("saved_project_file_bearer",show+saved,{"Authorization":"Bearer "+token}),
+          ):
+              try:
+                  response=requests.get(url,headers=headers,timeout=25,allow_redirects=True)
+                  print("PROBE",name,"status",response.status_code,
+                        "final_url",response.url[:240],
+                        "content_type",response.headers.get("Content-Type"),
+                        "bytes",len(response.content),
+                        "body",response.text[:300].replace(token,"***") if len(response.content)<2000 else "<binary>")
+              except Exception as exc:
+                  print("PROBE",name,"ERROR",type(exc).__name__,str(exc)[:400])
+          PY

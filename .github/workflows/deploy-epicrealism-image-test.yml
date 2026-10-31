@@ -1,0 +1,322 @@
+name: "epiCRealism dedicated 8GB CPU image Studio"
+on:
+  push:
+    branches: [realistic-vision-v6-isolated-test]
+    paths:
+      - "experiments/epicrealism-image-test/**"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: epicrealism-dedicated-image-studio
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    env:
+      MS: https://www.modelscope.cn
+      OWNER: novaai2026
+      REPO: epicrealism-image-test
+      API: https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mirror epiCRealism SD1.5 weights into its private ModelScope repository
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN1 }}
+          PHOTO_MODEL_REPO: novaai2026/epicrealism-image-test-models
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          python3 -m pip install --upgrade "modelscope>=1.26.0" "huggingface_hub>=0.27.0" safetensors
+          python3 -m py_compile experiments/epicrealism-image-test/prepare_and_push.py
+          python3 experiments/epicrealism-image-test/prepare_and_push.py
+      - name: Validate only epiCRealism app
+        run: |
+          set -euo pipefail
+          python3 -m py_compile experiments/epicrealism-image-test/app.py
+          grep -q 'emilianJR/epiCRealism' experiments/epicrealism-image-test/app.py
+          grep -q 'CPU only' experiments/epicrealism-image-test/app.py
+      - name: Select exact free CPU 8GB hardware — no GPU or 16GB fallback
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$T"
+          echo "::add-mask::$T"
+          curl -fsS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/users/me" >/dev/null
+          curl -fsS --connect-timeout 8 --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hardware.json
+          python3 - <<'PY' > hardware-choice.json
+          import json,re,sys
+          raw=json.load(open("hardware.json",encoding="utf-8"))
+          items=raw.get("data") or raw.get("Data") or raw.get("items") or []
+          if isinstance(items,dict): items=items.get("items") or items.get("hardware") or items.get("resources") or []
+          free=[]
+          for item in items if isinstance(items,list) else []:
+              if not isinstance(item,dict): continue
+              name=str(item.get("name") or item.get("hardware") or "")
+              kind=str(item.get("resource_type") or item.get("type") or "").lower()
+              m=re.search(r"(\d+)\s*g(?:b)?(?:[-_/]|$)",name.lower())
+              ram=int(m.group(1)) if m else 0
+              if "cpu" not in name.lower() or ram != 8: continue
+              if "paid" in name.lower() or kind=="paid" or item.get("is_paid") is True: continue
+              if item.get("available") is False or item.get("is_available") is False: continue
+              free.append(name)
+          if not free:
+              raise SystemExit("No FREE CPU 8GB Studio hardware is currently available. This workflow will not select GPU, 16GB, or paid hardware.")
+          print(json.dumps({"hardware":sorted(free)[0]}))
+          PY
+          HW=$(python3 -c "import json;print(json.load(open('hardware-choice.json'))['hardware'])")
+          echo "Selected exact hardware: $HW"
+          echo "HW=$HW" >> "$GITHUB_ENV"
+      - name: Create or verify epiCRealism private Studio only
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 20 -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          if [ "$code" = "404" ]; then
+            python3 - "$OWNER" "$REPO" "$HW" <<'PY' > create.json
+          import json,sys
+          print(json.dumps({"owner":sys.argv[1],"repo_name":sys.argv[2],"sdk_type":"gradio","visibility":"private","hardware":sys.argv[3],"display_name":"epiCRealism private image test"}))
+          PY
+            create_code=$(curl -sS --connect-timeout 8 --max-time 30 -o create-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @create.json "$MS/openapi/v1/studios")
+            if [[ ! "$create_code" =~ ^2[0-9][0-9]$ ]]; then cat create-response.json; exit 1; fi
+            echo "Created private epiCRealism Studio on exact free CPU 8GB hardware."
+          elif [ "$code" = "200" ]; then
+            echo "epiCRealism Studio already exists; no hardware change will be made."
+          else
+            cat studio.json
+            echo "Unexpected Studio lookup response: $code" >&2
+            exit 1
+          fi
+      - name: Push epiCRealism-specific app and dependencies
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          git config --global user.name "epiCRealism image test deploy"
+          git config --global user.email "epicrealism-image-test@users.noreply.github.com"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" studio 2>&1 | sed "s/$T/***/g"
+          cp experiments/epicrealism-image-test/app.py studio/app.py
+          cp experiments/epicrealism-image-test/requirements.txt studio/requirements.txt
+          cp experiments/epicrealism-image-test/README.md studio/README.md
+          cd studio
+          git add app.py requirements.txt README.md
+          git diff --cached --quiet || git commit -m "Deploy epiCRealism dedicated CPU 8GB image app"
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Set private ModelScope model-read token on epiCRealism Studio only
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          token = os.environ["MODELSCOPE_TOKEN"]
+          api.login(token)
+          studio = "novaai2026/epicrealism-image-test"
+          try:
+              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              message = str(exc).lower()
+              if not any(x in message for x in ("exist", "already", "duplicate")):
+                  raise
+              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          print("epiCRealism private ModelScope model access configured.")
+          PY
+      - name: Deploy and wait for epiCRealism app revision
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          # Stop only this isolated test Studio so it cannot keep serving an older app process.
+          stop_code=$(curl -sS --connect-timeout 8 --max-time 30 -o stop.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/stop")
+          echo "Stop isolated Studio HTTP $stop_code"
+          [[ "$stop_code" =~ ^2[0-9][0-9]$ ]] || { cat stop.json; exit 1; }
+          stopped=0
+          for attempt in $(seq 1 60); do
+            studio=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+            runtime=$(printf '%s' "$studio" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true)
+            runtime_lc=$(printf '%s' "$runtime" | tr '[:upper:]' '[:lower:]')
+            echo "$(date -u +%H:%M:%S) isolated Studio runtime after stop=$runtime attempt=$attempt/60"
+            runtime_key=$(printf '%s' "$runtime_lc" | sed -E 's/[^a-z0-9]+/ /g; s/^ +| +$//g')
+          # Fail closed: "Stopping" / "stop requested" are transitional states, NOT a confirmed stop.
+          # Only exact terminal states permit deployment of the new revision.
+          case "$runtime_key" in
+            stopped|offline|not\ running|terminated) stopped=1; break ;;
+            stopping|stop\ requested|running|ready|starting|deploying|pending|"") ;;
+            *) echo "::warning::Unrecognized ModelScope runtime state '$runtime'; continuing to wait." ;;
+          esac
+            sleep 5
+          done
+          [ "$stopped" -eq 1 ] || { echo "::error::The isolated Studio did not stop cleanly; refusing to deploy over an old process."; exit 1; }
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          if [[ ! "$deploy_code" =~ ^2[0-9][0-9]$ ]]; then cat deploy.json; exit 1; fi
+          ready=0
+          stale_count=0
+          for attempt in $(seq 1 270); do
+            start_code=$(curl -sS --connect-timeout 8 --max-time 25 -o status-start.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/call/status" || true)
+            if [ "$start_code" = "200" ]; then
+              event_id=$(python3 -c "import json;print(json.load(open('status-start.json')).get('event_id',''))" 2>/dev/null || true)
+              if [ -n "$event_id" ]; then
+                poll_code=$(curl -sS --connect-timeout 8 --max-time 40 -o status.sse -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                if [ "$poll_code" = "200" ]; then
+                  python3 - <<'PY' > status-values.txt
+          import json
+          
+          def walk(value, depth=0):
+              if depth > 10:
+                  return
+              if isinstance(value, str):
+                  try:
+                      decoded = json.loads(value)
+                  except Exception:
+                      return
+                  yield from walk(decoded, depth + 1)
+              elif isinstance(value, dict):
+                  if isinstance(value.get("phase"), str):
+                      yield value
+                  for child in value.values():
+                      if isinstance(child, (dict, list, str)):
+                          yield from walk(child, depth + 1)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child, depth + 1)
+          
+          found = None
+          raw = open("status.sse", encoding="utf-8").read()
+          for line in raw.splitlines():
+              if not line.startswith("data:"):
+                  continue
+              try:
+                  values = list(walk(json.loads(line[5:].strip())))
+              except Exception:
+                  values = []
+              if values:
+                  found = values[-1]
+                  break
+          
+          if found is None:
+              print("")
+              print("")
+              print("Could not parse a phase object from the Gradio status event.")
+              print("")
+              print("")
+              print("")
+              print("")
+          else:
+              print(str(found.get("phase") or ""))
+              print(str(found.get("app_revision") or ""))
+              print(str(found.get("error") or ""))
+              print(str(found.get("model_repo") or found.get("modelscope_model_repo") or ""))
+              print(str(found.get("checkpoint_sha256") or ""))
+              print(str(found.get("source_revision") or ""))
+              print("memory_gb=" + str(found.get("memory_gb") or ""))
+              if found.get("traceback"):
+                  print("Model startup traceback: " + str(found.get("traceback"))[-3500:], file=__import__("sys").stderr)
+              if found.get("error"):
+                  print("Model startup error: " + str(found.get("error"))[:3500], file=__import__("sys").stderr)
+          PY
+          phase=$(sed -n '1p' status-values.txt)
+                  revision=$(sed -n '2p' status-values.txt)
+                  err=$(sed -n '3p' status-values.txt)
+                  model_repo=$(sed -n '4p' status-values.txt)
+                  checkpoint_sha=$(sed -n '5p' status-values.txt)
+                  source_revision=$(sed -n '6p' status-values.txt)
+                  echo "epiCRealism phase=$phase revision=$revision model_repo=$model_repo $(sed -n '7p' status-values.txt)"
+                  if [ "$phase" = "ready" ] && [ "$revision" = "epicrealism-image-test-2026-10-31-r1" ] && [ "$model_repo" = "novaai2026/epicrealism-image-test-models" ] && [[ "$checkpoint_sha" =~ ^[a-f0-9]{64}$ ]] && [ -n "$source_revision" ]; then
+                    echo "$checkpoint_sha" > model-checkpoint.sha256
+                    echo "$source_revision" > model-source-revision.txt
+                    ready=1
+                    break
+                  fi
+                  if [ -n "$revision" ] && [ "$revision" != "epicrealism-image-test-2026-10-31-r1" ]; then
+                    echo "::warning::Studio still serves stale app revision $revision; expected epicrealism-image-test-2026-10-31-r1."
+                    stale_count=$((stale_count+1))
+                    if [ "$stale_count" -ge 6 ]; then echo "::error::New app revision did not activate after six checks."; break; fi
+                  else
+                    stale_count=0
+                  fi
+                  if [ "$phase" = "error" ]; then echo "$err"; cat status.sse; exit 1; fi
+                fi
+              fi
+            fi
+            sleep 20
+          done
+          if [ "$ready" -ne 1 ]; then
+            logs=$(curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" || true)
+            printf '%s\n' "$logs" | tail -c 10000
+            echo "epiCRealism did not become ready on CPU 8GB."
+            exit 1
+          fi
+      - name: Smoke-test actual epiCRealism image generation on CPU
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          mkdir -p epicrealism-smoke
+          python3 - <<'PY' > request.json
+          import json
+          print(json.dumps({"data":["A photorealistic editorial photograph of an adult woman wearing a dark coat on a quiet stone street after rain, natural skin texture, realistic hands, soft daylight, documentary photography.","deformed, blurry, cartoon, text, watermark","512 × 768",30,7.0,42]}))
+          PY
+          submit_code=$(curl -sS --connect-timeout 8 --max-time 30 -o image-start.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @request.json "$API/gradio_api/call/image")
+          [ "$submit_code" = "200" ] || { cat image-start.json; exit 1; }
+          event_id=$(python3 -c "import json;print(json.load(open('image-start.json')).get('event_id',''))")
+          test -n "$event_id"
+          poll_code=$(curl -sS --connect-timeout 8 --max-time 1200 -o image.sse -w '%{http_code}' -H "Authorization: Bearer $T" "$API/gradio_api/call/image/$event_id")
+          [ "$poll_code" = "200" ] || { cat image.sse; exit 1; }
+          grep -q '^event: complete' image.sse
+          python3 - <<'PY'
+          import json
+          raw=open("image.sse",encoding="utf-8").read()
+          found=[]
+          for block in raw.split("\n\n"):
+              for line in block.splitlines():
+                  if line.startswith("data:"):
+                      try: found.append(json.loads(line[5:].strip()))
+                      except Exception: pass
+          image=None
+          for value in found:
+              def walk(x):
+                  global image
+                  if isinstance(x,list):
+                      for y in x: walk(y)
+                  elif isinstance(x,dict):
+                      if image is None and (x.get("path") or x.get("url")): image=x
+                      for y in x.values():
+                          if isinstance(y,(dict,list)): walk(y)
+              walk(value)
+          if not image: raise SystemExit("No image file in Gradio response.")
+          open("image-path.txt","w").write(str(image.get("path") or image.get("url")))
+          PY
+          FILE=$(cat image-path.txt)
+          if [[ "$FILE" = http* ]]; then URL="$FILE"; else URL="$API/gradio_api/file=$FILE"; fi
+          curl -fsS --connect-timeout 8 --max-time 90 -H "Authorization: Bearer $T" "$URL" -o epicrealism-smoke/epicrealism-seed-42.png
+          python3 - <<'PY'
+          from PIL import Image
+          import hashlib,json
+          from pathlib import Path
+          p=Path("epicrealism-smoke/epicrealism-seed-42.png")
+          im=Image.open(p).convert("RGB")
+          if im.size != (512,768): raise SystemExit(f"Unexpected resolution: {im.size}")
+          data=p.read_bytes()
+          result={"status":"smoke_pass","model":"emilianJR/epiCRealism","model_repo":"novaai2026/epicrealism-image-test-models","model_checkpoint_sha256":Path("model-checkpoint.sha256").read_text().strip(),"source_revision":Path("model-source-revision.txt").read_text().strip(),"device":"CPU only","ram_target":"8GB","resolution":"512x768","bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()}
+          Path("epicrealism-smoke/result.json").write_text(json.dumps(result,indent=2))
+          print(json.dumps(result))
+          PY
+      - name: Upload epiCRealism smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epicrealism-image-test-cpu8g
+          path: epicrealism-smoke/
+          if-no-files-found: warn
+          retention-days: 14

@@ -20,6 +20,7 @@ describe("donor candidate Telegram transport", () => {
           text: "تم استلام المرفق",
           tool_calls: [],
           executed_tools: [{ name: "github_repo_scan", arguments: { repo: "public/example" }, result: { ok: true, count: 1, files: [{ name: "README.md" }] } }],
+          generated_media: [{ kind: "image", mime: "image/png", b64: "aGVsbG8=", metadata: { result: "image_generated" }, candidate: "qwen35-9b", model_repo: "novaai2026/cyberrealistic-final-test-models", checkpoint_sha256: "a".repeat(64) }],
           seconds: 0.1,
           tokens_per_second: 8,
         }), { status: 200 });
@@ -41,6 +42,8 @@ describe("donor candidate Telegram transport", () => {
     );
 
     expect(result.text).toBe("تم استلام المرفق");
+    expect(result.generated_media).toHaveLength(1);
+    expect(result.generated_media[0]).toMatchObject({ candidate: "qwen35-9b", model_repo: "novaai2026/cyberrealistic-final-test-models" });
     expect(result.executed_tools).toEqual([
       { name: "github_repo_scan", arguments: { repo: "public/example" }, result: { ok: true, count: 1, files: [{ name: "README.md" }] } },
     ]);
@@ -72,8 +75,14 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-10-30-r8",
+            app_revision: "donor-bakeoff-2026-10-31-r10",
             media_capabilities: { vision: true, audio: false, video: true },
+            runtime_generation_capabilities: { image: true, audio: false, video: false },
+            image_generation_assignment: {
+              for_candidate: "qwen35-9b",
+              model_repo: "novaai2026/cyberrealistic-final-test-models",
+              studio_api: "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
+            },
             error: null,
           })],
         }), { status: 200 });
@@ -85,6 +94,7 @@ describe("donor Studio readiness probe", () => {
       expect(status.phase).toBe("ready");
       expect(status.studio).toBe("running");
       expect(status.media_capabilities).toEqual({ vision: true, audio: false, video: true });
+      expect(status.image_generation).toMatchObject({ enabled: true, candidate: "qwen35-9b", model_repo: "novaai2026/cyberrealistic-final-test-models" });
       expect(calls.some((url) => url.endsWith("/gradio_api/run/status"))).toBe(true);
       expect(calls.some((url) => url.includes("/gradio_api/call/status"))).toBe(false);
     } finally {

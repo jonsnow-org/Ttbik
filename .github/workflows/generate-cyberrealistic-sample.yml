@@ -1,0 +1,223 @@
+name: "Generate first CyberRealistic photoreal human sample"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/generate-cyberrealistic-sample.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install image inspection tools
+        run: |
+          python -m pip install -q pillow
+
+      - name: Confirm CyberRealistic Studio and baked-checkpoint loader are ready
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time, requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/cyberrealistic-final-test"
+          endpoint="https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          ready=False
+          for attempt in range(12):
+              info=api.get_repo(repo,"studio")
+              runtime=getattr(info,"runtime",None) or {}
+              status=str(runtime.get("status") or "")
+              print("CYBER_RUNTIME",attempt+1,json.dumps(runtime,ensure_ascii=False))
+              if status.lower()=="running":
+                  try:
+                      health=session.get(endpoint+"/gradio_api/info",timeout=20)
+                      print("CYBER_GRADIO_INFO_HTTP",health.status_code)
+                      if health.status_code==200:
+                          start=session.post(endpoint+"/gradio_api/call/status",json={"data":[]},timeout=30)
+                          print("CYBER_STATUS_POST_HTTP",start.status_code,start.text[:400])
+                          if start.status_code==200 and start.json().get("event_id"):
+                              event=start.json()["event_id"]
+                              response=session.get(endpoint+"/gradio_api/call/status/"+event,timeout=60)
+                              print("CYBER_STATUS_GET_HTTP",response.status_code)
+                              print("CYBER_STATUS_EVENT",response.text[:2500])
+                              if '"phase": "ready"' in response.text or '"phase":"ready"' in response.text:
+                                  ready=True
+                                  break
+                              if '"phase": "error"' in response.text or '"phase":"error"' in response.text:
+                                  raise SystemExit("CyberRealistic Studio reports a model-load error.")
+                  except requests.RequestException as exc:
+                      print("CYBER_HEALTH_RETRY",type(exc).__name__,str(exc)[:300])
+              time.sleep(15)
+          if not ready:
+              logs=api.get_repo_logs(repo,log_type="run",page_size=100)
+              print("CYBER_RUN_LOGS",json.dumps(logs,ensure_ascii=False)[-10000:])
+              raise SystemExit("CyberRealistic is not ready; no generation request was sent.")
+          print("CYBER_STUDIO_READY=YES")
+          PY
+
+      - name: Generate one human-photography sample with CyberRealistic's own preset
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PROMPT: "A photorealistic half-body candid editorial photograph of a 38-year-old woman with natural skin texture, faint expression lines, realistic eyes, dark brown hair tied loosely, wearing a simple charcoal wool coat, standing on a quiet old stone street after light rain. Both hands fully visible and naturally holding a small paper coffee cup at waist height, anatomically correct fingers and joints, realistic shoulder and body proportions, soft overcast daylight, documentary fashion photography, 50mm lens, authentic unretouched photo, natural colors and lifelike detail, no illustration, no CGI."
+          NEGATIVE: "(cartoon, anime, illustration, drawing, painting, cgi, 3d render, doll, plastic skin, waxy skin, airbrushed, synthetic face), deformed eyes, asymmetrical eyes, bad anatomy, bad proportions, malformed hands, extra fingers, fused fingers, missing fingers, extra limbs, duplicate person, blurry, low quality, jpeg artifacts, watermark, logo, text"
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          export PROMPT NEGATIVE
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import hashlib, json, os
+          from io import BytesIO
+          from pathlib import Path
+          from urllib.parse import quote, urlsplit
+          import requests
+          from PIL import Image
+          import statistics
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          endpoint="https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          payload={"data":[
+              os.environ["PROMPT"],
+              os.environ["NEGATIVE"],
+              "512 × 768 (author recommended)",
+              30,
+              5.0,
+              42
+          ]}
+          response=session.post(endpoint+"/gradio_api/call/image",json=payload,timeout=60)
+          print("CYBER_IMAGE_SUBMIT_HTTP",response.status_code,response.text[:1000])
+          response.raise_for_status()
+          event=response.json().get("event_id")
+          if not event:
+              raise SystemExit("CyberRealistic did not return a fresh Gradio event id.")
+          print("CYBER_FRESH_IMAGE_EVENT",event)
+
+          stream=session.get(endpoint+"/gradio_api/call/image/"+event,stream=True,timeout=(20,900))
+          print("CYBER_IMAGE_STREAM_HTTP",stream.status_code)
+          stream.raise_for_status()
+          chunks=[]
+          for chunk in stream.iter_content(chunk_size=8192,decode_unicode=False):
+              if chunk:
+                  chunks.append(chunk)
+                  joined=b"".join(chunks)
+                  if b"event: complete" in joined or b"event: error" in joined:
+                      break
+          raw=b"".join(chunks).decode("utf-8",errors="replace")
+          Path("cyber-image-event.sse").write_text(raw,encoding="utf-8")
+          print("CYBER_IMAGE_STREAM_BYTES",len(raw))
+          print(raw[-4500:])
+          if "event: error" in raw:
+              raise SystemExit("CyberRealistic generation returned an error event.")
+          if "event: complete" not in raw:
+              raise SystemExit("CyberRealistic event did not complete.")
+
+          objects=[]
+          for line in raw.splitlines():
+              line=line.strip()
+              if line.startswith("data:"):
+                  try: objects.append(json.loads(line.split(":",1)[1].strip()))
+                  except Exception: pass
+          image_obj=None
+          meta=None
+          def walk(value):
+              global image_obj,meta
+              if isinstance(value,list):
+                  for item in value: walk(item)
+              elif isinstance(value,dict):
+                  if image_obj is None and (value.get("path") or value.get("url")):
+                      image_obj=value
+                  if value.get("creator_sha256_verified") or value.get("result")=="image_generated":
+                      meta=value
+                  for child in value.values():
+                      if isinstance(child,(dict,list)): walk(child)
+          for obj in objects: walk(obj)
+          if image_obj is None:
+              raise SystemExit("CyberRealistic completed without a Gradio image FileData object.")
+
+          file_path=image_obj.get("path")
+          if not file_path and image_obj.get("url"):
+              parsed=urlsplit(image_obj["url"]).path
+              prefix="/gradio_api/file="
+              if prefix in parsed:
+                  file_path=parsed.split(prefix,1)[1]
+          if not file_path:
+              raise SystemExit("CyberRealistic image output has no accessible FileData path.")
+          if not file_path.startswith("/"):
+              file_path="/"+file_path.lstrip("/")
+          # ModelScope SDK-token downloads must use the API-specific host, not ms.show.
+          file_url=endpoint+"/gradio_api/file="+quote(file_path,safe="/")
+          file_response=session.get(file_url,timeout=120)
+          print("CYBER_IMAGE_FILE_HTTP",file_response.status_code,
+                "bytes",len(file_response.content),
+                "content_type",file_response.headers.get("Content-Type"))
+          file_response.raise_for_status()
+
+          Image.open(BytesIO(file_response.content)).verify()
+          image=Image.open(BytesIO(file_response.content)).convert("RGB")
+          print("CYBER_IMAGE_DIMENSIONS",image.size)
+          if image.size!=(512,768):
+              raise SystemExit(f"Unexpected CyberRealistic image size: {image.size}; expected 512x768.")
+          gray=image.convert("L")
+          pixels=list(gray.getdata())
+          std=statistics.pstdev(pixels)
+          if std<8 or max(pixels)-min(pixels)<24:
+              raise SystemExit("CyberRealistic generated an empty or near-constant image.")
+
+          Path("cyber-visual-review").mkdir(exist_ok=True)
+          output=Path("cyber-visual-review/cyberrealistic-final-human-sample.png")
+          image.save(output,format="PNG",optimize=True)
+          digest=hashlib.sha256(output.read_bytes()).hexdigest()
+          metadata={
+              "result":"image_generated",
+              "model":"CyberRealistic FINAL FP16",
+              "source":"cyberdelia/CyberRealistic",
+              "model_repo":"novaai2026/cyberrealistic-final-test-models",
+              "checkpoint_sha256":"2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
+              "creator_sha256_verified":True,
+              "vae":"baked into CyberRealistic checkpoint; no external VAE attached",
+              "sampler":"DPM++ SDE Karras",
+              "steps":30,
+              "cfg":5.0,
+              "seed":42,
+              "resolution":"512x768",
+              "device":"CPU / platform/2v-cpu-8g-mem",
+              "seconds":(meta or {}).get("seconds"),
+              "image_gray_std":round(std,2),
+              "image_png_sha256":digest,
+              "production_routes_changed":False,
+              "visual_review_required":True
+          }
+          Path("cyber-visual-review/metadata.json").write_text(
+              json.dumps(metadata,ensure_ascii=False,indent=2),encoding="utf-8"
+          )
+          Path("cyber-visual-review/prompt.txt").write_text(
+              os.environ["PROMPT"]+"\n\nNEGATIVE:\n"+os.environ["NEGATIVE"],encoding="utf-8"
+          )
+          print("CYBER_IMAGE_GENERATION=SUCCESS")
+          print("CYBER_IMAGE_SIZE",image.size,"GRAY_STD",round(std,2))
+          PY
+
+      - name: Upload CyberRealistic image for visual inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyberrealistic-final-human-visual-sample
+          path: cyber-visual-review/
+          if-no-files-found: error
+          retention-days: 7

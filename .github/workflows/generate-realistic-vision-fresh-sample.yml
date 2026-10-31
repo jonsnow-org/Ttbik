@@ -1,0 +1,226 @@
+name: "Generate a fresh Realistic Vision V6 visual sample"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/generate-realistic-vision-fresh-sample.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install image inspection tools
+        run: |
+          python -m pip install -q pillow
+
+      - name: Wait until the restarted Studio is Running and the model loader is ready
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time, requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/realistic-vision-v6-test"
+          endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          ready=False
+          for attempt in range(15):
+              info=api.get_repo(repo,"studio")
+              runtime=getattr(info,"runtime",None) or {}
+              status=str(runtime.get("status") or "")
+              print("STUDIO_RUNTIME",attempt+1,status,json.dumps(runtime,ensure_ascii=False))
+              if status.lower()=="running":
+                  try:
+                      health=session.get(endpoint+"/gradio_api/info",timeout=20)
+                      print("GRADIO_INFO_HTTP",health.status_code)
+                      if health.status_code==200:
+                          start=session.post(endpoint+"/gradio_api/call/status",
+                              json={"data":[]},timeout=30)
+                          print("STATUS_POST_HTTP",start.status_code,start.text[:600])
+                          if start.status_code==200:
+                              event=start.json().get("event_id")
+                              if event:
+                                  stream=session.get(endpoint+"/gradio_api/call/status/"+event,
+                                      timeout=60)
+                                  print("STATUS_GET_HTTP",stream.status_code)
+                                  found=[]
+                                  def walk(v):
+                                      if isinstance(v,dict):
+                                          if isinstance(v.get("phase"),str): found.append(v["phase"])
+                                          for x in v.values(): walk(x)
+                                      elif isinstance(v,list):
+                                          for x in v: walk(x)
+                                      elif isinstance(v,str):
+                                          try: walk(json.loads(v))
+                                          except Exception: pass
+                                  for line in stream.text.splitlines():
+                                      line=line.strip()
+                                      if line.startswith("data:"):
+                                          try: walk(json.loads(line.split(":",1)[1].strip()))
+                                          except Exception: pass
+                                  phase=found[-1] if found else ""
+                                  print("MODEL_LOADER_PHASE",phase or "not-reported")
+                                  if phase=="ready":
+                                      ready=True
+                                      break
+                                  if phase=="error":
+                                      raise SystemExit("The Studio reports a model-load error.")
+                  except requests.RequestException as exc:
+                      print("HEALTH_RETRY",type(exc).__name__,str(exc)[:250])
+              time.sleep(15)
+          if not ready:
+              logs=api.get_repo_logs(repo,log_type="run",page_size=100)
+              print("RUN_LOGS",json.dumps(logs,ensure_ascii=False)[-10000:])
+              raise SystemExit("The Studio did not report ready; no generation request was sent.")
+          print("STUDIO_READY=YES")
+          PY
+
+      - name: Submit exactly one new image request and wait for its completion
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PROMPT: "A photorealistic candid RAW photograph of a middle-aged woman with natural skin texture and subtle expression lines, realistic eyes, wearing a simple dark blue coat, standing in a quiet old stone street after light rain, soft overcast daylight, 50mm photography, lifelike proportions, detailed hands visible, authentic documentary photography, no illustration, no CGI."
+          NEGATIVE: "cartoon, anime, illustration, CGI, 3D render, painting, plastic skin, doll face, deformed eyes, asymmetrical eyes, extra fingers, fused fingers, malformed hands, deformed anatomy, extra limbs, duplicate person, blurry, low resolution, watermark, logo, text, oversaturated"
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          export PROMPT NEGATIVE
+          python - <<'PY'
+          import base64, json, os, time
+          from pathlib import Path
+          from urllib.parse import quote, urlsplit
+          import requests
+          from PIL import Image
+          from io import BytesIO
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          endpoint="https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          payload={"data":[
+              os.environ["PROMPT"],
+              os.environ["NEGATIVE"],
+              "512 × 512",
+              25,
+              5.5,
+              42
+          ]}
+          response=session.post(endpoint+"/gradio_api/call/image",
+              json=payload,timeout=60)
+          print("IMAGE_SUBMIT_HTTP",response.status_code,response.text[:1000])
+          response.raise_for_status()
+          event=response.json().get("event_id")
+          if not event:
+              raise SystemExit("Gradio did not return a fresh image event id.")
+          print("FRESH_IMAGE_EVENT",event)
+
+          # One stream request for this one event only. A 404 is not retried with the same event id.
+          result=session.get(endpoint+"/gradio_api/call/image/"+event,
+              stream=True,timeout=(20,900))
+          print("IMAGE_STREAM_HTTP",result.status_code)
+          result.raise_for_status()
+          chunks=[]
+          for chunk in result.iter_content(chunk_size=8192,decode_unicode=False):
+              if chunk:
+                  chunks.append(chunk)
+                  joined=b"".join(chunks)
+                  if b"event: complete" in joined or b"event: error" in joined:
+                      break
+          raw=b"".join(chunks).decode("utf-8",errors="replace")
+          Path("image-event.sse").write_text(raw,encoding="utf-8")
+          print("IMAGE_STREAM_BYTES",len(raw))
+          print(raw[-4000:])
+          if "event: error" in raw:
+              raise SystemExit("Gradio returned an image-generation error event.")
+          if "event: complete" not in raw:
+              raise SystemExit("The fresh Gradio image event ended without a complete event.")
+
+          objects=[]
+          for line in raw.splitlines():
+              line=line.strip()
+              if line.startswith("data:"):
+                  try: objects.append(json.loads(line.split(":",1)[1].strip()))
+                  except Exception: pass
+
+          image_obj=None
+          meta=None
+          def inspect(value):
+              global image_obj,meta
+              if isinstance(value,list):
+                  for item in value: inspect(item)
+              elif isinstance(value,dict):
+                  if image_obj is None and (value.get("url") or value.get("path")):
+                      image_obj=value
+                  if value.get("model_repo") or value.get("result")=="image_generated":
+                      meta=value
+          for obj in objects: inspect(obj)
+          if image_obj is None:
+              raise SystemExit("The completed event contains no image file object.")
+          file_path=image_obj.get("path")
+          if not file_path and image_obj.get("url"):
+              parsed_path=urlsplit(image_obj["url"]).path
+              prefix="/gradio_api/file="
+              if prefix in parsed_path:
+                  file_path=parsed_path.split(prefix,1)[1]
+          if not file_path:
+              raise SystemExit("Image output has neither a Gradio file path nor a usable URL.")
+          if not file_path.startswith("/"):
+              file_path="/"+file_path.lstrip("/")
+          # ModelScope file downloads must use the API-specific host, not the ms.show UI host.
+          image_url=endpoint+"/gradio_api/file="+quote(file_path,safe="/")
+          image_response=session.get(image_url,timeout=120)
+          print("IMAGE_FILE_HTTP",image_response.status_code,"bytes",len(image_response.content))
+          image_response.raise_for_status()
+          Image.open(BytesIO(image_response.content)).verify()
+          image=Image.open(BytesIO(image_response.content)).convert("RGB")
+          if image.size!=(512,512):
+              raise SystemExit(f"Unexpected image size: {image.size}")
+          Path("visual-review").mkdir(exist_ok=True)
+          image.save("visual-review/realistic-vision-v6-sample.png")
+          gray=image.convert("L")
+          import statistics
+          pixels=list(gray.getdata())
+          std=statistics.pstdev(pixels)
+          if std < 8 or max(pixels)-min(pixels)<24:
+              raise SystemExit("The generated image is blank or nearly constant.")
+          meta=meta or {}
+          meta.update({
+              "model":"Realistic Vision V6.0 B1 noVAE FP16",
+              "model_repo":"novaai2026/realistic-vision-v6-test-models",
+              "vae":"stabilityai/sd-vae-ft-mse-original / MSE 840000 EMA",
+              "sampler":"DPM++ SDE Karras",
+              "steps":25,
+              "guidance_scale":5.5,
+              "seed":42,
+              "resolution":"512x512",
+              "device":"CPU, platform/2v-cpu-8g-mem",
+              "gray_std":round(std,2),
+              "image_review_required":True,
+              "production_routes_changed":False,
+          })
+          Path("visual-review/metadata.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          print("IMAGE_GENERATION=SUCCESS")
+          print("IMAGE_SIZE",image.size,"GRAY_STD",round(std,2))
+          PY
+
+      - name: Upload the generated image for visual inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: realistic-vision-v6-clean-visual-sample
+          path: visual-review/
+          if-no-files-found: error
+          retention-days: 7

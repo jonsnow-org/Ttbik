@@ -1,0 +1,373 @@
+name: "CyberRealistic multi-seed composition validation"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/generate-cyberrealistic-validation-batch.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install image inspection tools
+        run: |
+          python -m pip install -q pillow "modelscope>=1.26.0"
+
+      - name: Confirm isolated CyberRealistic Studio is running and ready
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time, requests
+          from modelscope.hub.api import HubApi
+
+          token = os.environ["MODELSCOPE_TOKEN"].strip()
+          api = HubApi()
+          api.login(token)
+          repo = "novaai2026/cyberrealistic-final-test"
+          endpoint = "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session = requests.Session()
+          session.headers.update({"Authorization": "Bearer " + token})
+          ready = False
+
+          def phases(value):
+              found = []
+              def walk(item):
+                  if isinstance(item, dict):
+                      if isinstance(item.get("phase"), str):
+                          found.append(item["phase"])
+                      for child in item.values():
+                          walk(child)
+                  elif isinstance(item, list):
+                      for child in item:
+                          walk(child)
+                  elif isinstance(item, str):
+                      try:
+                          walk(json.loads(item))
+                      except Exception:
+                          pass
+              walk(value)
+              return found
+
+          for attempt in range(16):
+              info = api.get_repo(repo, "studio")
+              runtime = getattr(info, "runtime", None) or {}
+              status = str(runtime.get("status") or "")
+              print("CYBER_RUNTIME", attempt + 1, json.dumps(runtime, ensure_ascii=False))
+              if status.lower() == "running":
+                  try:
+                      health = session.get(endpoint + "/gradio_api/info", timeout=20)
+                      print("CYBER_GRADIO_INFO_HTTP", health.status_code)
+                      if health.status_code == 200:
+                          start = session.post(endpoint + "/gradio_api/call/status",
+                                               json={"data": []}, timeout=30)
+                          print("CYBER_STATUS_POST_HTTP", start.status_code, start.text[:500])
+                          if start.status_code == 200 and start.json().get("event_id"):
+                              event = start.json()["event_id"]
+                              response = session.get(
+                                  endpoint + "/gradio_api/call/status/" + event, timeout=90
+                              )
+                              print("CYBER_STATUS_GET_HTTP", response.status_code)
+                              parsed = []
+                              for line in response.text.splitlines():
+                                  if line.strip().startswith("data:"):
+                                      try:
+                                          parsed.append(json.loads(line.split(":", 1)[1].strip()))
+                                      except Exception:
+                                          pass
+                              found = phases(parsed)
+                              phase = found[-1] if found else ""
+                              print("CYBER_MODEL_PHASE", phase or "not-reported")
+                              if phase == "ready":
+                                  ready = True
+                                  break
+                              if phase == "error":
+                                  raise SystemExit("CyberRealistic loader reports an error.")
+                  except requests.RequestException as exc:
+                      print("CYBER_HEALTH_RETRY", type(exc).__name__, str(exc)[:400])
+              time.sleep(15)
+
+          if not ready:
+              try:
+                  logs = api.get_repo_logs(repo, log_type="run", page_size=100)
+                  print("CYBER_RUN_LOGS", json.dumps(logs, ensure_ascii=False)[-12000:])
+              except Exception as exc:
+                  print("CYBER_LOG_FETCH_ERROR", type(exc).__name__, str(exc)[:500])
+              raise SystemExit("The isolated CyberRealistic Studio did not report ready.")
+          print("CYBER_STUDIO_READY=YES")
+          PY
+
+      - name: Generate full-body and close-up samples across three seeds
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import hashlib, json, os, time
+          from io import BytesIO
+          from pathlib import Path
+          from urllib.parse import quote, urlsplit
+
+          import requests
+          from PIL import Image, ImageStat
+
+          token = os.environ["MODELSCOPE_TOKEN"].strip()
+          endpoint = "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session = requests.Session()
+          session.headers.update({"Authorization": "Bearer " + token})
+
+          negative = (
+              "(cartoon, anime, illustration, drawing, painting, cgi, 3d render, doll, "
+              "plastic skin, waxy skin, airbrushed, synthetic face), deformed eyes, "
+              "asymmetrical eyes, bad anatomy, bad proportions, malformed hands, "
+              "extra fingers, fused fingers, missing fingers, extra limbs, duplicate "
+              "person, blurry, low quality, jpeg artifacts, watermark, logo, text"
+          )
+
+          profiles = [
+              {
+                  "name": "full-body",
+                  "aspect": "512 × 768 (author recommended)",
+                  "size": (512, 768),
+                  "prompt": (
+                      "A full-length photorealistic documentary fashion photograph of a "
+                      "38-year-old woman with natural skin texture and subtle expression "
+                      "lines, realistic eyes, dark brown hair tied loosely, wearing a "
+                      "charcoal wool coat over simple dark trousers and ankle boots, on a "
+                      "quiet old stone street after light rain. Show the complete person "
+                      "from the top of her head to the soles of both shoes, with clear "
+                      "space above the head and below the feet. Both arms and both hands "
+                      "must be fully visible, relaxed naturally at her sides and outside "
+                      "the coat pockets; fingers anatomically plausible and not hidden by "
+                      "props. Realistic body proportions, natural stance, soft overcast "
+                      "daylight, 50mm documentary photography, authentic unretouched RAW "
+                      "photo, natural colors, no illustration, no CGI."
+                  ),
+              },
+              {
+                  "name": "close-up",
+                  "aspect": "512 × 512",
+                  "size": (512, 512),
+                  "prompt": (
+                      "A close-up photorealistic editorial head-and-shoulders portrait of "
+                      "a 38-year-old woman with natural skin pores, fine expression lines, "
+                      "realistic slightly asymmetrical facial features and lifelike eyes, "
+                      "dark brown hair loosely tied back with a few natural strands, wearing "
+                      "a charcoal wool coat and dark knit collar. Frame from the top of "
+                      "the head to the upper chest; the face is the clear focal point and "
+                      "fills most of the frame without cropping the chin or hair. Soft "
+                      "overcast daylight on a quiet old stone street after light rain, "
+                      "subtle natural background blur, 85mm portrait photography, "
+                      "unretouched documentary photo, realistic skin texture, natural "
+                      "colors, no illustration, no CGI."
+                  ),
+              },
+          ]
+          seeds = [42, 123, 2026]
+          outdir = Path("cyber-validation")
+          outdir.mkdir(parents=True, exist_ok=True)
+          records = []
+          errors = []
+
+          def parse_events(raw):
+              values = []
+              for line in raw.splitlines():
+                  line = line.strip()
+                  if line.startswith("data:"):
+                      try:
+                          values.append(json.loads(line.split(":", 1)[1].strip()))
+                      except Exception:
+                          pass
+              return values
+
+          def find_image_and_meta(values):
+              image_obj = None
+              meta = None
+              def walk(value):
+                  nonlocal image_obj, meta
+                  if isinstance(value, list):
+                      for item in value:
+                          walk(item)
+                  elif isinstance(value, dict):
+                      if image_obj is None and (value.get("path") or value.get("url")):
+                          image_obj = value
+                      if value.get("result") == "image_generated":
+                          meta = value
+                      for child in value.values():
+                          if isinstance(child, (dict, list)):
+                              walk(child)
+              for value in values:
+                  walk(value)
+              return image_obj, meta
+
+          for profile in profiles:
+              for seed in seeds:
+                  label = f"{profile['name']}-seed-{seed}"
+                  print("CYBER_SAMPLE_START", label, flush=True)
+                  started = time.monotonic()
+                  try:
+                      payload = {
+                          "data": [
+                              profile["prompt"],
+                              negative,
+                              profile["aspect"],
+                              30,
+                              5.0,
+                              seed,
+                          ]
+                      }
+                      submit = session.post(
+                          endpoint + "/gradio_api/call/image", json=payload, timeout=60
+                      )
+                      print("CYBER_SUBMIT_HTTP", label, submit.status_code, submit.text[:500])
+                      submit.raise_for_status()
+                      event = submit.json().get("event_id")
+                      if not event:
+                          raise RuntimeError("Gradio did not return a fresh event id.")
+
+                      stream = session.get(
+                          endpoint + "/gradio_api/call/image/" + event,
+                          stream=True,
+                          timeout=(20, 900),
+                      )
+                      print("CYBER_STREAM_HTTP", label, stream.status_code)
+                      stream.raise_for_status()
+                      chunks = []
+                      for chunk in stream.iter_content(chunk_size=8192, decode_unicode=False):
+                          if chunk:
+                              chunks.append(chunk)
+                              joined = b"".join(chunks)
+                              if b"event: complete" in joined or b"event: error" in joined:
+                                  break
+                      raw = b"".join(chunks).decode("utf-8", errors="replace")
+                      if "event: error" in raw:
+                          raise RuntimeError("Gradio returned an error event.")
+                      if "event: complete" not in raw:
+                          raise RuntimeError("Image event ended without a complete event.")
+
+                      image_obj, generation_meta = find_image_and_meta(parse_events(raw))
+                      if image_obj is None:
+                          raise RuntimeError("Completed event contains no image FileData object.")
+
+                      file_path = image_obj.get("path")
+                      if not file_path and image_obj.get("url"):
+                          parsed = urlsplit(image_obj["url"]).path
+                          prefix = "/gradio_api/file="
+                          if prefix in parsed:
+                              file_path = parsed.split(prefix, 1)[1]
+                      if not file_path:
+                          raise RuntimeError("Image output has no downloadable Gradio file path.")
+                      if not file_path.startswith("/"):
+                          file_path = "/" + file_path.lstrip("/")
+
+                      file_url = endpoint + "/gradio_api/file=" + quote(file_path, safe="/")
+                      downloaded = session.get(file_url, timeout=120)
+                      print("CYBER_FILE_HTTP", label, downloaded.status_code, len(downloaded.content))
+                      downloaded.raise_for_status()
+
+                      Image.open(BytesIO(downloaded.content)).verify()
+                      image = Image.open(BytesIO(downloaded.content)).convert("RGB")
+                      if image.size != profile["size"]:
+                          raise RuntimeError(
+                              f"Unexpected dimensions {image.size}; expected {profile['size']}."
+                          )
+                      gray = image.convert("L")
+                      gray_std = ImageStat.Stat(gray).stddev[0]
+                      gray_range = gray.getextrema()[1] - gray.getextrema()[0]
+                      if gray_std < 8 or gray_range < 24:
+                          raise RuntimeError("Image is blank or nearly constant.")
+
+                      filename = f"cyberrealistic-{label}.png"
+                      target = outdir / filename
+                      image.save(target, format="PNG", optimize=True)
+                      elapsed = round(time.monotonic() - started, 2)
+                      metadata = {
+                          "result": "image_generated",
+                          "model": "CyberRealistic FINAL FP16",
+                          "source": "cyberdelia/CyberRealistic",
+                          "model_repo": "novaai2026/cyberrealistic-final-test-models",
+                          "checkpoint_sha256": "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
+                          "creator_sha256_verified": True,
+                          "vae": "baked into checkpoint; no external VAE",
+                          "sampler": "DPM++ SDE Karras",
+                          "steps": 30,
+                          "cfg": 5.0,
+                          "seed": seed,
+                          "profile": profile["name"],
+                          "resolution": f"{image.width}x{image.height}",
+                          "device": "CPU / platform/2v-cpu-8g-mem",
+                          "seconds": (generation_meta or {}).get("seconds", elapsed),
+                          "wall_seconds": elapsed,
+                          "gray_std": round(gray_std, 2),
+                          "gray_range": round(gray_range, 2),
+                          "image_png_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                          "production_routes_changed": False,
+                          "visual_review_required": True,
+                      }
+                      (outdir / f"cyberrealistic-{label}.json").write_text(
+                          json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+                      )
+                      records.append(metadata)
+                      print(
+                          "CYBER_SAMPLE_SUCCESS", label,
+                          "seconds", metadata["seconds"],
+                          "size", image.size,
+                          "sha256", metadata["image_png_sha256"],
+                          flush=True,
+                      )
+                  except Exception as exc:
+                      error = f"{label}: {type(exc).__name__}: {exc}"
+                      errors.append(error)
+                      print("CYBER_SAMPLE_ERROR", error, flush=True)
+
+          manifest = {
+              "model": "CyberRealistic FINAL FP16",
+              "checkpoint_sha256": "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
+              "sampler": "DPM++ SDE Karras",
+              "steps": 30,
+              "cfg": 5.0,
+              "seeds": seeds,
+              "profiles": [
+                  {"name": p["name"], "resolution": f"{p['size'][0]}x{p['size'][1]}", "prompt": p["prompt"]}
+                  for p in profiles
+              ],
+              "successful_samples": len(records),
+              "errors": errors,
+              "production_routes_changed": False,
+              "samples": records,
+          }
+          (outdir / "validation-manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          (outdir / "negative-prompt.txt").write_text(negative, encoding="utf-8")
+          print("CYBER_VALIDATION_SUMMARY", json.dumps({
+              "successful_samples": len(records),
+              "failed_samples": len(errors),
+              "errors": errors,
+              "production_routes_changed": False,
+          }, ensure_ascii=False), flush=True)
+
+          if errors:
+              raise SystemExit(1)
+          if len(records) != 6:
+              raise SystemExit(f"Expected 6 images; received {len(records)}.")
+          PY
+
+      - name: Upload every completed validation sample, including partial results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyberrealistic-fullbody-closeup-three-seeds
+          path: cyber-validation/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,45 @@
+name: "Inspect CyberRealistic build and runtime logs"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/inspect-cyberrealistic-build-logs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read private Studio build and run logs only
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os
+          from modelscope.hub.api import HubApi
+
+          api=HubApi()
+          api.login(os.environ["MODELSCOPE_TOKEN"].strip())
+          repo="novaai2026/cyberrealistic-final-test"
+          info=api.get_repo(repo,"studio")
+          print("RUNTIME",json.dumps(getattr(info,"runtime",None),ensure_ascii=False))
+          for log_type in ("build","run"):
+              print(f"{log_type.upper()}_LOG_BEGIN")
+              try:
+                  result=api.get_repo_logs(repo,log_type=log_type,page_size=100)
+                  logs=result.get("logs",[]) if isinstance(result,dict) else []
+                  for line in logs[-70:]:
+                      print(line)
+                  print(f"{log_type.upper()}_LOG_TOTAL",result.get("total_count") if isinstance(result,dict) else "unknown")
+              except Exception as exc:
+                  print(f"{log_type.upper()}_LOG_ERROR",type(exc).__name__,str(exc)[:1000])
+              print(f"{log_type.upper()}_LOG_END")
+          PY
