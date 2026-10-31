@@ -24,6 +24,12 @@ only the neutral shell modules (`coderApp.ts`, `coderChats.ts`, `coderTasks.ts`,
 | One shared view | `/api/coder/terminal`, `threads`/`tasks` ops | one task list and one terminal for all models (no per-model filtering); the Chats tab has one list of every conversation of every model, each tagged with its model, any chat can be continued by selecting its model |
 | Guard against raw plans | `looksLikeToolPlan` (`shamDeliver`) | a final answer that is only a tool plan ("… ← sandbox_exec ثم …") is never delivered; the user gets an honest failure line |
 
+## Cloud computer (separate from the task terminal)
+
+The Mini App now has a separate **Computer / حاسوبي** tab. It is a persistent, dedicated Linux VM per Telegram account and selected model (see `docs/CLOUD_COMPUTER.md`). It has a graphical desktop, VNC preview, full shell, files, browser and Computer Use. It is not the task log viewer.
+
+The Terminal tab remains the durable task/event log view described above. Existing per-task sandboxes remain for disposable one-off jobs; persistent computer calls go through `cloudComputer.ts`. Nova/donor tools use the coder agent adapter, while Sham v1/v2 use the independent `ShamHost.computer` adapter. The model id is part of the server-derived workspace identity; switching models changes computers without copying files.
+
 ## Model-provider interface (shared)
 
 A model engine plugs in by providing: a way to **start** a run (creates the task row with its `run_id`), a **step/leg** executor that appends events and updates the
