@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r9"
+APP_REVISION = "donor-bakeoff-2026-10-31-r10"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -1052,6 +1052,66 @@ def infer(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
 
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict) -> tuple[bool, str]:
+    if not isinstance(tool_bridge, dict):
+        return False, "no signed owner task ticket"
+    ticket = str(tool_bridge.get("ticket") or "")
+    model = str(tool_bridge.get("model") or "")
+    run_id = str(tool_bridge.get("run_id") or "")
+    bridge_url = str(tool_bridge.get("url") or "").rstrip("/")
+    if not ticket or model != str(CONFIG.get("route_id") or "") or not run_id:
+        return False, "no valid candidate-scoped delivery ticket"
+    suffix = "/api/coder/app/donor-tools"
+    if not bridge_url.startswith("https://") or not bridge_url.endswith(suffix):
+        return False, "candidate delivery bridge URL is invalid"
+    callback_url = bridge_url[:-len("donor-tools")] + "donor-media"
+    outgoing_media = []
+    for item in (result.get("generated_media") or [])[:2]:
+        if not isinstance(item, dict) or item.get("candidate") != model:
+            continue
+        try:
+            image_bytes = base64.b64decode(str(item.get("b64") or ""), validate=True)
+            from PIL import Image
+            from io import BytesIO
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=84, optimize=True)
+            jpeg = output.getvalue()
+            if len(jpeg) > 2_800_000:
+                output = BytesIO()
+                image.save(output, format="JPEG", quality=76, optimize=True)
+                jpeg = output.getvalue()
+            if len(jpeg) > 3_000_000 or len(jpeg) < 1000:
+                raise ValueError("compressed image exceeds the signed callback transfer limit")
+            outgoing = dict(item)
+            outgoing["mime"] = "image/jpeg"
+            outgoing["b64"] = base64.b64encode(jpeg).decode("ascii")
+            outgoing["bytes"] = len(jpeg)
+            outgoing_media.append(outgoing)
+        except Exception as exc:
+            return False, "generated image could not be prepared for secure Telegram delivery: " + str(exc)[:300]
+    try:
+        response = requests.post(
+            callback_url,
+            json={
+                "ticket": ticket,
+                "model": model,
+                "run_id": run_id,
+                "text": str(result.get("text") or "")[:12000],
+                "generated_media": outgoing_media,
+            },
+            headers={"Cache-Control": "no-store"},
+            timeout=(8, 28),
+        )
+        payload = response.json() if response.content else {}
+        if response.status_code != 200 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("delivered") is not True:
+            detail = payload.get("error") if isinstance(payload, dict) else "invalid callback response"
+            return False, "Telegram delivery callback refused the result: " + str(detail or response.status_code)[:350]
+        return True, ""
+    except Exception as exc:
+        return False, "Telegram delivery callback failed: " + f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
 def chat_payload(payload_json: str) -> str:
     """Direct bot ingress; Telegram media is decoded only inside this private candidate Studio."""
     created = []
@@ -1089,17 +1149,27 @@ def chat_payload(payload_json: str) -> str:
             key = {"image": "image_path", "audio": "audio_path", "video": "video_path"}[kind]
             paths[key] = str(path)
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        bridge = payload.get("tool_bridge") if isinstance(payload.get("tool_bridge"), dict) else None
         result = infer(
             str(payload.get("prompt") or "حلّل المرفق."),
             history=history,
             max_tokens=int(payload.get("max_tokens") or MAX_OUTPUT),
             temperature=payload.get("temperature"),
             use_tools=bool(payload.get("use_tools", True)),
-            tool_bridge=payload.get("tool_bridge") if isinstance(payload.get("tool_bridge"), dict) else None,
+            tool_bridge=bridge,
             image_path=paths["image_path"],
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],
         )
+        if "error" not in result and bridge:
+            delivered, delivery_error = _deliver_candidate_result(bridge, result)
+            result["delivered_to_telegram"] = delivered
+            if delivered:
+                # The signed callback has already delivered the final text and image. Do not
+                # send another copy if the original bot request is still alive.
+                result["generated_media"] = []
+            elif delivery_error:
+                result["delivery_callback_error"] = delivery_error
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}, ensure_ascii=False)
