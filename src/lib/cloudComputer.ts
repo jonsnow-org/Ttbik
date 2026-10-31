@@ -205,7 +205,9 @@ async function waitUntilStopped(ctx: CloudComputerContext, id: string): Promise<
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new Error("Cloud computer did not reach the stopped state in time.");
-}\n\nasync function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
+}
+
+async function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
   const state = String(sandbox.state || "").toLowerCase();
   if (state === "started" || state === "running") return sandbox;
   await providerRequest(ctx, `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/start`, { method: "POST", body: "{}" });
