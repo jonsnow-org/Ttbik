@@ -168,7 +168,7 @@ export async function makePhotoMedia(
     }
     const statusRepo = String(status.model_repo || status.modelscope_model_repo || "");
     const statusHash = String(status.checkpoint_sha256 || "");
-    if (statusRepo !== profile.modelRepo || !/^[a-f0-9]{64}$/i.test(statusHash)) {
+    if (statusRepo !== profile.modelRepo || !/^[a-f0-9]{64}$/i.test(statusHash) || (profile.expectedCheckpointSha256 && statusHash !== profile.expectedCheckpointSha256)) {
       return { type: "error", reason: "model_identity_mismatch", text: profile.displayName + "'s image Studio did not prove the expected private model repository and SHA-256 checkpoint. Generation was refused." };
     }
 
