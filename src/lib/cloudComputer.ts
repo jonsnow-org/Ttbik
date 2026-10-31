@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { coderChatKey, prismaDb, type Db } from "@/lib/coderAuth";
+import { coderChatKey, prismaDb, tierFor, type Db } from "@/lib/coderAuth";
 import { addUsage, checkLimit, getSubscription, listPlans, terminalAllowed } from "@/lib/coderPlans";
 
 export type CloudComputerContext = {
@@ -21,11 +21,13 @@ type SandboxInfo = {
 
 type ComputerRow = {
   chat_key: string;
+  chat_id: number;
   model_id: string;
   sandbox_id: string;
   sandbox_name: string;
   snapshot: string;
   state: string;
+  last_billed_at?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -81,28 +83,22 @@ export function cloudComputerIdentity(chatId: number | string, modelId: string):
 async function ensureTable(db: Db): Promise<void> {
   if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return;
   if (db === prismaDb && tableReady) return tableReady;
-  const run = db.exec(`
-    CREATE TABLE IF NOT EXISTS cloud_computers (
-      chat_key TEXT PRIMARY KEY,
-      model_id TEXT NOT NULL,
-      sandbox_id TEXT NOT NULL UNIQUE,
-      sandbox_name TEXT NOT NULL UNIQUE,
-      snapshot TEXT NOT NULL,
-      state TEXT NOT NULL DEFAULT 'created',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `).then(() => undefined);
+  const run = (async () => {
+    await db.exec("CREATE TABLE IF NOT EXISTS cloud_computers (" +
+      "chat_key TEXT PRIMARY KEY, chat_id BIGINT NOT NULL, model_id TEXT NOT NULL, " +
+      "sandbox_id TEXT NOT NULL UNIQUE, sandbox_name TEXT NOT NULL UNIQUE, snapshot TEXT NOT NULL, " +
+      "state TEXT NOT NULL DEFAULT 'created', last_billed_at TIMESTAMPTZ, " +
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())");
+    await db.exec("ALTER TABLE cloud_computers ADD COLUMN IF NOT EXISTS chat_id BIGINT");
+    await db.exec("ALTER TABLE cloud_computers ADD COLUMN IF NOT EXISTS last_billed_at TIMESTAMPTZ");
+    await db.exec("CREATE INDEX IF NOT EXISTS cloud_computers_runtime_idx ON cloud_computers (state, last_billed_at)");
+  })();
   if (db === prismaDb) {
-    tableReady = run.catch((error) => {
-      tableReady = null;
-      throw error;
-    });
+    tableReady = run.catch((error) => { tableReady = null; throw error; });
     return tableReady;
   }
   return run;
 }
-
 async function assertIdentity(ctx: CloudComputerContext): Promise<void> {
   if (!Number.isFinite(Number(ctx.chatId)) || !String(ctx.chatId).trim()) throw new Error("A verified account is required.");
   token();
@@ -159,29 +155,26 @@ async function readRow(ctx: CloudComputerContext, chatKey: string): Promise<Comp
   const db = dbOf(ctx);
   await ensureTable(db);
   const rows = await db.query<ComputerRow>(
-    "SELECT chat_key, model_id, sandbox_id, sandbox_name, snapshot, state, created_at, updated_at FROM cloud_computers WHERE chat_key = $1 LIMIT 1",
+    "SELECT chat_key, chat_id, model_id, sandbox_id, sandbox_name, snapshot, state, last_billed_at, created_at, updated_at FROM cloud_computers WHERE chat_key = $1 LIMIT 1",
     chatKey,
   );
   return rows[0] || null;
 }
 
-async function saveRow(ctx: CloudComputerContext, row: Omit<ComputerRow, "created_at" | "updated_at">): Promise<void> {
+async function saveRow(ctx: CloudComputerContext, row: Omit<ComputerRow, "created_at" | "updated_at" | "last_billed_at">): Promise<void> {
   const db = dbOf(ctx);
   await ensureTable(db);
   await db.exec(
-    `INSERT INTO cloud_computers (chat_key, model_id, sandbox_id, sandbox_name, snapshot, state, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, now())
-     ON CONFLICT (chat_key) DO UPDATE SET
-       model_id = EXCLUDED.model_id,
-       sandbox_id = EXCLUDED.sandbox_id,
-       sandbox_name = EXCLUDED.sandbox_name,
-       snapshot = EXCLUDED.snapshot,
-       state = EXCLUDED.state,
-       updated_at = now()`,
-    row.chat_key, row.model_id, row.sandbox_id, row.sandbox_name, row.snapshot, row.state,
+    "INSERT INTO cloud_computers (chat_key, chat_id, model_id, sandbox_id, sandbox_name, snapshot, state, last_billed_at, updated_at) " +
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7 = 'started' THEN now() ELSE NULL END, now()) " +
+    "ON CONFLICT (chat_key) DO UPDATE SET chat_id = EXCLUDED.chat_id, model_id = EXCLUDED.model_id, " +
+    "sandbox_id = EXCLUDED.sandbox_id, sandbox_name = EXCLUDED.sandbox_name, snapshot = EXCLUDED.snapshot, " +
+    "last_billed_at = CASE WHEN EXCLUDED.state <> 'started' THEN NULL " +
+    "WHEN cloud_computers.state = 'stopped' OR cloud_computers.last_billed_at IS NULL THEN now() " +
+    "ELSE cloud_computers.last_billed_at END, state = EXCLUDED.state, updated_at = now()",
+    row.chat_key, Number(ctx.chatId), row.model_id, row.sandbox_id, row.sandbox_name, row.snapshot, row.state,
   );
 }
-
 async function waitUntilStarted(ctx: CloudComputerContext, id: string): Promise<SandboxInfo> {
   let latest: SandboxInfo | null = null;
   for (let i = 0; i < 40; i++) {
@@ -256,6 +249,7 @@ async function openSandbox(ctx: CloudComputerContext): Promise<{ identity: Retur
   sandbox = await startSandbox(ctx, sandbox);
   await saveRow(ctx, {
     chat_key: identity.chatKey,
+    chat_id: Number(ctx.chatId),
     model_id: identity.modelId,
     sandbox_id: sandbox.id,
     sandbox_name: identity.sandboxName,
@@ -294,17 +288,65 @@ async function readSignedPreview(ctx: CloudComputerContext, sandbox: SandboxInfo
   return url;
 }
 
-async function chargeCompute(ctx: CloudComputerContext, elapsedMs: number): Promise<void> {
-  if (ctx.tier === "owner") return;
-  const db = dbOf(ctx);
-  const seconds = Math.max(0, Math.ceil(elapsedMs / 1000));
-  if (seconds) await addUsage(ctx.chatId, "sandbox_minutes", seconds, db);
+async function chargeCompute(_ctx: CloudComputerContext, _elapsedMs: number): Promise<void> {
+  // Persistent VM wall time is metered by cloudComputerRuntimeTick (one-minute Oracle heartbeat).
+  // Per-request HTTP latency is not separately billed, avoiding double counting.
 }
 
 async function requireComputeAllowance(ctx: CloudComputerContext): Promise<void> {
   if (ctx.tier === "owner") return;
   const result = await checkLimit(ctx.chatId, "sandbox_minutes", 0, dbOf(ctx));
   if (!result.ok) throw new Error("انتهى رصيد وقت الحاسوب في خطتك الحالية. أوقف الحاسوب لحفظ ملفاته أو رقِّ خطتك.");
+}
+
+/** Bill actual VM uptime from the one-minute Oracle sweeper, not just API request latency. */
+export async function cloudComputerRuntimeTick(db: Db = prismaDb, now = new Date(), batchSize = 20): Promise<{ billedSeconds: number; stopped: number; errors: string[] }> {
+  await ensureTable(db);
+  const sql = "WITH due AS (" +
+    " SELECT chat_key, chat_id, model_id, sandbox_id, sandbox_name, snapshot," +
+    " GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (date_trunc('minute', $1::timestamptz) - last_billed_at)))::int) AS elapsed_seconds" +
+    " FROM cloud_computers WHERE state = 'started' AND last_billed_at IS NOT NULL" +
+    " AND last_billed_at < date_trunc('minute', $1::timestamptz) - interval '1 minute'" +
+    " ORDER BY last_billed_at FOR UPDATE SKIP LOCKED LIMIT $2" +
+    "), updated AS (" +
+    " UPDATE cloud_computers AS current SET last_billed_at = date_trunc('minute', $1::timestamptz), updated_at = now()" +
+    " FROM due WHERE current.chat_key = due.chat_key" +
+    " RETURNING due.chat_key, due.chat_id, due.model_id, due.sandbox_id, due.sandbox_name, due.snapshot, due.elapsed_seconds" +
+    ") SELECT * FROM updated";
+  const rows = await db.query<{ chat_key: string; chat_id: number | string; model_id: string; sandbox_id: string; sandbox_name: string; snapshot: string; elapsed_seconds: number }>(
+    sql, now.toISOString(), Math.max(1, Math.min(100, batchSize)),
+  );
+  let billedSeconds = 0;
+  let stopped = 0;
+  const errors: string[] = [];
+  for (const row of rows) {
+    const chatId = Number(row.chat_id);
+    const ctx: CloudComputerContext = { chatId, modelId: row.model_id, tier: tierFor(chatId), db };
+    const seconds = Math.max(1, Number(row.elapsed_seconds) || 60);
+    if (ctx.tier !== "owner") {
+      const allowance = await checkLimit(chatId, "sandbox_minutes", Math.ceil(seconds / 60), db);
+      if (!allowance.ok) {
+        try {
+          const sandbox = await getSandbox(ctx, row.sandbox_id);
+          if (sandbox && !["stopped", "deleted", "archived"].includes(String(sandbox.state || "").toLowerCase())) {
+            await providerRequest(ctx, apiBase() + "/sandbox/" + encodeURIComponent(row.sandbox_id) + "/stop", { method: "POST", body: "{}" });
+            await waitUntilStopped(ctx, row.sandbox_id);
+          }
+          await saveRow(ctx, {
+            chat_key: row.chat_key, chat_id: chatId, model_id: row.model_id, sandbox_id: row.sandbox_id,
+            sandbox_name: row.sandbox_name, snapshot: row.snapshot, state: "stopped",
+          });
+          stopped++;
+        } catch (error) {
+          errors.push(row.model_id + ": " + String((error as Error)?.message || error).slice(0, 160));
+        }
+        continue;
+      }
+      await addUsage(chatId, "sandbox_minutes", seconds, db);
+    }
+    billedSeconds += seconds;
+  }
+  return { billedSeconds, stopped, errors };
 }
 
 export async function cloudComputerStatus(ctx: CloudComputerContext): Promise<Json> {
@@ -363,7 +405,7 @@ export async function cloudComputerStop(ctx: CloudComputerContext): Promise<Json
   if (!sandbox) return { ok: true, state: "not_found" };
   await providerRequest(ctx, `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/stop`, { method: "POST", body: "{}" });
   await waitUntilStopped(ctx, sandbox.id);
-  await saveRow(ctx, { ...row, state: "stopped" });
+  await saveRow(ctx, { ...row, chat_id: Number(ctx.chatId), state: "stopped" });
   return { ok: true, state: "stopped", persistent: true };
 }
 
