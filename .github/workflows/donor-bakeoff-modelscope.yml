@@ -205,7 +205,7 @@ jobs:
           mkdir -p experiment-studio/vendor
           cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiment-studio/vendor/llama_cpp_server.py
           cp experiments/donor-bakeoff/vendor/LICENSE.md experiment-studio/vendor/LICENSE.md
-          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "Only two public read-only tools execute: public GitHub repository-root listing and HTTP reachability of ttbik.vercel.app; no connector credentials or write actions are available. The Vercel check is not deployment-control-plane status." > experiment-studio/README.md
+          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "This candidate has a unique private image-weight ModelScope repository and Studio configured in candidate.json. The candidate runtime verifies that exact repo and checkpoint SHA-256 before image generation; there is no cross-candidate fallback." "Generated images and final text are delivered to the owner through a short-lived signed callback. No Telegram token or connector credential is stored in this Studio." "Only read-only GitHub/Vercel status tools are available; repository writes and production changes are not exposed." > experiment-studio/README.md
           cd experiment-studio
           git add app.py tool_parsing.py requirements.txt candidate.json README.md vendor/llama_cpp_server.py vendor/LICENSE.md
           git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
