@@ -6,3 +6,6 @@ The app uses its own Diffusers pipeline and exposes only `/status` and `/image`.
 
 
 Latest validation update (2026-10-31): Gradio status payload parsing now handles nested JSON and exposes the real loader phase, traceback, checkpoint hash and memory telemetry. This rerun is a diagnosis of the existing Umranz assignment for MiniCPM-o 4.5; it does not change or substitute the model.
+
+
+Diagnostic rerun note: the previous CI attempt stopped at a malformed workflow heredoc before loading weights. The heredoc is now repaired; next run will capture loader phase, traceback, exact checkpoint repository/hash and memory telemetry.
