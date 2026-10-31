@@ -53,12 +53,13 @@ For each eligible user/model:
 - Read and write files in the guest.
 - Mouse click, typing, key presses, hotkeys and scrolling.
 - Window enumeration and desktop status.
-- Screenshots, passed to the selected model's own vision path.
+- Screenshots and accessibility metadata. If the selected runtime accepts images, the screenshot goes to that model's own projector; otherwise bilingual Arabic/English OCR runs inside the same model VM and the model receives OCR text, active-window metadata and its accessibility tree. This prevents a missing projector from blocking desktop operation, without routing the screen to another model.
+- A persistent PTY shell integrated in the same computer, with interactive stdin, live output cursors and reconnection. PTY runtime is recreated after a full VM stop/start; the filesystem persists.
 - Browser/desktop use through the signed VNC preview inside the Mini App (with an external-browser fallback).
 
-Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
+Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Donor candidates get their native screenshot image only when their own MTMD runtime reports vision capability; otherwise OCR and accessibility metadata are computed in that same candidate VM. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
 
-The existing task-scoped sandbox remains available for short, disposable subprocess tasks; it is not the user's persistent computer. The Terminal tab continues to show job logs and does not get deleted.
+The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the PTY and task activity now live within the Computer tab.
 
 ## Plan access
 
@@ -92,3 +93,10 @@ The automated test suite checks:
 9. screenshot response and the owner self-test report.
 
 The owner self-test calls the actual Daytona provider and exercises the live desktop. CI uses a fake provider and cannot prove that the connected Daytona account can provision a real VM. Before public rollout, run the owner self-test on a Preview deployment with `DAYTONA_API_KEY` configured, verify the VNC session in Telegram and an external browser, and inspect a second test account to confirm its sandbox ID and files are different. Do not enable public rollout until this live test is green.
+
+
+## Background tasks and Telegram delivery
+
+The bot must acknowledge Telegram updates quickly; the model/agent run is not held open by the webhook. The current implementation uses a persisted run/task state, task event log, a 30-second execution leg, a signed continuation endpoint, and the Oracle one-minute sweeper to resume orphaned runs. The user can send a new message while a task runs; it enters the run inbox and is consumed on the next step. Progress and final reports are sent as Telegram messages, while Mini App tasks keep their output in the activity stream.
+
+This is an incremental continuation design, not yet a standalone always-on queue consumer. To remove Vercel invocation lifetime as a long-term dependency, the next architecture milestone is a durable Postgres-backed work queue and an always-on worker process (existing Oracle worker or a separately provisioned worker service). That worker should claim jobs with leases, checkpoint each model/tool step, persist media/file references, retry transient errors, and deliver notifications independently of a Telegram webhook or Vercel request. Do not claim this milestone is deployed until the worker service and queue are actually wired and live-tested.
