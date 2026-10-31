@@ -3,7 +3,7 @@
  * Every identity has one private ModelScope Studio and one private model repo.
  * This module never tries another Studio and refuses mismatched model/hash output.
  */
-export type PhotoModelId = "qwen35-9b" | "gemma4-e4b" | "minicpmo45";
+export type PhotoModelId = "coder" | "qwen35-9b" | "gemma4-e4b" | "minicpmo45" | "sham_v2";
 export type PhotoWeightProfile = {
   modelId: PhotoModelId; displayName: string; sourceModel: string; modelRepo: string;
   endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string; validationStatus: "previously_passed" | "needs_retest"; expectedCheckpointSha256?: string;
@@ -19,31 +19,44 @@ const COMMON_NEGATIVE =
   "cartoon, anime, illustration, drawing, painting, cgi, 3d render, doll, plastic skin, waxy skin, airbrushed, deformed eyes, asymmetrical eyes, bad anatomy, bad proportions, malformed hands, extra fingers, fused fingers, missing fingers, extra limbs, blurry, low quality, jpeg artifacts, watermark, logo, text";
 
 export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
-  // Previously generated successfully: keep this exact, verified checkpoint on Qwen.
+  // Existing Nova route is preserved during the donor bake-off; no candidate points to this repo.
+  coder: { modelId: "coder", displayName: "Nova AI", sourceModel: "emilianJR/epiCRealism",
+    modelRepo: "novaai2026/epicrealism-image-test-models", endpointEnv: "NOVA_IMAGE_STUDIO_URL",
+    defaultEndpoint: "https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net",
+    resolution: "512 × 768", steps: 30, cfg: 7, negative: COMMON_NEGATIVE,
+    validationStatus: "needs_retest" },
+  // Previously successful weight; a separate Gemma-owned copy lives in its own repo/Studio.
   "qwen35-9b": { modelId: "qwen35-9b", displayName: "Qwen3.5-9B", sourceModel: "cyberdelia/CyberRealistic",
     modelRepo: "novaai2026/cyberrealistic-final-test-models", endpointEnv: "QWEN35_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
     resolution: "512 × 768 (author recommended)", steps: 30, cfg: 5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
-  // Previously generated successfully: moved from the Sham v2 reservation to Gemma for the donor bake-off.
+  // Gemma has its own duplicate checkpoint package and its own private image Studio; it does not share Sham v2's route.
   "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
     modelRepo: "novaai2026/gemma4-realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
     resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
-  // Third candidate: Umranz has not produced a verified sample yet; retest after its Studio is repaired.
+  // Third candidate; Umranz must become ready and generate a verified sample before it is counted as successful.
   minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
     modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "MINICPMO45_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
     resolution: "512 × 768", steps: 30, cfg: 6.5, negative: COMMON_NEGATIVE,
     validationStatus: "needs_retest" },
-};;
+  // Existing Sham v2 route is preserved on its original successful Studio; Gemma uses a private clone.
+  sham_v2: { modelId: "sham_v2", displayName: "Sham v2", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
+    modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
+    defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
+    expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
+    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
+    validationStatus: "previously_passed" },
+};;;
 
 const cleanBase = (value: string): string => value.trim().replace(/\/+$/, "");
 export function photoWeightProfile(model: string | undefined): PhotoWeightProfile | null {
-  const id = String(model || "") as PhotoModelId;
+  const id = (model || "coder") as PhotoModelId;
   return Object.prototype.hasOwnProperty.call(PHOTO_WEIGHT_PROFILES, id) ? PHOTO_WEIGHT_PROFILES[id] : null;
 }
 export function photoWeightEndpoint(profile: PhotoWeightProfile): string {
