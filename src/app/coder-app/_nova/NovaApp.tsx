@@ -29,7 +29,6 @@ type ChatList = { model: string; selected: string; items: ChatItem[]; current: s
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
-type DonorTestStatus = { id: string; phase: string; detail?: string; media_capabilities?: { vision: boolean; audio: boolean; video: boolean } };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
@@ -425,7 +424,6 @@ const modelName = (d: Models | null, lang: Lang) => {
   const m = l.find((x) => x.selected) || l[0];
   return m ? m.name[lang] : "Nova AI";
 };
-const CANDIDATE_MODEL_IDS = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 type Anchor = { top?: number; bottom?: number } | null;
 /** Under the anchor; if the anchor sits low on the screen, above it instead. */
 const anchorOf = (el: HTMLElement): Anchor => {
@@ -435,29 +433,10 @@ const anchorOf = (el: HTMLElement): Anchor => {
 function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; onPicked: () => void; onClose: () => void }) {
   const [pickError, setPickError] = useState("");
   const [switching, setSwitching] = useState(false);
-  const [candidateStatuses, setCandidateStatuses] = useState<Record<string, DonorTestStatus>>({});
   const switchingRef = useRef(false);
   useEffect(() => (at !== null ? bindBack(true, onClose) : undefined), [at, onClose]);
-  useEffect(() => {
-    if (at === null || !d?.owner?.some((model) => CANDIDATE_MODEL_IDS.has(model.id))) return;
-    let alive = true;
-    api<{ statuses: DonorTestStatus[] }>("donor_test_status").then((x) => {
-      if (alive) setCandidateStatuses(Object.fromEntries((x.statuses || []).map((s) => [s.id, s])));
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [at, d?.owner?.length]);
   if (at === null) return null;
   const list = d ? d.owner || d.models : [];
-  const phaseLabel = (phase: string) => ({
-    ready: lang === "ar" ? "✅ جاهز للاختبار داخل البوت" : "✅ Ready to test in Telegram",
-    loading: lang === "ar" ? "⏳ النموذج يُحمّل" : "⏳ Model loading",
-    deploying: lang === "ar" ? "⏳ الاستديو قيد التشغيل" : "⏳ Studio starting",
-    not_created: lang === "ar" ? "لم يُنشأ الاستديو بعد" : "Studio not created yet",
-    error: lang === "ar" ? "❌ فشل تحميل المرشح" : "❌ Candidate load failed",
-    unconfigured: lang === "ar" ? "رمز ModelScope غير مضبوط" : "ModelScope token not configured",
-    unavailable: lang === "ar" ? "تعذّر التحقق من الاستديو" : "Could not verify Studio",
-    unknown: lang === "ar" ? "جارٍ فحص الاستديو…" : "Checking Studio…",
-  } as Record<string, string>)[phase] || (lang === "ar" ? "جارٍ فحص الاستديو…" : "Checking Studio…");
   const pick = async (id: string) => {
     if (switchingRef.current) return;
     switchingRef.current = true;
@@ -485,21 +464,11 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
         {pickError && <p role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{pickError}</p>}
         {!d ? <Loading /> : list.map((m) => {
           const o = d.owner?.find((x) => x.id === m.id);
-          const isCandidate = CANDIDATE_MODEL_IDS.has(m.id);
-          const status = isCandidate ? candidateStatuses[m.id] : undefined;
-          const phase = status?.phase || "unknown";
           return (
             <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
               <span className="n-body">
                 <span className="n-t">{m.name[lang]}{m.price_stars ? <span className="n-pro">{n.pro}</span> : null}{o && !o.visible ? <span className="n-chip">{n.hidden}</span> : null}</span>
                 <span className="n-s">{m.desc[lang]}</span>
-                {isCandidate && <span className="n-s">{phaseLabel(phase)}{status?.detail ? " · " + status.detail : ""}</span>}
-                {status?.media_capabilities && <span className="n-s">
-                  {lang === "ar" ? "الوسائط المُعلنة من المشغّل: " : "Runner media input: "}
-                  {status.media_capabilities.vision ? "🖼️" : "—"}
-                  {" "}{status.media_capabilities.audio ? "🎧" : "—"}
-                  {" "}{status.media_capabilities.video ? "🎞️" : "—"}
-                </span>}
               </span>
               {m.selected && <span className="n-check" aria-hidden="true">✓</span>}
             </button>
