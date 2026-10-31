@@ -612,7 +612,18 @@ def _parse_tool_calls(message: dict) -> list[dict]:
     return parse_tool_calls(message)
 
 def _decode_gradio_data(raw: str):
+    """The payload of a Gradio SSE call result.
+
+    A long generation sends `event: heartbeat` / `generating` frames (data: null or partial values) BEFORE `event: complete`; the answer is the data of the
+    `complete` event. Taking the first `data:` line returned null for every slow (image) call, which looked like "completed without an image file".
+    """
+    event = ""
+    complete = None
+    last = None
     for line in raw.splitlines():
+        if line.startswith("event:"):
+            event = line[6:].strip()
+            continue
         if not line.startswith("data:"):
             continue
         try:
@@ -627,8 +638,12 @@ def _decode_gradio_data(raw: str):
                 except Exception:
                     break
             break
-        return value
-    return None
+        if value is None:
+            continue
+        if event == "complete":
+            complete = value
+        last = value
+    return complete if complete is not None else last
 
 
 def _walk_objects(value):
@@ -724,7 +739,8 @@ def _generate_candidate_image(arguments: dict) -> dict:
         result.raise_for_status()
         raw = result.text
         if "event: error" in raw or "event: complete" not in raw:
-            raise RuntimeError("The dedicated image Studio did not complete generation.")
+            why = re.sub(r"\s+", " ", raw[-420:]).strip()
+            raise RuntimeError("The dedicated image Studio did not complete generation. Its last answer: " + why)
         payload = _decode_gradio_data(raw)
         values = payload if isinstance(payload, list) else [payload]
         objects = list(_walk_objects(values))
@@ -769,6 +785,38 @@ def _generate_candidate_image(arguments: dict) -> dict:
         }
     except Exception as exc:
         return {"ok": False, "error": "The selected candidate's own image Studio failed: " + f"{type(exc).__name__}: {str(exc)[:650]}"}
+
+
+def _approx_tokens(text: str) -> int:
+    """A cautious token estimate (Arabic and JSON tokenise densely: about 2.4 characters per token)."""
+    return int(len(text) / 2.4) + 1
+
+
+def _fit_tool_result(tool_result, messages: list, options: dict, call_count: int) -> str:
+    """A tool result is cut to what the context window still has room for (the prompt, the tool schemas and the answer to come are counted first),
+    instead of a fixed 8000 characters that overflows a 2048-token window. The cut keeps the start and the end and says so."""
+    text = json.dumps(tool_result, ensure_ascii=False)
+    used = sum(_approx_tokens(str(m.get("content") or "")) + 8 for m in messages)
+    used += _approx_tokens(json.dumps(options.get("tools") or [], ensure_ascii=False))
+    free = N_CTX - used - int(options.get("max_tokens") or 0) - 160
+    budget_chars = max(500, int(free * 2.4 / max(1, call_count)))
+    budget_chars = min(budget_chars, 8000)
+    if len(text) <= budget_chars:
+        return text
+    head = int(budget_chars * 0.7)
+    tail = budget_chars - head - 40
+    return text[:head] + " …[cut to fit the context window]… " + text[-max(0, tail):]
+
+
+def _mentions_script(text: str, executed_tools: list) -> bool:
+    """The report names a real package.json script: the word "scripts", or a `"name": "command"` pair that the file-reading tool really returned."""
+    if re.search(r"\bscripts?\b|سكربت|أوامر التشغيل", text, flags=re.I):
+        return True
+    returned = " ".join(json.dumps(t.get("result"), ensure_ascii=False) for t in executed_tools if t.get("name") == "github_read_files")
+    for name, command in re.findall(r'"([A-Za-z0-9:_-]{2,30})"\s*:\s*"([^"]{3,120})"', text):
+        if command in returned and name in returned:
+            return True
+    return False
 
 
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
@@ -1024,7 +1072,7 @@ def infer(
                     "role": "tool",
                     "tool_call_id": call_id,
                     "name": name,
-                    "content": json.dumps(tool_result, ensure_ascii=False)[:8000],
+                    "content": _fit_tool_result(tool_result, messages, options, len(calls)),
                 })
             assistant_content = str(choice.get("content") or "")
             assistant_content = strip_tool_call_markup(assistant_content)
@@ -1330,7 +1378,7 @@ def _run_one(test: dict) -> dict:
                 and bool(text.strip())
                 and "package.json" in text
                 and "donorTestChat" in text
-                and "scripts" in text
+                and _mentions_script(text, executed)
             )
         elif test["id"] == "image_generation":
             passed = tool_ok and generation_ok and bool(text.strip())
