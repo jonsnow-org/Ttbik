@@ -183,12 +183,14 @@ beforeEach(() => {
   process.env.DAYTONA_API_KEY = "daytona-test-secret";
   process.env.DAYTONA_API_URL = "https://daytona.test";
   process.env.DAYTONA_TOOLBOX_URL = "https://toolbox.test";
+  process.env.DAYTONA_TOOLBOX_V2_URL = "https://toolbox.test";
   process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT = "daytona-vm-large";
   process.env.CLOUD_COMPUTER_PLUS_SNAPSHOT = "daytona-vm-medium";
   process.env.CLOUD_COMPUTER_PRO_SNAPSHOT = "daytona-vm-large";
 });
 
 afterEach(() => {
+  delete process.env.DAYTONA_TOOLBOX_V2_URL;
   delete process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT;
   delete process.env.CLOUD_COMPUTER_PLUS_SNAPSHOT;
   delete process.env.CLOUD_COMPUTER_PRO_SNAPSHOT;
