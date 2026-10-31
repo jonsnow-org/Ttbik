@@ -103,13 +103,16 @@ async function ensureTable(db: Db): Promise<void> {
   return run;
 }
 
-async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
+async function assertIdentity(ctx: CloudComputerContext): Promise<void> {
   if (!Number.isFinite(Number(ctx.chatId)) || !String(ctx.chatId).trim()) throw new Error("A verified account is required.");
-  const db = dbOf(ctx);
-  if (ctx.tier !== "owner" && !(await terminalAllowed(ctx.chatId, db))) {
+  token();
+}
+
+async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
+  await assertIdentity(ctx);
+  if (ctx.tier !== "owner" && !(await terminalAllowed(ctx.chatId, dbOf(ctx)))) {
     throw new Error("الحاسوب السحابي متاح في الخطط المدفوعة فقط. يمكنك الترقية من قسم الاشتراك.");
   }
-  token();
 }
 
 export async function cloudComputerSnapshot(ctx: CloudComputerContext): Promise<string> {
@@ -193,7 +196,7 @@ async function waitUntilStarted(ctx: CloudComputerContext, id: string): Promise<
   throw new Error(`Cloud computer did not reach the running state in time (last state: ${latest?.state || "unknown"}).`);
 }
 
-async function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
+async function waitUntilStopped(ctx: CloudComputerContext, id: string): Promise<void> {\n  for (let i = 0; i < 40; i++) {\n    const current = await getSandbox(ctx, id);\n    const state = String(current?.state || "").toLowerCase();\n    if (state === "stopped") return;\n    if (/error|failed|deleted|archived/.test(state)) throw new Error(`Cloud computer stop failed (${state}).`);\n    await new Promise((resolve) => setTimeout(resolve, 1000));\n  }\n  throw new Error("Cloud computer did not reach the stopped state in time.");\n}\n\nasync function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
   const state = String(sandbox.state || "").toLowerCase();
   if (state === "started" || state === "running") return sandbox;
   await providerRequest(ctx, `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/start`, { method: "POST", body: "{}" });
@@ -208,7 +211,7 @@ async function createSandbox(ctx: CloudComputerContext, name: string, snapshot: 
     snapshot,
     autoStopInterval: 0,
     autoPauseInterval: 0,
-    autoDeleteInterval: 0,
+    autoDeleteInterval: -1,
     ephemeral: false,
     labels: {
       application: "ttbik",
@@ -294,7 +297,7 @@ async function requireComputeAllowance(ctx: CloudComputerContext): Promise<void>
 }
 
 export async function cloudComputerStatus(ctx: CloudComputerContext): Promise<Json> {
-  await assertEntitlement(ctx);
+  await assertIdentity(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
   if (!row) return { exists: false, state: "not_created", modelId: identity.modelId };
@@ -340,7 +343,7 @@ export async function cloudComputerOpen(ctx: CloudComputerContext): Promise<Json
 }
 
 export async function cloudComputerStop(ctx: CloudComputerContext): Promise<Json> {
-  await assertEntitlement(ctx);
+  // Stopping remains available after a subscription expires so the owner can safely release compute.\n  await assertIdentity(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
   if (!row) return { ok: true, state: "not_created" };
