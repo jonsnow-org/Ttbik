@@ -229,14 +229,14 @@ jobs:
                   checkpoint_sha=$(sed -n '5p' status-values.txt)
                   source_revision=$(sed -n '6p' status-values.txt)
                   echo "Umranz phase=$phase revision=$revision model_repo=$model_repo $(sed -n '7p' status-values.txt)"
-                  if [ "$phase" = "ready" ] && [ "$revision" = "umranz-image-test-2026-10-31-r2" ] && [ "$model_repo" = "novaai2026/umranz-sd15-test-models" ] && [[ "$checkpoint_sha" =~ ^[a-f0-9]{64}$ ]] && [ -n "$source_revision" ]; then
+                  if [ "$phase" = "ready" ] && [ "$revision" = "umranz-image-test-2026-10-31-r3" ] && [ "$model_repo" = "novaai2026/umranz-sd15-test-models" ] && [[ "$checkpoint_sha" =~ ^[a-f0-9]{64}$ ]] && [ -n "$source_revision" ]; then
                     echo "$checkpoint_sha" > model-checkpoint.sha256
                     echo "$source_revision" > model-source-revision.txt
                     ready=1
                     break
                   fi
-                  if [ -n "$revision" ] && [ "$revision" != "umranz-image-test-2026-10-31-r2" ]; then
-                    echo "::warning::Studio still serves stale app revision $revision; expected umranz-image-test-2026-10-31-r2."
+                  if [ -n "$revision" ] && [ "$revision" != "umranz-image-test-2026-10-31-r3" ]; then
+                    echo "::warning::Studio still serves stale app revision $revision; expected umranz-image-test-2026-10-31-r3."
                     stale_count=$((stale_count+1))
                     if [ "$stale_count" -ge 6 ]; then echo "::error::New app revision did not activate after six checks."; break; fi
                   else
