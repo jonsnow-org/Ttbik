@@ -9,3 +9,5 @@ Latest validation update (2026-10-31): Gradio status payload parsing now handles
 
 
 Diagnostic rerun note: the previous CI attempt stopped at a malformed workflow heredoc before loading weights. The heredoc is now repaired; next run will capture loader phase, traceback, exact checkpoint repository/hash and memory telemetry.
+
+Workflow parser fix 2: the Python heredoc terminator is now aligned exactly with its Bash opener, after a prior indentation regression. Next deployment run verifies the workflow itself before weight loading.
