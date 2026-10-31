@@ -379,6 +379,7 @@ export async function cloudComputerOpen(ctx: CloudComputerContext): Promise<Json
   const previewUrl = await readSignedPreview(ctx, sandbox);
   await saveRow(ctx, {
     chat_key: identity.chatKey,
+    chat_id: Number(ctx.chatId),
     model_id: identity.modelId,
     sandbox_id: sandbox.id,
     sandbox_name: identity.sandboxName,
