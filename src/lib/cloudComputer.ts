@@ -770,6 +770,40 @@ export async function cloudComputerScreenshot(ctx: CloudComputerContext, options
   return { path: "cloud-computer-screenshot." + (options.format === "jpeg" ? "jpg" : "png"), bytes: Buffer.from(encoded, "base64") };
 }
 
+/** Read the visible screen text for models whose own multimodal projector cannot accept screenshots. The OCR process is installed only in this model's own isolated computer. */
+export async function cloudComputerOcrScreenshot(
+  ctx: CloudComputerContext,
+  imageBytes: Buffer,
+  mimeType = "image/jpeg",
+): Promise<string> {
+  if (!imageBytes.length || imageBytes.length > 8 * 1024 * 1024) throw new Error("Screenshot is empty or too large for the OCR bridge.");
+  const { sandbox } = await openSandbox(ctx);
+  const path = "/tmp/ttbik-screen-ocr-" + createHash("sha256").update(String(ctx.chatId) + ":" + ctx.modelId + ":" + Date.now()).digest("hex").slice(0, 12) + (mimeType === "image/png" ? ".png" : ".jpg");
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(imageBytes)], { type: mimeType }), path.split("/").pop() || "screen.jpg");
+  await toolboxRequest(ctx, sandbox, "/files/upload-v2?path=" + encodeURIComponent(path), { method: "POST", body: form });
+  const quoted = "'" + path.replace(/'/g, "'\\''") + "'";
+  const script = [
+    "set +e",
+    "if ! command -v tesseract >/dev/null 2>&1; then",
+    "  if command -v dnf >/dev/null 2>&1; then sudo dnf install -y tesseract tesseract-langpack-eng tesseract-langpack-ara >/tmp/ttbik-ocr-install.log 2>&1",
+    "  elif command -v apt-get >/dev/null 2>&1; then sudo apt-get update -qq >/tmp/ttbik-ocr-install.log 2>&1 && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara >>/tmp/ttbik-ocr-install.log 2>&1",
+    "  fi",
+    "fi",
+    "if command -v tesseract >/dev/null 2>&1; then",
+    "  LANGS=$(tesseract --list-langs 2>/dev/null | grep -q '^ara$' && echo eng+ara || echo eng)",
+    "  tesseract " + quoted + " stdout -l \"$LANGS\" 2>/dev/null",
+    "else echo '__TTBIK_OCR_UNAVAILABLE__'; fi",
+    "rm -f " + quoted,
+  ].join("; ");
+  const result = await cloudComputerExecute(ctx, "bash -lc " + JSON.stringify(script), "/home/daytona", 120000);
+  const text = String(result.stdout || "").trim();
+  if (!text || text.includes("__TTBIK_OCR_UNAVAILABLE__")) {
+    return "OCR fallback is not installed in this model's private computer. The accessibility tree and window list are still available for computer interaction.";
+  }
+  return text.slice(0, 14000);
+}
+
 export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<Json> {
   const results: Array<{ test: string; ok: boolean; detail: string }> = [];
   const check = async (test: string, task: () => Promise<string | boolean | Json>) => {
