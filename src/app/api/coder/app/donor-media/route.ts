@@ -34,17 +34,9 @@ function chunks(value: string, max = 3500): string[] {
   return out;
 }
 
-async function candidateBot() {
-  const configured = (process.env.CODER_BOT_ID || "").trim();
-  let row = configured
-    ? await prisma.bot.findUnique({ where: { id: configured } }).catch(() => null)
-    : null;
-  if (!row || !row.isActive) {
-    row = await prisma.bot.findFirst({
-      where: { template: "NOVA_BOT", isActive: true },
-      orderBy: { created_at: "asc" } as any,
-    }).catch(() => null);
-  }
+async function candidateBot(botId: string) {
+  if (!/^[a-zA-Z0-9_-]{8,120}$/.test(botId)) return null;
+  const row = await prisma.bot.findUnique({ where: { id: botId } }).catch(() => null);
   return row && row.isActive ? row : null;
 }
 
@@ -56,12 +48,12 @@ async function candidateBot() {
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null) as Record<string, any> | null;
-  if (!body || typeof body.ticket !== "string" || typeof body.model !== "string" || typeof body.run_id !== "string") {
+  if (!body || typeof body.ticket !== "string" || typeof body.model !== "string" || typeof body.run_id !== "string" || typeof body.bot_id !== "string") {
     return NextResponse.json({ ok: false, error: "invalid candidate delivery callback" }, { status: 400 });
   }
 
   const ticket = verifyDonorToolTicket(body.ticket);
-  if (!ticket || ticket.model !== body.model || ticket.runId !== body.run_id || tierFor(ticket.chatId) !== "owner") {
+  if (!ticket || ticket.model !== body.model || ticket.runId !== body.run_id || ticket.botId !== body.bot_id || tierFor(ticket.chatId) !== "owner") {
     return NextResponse.json({ ok: false, error: "invalid, expired, or cross-model ticket" }, { status: 403 });
   }
   if (!(await taskIsActive(ticket.runId))) {
@@ -99,7 +91,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "callback contains no user-visible result" }, { status: 400 });
   }
 
-  const row = await candidateBot();
+  const row = await candidateBot(ticket.botId!);
   if (!row) return NextResponse.json({ ok: false, error: "candidate Telegram bot is not active" }, { status: 503 });
   const bot = new Bot(row.token);
   const chatId = ticket.chatId;
