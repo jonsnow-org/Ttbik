@@ -445,25 +445,126 @@ export async function cloudComputerReadFile(ctx: CloudComputerContext, path: str
   return { path: filePath, bytes };
 }
 
+export type CloudScreenshotOptions = {
+  region?: { x: number; y: number; width: number; height: number };
+  compressed?: boolean;
+  format?: "png" | "jpeg";
+  quality?: number;
+  scale?: number;
+};
+
+function safeRecordingId(value: unknown): string {
+  const id = String(value || "").trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error("Invalid recording id.");
+  return id;
+}
+
+function safeProcessName(value: unknown): string {
+  const name = String(value || "").trim();
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(name)) throw new Error("Invalid desktop process name.");
+  return name;
+}
+
+async function screenshotEndpoint(ctx: CloudComputerContext, sandbox: SandboxInfo, path: string): Promise<Json> {
+  const started = Date.now();
+  try {
+    const result = await toolboxRequest<Json>(ctx, sandbox, path);
+    const b64 = String(result?.screenshot || result?.image || result?.data || "");
+    if (!b64) throw new Error("The desktop did not return a screenshot.");
+    return { screenshot: b64, mimeType: String(result?.mimeType || result?.mime_type || "image/png"), width: result?.width || null, height: result?.height || null };
+  } finally {
+    await chargeCompute(ctx, Date.now() - started);
+  }
+}
+
 export async function cloudComputerAction(ctx: CloudComputerContext, action: string, args: Json = {}): Promise<Json> {
   await requireComputeAllowance(ctx);
   const { sandbox } = await openSandbox(ctx);
   await startDesktop(ctx, sandbox);
+  const processName = () => safeProcessName(args.process || args.process_name);
+  const id = () => safeRecordingId(args.id || args.recording_id);
   const calls: Record<string, { path: string; method?: string; body?: Json }> = {
     click: { path: "/computeruse/mouse/click", method: "POST", body: { x: Number(args.x), y: Number(args.y), button: args.button || "left", double: Boolean(args.double) } },
+    move: { path: "/computeruse/mouse/move", method: "POST", body: { x: Number(args.x), y: Number(args.y) } },
+    drag: { path: "/computeruse/mouse/drag", method: "POST", body: { button: args.button || "left", startX: Number(args.start_x), startY: Number(args.start_y), endX: Number(args.end_x), endY: Number(args.end_y) } },
+    mouse_position: { path: "/computeruse/mouse/position" },
     type: { path: "/computeruse/keyboard/type", method: "POST", body: { text: String(args.text || ""), delay: Number(args.delay) || 0 } },
-    press: { path: "/computeruse/keyboard/press", method: "POST", body: { key: String(args.key || ""), modifiers: Array.isArray(args.modifiers) ? args.modifiers.map(String) : [] } },
+    press: { path: "/computeruse/keyboard/key", method: "POST", body: { key: String(args.key || ""), modifiers: Array.isArray(args.modifiers) ? args.modifiers.map(String) : [] } },
     hotkey: { path: "/computeruse/keyboard/hotkey", method: "POST", body: { keys: String(args.keys || "") } },
     scroll: { path: "/computeruse/mouse/scroll", method: "POST", body: { x: Number(args.x), y: Number(args.y), direction: args.direction === "up" ? "up" : "down", amount: Math.max(1, Math.min(100, Number(args.amount) || 1)) } },
     windows: { path: "/computeruse/display/windows" },
-    screenshot: { path: "/computeruse/screenshot" },
+    display_info: { path: "/computeruse/display/info" },
     desktop_status: { path: "/computeruse/status" },
+    accessibility_tree: { path: `/computeruse/a11y/tree?${new URLSearchParams({ scope: String(args.scope || "focused"), maxDepth: String(Math.max(1, Math.min(12, Number(args.max_depth) || 5))), ...(Number(args.pid) > 0 ? { pid: String(Math.floor(Number(args.pid))) } : {}) })}` },
+    accessibility_find: { path: "/computeruse/a11y/find", method: "POST", body: {
+      scope: String(args.scope || "focused"),
+      ...(Number(args.pid) > 0 ? { pid: Math.floor(Number(args.pid)) } : {}),
+      ...(args.role ? { role: String(args.role).slice(0, 80) } : {}),
+      ...(args.name ? { name: String(args.name).slice(0, 180) } : {}),
+      ...(args.name_match ? { nameMatch: String(args.name_match) } : {}),
+      ...(Array.isArray(args.states) ? { states: args.states.map(String).slice(0, 12) } : {}),
+      limit: Math.max(1, Math.min(100, Number(args.limit) || 20)),
+    } },
+    accessibility_focus: { path: "/computeruse/a11y/node/focus", method: "POST", body: { id: safeRecordingId(args.node_id) } },
+    accessibility_invoke: { path: "/computeruse/a11y/node/invoke", method: "POST", body: { id: safeRecordingId(args.node_id), ...(args.node_action ? { action: String(args.node_action).slice(0, 80) } : {}) } },
+    accessibility_set_value: { path: "/computeruse/a11y/node/value", method: "POST", body: { id: safeRecordingId(args.node_id), value: String(args.value || "").slice(0, 12000) } },
+    recording_start: { path: "/computeruse/recordings/start", method: "POST", body: { name: String(args.name || `ttbik-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80) } },
+    recording_stop: { path: "/computeruse/recordings/stop", method: "POST", body: { id: id() } },
+    recording_list: { path: "/computeruse/recordings" },
+    recording_get: { path: `/computeruse/recordings/${encodeURIComponent(id())}` },
+    recording_delete: { path: `/computeruse/recordings/${encodeURIComponent(id())}`, method: "DELETE" },
+    process_status: { path: `/computeruse/process/${encodeURIComponent(processName())}/status` },
+    process_restart: { path: `/computeruse/process/${encodeURIComponent(processName())}/restart`, method: "POST", body: {} },
+    process_logs: { path: `/computeruse/process/${encodeURIComponent(processName())}/logs` },
+    process_errors: { path: `/computeruse/process/${encodeURIComponent(processName())}/errors` },
   };
+  if (action === "screenshot") return screenshotEndpoint(ctx, sandbox, "/computeruse/screenshot");
+  if (action === "screenshot_compressed") {
+    const query = new URLSearchParams();
+    query.set("format", args.format === "jpeg" ? "jpeg" : "png");
+    query.set("quality", String(Math.max(1, Math.min(100, Number(args.quality) || 85))));
+    query.set("scale", String(Math.max(0.1, Math.min(1, Number(args.scale) || 1)));
+    return screenshotEndpoint(ctx, sandbox, `/computeruse/screenshot/compressed?${query.toString()}`);
+  }
+  if (action === "screenshot_region" || action === "screenshot_region_compressed") {
+    const x = Math.max(0, Math.floor(Number(args.x) || 0));
+    const y = Math.max(0, Math.floor(Number(args.y) || 0));
+    const width = Math.max(1, Math.min(4096, Math.floor(Number(args.width) || 1)));
+    const height = Math.max(1, Math.min(4096, Math.floor(Number(args.height) || 1)));
+    const query = new URLSearchParams({ x: String(x), y: String(y), width: String(width), height: String(height) });
+    if (action === "screenshot_region_compressed") {
+      query.set("format", args.format === "jpeg" ? "jpeg" : "png");
+      query.set("quality", String(Math.max(1, Math.min(100, Number(args.quality) || 85))));
+    }
+    return screenshotEndpoint(ctx, sandbox, `/computeruse/screenshot/region${action.endsWith("compressed") ? "/compressed" : ""}?${query.toString()}`);
+  }
+  if (action === "recording_download") {
+    const recordingId = id();
+    const filePath = String(args.path || `/home/daytona/recordings/${recordingId}.mp4`);
+    if (!filePath.startsWith("/") || filePath.includes("\0") || filePath.split("/").includes("..")) throw new Error("Use an absolute destination path inside the computer.");
+    const proxy = (sandbox.toolboxProxyUrl || toolboxBase()).replace(/\/+$/, "");
+    const started = Date.now();
+    try {
+      const response = await fetchOf(ctx)(`${proxy}/${encodeURIComponent(sandbox.id)}/computeruse/recordings/${encodeURIComponent(recordingId)}/download`, {
+        headers: { Authorization: `Bearer ${token()}` }, cache: "no-store", signal: AbortSignal.timeout(120000),
+      });
+      if (!response.ok) throw new Error(`Recording download failed (HTTP ${response.status}).`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length || bytes.length > 250 * 1024 * 1024) throw new Error("Recording is empty or exceeds the 250 MB transfer cap.");
+      const form = new FormData();
+      form.append("file", new Blob([new Uint8Array(bytes)]), filePath.split("/").pop() || "recording.mp4");
+      await toolboxRequest(ctx, sandbox, `/files/upload-v2?path=${encodeURIComponent(filePath)}`, { method: "POST", body: form });
+      return { ok: true, path: filePath, bytes: bytes.length };
+    } finally {
+      await chargeCompute(ctx, Date.now() - started);
+    }
+  }
   const call = calls[action];
   if (!call) throw new Error("Unsupported computer action.");
   if (action === "type" && String(args.text || "").length > 6000) throw new Error("Text input is too long.");
   if (action === "hotkey" && String(args.keys || "").length > 80) throw new Error("Invalid hotkey.");
-  if (action === "screenshot") return cloudComputerScreenshotFromSandbox(ctx, sandbox);
+  if (action === "accessibility_set_value" && String(args.value || "").length > 12000) throw new Error("Accessibility value is too long.");
+  if (action === "recording_start" && String(args.name || "").length > 80) throw new Error("Recording name is too long.");
   const started = Date.now();
   try {
     return await toolboxRequest<Json>(ctx, sandbox, call.path, {
@@ -475,25 +576,27 @@ export async function cloudComputerAction(ctx: CloudComputerContext, action: str
   }
 }
 
-async function cloudComputerScreenshotFromSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<Json> {
+async function cloudComputerScreenshotFromSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo, options: CloudScreenshotOptions = {}): Promise<Json> {
+  if (options.region) return cloudComputerAction(ctx, options.compressed ? "screenshot_region_compressed" : "screenshot_region", options.region as unknown as Json);
+  if (options.compressed) return cloudComputerAction(ctx, "screenshot_compressed", options as Json);
   const started = Date.now();
   try {
     const result = await toolboxRequest<Json>(ctx, sandbox, "/computeruse/screenshot");
     const b64 = String(result?.screenshot || result?.image || "");
     if (!b64) throw new Error("The desktop did not return a screenshot.");
-    return { screenshot: b64, mimeType: "image/png", width: result?.width || null, height: result?.height || null };
+    return { screenshot: b64, mimeType: String(result?.mimeType || "image/png"), width: result?.width || null, height: result?.height || null };
   } finally {
     await chargeCompute(ctx, Date.now() - started);
   }
 }
 
-export async function cloudComputerScreenshot(ctx: CloudComputerContext): Promise<{ path: string; bytes: Buffer } | null> {
+export async function cloudComputerScreenshot(ctx: CloudComputerContext, options: CloudScreenshotOptions = {}): Promise<{ path: string; bytes: Buffer } | null> {
   await requireComputeAllowance(ctx);
   const { sandbox } = await openSandbox(ctx);
   await startDesktop(ctx, sandbox);
-  const result = await cloudComputerScreenshotFromSandbox(ctx, sandbox);
+  const result = await cloudComputerScreenshotFromSandbox(ctx, sandbox, options);
   const encoded = String(result.screenshot || "");
-  return { path: "cloud-computer-screenshot.png", bytes: Buffer.from(encoded, "base64") };
+  return { path: "cloud-computer-screenshot." + (options.format === "jpeg" ? "jpg" : "png"), bytes: Buffer.from(encoded, "base64") };
 }
 
 export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<Json> {
