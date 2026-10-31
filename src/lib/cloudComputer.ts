@@ -431,7 +431,7 @@ function terminalSessionId(chatKey: string): string {
 }
 
 function terminalToolboxBase(sandbox: SandboxInfo): string {
-  return (process.env.DAYTONA_TOOLBOX_V2_URL || sandbox.toolboxProxyUrl || "https://toolbox.daytona.com/toolbox").trim().replace(/\\/+$/, "");
+  return (process.env.DAYTONA_TOOLBOX_V2_URL || "https://toolbox.daytona.com/toolbox").trim().replace(/\\/+$/, "");
 }
 
 async function terminalRequest<T = any>(
@@ -792,7 +792,133 @@ export async function cloudComputerOcrScreenshot(
     "    sudo apt-get update -qq >/tmp/ttbik-ocr-install.log 2>&1 && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara >>/tmp/ttbik-ocr-install.log 2>&1",
     "  fi",
     "fi",
-    "if command -v tesseract >/dev/null 2>&1; then",
+    "if command -v tesseract >/dev/null 2>&1 && ! tesseract --list-langs 2>/dev/null | grep -q '^ara
+    "  LANGS=$(tesseract --list-langs 2>/dev/null | grep -q '^ara$' && echo eng+ara || echo eng)",
+    "  tesseract " + quoted + " stdout -l \"$LANGS\" 2>/dev/null",
+    "else echo '__TTBIK_OCR_UNAVAILABLE__'; fi",
+    "rm -f " + quoted,
+  ].join("\\n");
+  const shellQuote = (value: string) => "'" + value.replace(/'/g, "'\\\\''") + "'";
+  const result = await cloudComputerExecute(ctx, "bash -lc " + shellQuote(script), "/home/daytona", 120000);
+  const text = String(result.stdout || "").trim();
+  if (!text || text.includes("__TTBIK_OCR_UNAVAILABLE__")) {
+    return "OCR fallback is not installed in this model's private computer. The accessibility tree and window list are still available for computer interaction.";
+  }
+  return text.slice(0, 14000);
+}
+
+export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<Json> {
+  const results: Array<{ test: string; ok: boolean; detail: string }> = [];
+  const check = async (test: string, task: () => Promise<string | boolean | Json>) => {
+    try {
+      const out = await task();
+      results.push({ test, ok: true, detail: typeof out === "string" ? out.slice(0, 180) : JSON.stringify(out).slice(0, 180) });
+    } catch (error) {
+      results.push({ test, ok: false, detail: String((error as Error)?.message || error).slice(0, 180) });
+    }
+  };
+  await check("isolated VM provision and start", async () => {
+    const { sandbox } = await openSandbox(ctx);
+    return { id: sandbox.id, state: sandbox.state, snapshot: sandbox.snapshot };
+  });
+  await check("arbitrary shell execution", async () => {
+    const result = await cloudComputerExecute(ctx, "printf 'TTBIK_CLOUD_COMPUTER_OK\\n' && id && uname -a");
+    if (result.exitCode !== 0 || !String(result.stdout).includes("TTBIK_CLOUD_COMPUTER_OK")) throw new Error("Shell execution returned an unexpected result.");
+    return String(result.stdout).slice(0, 150);
+  });
+  const marker = `/home/daytona/.ttbik-persistence-${Date.now()}.txt`;
+  await check("persistent file write and read", async () => {
+    await cloudComputerWriteFile(ctx, marker, "ttbik-cloud-computer-persistence-check");
+    const read = await cloudComputerReadFile(ctx, marker);
+    if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("File bytes did not round-trip.");
+    return marker;
+  });
+  await check("stop and resume without losing data", async () => {
+    const before = await openSandbox(ctx);
+    await cloudComputerStop(ctx);
+    const after = await openSandbox(ctx);
+    const read = await cloudComputerReadFile(ctx, marker);
+    if (before.sandbox.id !== after.sandbox.id) throw new Error("The resumed computer has a different sandbox id.");
+    if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("The persistent disk did not preserve the test file.");
+    return { sandboxIdUnchanged: true, filePreserved: true };
+  });
+  await check("desktop services start", async () => {
+    const { sandbox } = await openSandbox(ctx);
+    const status = await startDesktop(ctx, sandbox);
+    return { status: status.status || "started" };
+  });
+  await check("screenshot capture", async () => {
+    const shot = await cloudComputerScreenshot(ctx);
+    if (!shot || !shot.bytes.length) throw new Error("Screenshot is empty.");
+    return { bytes: shot.bytes.length };
+  });
+  await check("mouse and keyboard automation", async () => {
+    await cloudComputerAction(ctx, "click", { x: 12, y: 12, button: "left" });
+    await cloudComputerAction(ctx, "type", { text: "TTBIK COMPUTER TEST" });
+    await cloudComputerAction(ctx, "press", { key: "esc" });
+    return "click/type/press accepted";
+  });
+  await check("desktop window enumeration", async () => {
+    const windows = await cloudComputerAction(ctx, "windows");
+    return { windows: Array.isArray(windows.windows) ? windows.windows.length : 0 };
+  });
+  await check("signed remote desktop preview", async () => {
+    const { sandbox } = await openSandbox(ctx);
+    const url = await readSignedPreview(ctx, sandbox);
+    return { https: url.startsWith("https://"), expiresInSeconds: PREVIEW_TTL_SECONDS };
+  });
+  await check("advanced mouse movement, drag and cursor position", async () => {
+    await cloudComputerAction(ctx, "move", { x: 30, y: 30 });
+    await cloudComputerAction(ctx, "drag", { start_x: 30, start_y: 30, end_x: 55, end_y: 55, button: "left" });
+    const position = await cloudComputerAction(ctx, "mouse_position");
+    return { move: true, drag: true, position: Boolean(position) };
+  });
+  await check("accessibility tree, find and controls", async () => {
+    const tree = await cloudComputerAction(ctx, "accessibility_tree", { scope: "all", max_depth: 2 });
+    const found = await cloudComputerAction(ctx, "accessibility_find", { scope: "all", limit: 5 });
+    const nodes = Array.isArray(found.nodes) ? found.nodes : Array.isArray(tree.nodes) ? tree.nodes : [];
+    if (nodes[0]?.id) {
+      const nodeId = String(nodes[0].id);
+      await cloudComputerAction(ctx, "accessibility_focus", { node_id: nodeId });
+      await cloudComputerAction(ctx, "accessibility_invoke", { node_id: nodeId });
+      await cloudComputerAction(ctx, "accessibility_set_value", { node_id: nodeId, value: "TTBIK accessibility check" });
+    }
+    return { tree: Boolean(tree), search: Boolean(found), controlsTested: Boolean(nodes[0]?.id) };
+  });
+  await check("display information and desktop process diagnostics", async () => {
+    const display = await cloudComputerAction(ctx, "display_info");
+    const status = await cloudComputerAction(ctx, "process_status", { process: "desktop" });
+    await cloudComputerAction(ctx, "process_logs", { process: "desktop" });
+    await cloudComputerAction(ctx, "process_errors", { process: "desktop" });
+    return { display: Boolean(display), process: Boolean(status) };
+  });
+  await check("screen recording lifecycle and download to persistent disk", async () => {
+    const started = await cloudComputerAction(ctx, "recording_start", { name: "ttbik-acceptance" });
+    const recordingId = String(started.id || "");
+    if (!recordingId) throw new Error("Recording API returned no id.");
+    await cloudComputerAction(ctx, "recording_stop", { id: recordingId });
+    await cloudComputerAction(ctx, "recording_list");
+    await cloudComputerAction(ctx, "recording_get", { id: recordingId });
+    const downloaded = await cloudComputerAction(ctx, "recording_download", { id: recordingId, path: "/home/daytona/recordings/ttbik-acceptance.mp4" });
+    await cloudComputerAction(ctx, "recording_delete", { id: recordingId });
+    return downloaded;
+  });
+  await check("full, regional and compressed screenshots", async () => {
+    const region = await cloudComputerScreenshot(ctx, { region: { x: 0, y: 0, width: 320, height: 240 } });
+    const compressed = await cloudComputerScreenshot(ctx, { compressed: true, format: "jpeg", quality: 80, scale: 0.5 });
+    if (!region?.bytes.length || !compressed?.bytes.length) throw new Error("A screenshot mode returned no data.");
+    return { regionBytes: region.bytes.length, compressedBytes: compressed.bytes.length };
+  });
+
+  const passed = results.filter((r) => r.ok).length;
+  return { ok: passed === results.length, passed, total: results.length, results };
+}
+; then",
+    "  if command -v dnf >/dev/null 2>&1; then sudo dnf install -y tesseract-langpack-ara >/tmp/ttbik-ocr-ar.log 2>&1",
+    "  elif command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y tesseract-ocr-ara >/tmp/ttbik-ocr-ar.log 2>&1; fi",
+    "fi",
+    "if command -v tesseract >/dev/null 2>&1 then",
+
     "  LANGS=$(tesseract --list-langs 2>/dev/null | grep -q '^ara$' && echo eng+ara || echo eng)",
     "  tesseract " + quoted + " stdout -l \\"$LANGS\\" 2>/dev/null",
     "else echo '__TTBIK_OCR_UNAVAILABLE__'; fi",
