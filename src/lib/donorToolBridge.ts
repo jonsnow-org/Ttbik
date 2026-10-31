@@ -77,7 +77,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   // Authenticated app connectors require the same encryption/signing key used by the connector store.
   if (!signingKey()) {
     if (available.length) throw new Error("CODER_TOKEN_KEY is required to expose connected services to this candidate.");
-    return { url: "", ticket: "", model, connectors: [], tools: [] };
+    return { url: "", ticket: "", model, run_id: runId || "", connectors: [], tools: [] };
   }
   const ticket = issueTicket({
     chatId,
@@ -87,7 +87,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
     exp: Date.now() + 14 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
-  return { url, ticket, model, connectors: available, tools };
+  return { url, ticket, model, run_id: runId || "", connectors: available, tools };
 }
 
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
