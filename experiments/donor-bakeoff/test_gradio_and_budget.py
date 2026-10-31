@@ -115,3 +115,11 @@ class TextToolFallback(unittest.TestCase):
         calls = parse_tool_calls({"content": "<tool_call>{\"name\": \"github_repo_scan\", \"arguments\": {\"repo\": \"a/b\"}}</tool_call>"})
         self.assertEqual(calls[0]["name"], "github_repo_scan")
         self.assertEqual(calls[0]["arguments"], {"repo": "a/b"})
+
+
+class LoadTools(unittest.TestCase):
+    def test_merge_adds_new_schemas_once_and_keeps_load_tools_first(self):
+        merge = load("_merge_tool_schemas")["_merge_tool_schemas"]
+        have = [{"function": {"name": "load_tools"}}]
+        got = merge(have, [{"function": {"name": "github_read_file"}}, {"function": {"name": "load_tools"}}, {"function": {"name": "github_read_file"}}, {"function": {}}])
+        self.assertEqual([t["function"]["name"] for t in got], ["load_tools", "github_read_file"])

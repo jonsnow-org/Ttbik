@@ -854,12 +854,50 @@ def _mentions_script(text: str, executed_tools: list) -> bool:
     return False
 
 
+def _merge_tool_schemas(existing: list, loaded: list) -> list:
+    """Adds the freshly loaded tool schemas to the bridge tool list (by name, no duplicates, `load_tools` stays first)."""
+    seen = {str((t.get("function") or {}).get("name")) for t in existing if isinstance(t, dict)}
+    merged = list(existing)
+    for t in loaded:
+        name = str(((t or {}).get("function") or {}).get("name") or "")
+        if name and name not in seen:
+            seen.add(name)
+            merged.append(t)
+    return merged
+
+
+def _load_tool_groups(arguments: dict, tool_bridge: dict | None) -> dict:
+    """`load_tools`: ask the app bridge for the schemas of the requested groups; the next model step sees them."""
+    if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
+        return {"ok": False, "error": "No connector bridge is available for this conversation."}
+    groups = arguments.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return {"ok": False, "error": "Give groups: a list such as [\"github\", \"computer\", \"web\", \"connectors\"]."}
+    try:
+        response = requests.post(
+            str(tool_bridge["url"]),
+            json={"ticket": tool_bridge.get("ticket"), "model": tool_bridge.get("model"), "name": "__schemas__", "arguments": {"groups": [str(g) for g in groups][:4]}},
+            headers={"Cache-Control": "no-store"},
+            timeout=(10, 30),
+        )
+        payload = response.json() if response.content else {}
+        loaded = json.loads(str(payload.get("result") or "[]")) if isinstance(payload, dict) and payload.get("ok") else []
+        if not isinstance(loaded, list) or not loaded:
+            return {"ok": False, "error": "No tools exist for those groups on this account (github needs a linked GitHub account)."}
+        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], loaded)
+        return {"ok": True, "loaded": [t["function"]["name"] for t in loaded], "note": "These tools are available from your next step."}
+    except Exception as exc:
+        return {"ok": False, "error": "Could not load the tool groups: " + str(exc)[:300]}
+
+
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
     """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "Tool arguments must be an object."}
     if name == "generate_image":
         return _generate_candidate_image(arguments)
+    if name == "load_tools":
+        return _load_tool_groups(arguments, tool_bridge)
     bridge_tools = tool_bridge.get("tools") if isinstance(tool_bridge, dict) else []
     remote_names = {
         str(item.get("function", {}).get("name") or "")
@@ -1117,6 +1155,11 @@ def infer(
             assistant_content = strip_tool_call_markup(assistant_content)
             messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
             messages.extend(tool_results)
+            if use_tools and isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
+                for item in tool_bridge["tools"]:      # tools loaded by load_tools in this round are shown from the next one
+                    if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
+                        by_name[str(item["function"]["name"])] = item
+                options["tools"] = list(by_name.values())
         elapsed = time.monotonic() - started
         output = str(choice.get("content") or "")
         if pending_calls or executed_tools:
