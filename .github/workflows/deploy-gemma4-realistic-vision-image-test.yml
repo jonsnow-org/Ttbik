@@ -385,7 +385,7 @@ jobs:
           relative = relative.lstrip("/")
           if not relative or ".." in relative.split("/"):
               raise SystemExit("Gemma returned an unsafe image file path.")
-          image_bytes, image_headers = call(api + "/gradio_api/file=" + urllib.parse.quote(relative, safe="/"), timeout=120)
+          image_bytes, image_headers = call(api + "/gradio_api/file=/" + urllib.parse.quote(relative, safe="/"), timeout=120)
           mime = image_headers.get("Content-Type", "").split(";", 1)[0].lower()
           if not mime.startswith("image/") or len(image_bytes) < 1000:
               raise SystemExit("Gemma returned an empty or non-image output.")
