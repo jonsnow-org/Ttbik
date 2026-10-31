@@ -11,7 +11,7 @@ import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { normalizePref, normalizeThinkPolicy } from "@/lib/modes";
-import { modelSettings, modelUsableBy, memorySettings, setMemorySettings } from "@/lib/coderModels";
+import { modelSettings, modelUsableBy, memorySettings, setMemorySettings, canonModelId, listModels } from "@/lib/coderModels";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -107,6 +107,20 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
+  const cloudComputerContext = async () => {
+    const st = await loadStateStrict(chatId, db);
+    const requested = canonModelId(typeof body.model === "string" ? body.model : st.model) || "coder";
+    const model = (await listModels(db)).find((item) => item.id === requested);
+    if (!model || !modelUsableBy(model, user.tier === "owner")) throw new AppError(403, "الحاسوب غير متاح لهذا النموذج في حسابك.");
+    return { chatId, modelId: requested, tier: user.tier, db, fetchImpl: deps.fetchImpl };
+  };
+  const computerCall = async (fn: (ctx: Awaited<ReturnType<typeof cloudComputerContext>>) => Promise<Json>) => {
+    try { return await fn(await cloudComputerContext()); }
+    catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError(503, String((error as Error)?.message || "Cloud computer operation failed").slice(0, 320));
+    }
+  };
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
@@ -119,7 +133,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
         settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
-        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db) },
+        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: await terminalAllowed(chatId, db) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
@@ -656,6 +670,16 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panelAction } = await import("@/lib/coderPanel");
       return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
     }
+    case "computer_status":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)));
+    case "computer_open":
+    case "computer_refresh":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => op === "computer_open" ? m.cloudComputerOpen(ctx) : m.cloudComputerRefreshPreview(ctx)));
+    case "computer_stop":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStop(ctx)));
+    case "computer_self_test":
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerSelfTest(ctx)));
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
