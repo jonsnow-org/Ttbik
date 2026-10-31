@@ -1,7 +1,7 @@
 name: "Donor bake-off: three isolated ModelScope Studios"
 on:
   push:
-    branches: [claude/free-services-marketplace-h6rwk2]
+    branches: [realistic-vision-v6-isolated-test]
     paths:
       - "experiments/donor-bakeoff/**"
       - ".github/workflows/donor-bakeoff-modelscope.yml"
@@ -205,11 +205,35 @@ jobs:
           mkdir -p experiment-studio/vendor
           cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiment-studio/vendor/llama_cpp_server.py
           cp experiments/donor-bakeoff/vendor/LICENSE.md experiment-studio/vendor/LICENSE.md
-          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "Only two public read-only tools execute: public GitHub repository-root listing and HTTP reachability of ttbik.vercel.app; no connector credentials or write actions are available. The Vercel check is not deployment-control-plane status." > experiment-studio/README.md
+          printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "This candidate has a unique private image-weight ModelScope repository and Studio configured in candidate.json. The candidate runtime verifies that exact repo and checkpoint SHA-256 before image generation; there is no cross-candidate fallback." "Generated images and final text are delivered to the owner through a short-lived signed callback. No Telegram token or connector credential is stored in this Studio." "Only read-only GitHub/Vercel status tools are available; repository writes and production changes are not exposed." > experiment-studio/README.md
           cd experiment-studio
           git add app.py tool_parsing.py requirements.txt candidate.json README.md vendor/llama_cpp_server.py vendor/LICENSE.md
           git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Install the private ModelScope read token in this candidate Studio only
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$T"
+          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          token = os.environ["T"]
+          api.login(token)
+          studio = "novaai2026/" + os.environ["REPO"]
+          try:
+              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              message = str(exc).lower()
+              if not any(x in message for x in ("exist", "already", "duplicate")):
+                  raise
+              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          print("Private model-read token configured inside this candidate Studio only.")
+          PY
       - name: Deploy isolated Studio and wait for the model
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -217,7 +241,7 @@ jobs:
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-30-r8"
+          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-31-r10"
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
@@ -331,7 +355,7 @@ jobs:
           mkdir -p "$DIR"
           : > "$DIR/smoke-results.jsonl"
           TRANSPORT_ERRORS=0
-          for TEST_ID in arabic reasoning_visibility code benign_no_overrefusal github_tool vercel_tool multi_step_tools long_multistep_repo image_smoke audio_smoke video_smoke; do
+          for TEST_ID in arabic reasoning_visibility code benign_no_overrefusal github_tool vercel_tool multi_step_tools long_multistep_repo image_generation image_smoke audio_smoke video_smoke; do
             echo "===== $CANDIDATE_ID / $TEST_ID ====="
             python3 - "$TEST_ID" > request.json <<'PY'
           import json,sys
@@ -355,7 +379,7 @@ jobs:
             complete=0
             for attempt in 1 2; do
               poll_file="$DIR/$TEST_ID-attempt-$attempt.sse"
-              poll_code=$(curl -sS --connect-timeout 8 --max-time 280 -o "$poll_file" -w '%{http_code}' \
+              poll_code=$(curl -sS --connect-timeout 8 --max-time 900 -o "$poll_file" -w '%{http_code}' \
                 -H "Authorization: Bearer $T" "$API/gradio_api/call/smoke_test/$event_id" || true)
               echo "poll $attempt HTTP $poll_code"
               if grep -q '^event: complete' "$poll_file" 2>/dev/null; then
@@ -385,6 +409,21 @@ jobs:
                       except Exception: continue
                   if isinstance(value,dict):
                       value.setdefault("test_id",test_id)
+                      result=value.get("result") if isinstance(value.get("result"),dict) else {}
+                      if test_id=="image_generation":
+                          import base64,os
+                          for index,media in enumerate(result.get("generated_media") or []):
+                              if not isinstance(media,dict): continue
+                              encoded=media.pop("b64",None)
+                              if not isinstance(encoded,str) or not encoded: continue
+                              try: image_bytes=base64.b64decode(encoded,validate=True)
+                              except Exception: continue
+                              if len(image_bytes)<1000: continue
+                              image_name=f"{test_id}-{os.path.basename(str(media.get('candidate') or 'candidate'))}-{index+1}.png"
+                              image_path=os.path.join(os.path.dirname(target),image_name)
+                              with open(image_path,"wb") as image_file: image_file.write(image_bytes)
+                              media["artifact_file"]=image_name
+                              media["bytes"]=len(image_bytes)
                       with open(target,"a",encoding="utf-8") as f:
                           f.write(json.dumps(value,ensure_ascii=False)+"\n")
                       saved=True

@@ -1,0 +1,76 @@
+name: "Inspect CyberRealistic final readiness"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/inspect-cyberrealistic-final-ready.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Poll CyberRealistic loader and collect recent logs without deployment
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          MODELSCOPE_TOKEN="$MODELSCOPE_TOKEN" python - <<'PY'
+          import json, os, time
+          import requests
+          from modelscope.hub.api import HubApi
+
+          token=os.environ["MODELSCOPE_TOKEN"].strip()
+          api=HubApi()
+          api.login(token)
+          repo="novaai2026/cyberrealistic-final-test"
+          endpoint="https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net"
+          session=requests.Session()
+          session.headers.update({"Authorization":"Bearer "+token})
+          ready=False
+          for attempt in range(10):
+              info=api.get_repo(repo,"studio")
+              runtime=getattr(info,"runtime",None) or {}
+              status=str(runtime.get("status") or "")
+              print("CYBER_RUNTIME",attempt+1,json.dumps(runtime,ensure_ascii=False))
+              if status.lower()=="running":
+                  try:
+                      health=session.get(endpoint+"/gradio_api/info",timeout=20)
+                      print("CYBER_INFO_HTTP",health.status_code,health.text[:700])
+                      if health.status_code==200:
+                          start=session.post(endpoint+"/gradio_api/call/status",json={"data":[]},timeout=30)
+                          print("CYBER_STATUS_POST",start.status_code,start.text[:500])
+                          if start.status_code==200 and start.json().get("event_id"):
+                              event=start.json()["event_id"]
+                              response=session.get(endpoint+"/gradio_api/call/status/"+event,timeout=60)
+                              print("CYBER_STATUS_GET",response.status_code)
+                              print("CYBER_STATUS_EVENT",response.text[:5000])
+                              if '"phase": "ready"' in response.text or '"phase":"ready"' in response.text:
+                                  ready=True
+                                  break
+                  except requests.RequestException as exc:
+                      print("CYBER_HEALTH_RETRY",type(exc).__name__,str(exc)[:350])
+              time.sleep(20)
+
+          print("CYBER_READY_VERIFIED",ready)
+          for log_type in ("build","run"):
+              print(f"CYBER_{log_type.upper()}_LOG_BEGIN")
+              try:
+                  result=api.get_repo_logs(repo,log_type=log_type,page_size=100)
+                  lines=result.get("logs",[]) if isinstance(result,dict) else []
+                  for line in lines[-70:]:
+                      print(line)
+                  print(f"CYBER_{log_type.upper()}_LOG_TOTAL",result.get("total_count") if isinstance(result,dict) else "unknown")
+              except Exception as exc:
+                  print(f"CYBER_{log_type.upper()}_LOG_ERROR",type(exc).__name__,str(exc)[:700])
+              print(f"CYBER_{log_type.upper()}_LOG_END")
+          if not ready:
+              raise SystemExit("CyberRealistic is not verified ready; no generation was started.")
+          PY
