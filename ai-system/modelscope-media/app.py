@@ -38,6 +38,9 @@ def _store() -> Path:
         probe = base / ".write-test"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
+        import shutil
+        if shutil.disk_usage(base).free < 7 * 1024 ** 3 and not any(base.iterdir()):
+            return HERE / "_models"                         # not enough room for the weights (~5 GB): keep the old local folder
         return base
     except Exception:                                       # noqa: BLE001
         return HERE / "_models"
