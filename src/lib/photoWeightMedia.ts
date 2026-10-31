@@ -3,10 +3,10 @@
  * Every identity has one private ModelScope Studio and one private model repo.
  * This module never tries another Studio and refuses mismatched model/hash output.
  */
-export type PhotoModelId = "coder" | "qwen35-9b" | "gemma4-e4b" | "minicpmo45" | "sham_v2";
+export type PhotoModelId = "qwen35-9b" | "gemma4-e4b" | "minicpmo45";
 export type PhotoWeightProfile = {
   modelId: PhotoModelId; displayName: string; sourceModel: string; modelRepo: string;
-  endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string; expectedCheckpointSha256?: string;
+  endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string; validationStatus: "previously_passed" | "needs_retest"; expectedCheckpointSha256?: string;
 };
 export type PhotoMediaMetadata = Record<string, unknown> & {
   result: "image_generated"; model_repo: string; checkpoint_sha256: string; image_sha256?: string; seconds?: number;
@@ -19,33 +19,31 @@ const COMMON_NEGATIVE =
   "cartoon, anime, illustration, drawing, painting, cgi, 3d render, doll, plastic skin, waxy skin, airbrushed, deformed eyes, asymmetrical eyes, bad anatomy, bad proportions, malformed hands, extra fingers, fused fingers, missing fingers, extra limbs, blurry, low quality, jpeg artifacts, watermark, logo, text";
 
 export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
-  coder: { modelId: "coder", displayName: "Nova AI", sourceModel: "emilianJR/epiCRealism",
-    modelRepo: "novaai2026/epicrealism-image-test-models", endpointEnv: "NOVA_IMAGE_STUDIO_URL",
-    defaultEndpoint: "https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net",
-    resolution: "512 × 768", steps: 30, cfg: 7, negative: COMMON_NEGATIVE },
+  // Previously generated successfully: keep this exact, verified checkpoint on Qwen.
   "qwen35-9b": { modelId: "qwen35-9b", displayName: "Qwen3.5-9B", sourceModel: "cyberdelia/CyberRealistic",
     modelRepo: "novaai2026/cyberrealistic-final-test-models", endpointEnv: "QWEN35_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
-    resolution: "512 × 768 (author recommended)", steps: 30, cfg: 5, negative: COMMON_NEGATIVE },
-  "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
-    modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
-    defaultEndpoint: "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
-    resolution: "512 × 768", steps: 30, cfg: 6.5, negative: COMMON_NEGATIVE },
-  minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Kandoo/Juggernaut-XL-Ragnarok",
-    modelRepo: "novaai2026/juggernaut-ragnarok-test-models", endpointEnv: "MINICPMO45_IMAGE_STUDIO_URL",
-    defaultEndpoint: "https://studio-novaai2026-juggernaut-ragnarok-image-test.api-inference.modelscope.net",
-    resolution: "512 × 512", steps: 20, cfg: 5, negative: COMMON_NEGATIVE },
-  sham_v2: { modelId: "sham_v2", displayName: "Sham v2", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
-    modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
+    resolution: "512 × 768 (author recommended)", steps: 30, cfg: 5, negative: COMMON_NEGATIVE,
+    validationStatus: "previously_passed" },
+  // Previously generated successfully: moved from the Sham v2 reservation to Gemma for the donor bake-off.
+  "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
+    modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE },
-};
+    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
+    validationStatus: "previously_passed" },
+  // Third candidate: Umranz has not produced a verified sample yet; retest after its Studio is repaired.
+  minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
+    modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "MINICPMO45_IMAGE_STUDIO_URL",
+    defaultEndpoint: "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
+    resolution: "512 × 768", steps: 30, cfg: 6.5, negative: COMMON_NEGATIVE,
+    validationStatus: "needs_retest" },
+};;
 
 const cleanBase = (value: string): string => value.trim().replace(/\/+$/, "");
 export function photoWeightProfile(model: string | undefined): PhotoWeightProfile | null {
-  const id = (model || "coder") as PhotoModelId;
+  const id = String(model || "") as PhotoModelId;
   return Object.prototype.hasOwnProperty.call(PHOTO_WEIGHT_PROFILES, id) ? PHOTO_WEIGHT_PROFILES[id] : null;
 }
 export function photoWeightEndpoint(profile: PhotoWeightProfile): string {
@@ -213,6 +211,7 @@ export type PhotoWeightStatus = {
   modelRepo: string;
   endpoint: string;
   ready: boolean;
+  validationStatus: "previously_passed" | "needs_retest";
   phase: string;
   checkpointSha256: string | null;
   sourceRevision: string | null;
@@ -227,7 +226,7 @@ export async function photoWeightStatus(fetchImpl: typeof fetch = fetch): Promis
     const endpoint = photoWeightEndpoint(profile);
     const base: PhotoWeightStatus = {
       modelId: profile.modelId, displayName: profile.displayName, sourceModel: profile.sourceModel,
-      modelRepo: profile.modelRepo, endpoint, ready: false, phase: endpoint ? "unknown" : "off",
+      modelRepo: profile.modelRepo, endpoint, ready: false, validationStatus: profile.validationStatus, phase: endpoint ? "unknown" : "off",
       checkpointSha256: null, sourceRevision: null, memoryGb: null, detail: "",
     };
     if (!endpoint) return { ...base, detail: "Studio endpoint disabled" };
