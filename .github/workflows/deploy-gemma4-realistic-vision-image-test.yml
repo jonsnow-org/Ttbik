@@ -6,11 +6,11 @@ on:
       - realistic-vision-v6-isolated-test
     paths:
       - experiments/gemma4-realistic-vision-v6-test/**
-      - .github/workflows/deploy-realistic-vision-test.yml
+      - .github/workflows/deploy-gemma4-realistic-vision-image-test.yml
   workflow_dispatch:
 
 concurrency:
-  group: realistic-vision-v6-isolated-test
+  group: gemma4-realistic-vision-v6-isolated-test
   cancel-in-progress: false
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
-  MODEL_REPO: gemma4-gemma4-realistic-vision-v6-test-models
+  MODEL_REPO: gemma4-realistic-vision-v6-test-models
   STUDIO_REPO: gemma4-realistic-vision-v6-test
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
       - name: Stage the single checkpoint and recommended VAE in a private ModelScope model repo
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          PHOTO_MODEL_REPO: novaai2026/gemma4-gemma4-realistic-vision-v6-test-models
+          PHOTO_MODEL_REPO: novaai2026/gemma4-realistic-vision-v6-test-models
         run: |
           set -euo pipefail
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::MODELSCOPE_TOKEN is not configured"; exit 1; }
