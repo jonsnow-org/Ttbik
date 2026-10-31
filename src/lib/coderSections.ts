@@ -1574,7 +1574,8 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
   return {
     tier: tierFor(chatId),
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
-    chatKey: coderChatKey(chatId),
+    chatKey: coderChatKey(`${chatId}:${st.model || "coder"}`),
+    modelId: st.model || "coder",
     userId: chatId,
     memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
     botId,
@@ -2071,7 +2072,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
-      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "cloud_computer_screenshot" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
         // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
         let out = "";
@@ -2130,6 +2131,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
             if (!(await anyVisionStudio())) out = "error: no Studio reads pictures yet (vision is not switched on). Say so to the user; do not guess what the picture shows.";
+            else if (call.function.name === "cloud_computer_screenshot") {
+              const { cloudComputerScreenshot } = await import("@/lib/cloudComputer");
+              const file = await cloudComputerScreenshot({ chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db });
+              const img = file ? await toModelImage(file.bytes, 1024) : null;
+              if (img) { shown = [img]; from = "the selected model cloud desktop"; }
+              else out = "error: the cloud desktop screenshot could not be read by the selected vision model.";
+            }
             else if (call.function.name === "view_image") {
               let bytes: Buffer | null = null;
               if (a.url) {
