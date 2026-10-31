@@ -4,7 +4,7 @@ import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool } from 
 import { connectedIds, connectorById, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
-type TicketBody = { chatId: number; model: string; connectors: string[]; exp: number; nonce: string };
+type TicketBody = { chatId: number; model: string; connectors: string[]; runId?: string; exp: number; nonce: string };
 const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 const isCandidate = (id: string) => CANDIDATES.has(id);
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
@@ -36,7 +36,8 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
     if (!safeEqual(signature(encoded), supplied)) return null;
     const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as TicketBody;
     if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
-    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 5 * 60_000) return null;
+    if (parsed.runId !== undefined && (typeof parsed.runId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.runId))) return null;
+    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 16 * 60_000) return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.length < 12) return null;
     return parsed;
   } catch {
@@ -45,7 +46,7 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
 }
 
 /** Describe only services this owner has actually connected. Credentials remain in the app server. */
-export async function createDonorToolBridge(chatId: number, model: string, db: Db) {
+export async function createDonorToolBridge(chatId: number, model: string, db: Db, runId?: string) {
   if (tierFor(chatId) !== "owner") throw new Error("Candidate models are owner-only.");
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
@@ -82,7 +83,8 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
     chatId,
     model,
     connectors: available,
-    exp: Date.now() + 6 * 60_000,
+    ...(runId ? { runId } : {}),
+    exp: Date.now() + 14 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
   return { url, ticket, model, connectors: available, tools };
