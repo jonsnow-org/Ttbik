@@ -1,0 +1,81 @@
+name: "Time one image generation on a model's own image Studio (read-only)"
+
+# Sends ONE image request to the chosen private image Studio and prints how long it took and what the Studio reports (precision, steps, seed).
+# The picture is uploaded as an artifact. Changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "cyberrealistic-final-test | gemma4-realistic-vision-v6-test | umranz-sd15-image-test | epicrealism-image-test | realistic-vision-v6-test"
+        required: true
+        default: "cyberrealistic-final-test"
+      prompt:
+        description: "image prompt"
+        required: false
+        default: "photo of a quiet cobblestone street after rain, soft daylight, realistic"
+      steps:
+        description: "steps"
+        required: false
+        default: "24"
+
+permissions:
+  contents: read
+
+jobs:
+  time:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Generate one image and time it
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          PROMPT: ${{ inputs.prompt }}
+          STEPS: ${{ inputs.steps }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, time, urllib.request, base64
+          studio = os.environ["STUDIO"]
+          assert re.fullmatch(r"[a-z0-9-]{5,60}", studio)
+          base = f"https://studio-novaai2026-{studio}.api-inference.modelscope.net/gradio_api"
+          head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          prompt, steps = os.environ["PROMPT"], int(os.environ["STEPS"])
+          neg = "lowres, blurry, deformed, text, watermark"
+          # argument layouts of each Studio's image API (prompt, negative, shape/resolution, steps, cfg, seed)
+          if studio.startswith("cyberrealistic"):
+              data = [prompt, neg, "512 × 768 (author recommended)", steps, 5.0, 7]
+          elif studio.startswith("umranz"):
+              data = [prompt, neg, "512 × 768", steps, 6.5, 7]
+          elif studio.startswith("epicrealism"):
+              data = [prompt, neg, "512 × 768", steps, 7.0, 7]
+          else:
+              data = [prompt, neg, "512 × 512", steps, 5.5, 7]
+          t0 = time.time()
+          req = urllib.request.Request(base + "/call/image", data=json.dumps({"data": data}).encode(), headers=head)
+          event = json.load(urllib.request.urlopen(req, timeout=60))["event_id"]
+          res = urllib.request.Request(base + f"/call/image/{event}", headers=head)
+          body = urllib.request.urlopen(res, timeout=1900).read().decode("utf-8", "ignore")
+          secs = round(time.time() - t0)
+          print("TOTAL_SECONDS", secs)
+          for block in body.split("\n\n"):
+              if "event: complete" in block:
+                  line = [l for l in block.splitlines() if l.startswith("data:")][0][5:].strip()
+                  out = json.loads(line)
+                  meta = out[1] if len(out) > 1 else None
+                  meta = json.loads(meta) if isinstance(meta, str) else meta
+                  print("META", json.dumps({k: (meta or {}).get(k) for k in ("seconds", "precision", "steps", "resolution", "seed", "basic_image_checks")}, ensure_ascii=False))
+                  img = out[0]
+                  url = img.get("url") if isinstance(img, dict) else None
+                  if url:
+                      png = urllib.request.urlopen(urllib.request.Request(url, headers=head), timeout=120).read()
+                      open("image-out.bin", "wb").write(png)
+                      print("IMAGE_BYTES", len(png))
+              if "event: error" in block:
+                  print("ERROR_BLOCK", block[:400])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: time-image-studio
+          path: image-out.bin
+          if-no-files-found: warn
