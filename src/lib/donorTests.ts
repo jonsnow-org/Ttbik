@@ -155,7 +155,7 @@ export async function donorTestChat(
   history: DonorHistoryMessage[],
   media?: DonorTestMedia,
   fetchImpl: typeof fetch = globalThis.fetch,
-  context?: { chatId: number; db: Db; runId?: string },
+  context?: { chatId: number; db: Db; runId?: string; botId?: string },
 ): Promise<{
   text: string;
   tool_calls: { name?: string; arguments?: unknown }[];
@@ -166,7 +166,7 @@ export async function donorTestChat(
   delivered_to_telegram?: boolean;
 }> {
   const config = configOf(id);
-  const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db, context.runId) : undefined;
+  const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db, context.runId, context.botId) : undefined;
   const prior = (Array.isArray(history) ? history : [])
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
     .slice(-12)
