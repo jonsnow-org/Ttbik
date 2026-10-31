@@ -1350,7 +1350,7 @@ function CloudFilesPane({ lang, model }: { lang: Lang; model: string }) {
 
 function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
   const ar = lang === "ar";
-  const [section, setSection] = useState<"desktop" | "terminal" | "activity">("desktop");
+  const [section, setSection] = useState<"desktop" | "terminal" | "files" | "activity">("desktop");
   const [status, setStatus] = useState<any>(null);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState("");
@@ -1382,15 +1382,16 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
     <List>
       <Section>
         <div style={{ display: "flex", gap: 6, padding: "4px 8px", flexWrap: "wrap" }}>
-          {(["desktop", "terminal", "activity"] as const).map((id) => (
+          {(["desktop", "terminal", "files", "activity"] as const).map((id) => (
             <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
               style={{ borderRadius: 10, padding: "8px 12px", border: "1px solid var(--tgui--divider)", background: section === id ? "var(--tgui--secondary-bg-color)" : "transparent", color: "var(--tgui--text-color)", fontWeight: section === id ? 700 : 500 }}>
-              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : (ar ? "النشاط" : "Activity")}
+              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : id === "files" ? (ar ? "الملفات" : "Files") : (ar ? "النشاط" : "Activity")}
             </button>
           ))}
         </div>
       </Section>
       {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
+      {section === "files" && <Section header={ar ? "ملفات الحاسوب" : "Computer files"}><CloudFilesPane lang={lang} model={model} /></Section>}
       {section === "activity" && <Section header={ar ? "نشاط هذا النموذج" : "Activity for this model"}><TerminalTab lang={lang} model={model} /></Section>}
       {section === "desktop" && <>
       <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
