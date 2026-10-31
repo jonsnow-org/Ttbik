@@ -132,6 +132,27 @@ IMAGE_GENERATION_TOOL = {
 }
 
 
+MEDIA_TOOLS = {
+    "generate_audio": {
+        "type": "function",
+        "function": {
+            "name": "generate_audio",
+            "description": "Speak a text aloud as an Arabic voice recording, made ONLY by this candidate's own dedicated media Studio. Call it when the user asks for speech or a voice message. Do not claim success without a returned audio file.",
+            "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "the words to say (Arabic)"}}, "required": ["text"], "additionalProperties": False},
+        },
+    },
+    "generate_video": {
+        "type": "function",
+        "function": {
+            "name": "generate_video",
+            "description": "Make a short real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. Takes a few minutes. Do not claim success without a returned video file.",
+            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 3}}, "required": ["prompt"], "additionalProperties": False},
+        },
+    },
+}
+MEDIA_MIME = {"audio": "audio/wav", "video": "video/mp4"}
+
+
 TESTS = [
     {
         "id": "arabic",
@@ -890,6 +911,71 @@ def _load_tool_groups(arguments: dict, tool_bridge: dict | None) -> dict:
         return {"ok": False, "error": "Could not load the tool groups: " + str(exc)[:300]}
 
 
+def _media_profile() -> dict | None:
+    conf = CONFIG.get("media_generation")
+    if not isinstance(conf, dict) or conf.get("for_candidate") != CONFIG.get("route_id"):
+        return None
+    base = str(conf.get("studio_api") or "").rstrip("/")
+    if not (base.startswith("https://studio-novaai2026-sham-donor-") and base.endswith("-media.api-inference.modelscope.net")):
+        return None
+    return {"base": base, "media_repo": str(conf.get("media_repo") or "")}
+
+
+def _generate_candidate_media(kind: str, arguments: dict) -> dict:
+    """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
+    profile = _media_profile()
+    if profile is None or kind not in MEDIA_MIME:
+        return {"ok": False, "error": "This candidate has no dedicated media Studio assigned."}
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    if not token:
+        return {"ok": False, "error": "The candidate Studio has no ModelScope token for its private media Studio."}
+    if kind == "audio":
+        text = str(arguments.get("text") or "").strip()
+        if len(text) < 2 or len(text) > 1500:
+            return {"ok": False, "error": "Text must be between 2 and 1500 characters."}
+        api, payload = "speech", {"text": text}
+    else:
+        prompt = str(arguments.get("prompt") or "").strip()
+        if len(prompt) < 4 or len(prompt) > 800:
+            return {"ok": False, "error": "Prompt must be between 4 and 800 characters."}
+        seconds = int(arguments.get("seconds") or 2)
+        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(3, seconds)), "seed": int(time.time()) % 2147483647}
+    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+    try:
+        submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
+        submit.raise_for_status()
+        event_id = str((submit.json() or {}).get("event_id") or "")
+        if not event_id:
+            raise RuntimeError("the media Studio returned no event id")
+        result = requests.get(profile["base"] + "/gradio_api/call/" + api + "/" + event_id, headers={"Authorization": "Bearer " + token}, timeout=(8, 600))
+        result.raise_for_status()
+        raw = result.text
+        if "event: error" in raw or "event: complete" not in raw:
+            why = re.sub(r"\s+", " ", raw[-420:]).strip()
+            raise RuntimeError("the media Studio did not complete. Its last answer: " + why)
+        data = _decode_gradio_data(raw)
+        item = data[0] if isinstance(data, list) and data else data
+        if isinstance(item, str):
+            item = json.loads(item)
+        if not isinstance(item, dict) or item.get("type") != kind or not item.get("b64"):
+            reason = item.get("text") if isinstance(item, dict) else ""
+            raise RuntimeError("the media Studio returned no " + kind + " file. " + str(reason or "")[:300])
+        raw_bytes = base64.b64decode(str(item["b64"]), validate=True)
+        if len(raw_bytes) < 1000 or len(raw_bytes) > 2_600_000:
+            raise RuntimeError("the " + kind + " file is empty or larger than the delivery limit (" + str(len(raw_bytes)) + " bytes)")
+        return {
+            "ok": True,
+            "message": kind + " made by this candidate's own dedicated media Studio.",
+            "_generated_media": {
+                "kind": kind, "mime": MEDIA_MIME[kind], "b64": str(item["b64"]), "bytes": len(raw_bytes),
+                "candidate": CONFIG.get("route_id"), "media_repo": profile["media_repo"], "media_studio": profile["base"],
+                "prompt": str(payload.get("text") or payload.get("prompt") or "")[:200],
+            },
+        }
+    except Exception as exc:
+        return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
+
+
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
     """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
@@ -898,6 +984,8 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
         return _generate_candidate_image(arguments)
     if name == "load_tools":
         return _load_tool_groups(arguments, tool_bridge)
+    if name in MEDIA_TOOLS:
+        return _generate_candidate_media("audio" if name == "generate_audio" else "video", arguments)
     bridge_tools = tool_bridge.get("tools") if isinstance(tool_bridge, dict) else []
     remote_names = {
         str(item.get("function", {}).get("name") or "")
@@ -1091,6 +1179,9 @@ def infer(
             if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
                 by_name["generate_image"] = IMAGE_GENERATION_TOOL
                 messages.insert(0, {"role": "system", "content": "When the user requests image creation, call generate_image using this candidate's own private image Studio. Do not claim success without a returned image."})
+            if _media_profile() is not None:
+                by_name.update(MEDIA_TOOLS)
+                messages.insert(0, {"role": "system", "content": "For speech call generate_audio, for a video clip call generate_video: both run only in this candidate's own media Studio. Do not claim success without a returned file."})
             if isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
                 for item in tool_bridge["tools"]:
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
@@ -1199,6 +1290,11 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
     outgoing_media = []
     for item in (result.get("generated_media") or [])[:2]:
         if not isinstance(item, dict) or item.get("candidate") != model:
+            continue
+        if item.get("kind") in MEDIA_MIME:
+            if len(str(item.get("b64") or "")) > 3_600_000:
+                return False, "the " + str(item.get("kind")) + " is larger than the signed callback transfer limit"
+            outgoing_media.append(dict(item))
             continue
         try:
             image_bytes = base64.b64decode(str(item.get("b64") or ""), validate=True)

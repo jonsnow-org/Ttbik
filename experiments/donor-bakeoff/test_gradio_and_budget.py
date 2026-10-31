@@ -123,3 +123,24 @@ class LoadTools(unittest.TestCase):
         have = [{"function": {"name": "load_tools"}}]
         got = merge(have, [{"function": {"name": "github_read_file"}}, {"function": {"name": "load_tools"}}, {"function": {"name": "github_read_file"}}, {"function": {}}])
         self.assertEqual([t["function"]["name"] for t in got], ["load_tools", "github_read_file"])
+
+
+class CandidateMediaStudios(unittest.TestCase):
+    def test_each_candidate_points_at_its_own_media_studio_and_repo(self):
+        here = Path(__file__).parent
+        seen = set()
+        for cand in ("qwen35-9b", "gemma4-e4b", "minicpm-o45"):
+            conf = json.loads((here / "candidates" / f"{cand}.json").read_text(encoding="utf-8"))
+            media = conf["media_generation"]
+            route = conf["route_id"]
+            self.assertEqual(media["for_candidate"], route)
+            self.assertIn(f"sham-donor-{route}-media", media["studio_api"])
+            self.assertEqual(media["media_repo"], f"novaai2026/{route}-media-models")
+            seen.add(media["studio_api"])
+        self.assertEqual(len(seen), 3)
+
+    def test_the_deploy_workflow_builds_exactly_those_studios(self):
+        wf = (Path(__file__).parents[2] / ".github" / "workflows" / "deploy-candidate-media.yml").read_text(encoding="utf-8")
+        for route in ("qwen35-9b", "gemma4-e4b", "minicpmo45"):
+            self.assertIn("- id: " + route, wf)
+        self.assertIn("REPO: sham-donor-${{ matrix.candidate.id }}-media", wf)

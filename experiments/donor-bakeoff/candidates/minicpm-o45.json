@@ -16,8 +16,8 @@
   },
   "runtime_generation_capabilities": {
     "image": true,
-    "audio": false,
-    "video": false
+    "audio": true,
+    "video": true
   },
   "purpose": "Arabic, code, tool-call shape and image/video input tests. Separate speech encoder/decoder GGUFs are not loaded unless the selected runtime supports them.",
   "route_id": "minicpmo45",
@@ -29,5 +29,10 @@
     "resolution": "512 × 768",
     "steps": 30,
     "cfg": 6.5
+  },
+  "media_generation": {
+    "for_candidate": "minicpmo45",
+    "studio_api": "https://studio-novaai2026-sham-donor-minicpmo45-media.api-inference.modelscope.net",
+    "media_repo": "novaai2026/minicpmo45-media-models"
   }
 }
