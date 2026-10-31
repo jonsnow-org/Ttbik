@@ -555,14 +555,14 @@ describe("isolated primary candidate route", () => {
       }
       if (url.endsWith("/gradio_api/run/status") && method === "POST") {
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-31-r11", media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-31-r12", media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/chat_payload") && method === "POST") {
-        return new Response(JSON.stringify({ event_id: "chat-event" }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/chat_start") && method === "POST") {
+        return new Response(JSON.stringify({ data: [JSON.stringify({ job_id: "job-1" })] }), { status: 200 });
       }
-      if (url.endsWith("/gradio_api/call/chat_payload/chat-event")) {
-        return new Response(completed({ text: "رد مباشر من Qwen", tool_calls: [], seconds: 0.2, tokens_per_second: 12 }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/chat_poll") && method === "POST") {
+        return new Response(JSON.stringify({ data: [JSON.stringify({ state: "done", result: JSON.stringify({ text: "رد مباشر من Qwen", tool_calls: [], seconds: 0.2, tokens_per_second: 12 }) })] }), { status: 200 });
       }
       return new Response("unexpected donor test request", { status: 500 });
     }) as any;
@@ -575,10 +575,10 @@ describe("isolated primary candidate route", () => {
         { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "اختبر الرد المباشر" } },
         db,
       );
-      for (let i = 0; i < 100 && !sent.some((x) => x.text.includes("رد مباشر من Qwen")); i++) {
+      for (let i = 0; i < 600 && !sent.some((x) => x.text.includes("رد مباشر من Qwen")); i++) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/call/chat_payload"))).toBe(true);
+      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/run/chat_start"))).toBe(true);
       expect(calls.every((x) => !x.url.includes("coder.test"))).toBe(true);
       expect(sent.some((x) => x.text.includes("رد مباشر من Qwen"))).toBe(true);
       expect(sent.some((x) => /لم يتم تحويل الطلب إلى نموذج آخر/.test(x.text))).toBe(false);

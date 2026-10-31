@@ -49,7 +49,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-31-r11";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-31-r12";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -147,6 +147,51 @@ function asObject(value: unknown): Record<string, any> {
   }
   if (!value || typeof value !== "object") throw new Error("رد النموذج غير صالح.");
   return value as Record<string, any>;
+}
+
+export type DonorChatResult = Awaited<ReturnType<typeof donorTestChat>>;
+
+function shapeChatResult(raw: unknown): DonorChatResult {
+  const result = asObject(raw);
+  if (result.error) throw new Error(String(result.error).slice(0, 700));
+  return {
+    text: String(result.text || ""),
+    tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
+    executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
+    generated_media: Array.isArray(result.generated_media) ? result.generated_media.filter((item: any) => item && item.kind === "image" && typeof item.b64 === "string").map((item: any) => ({ ...item, metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {} })) : [],
+    delivered_to_telegram: result.delivered_to_telegram === true,
+    seconds: Number.isFinite(Number(result.seconds)) ? Number(result.seconds) : undefined,
+    tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
+  };
+}
+
+/** Start the request as a background job inside the model's own Studio and return at once. A dropped connection can no longer lose or fail it. */
+export async function donorJobStart(
+  id: string, prompt: string, history: DonorHistoryMessage[], media: DonorTestMedia | undefined,
+  context: { chatId: number; db: Db; runId?: string; botId?: string }, fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<string> {
+  const config = configOf(id);
+  const toolBridge = await createDonorToolBridge(context.chatId, id, context.db, context.runId, context.botId);
+  const prior = (Array.isArray(history) ? history : [])
+    .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
+    .slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+  const payload = JSON.stringify({ prompt: prompt.slice(0, 12000), history: prior, use_tools: true, media: media || null, tool_bridge: toolBridge || null });
+  const raw = asObject(await callGradioDirect(config, "chat_start", [payload], 25_000, fetchImpl));
+  const first = parseStatus(Array.isArray(raw.data) ? raw.data[0] : raw.data ?? raw);
+  const jobId = String(first?.job_id || "");
+  if (!jobId) throw new Error("لم يُرجع استوديو النموذج معرّف المهمة.");
+  return jobId;
+}
+
+export type DonorJobState = { state: "queued" | "running" | "unknown" } | { state: "done"; result: DonorChatResult };
+
+/** One short poll (a few seconds). The caller decides what to do when it fails: a failed poll is not a failed task. */
+export async function donorJobPoll(id: string, jobId: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<DonorJobState> {
+  const raw = asObject(await callGradioDirect(configOf(id), "chat_poll", [jobId], 15_000, fetchImpl));
+  const body = parseStatus(Array.isArray(raw.data) ? raw.data[0] : raw.data ?? raw);
+  const state = String(body?.state || "unknown");
+  if (state === "done") return { state: "done", result: shapeChatResult(typeof body?.result === "string" ? JSON.parse(body.result) : body?.result) };
+  return { state: state === "queued" || state === "running" ? state : "unknown" };
 }
 
 export async function donorTestChat(
