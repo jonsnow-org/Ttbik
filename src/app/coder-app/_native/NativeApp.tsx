@@ -1025,76 +1025,75 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [session, setSession] = useState("");
-  const [activeCommand, setActiveCommand] = useState("");
+  const [cwd, setCwd] = useState("/home/daytona");
+  const [state, setState] = useState("opening");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const lastOutput = useRef("");
+  const cursor = useRef("");
   const polling = useRef(false);
 
   const openSession = useCallback(async () => {
     try {
+      setState("connecting");
       const result = await api<any>("computer_terminal_open", { model });
       setSession(result.sessionId || "");
+      setCwd(result.cwd || "/home/daytona");
+      setState(result.state || "running");
       setError("");
-    } catch (e: any) { setError(String(e?.message || e)); }
+      cursor.current = "";
+    } catch (e: any) {
+      setState("unavailable");
+      setError(String(e?.message || e));
+    }
   }, [model]);
 
   useEffect(() => { void openSession(); }, [openSession]);
 
   useEffect(() => {
-    if (!activeCommand) return;
+    if (!session) return;
     let stopped = false;
     const poll = async () => {
       if (polling.current || stopped) return;
       polling.current = true;
       try {
-        const result = await api<any>("computer_terminal_poll", { model, commandId: activeCommand });
+        const result = await api<any>("computer_terminal_poll", { model, sessionId: session, cursor: cursor.current || undefined });
         if (stopped) return;
-        const combined = String(result.stdout || "") + (result.stderr ? "\n" + result.stderr : "");
-        const previous = lastOutput.current;
-        if (combined.startsWith(previous)) {
-          const delta = combined.slice(previous.length);
-          if (delta) setOutput((old) => old + delta);
-        } else if (combined) setOutput((old) => old + "\n" + combined);
-        lastOutput.current = combined;
-        if (result.complete) {
-          setOutput((old) => old + "\n[exit " + String(result.exitCode ?? "?") + "]\n");
-          setActiveCommand("");
-          setBusy(false);
+        const delta = String(result.output || "");
+        if (delta) setOutput((old) => (old + delta).slice(-48000));
+        if (result.cursor) cursor.current = String(result.cursor);
+        if (result.cwd) setCwd(String(result.cwd));
+        setState(String(result.state || "running"));
+        if (result.complete) setError(ar ? "انتهت جلسة shell؛ اضغط إعادة الاتصال لفتح جلسة جديدة." : "The shell process ended. Reconnect to open a fresh shell.");
+      } catch (e: any) {
+        if (!stopped) {
+          const status = Number(e?.status || 0);
+          if (status === 409) cursor.current = "";
+          setError(String(e?.message || e));
         }
-      } catch (e: any) { if (!stopped) setError(String(e?.message || e)); }
-      finally { polling.current = false; }
+      } finally { polling.current = false; }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 1100);
+    const timer = setInterval(() => void poll(), 900);
     return () => { stopped = true; clearInterval(timer); };
-  }, [activeCommand, model]);
+  }, [session, model, ar]);
 
   const execute = async () => {
-    const text = command.trim();
-    if (!text || busy) return;
+    const text = command;
+    if (!text.trim() || busy || !session) return;
     setBusy(true);
     setError("");
-    setOutput((old) => old + (old ? "\n" : "") + "$ " + text + "\n");
-    lastOutput.current = "";
     setCommand("");
     try {
-      const result = await api<any>("computer_terminal_execute", { model, command: text });
-      if (!result.commandId) throw new Error("لم يُرجع الحاسوب معرّف تنفيذ الأمر.");
-      setSession(result.sessionId || session);
-      setActiveCommand(result.commandId);
-    } catch (e: any) {
-      setOutput((old) => old + "ERROR: " + String(e?.message || e) + "\n");
-      setBusy(false);
-    }
+      await api("computer_terminal_execute", { model, command: text, sessionId: session });
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(false); }
   };
 
   const sendInput = async (data: string) => {
-    if (!activeCommand || !data) return;
+    if (!session || !data) return;
     try {
-      await api("computer_terminal_input", { model, commandId: activeCommand, data });
+      await api("computer_terminal_input", { model, sessionId: session, data });
       setInput("");
-      setOutput((old) => old + data);
       setError("");
     } catch (e: any) { setError(String(e?.message || e)); }
   };
@@ -1104,33 +1103,33 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
         <div>
           <div style={{ fontFamily: "ui-monospace,monospace", fontWeight: 800, color: "var(--tgui--text-color)" }}>{ar ? "طرفية الحاسوب" : "Computer terminal"}</div>
-          <Caption>{ar ? "جلسة Bash خاصة بالنموذج الحالي" : "Private Bash session for this model"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
+          <Caption>{ar ? "PTY تفاعلي داخل الحاسوب نفسه" : "Interactive PTY inside this same computer"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
         </div>
         <Button size="s" mode="bezeled" onClick={() => void openSession()} disabled={busy}>{ar ? "إعادة الاتصال" : "Reconnect"}</Button>
       </div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 2px 8px", color: "var(--tgui--hint-color)", fontSize: 11 }}>
+        <span>{cwd}</span><span>{state}</span>
+      </div>
       <div style={{ border: "1px solid var(--tgui--divider)", borderRadius: 12, overflow: "hidden", background: "#050b10" }}>
-        <pre aria-live="polite" style={{ margin: 0, padding: 12, minHeight: 260, maxHeight: "48vh", overflow: "auto", color: "#d1fae5", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.55 }}>
-          {output || (ar ? "تم فتح جلسة shell مستقلة. اكتب أمراً للبدء.\n" : "A private shell session is ready. Enter a command to begin.\n")}
-          {busy && "\n▌ " + (ar ? "الأمر قيد التنفيذ..." : "Command running...")}
+        <pre aria-live="polite" style={{ margin: 0, padding: 12, minHeight: 280, maxHeight: "52vh", overflow: "auto", color: "#d1fae5", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.55 }}>
+          {output || (ar ? "جلسة Bash تفاعلية جاهزة. اكتب أمراً للبدء.\n" : "Interactive Bash session is ready. Enter a command to begin.\n")}
         </pre>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <textarea value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void execute(); } }}
-          placeholder={ar ? "أدخل أمر Bash ثم Enter..." : "Enter a Bash command and press Enter..."} rows={2} disabled={busy || !session}
+          placeholder={ar ? "أمر Bash... (Enter للتنفيذ، Shift+Enter لسطر جديد)" : "Bash command... (Enter to run, Shift+Enter for a new line)"} rows={2} disabled={busy || !session || state === "terminal"}
           style={{ flex: 1, minWidth: 0, resize: "vertical", borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)", fontFamily: "ui-monospace,monospace", fontSize: 13 }} />
-        <Button size="m" disabled={busy || !session || !command.trim()} onClick={() => void execute()}>{ar ? "تنفيذ" : "Run"}</Button>
+        <Button size="m" disabled={busy || !session || !command.trim() || state === "terminal"} onClick={() => void execute()}>{busy ? "…" : (ar ? "تنفيذ" : "Run")}</Button>
       </div>
-      {activeCommand && (
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendInput(input + "\n"); } }}
-            placeholder={ar ? "إجابة البرنامج التفاعلي..." : "Input for an interactive prompt..."}
-            style={{ flex: 1, minWidth: 0, borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)" }} />
-          <Button size="m" mode="bezeled" disabled={!input} onClick={() => void sendInput(input + "\n")}>{ar ? "إرسال" : "Send"}</Button>
-          <Button size="m" mode="bezeled" onClick={() => void sendInput("\u0003")}>{ar ? "مقاطعة" : "Ctrl+C"}</Button>
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendInput(input + "\n"); } }}
+          placeholder={ar ? "إدخال للبرنامج الجاري أو الموافقة على سؤال..." : "Input for the running program or an interactive prompt..."}
+          style={{ flex: 1, minWidth: 0, borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)" }} />
+        <Button size="m" mode="bezeled" disabled={!input || !session} onClick={() => void sendInput(input + "\n")}>{ar ? "إرسال" : "Send"}</Button>
+        <Button size="m" mode="bezeled" disabled={!session} onClick={() => void sendInput("\u0003")}>{ar ? "مقاطعة" : "Ctrl+C"}</Button>
+      </div>
       {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8 }}>{error}</div>}
-      <Caption>{ar ? "تحتفظ الجلسة بمجلد العمل ومتغيرات البيئة بين الأوامر أثناء تشغيل الآلة. إيقاف الآلة وإعادة تشغيلها ينشئ جلسة shell جديدة، بينما تبقى الملفات والبرامج المثبتة محفوظة." : "Working directory and environment persist between commands while the VM runs. Stopping and starting the VM creates a new shell session; files and installed packages remain on disk."}</Caption>
+      <Caption>{ar ? "هذه ليست نافذة أوامر منفصلة: إنها نفس الحاسوب الذي يراه النموذج ويستخدم ملفاته وبرامجه. تحتفظ الجلسة بمجلد العمل ومتغيرات البيئة حتى إيقاف الحاسوب." : "This is not a separate command service: it is the same computer the model sees and uses, with the same files and installed software. The PTY keeps its working directory and environment until the computer is stopped."}</Caption>
     </div>
   );
 }
