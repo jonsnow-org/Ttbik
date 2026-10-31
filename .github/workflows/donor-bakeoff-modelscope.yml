@@ -210,6 +210,30 @@ jobs:
           git add app.py tool_parsing.py requirements.txt candidate.json README.md vendor/llama_cpp_server.py vendor/LICENSE.md
           git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Install the private ModelScope read token in this candidate Studio only
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$T"
+          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          token = os.environ["T"]
+          api.login(token)
+          studio = "novaai2026/" + os.environ["REPO"]
+          try:
+              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              message = str(exc).lower()
+              if not any(x in message for x in ("exist", "already", "duplicate")):
+                  raise
+              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          print("Private model-read token configured inside this candidate Studio only.")
+          PY
       - name: Deploy isolated Studio and wait for the model
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
