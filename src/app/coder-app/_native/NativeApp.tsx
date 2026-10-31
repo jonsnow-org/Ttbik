@@ -16,7 +16,7 @@ import {
   payInvoice, rawInitData, setBio, startTma, closeApp,
 } from "../_tma/sdk";
 
-type Tab = "tasks" | "computer" | "terminal" | "schedules" | "connect" | "memory" | "settings";
+type Tab = "tasks" | "computer" | "schedules" | "connect" | "memory" | "settings";
 type Page = "billing" | "panel" | null;
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
@@ -950,7 +950,7 @@ function PanelPage({ lang }: { lang: Lang }) {
 }
 
 // ---------------------------------------------------------------- interactive terminal: live task logs stay inside the Mini App, never sent as chat messages
-function TerminalTab({ lang }: { lang: Lang }) {
+function TerminalTab({ lang, model }: { lang: Lang; model: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<Ev[]>([]);
@@ -960,14 +960,14 @@ function TerminalTab({ lang }: { lang: Lang }) {
   const ar = lang === "ar";
   const loadTasks = useCallback(async () => {
     try {
-      const response = await fetch("/api/coder/terminal?limit=40", { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+      const response = await fetch("/api/coder/terminal?limit=40&model=" + encodeURIComponent(model), { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
       const d = await response.json().catch(() => ({})) as { tasks?: Task[]; error?: string };
       if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
       setTasks(d.tasks || []);
       setError("");
       setSelected((old) => old && (d.tasks || []).some((x) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
     } catch (e: any) { setError(e?.message || "API error"); }
-  }, []);
+  }, [model]);
   useEffect(() => { void loadTasks(); const id = setInterval(() => { if (document.visibilityState === "visible") void loadTasks(); }, 4000); return () => clearInterval(id); }, [loadTasks]);
   useEffect(() => {
     let stopped = false;
@@ -976,7 +976,7 @@ function TerminalTab({ lang }: { lang: Lang }) {
     if (!selected) return;
     const pull = async () => {
       try {
-        const response = await fetch(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+        const response = await fetch(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}&model=${encodeURIComponent(model)}`, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
         const d = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
         if (stopped) return;
@@ -995,7 +995,7 @@ function TerminalTab({ lang }: { lang: Lang }) {
     <div style={{ padding: "12px", color: "#d1fae5" }}>
       <div style={{ borderRadius: 16, overflow: "hidden", background: "#050b10", border: "1px solid #164e63", boxShadow: "0 8px 28px #02061730" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", background: "#0b1720", borderBottom: "1px solid #164e63" }}>
-          <div><div style={{ fontFamily: "monospace", fontWeight: 800, color: "#5eead4" }}>NOVA / TERMINAL</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
+          <div><div style={{ fontFamily: "monospace", fontWeight: 800, color: "#5eead4" }}>{model.toUpperCase()} / TASK ACTIVITY</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
           <button type="button" onClick={() => { setRefreshing(true); void loadTasks().finally(() => setRefreshing(false)); }} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "7px 10px", color: "#a5f3fc", background: "#082f49", fontSize: 12 }}>{refreshing ? "…" : (ar ? "تحديث" : "Refresh")}</button>
         </div>
         <div style={{ padding: 10, background: "#071018", borderBottom: "1px solid #164e63" }}>
@@ -1015,6 +1015,122 @@ function TerminalTab({ lang }: { lang: Lang }) {
         </div>
         <div style={{ padding: "8px 12px", color: "#64748b", fontSize: 10, background: "#0b1720", borderTop: "1px solid #164e63" }}>Postgres task events · polling 1.2s · {events.length} {ar ? "سجل معروض" : "events shown"}</div>
       </div>
+    </div>
+  );
+}
+
+function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
+  const ar = lang === "ar";
+  const [command, setCommand] = useState("");
+  const [input, setInput] = useState("");
+  const [output, setOutput] = useState("");
+  const [session, setSession] = useState("");
+  const [activeCommand, setActiveCommand] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const lastOutput = useRef("");
+  const polling = useRef(false);
+
+  const openSession = useCallback(async () => {
+    try {
+      const result = await api<any>("computer_terminal_open", { model });
+      setSession(result.sessionId || "");
+      setError("");
+    } catch (e: any) { setError(String(e?.message || e)); }
+  }, [model]);
+
+  useEffect(() => { void openSession(); }, [openSession]);
+
+  useEffect(() => {
+    if (!activeCommand) return;
+    let stopped = false;
+    const poll = async () => {
+      if (polling.current || stopped) return;
+      polling.current = true;
+      try {
+        const result = await api<any>("computer_terminal_poll", { model, commandId: activeCommand });
+        if (stopped) return;
+        const combined = String(result.stdout || "") + (result.stderr ? "\n" + result.stderr : "");
+        const previous = lastOutput.current;
+        if (combined.startsWith(previous)) {
+          const delta = combined.slice(previous.length);
+          if (delta) setOutput((old) => old + delta);
+        } else if (combined) setOutput((old) => old + "\n" + combined);
+        lastOutput.current = combined;
+        if (result.complete) {
+          setOutput((old) => old + "\n[exit " + String(result.exitCode ?? "?") + "]\n");
+          setActiveCommand("");
+          setBusy(false);
+        }
+      } catch (e: any) { if (!stopped) setError(String(e?.message || e)); }
+      finally { polling.current = false; }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 1100);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [activeCommand, model]);
+
+  const execute = async () => {
+    const text = command.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setError("");
+    setOutput((old) => old + (old ? "\n" : "") + "$ " + text + "\n");
+    lastOutput.current = "";
+    setCommand("");
+    try {
+      const result = await api<any>("computer_terminal_execute", { model, command: text });
+      if (!result.commandId) throw new Error("لم يُرجع الحاسوب معرّف تنفيذ الأمر.");
+      setSession(result.sessionId || session);
+      setActiveCommand(result.commandId);
+    } catch (e: any) {
+      setOutput((old) => old + "ERROR: " + String(e?.message || e) + "\n");
+      setBusy(false);
+    }
+  };
+
+  const sendInput = async (data: string) => {
+    if (!activeCommand || !data) return;
+    try {
+      await api("computer_terminal_input", { model, commandId: activeCommand, data });
+      setInput("");
+      setOutput((old) => old + data);
+      setError("");
+    } catch (e: any) { setError(String(e?.message || e)); }
+  };
+
+  return (
+    <div style={{ padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontFamily: "ui-monospace,monospace", fontWeight: 800, color: "var(--tgui--text-color)" }}>{ar ? "طرفية الحاسوب" : "Computer terminal"}</div>
+          <Caption>{ar ? "جلسة Bash خاصة بالنموذج الحالي" : "Private Bash session for this model"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
+        </div>
+        <Button size="s" mode="bezeled" onClick={() => void openSession()} disabled={busy}>{ar ? "إعادة الاتصال" : "Reconnect"}</Button>
+      </div>
+      <div style={{ border: "1px solid var(--tgui--divider)", borderRadius: 12, overflow: "hidden", background: "#050b10" }}>
+        <pre aria-live="polite" style={{ margin: 0, padding: 12, minHeight: 260, maxHeight: "48vh", overflow: "auto", color: "#d1fae5", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.55 }}>
+          {output || (ar ? "تم فتح جلسة shell مستقلة. اكتب أمراً للبدء.\n" : "A private shell session is ready. Enter a command to begin.\n")}
+          {busy && "\n▌ " + (ar ? "الأمر قيد التنفيذ..." : "Command running...")}
+        </pre>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <textarea value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void execute(); } }}
+          placeholder={ar ? "أدخل أمر Bash ثم Enter..." : "Enter a Bash command and press Enter..."} rows={2} disabled={busy || !session}
+          style={{ flex: 1, minWidth: 0, resize: "vertical", borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)", fontFamily: "ui-monospace,monospace", fontSize: 13 }} />
+        <Button size="m" disabled={busy || !session || !command.trim()} onClick={() => void execute()}>{ar ? "تنفيذ" : "Run"}</Button>
+      </div>
+      {activeCommand && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendInput(input + "\n"); } }}
+            placeholder={ar ? "إجابة البرنامج التفاعلي..." : "Input for an interactive prompt..."}
+            style={{ flex: 1, minWidth: 0, borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)" }} />
+          <Button size="m" mode="bezeled" disabled={!input} onClick={() => void sendInput(input + "\n")}>{ar ? "إرسال" : "Send"}</Button>
+          <Button size="m" mode="bezeled" onClick={() => void sendInput("\u0003")}>{ar ? "مقاطعة" : "Ctrl+C"}</Button>
+        </div>
+      )}
+      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8 }}>{error}</div>}
+      <Caption>{ar ? "تحتفظ الجلسة بمجلد العمل ومتغيرات البيئة بين الأوامر أثناء تشغيل الآلة. إيقاف الآلة وإعادة تشغيلها ينشئ جلسة shell جديدة، بينما تبقى الملفات والبرامج المثبتة محفوظة." : "Working directory and environment persist between commands while the VM runs. Stopping and starting the VM creates a new shell session; files and installed packages remain on disk."}</Caption>
     </div>
   );
 }
