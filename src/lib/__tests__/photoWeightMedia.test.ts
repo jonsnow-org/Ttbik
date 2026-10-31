@@ -13,7 +13,7 @@ describe("per-model photo weight routing", () => {
 
   it("maps each selectable model to a different private image Studio and model repo", () => {
     const entries = Object.values(PHOTO_WEIGHT_PROFILES);
-    expect(entries.map((x) => x.modelId)).toEqual(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
+    expect(entries.map((x) => x.modelId)).toEqual(["coder", "qwen35-9b", "gemma4-e4b", "minicpmo45", "sham_v2"]);
     expect(new Set(entries.map((x) => x.modelRepo)).size).toBe(entries.length);
     expect(new Set(entries.map((x) => x.defaultEndpoint)).size).toBe(entries.length);
     expect(photoWeightProfile("gemma4-e4b")?.modelRepo).toBe("novaai2026/gemma4-realistic-vision-v6-test-models");
@@ -22,8 +22,9 @@ describe("per-model photo weight routing", () => {
     expect(photoWeightProfile("qwen35-9b")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("gemma4-e4b")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("minicpmo45")?.validationStatus).toBe("needs_retest");
-    expect(photoWeightProfile("sham_v2")).toBeNull();
-    expect(photoWeightProfile("coder")).toBeNull();
+    expect(photoWeightProfile("coder")?.modelRepo).toBe("novaai2026/epicrealism-image-test-models");
+    expect(photoWeightProfile("sham_v2")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
+    expect(new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"].map((id) => photoWeightProfile(id)?.modelRepo)).size).toBe(3);
   });
 
   it("rejects an unknown model without making any HTTP request or trying a fallback", async () => {
