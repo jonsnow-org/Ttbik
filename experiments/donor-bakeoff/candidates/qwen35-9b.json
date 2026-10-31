@@ -23,7 +23,12 @@
   },
   "runtime_generation_capabilities": {
     "image": true,
-    "audio": false,
-    "video": false
+    "audio": true,
+    "video": true
+  },
+  "media_generation": {
+    "for_candidate": "qwen35-9b",
+    "studio_api": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net",
+    "media_repo": "novaai2026/qwen35-9b-media-models"
   }
 }
