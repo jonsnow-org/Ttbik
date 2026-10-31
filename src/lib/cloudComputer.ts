@@ -196,7 +196,16 @@ async function waitUntilStarted(ctx: CloudComputerContext, id: string): Promise<
   throw new Error(`Cloud computer did not reach the running state in time (last state: ${latest?.state || "unknown"}).`);
 }
 
-async function waitUntilStopped(ctx: CloudComputerContext, id: string): Promise<void> {\n  for (let i = 0; i < 40; i++) {\n    const current = await getSandbox(ctx, id);\n    const state = String(current?.state || "").toLowerCase();\n    if (state === "stopped") return;\n    if (/error|failed|deleted|archived/.test(state)) throw new Error(`Cloud computer stop failed (${state}).`);\n    await new Promise((resolve) => setTimeout(resolve, 1000));\n  }\n  throw new Error("Cloud computer did not reach the stopped state in time.");\n}\n\nasync function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
+async function waitUntilStopped(ctx: CloudComputerContext, id: string): Promise<void> {
+  for (let i = 0; i < 40; i++) {
+    const current = await getSandbox(ctx, id);
+    const state = String(current?.state || "").toLowerCase();
+    if (state === "stopped") return;
+    if (/error|failed|deleted|archived/.test(state)) throw new Error(`Cloud computer stop failed (${state}).`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("Cloud computer did not reach the stopped state in time.");
+}\n\nasync function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Promise<SandboxInfo> {
   const state = String(sandbox.state || "").toLowerCase();
   if (state === "started" || state === "running") return sandbox;
   await providerRequest(ctx, `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/start`, { method: "POST", body: "{}" });
@@ -343,13 +352,15 @@ export async function cloudComputerOpen(ctx: CloudComputerContext): Promise<Json
 }
 
 export async function cloudComputerStop(ctx: CloudComputerContext): Promise<Json> {
-  // Stopping remains available after a subscription expires so the owner can safely release compute.\n  await assertIdentity(ctx);
+  // Stopping remains available after a subscription expires so the owner can safely release compute.
+  await assertIdentity(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
   if (!row) return { ok: true, state: "not_created" };
   const sandbox = await getSandbox(ctx, row.sandbox_id);
   if (!sandbox) return { ok: true, state: "not_found" };
   await providerRequest(ctx, `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/stop`, { method: "POST", body: "{}" });
+  await waitUntilStopped(ctx, sandbox.id);
   await saveRow(ctx, { ...row, state: "stopped" });
   return { ok: true, state: "stopped", persistent: true };
 }
@@ -508,6 +519,15 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     const read = await cloudComputerReadFile(ctx, marker);
     if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("File bytes did not round-trip.");
     return marker;
+  });
+  await check("stop and resume without losing data", async () => {
+    const before = await openSandbox(ctx);
+    await cloudComputerStop(ctx);
+    const after = await openSandbox(ctx);
+    const read = await cloudComputerReadFile(ctx, marker);
+    if (before.sandbox.id !== after.sandbox.id) throw new Error("The resumed computer has a different sandbox id.");
+    if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("The persistent disk did not preserve the test file.");
+    return { sandboxIdUnchanged: true, filePreserved: true };
   });
   await check("desktop services start", async () => {
     const { sandbox } = await openSandbox(ctx);
