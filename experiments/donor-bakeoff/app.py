@@ -523,8 +523,9 @@ def status() -> str:
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
             "model_native_outputs": CONFIG.get("model_native_outputs", {"image": False, "audio": False, "video": False}),
-            "runtime_generation_capabilities": CONFIG.get("runtime_generation_capabilities", {"image": False, "audio": False, "video": False}),
-            "generation_note": "The current llama.cpp MTMD benchmark runner does not expose native image, audio, or video generation. A model's advertised native output is reported separately from what this runtime can actually execute.",
+            "runtime_generation_capabilities": {"image": isinstance(CONFIG.get("image_generation"), dict), "audio": False, "video": False},
+            "image_generation_assignment": {k: v for k, v in (CONFIG.get("image_generation") or {}).items() if k in {"for_candidate", "model_repo", "studio_api", "expected_checkpoint_sha256"}},
+            "generation_note": "Image creation is routed only through this candidate's own dedicated private ModelScope image-weight Studio. Audio/video output are not enabled in this candidate bake-off.",
             "runtime_resources": _resource_snapshot(STATE.get("server_pid")),
             "server_exit_code": STATE.get("server_process").poll() if STATE.get("server_process") is not None else None,
             "error": STATE["error"],
@@ -1200,6 +1201,7 @@ def _run_one(test: dict) -> dict:
             if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
         }
         expected_args = {
+            "generate_image": {},
             "github_repo_scan": {"repo": "jonsnow-org/Ttbik"},
             "github_read_files": {
                 "repo": "jonsnow-org/Ttbik",
@@ -1219,6 +1221,29 @@ def _run_one(test: dict) -> dict:
                     return True
             return False
         tool_ok = all(executed_ok(name) for name in expected_tools) if expected_tools else True
+        generation_ok = True
+        generation_summary = []
+        if test["id"] == "image_generation":
+            generation_ok = False
+            output_dir = RUNTIME / "generated-smoke-images"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for item in (result.get("generated_media") or []):
+                if not isinstance(item, dict) or item.get("candidate") != CONFIG.get("route_id"):
+                    continue
+                try:
+                    image_bytes = base64.b64decode(str(item.get("b64") or ""), validate=True)
+                except Exception:
+                    continue
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                if len(image_bytes) < 1000 or metadata.get("result") != "image_generated" or metadata.get("model_repo") != item.get("model_repo") or metadata.get("checkpoint_sha256") != item.get("checkpoint_sha256"):
+                    continue
+                filename = "image-" + str(CONFIG.get("route_id")) + "-" + str(int(time.time())) + ".png"
+                target = output_dir / filename
+                target.write_bytes(image_bytes)
+                generation_summary.append({"filename": filename, "bytes": len(image_bytes), "candidate": item.get("candidate"), "model_repo": item.get("model_repo"), "checkpoint_sha256": item.get("checkpoint_sha256"), "seed": item.get("seed")})
+                generation_ok = True
+                break
+            result["generation_outputs"] = generation_summary
         arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
         letters = len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
         refusal = bool(re.search(
@@ -1234,6 +1259,8 @@ def _run_one(test: dict) -> dict:
                 and "donorTestChat" in text
                 and "scripts" in text
             )
+        elif test["id"] == "image_generation":
+            passed = tool_ok and generation_ok and bool(text.strip())
         elif expected_tools:
             passed = tool_ok and bool(text.strip())
         elif test["id"] == "arabic":
@@ -1282,7 +1309,7 @@ def smoke_test(test_id: str) -> str:
         "media_capabilities": state["media"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "result": result,
-        "note": "The isolated runner executes public read-only GitHub repository listing/file reads and a latest GitHub commit status emitted by the Vercel integration; the status is the Vercel GitHub check, not arbitrary Vercel control-plane settings. Media input passes only mean the ingestion and inference pipeline completed, not a semantic score. This llama.cpp runner does not generate image/audio/video output.",
+        "note": "Image generation uses only this candidate's dedicated private ModelScope image Studio. The tool result is verified against that candidate's model repo and checkpoint hash. Audio/video output are not enabled here.",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1319,6 +1346,7 @@ def chat_with_media(prompt, image_path, audio_path, video_path, history):
     transcript = _format_chat_history(history or [], result, attachments)
     summary = {
         "text": result.get("text"),
+        "generated_media": [{k: v for k, v in item.items() if k != "b64"} for item in (result.get("generated_media") or [])],
         "tool_calls": result.get("tool_calls"),
         "executed_tools": result.get("executed_tools"),
         "media_attached": result.get("media_attached"),
