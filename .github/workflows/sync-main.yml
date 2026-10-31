@@ -19,6 +19,7 @@ jobs:
   ff:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,3 +46,41 @@ jobs:
               exit 1
             fi
           fi
+      - name: Wait for Oracle to report the synced main commit and a healthy site build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORACLE="https://89-168-89-15.sslip.io"
+          MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          EXPECTED="${MAIN_SHA:0:8}"
+          echo "Waiting for Oracle to pull main commit $EXPECTED and finish its site build."
+          for attempt in $(seq 1 45); do
+            code=$(curl -sS --connect-timeout 8 --max-time 20 -o oracle-status.json -w '%{http_code}' "$ORACLE/api/ops/oracle-status" || true)
+            if [ "$code" = "200" ]; then
+              readarray -t status < <(python3 - <<'PY'
+          import json
+          d=json.load(open("oracle-status.json",encoding="utf-8"))
+          commit=str(d.get("commit") or "")
+          age=d.get("report_age_min")
+          site=str((d.get("site") or {}).get("status") or "")
+          print(commit)
+          print(str(age if age is not None else ""))
+          print(site)
+          PY
+              )
+              got="${status[0]:-}"
+              age="${status[1]:-}"
+              site="${status[2]:-}"
+              echo "Oracle report: commit=$got report_age_min=$age site_status=$site (attempt $attempt/45)"
+              if [ "$got" = "$EXPECTED" ] && [ -n "$age" ] && [ "$age" -le 10 ] && [[ "$site" == *" OK "* ]]; then
+                echo "Oracle is serving the synced main commit and reports a successful site build."
+                exit 0
+              fi
+            else
+              echo "Oracle status endpoint HTTP $code (attempt $attempt/45)"
+            fi
+            sleep 20
+          done
+          echo "::error::Oracle did not confirm the synced main commit and a healthy site build within 15 minutes."
+          if [ -f oracle-status.json ]; then cat oracle-status.json; fi
+          exit 1

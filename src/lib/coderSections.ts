@@ -33,6 +33,7 @@ import { defaultTz } from "@/lib/coderCron";
 import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
 import { DONOR_TESTS, donorTestChat, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
+import { IMAGE_GENERATION_TESTS, isImageGenerationTestId, startImageGenerationTest, stopImageGenerationTest, type ImageGenerationTestId } from "@/lib/imageGenerationTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -54,7 +55,7 @@ export type Run = {
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>>; imageTestModel?: ImageGenerationTestId; imageTestInFlight?: Partial<Record<ImageGenerationTestId, string>>; imageTestJobs?: Partial<Record<ImageGenerationTestId, { runId: string; prompt: string; seed: number; eventId?: string; attempt: number }>> };
 export type { Db };
 export { coderChatKey };
 
@@ -320,15 +321,19 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     : preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
       ? preloadedOwnerState.donorTestModel
       : null;
+  const selectedImageTest = owner && preloadedOwnerState?.imageTestModel && isImageGenerationTestId(preloadedOwnerState.imageTestModel)
+    ? preloadedOwnerState.imageTestModel
+    : null;
   const donorPickerAction = Boolean(
     update.callback_query && (
       String(update.callback_query.data || "").startsWith("donor_model|") ||
       String(update.callback_query.data || "").startsWith("model_pick|")
     )
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
+  const imagePickerAction = Boolean(update.callback_query && String(update.callback_query.data || "").startsWith("image_model|"));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
+  if (!coderEnabled() && !selectedDonor && !selectedImageTest && !donorPickerAction && !imagePickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -376,10 +381,32 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
         return true;
       }
       state.donorTestModel = undefined;
+      state.imageTestModel = undefined;
       await saveStateStrict(chatId, state, db);
       await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
       const selected = models.find((m) => m.id === id);
       await send(bot, chatId, "✅ النموذج المحدد: " + (selected?.name.ar || id) + ". كل الرسائل التالية ستذهب إلى مساره فقط، دون تحويلها إلى نموذج آخر.");
+      return true;
+    }
+    if (data.startsWith("image_model|")) {
+      if (!owner) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "اختبار توليد الصور متاح للمالك فقط.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const id = data.slice("image_model|".length);
+      if (id !== "off" && !isImageGenerationTestId(id)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "مرشح الصور غير معروف.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const state = await loadStateStrict(chatId, db);
+      state.imageTestModel = id === "off" ? undefined : id as ImageGenerationTestId;
+      state.donorTestModel = undefined;
+      await saveStateStrict(chatId, state, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: id === "off" ? "تم إيقاف اختبار الصور." : "تم اختيار مرشح الصور." }).catch(() => null);
+      const selected = id === "off" ? "النموذج المعتاد" : (IMAGE_GENERATION_TESTS.find((x) => x.id === id)?.name.ar || id);
+      await bot.api.sendMessage(chatId, id === "off"
+        ? "↩️ تم إيقاف وضع اختبار الصور. عاد مسار المحادثة إلى اختيار النموذج المعتاد."
+        : "🖼️ تم اختيار " + selected + ". أرسل وصف الصورة كنص، وسيُرسل إلى الاستديو الخاص بهذا المرشح فقط دون تحويله إلى نموذج آخر.");
       return true;
     }
     if (data.startsWith("donor_model|")) {
@@ -394,6 +421,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       }
       const state = await loadStateStrict(chatId, db);
       state.donorTestModel = id === "off" ? undefined : id as DonorTestId;
+      state.imageTestModel = undefined;
       await saveStateStrict(chatId, state, db);
       await bot.api.answerCallbackQuery(cq.id, { text: id === "off" ? "تم إيقاف اختبار المرشح." : "تم اختيار المرشح." }).catch(() => null);
       const selected = id === "off" ? "النموذج المعتاد" : (DONOR_TESTS.find((x) => x.id === id)?.name.ar || id);
@@ -483,7 +511,17 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       const label = model.name.ar + (model.ownerOnly ? " · خاص" : "");
       keyboard.text(((preloadedOwnerState?.model || "coder") === model.id) ? "✓ " + label : label, "model_pick|" + model.id).row();
     }
-    await send(bot, chatId, "🤖 اختر النموذج الرئيسي. كل اختيار يوجّه الرسائل إلى مساره الخاص فقط.", { reply_markup: keyboard });
+    if (ownerOnly) {
+      keyboard.text("🖼️ مرشحو توليد الصور", "image_model|off").row();
+      for (const candidate of IMAGE_GENERATION_TESTS) {
+        const selected = preloadedOwnerState?.imageTestModel === candidate.id;
+        keyboard.text((selected ? "✓ " : "") + candidate.name.ar, "image_model|" + candidate.id).row();
+      }
+      keyboard.text("↩️ إيقاف اختبار الصور", "image_model|off").row();
+    }
+    await send(bot, chatId, ownerOnly
+      ? "🤖 اختر نموذج المحادثة المعتاد أو مرشح توليد الصور للاختبار. مرشحو الصور خاصون بالمالك ومساراتهم مستقلة."
+      : "🤖 اختر النموذج الرئيسي. كل اختيار يوجّه الرسائل إلى مساره الخاص فقط.", { reply_markup: keyboard });
     return true;
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
@@ -531,6 +569,33 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
+    return true;
+  }
+  if (owner && st.imageTestModel && isImageGenerationTestId(st.imageTestModel)) {
+    const imageId = st.imageTestModel;
+    if (cmd === "/start" || cmd === "/help") {
+      await send(bot, chatId, "🖼️ وضع اختبار الصور نشط: " + (IMAGE_GENERATION_TESTS.find((x) => x.id === imageId)?.name.ar || imageId) + ". أرسل وصفاً نصياً للصورة. استخدم /models لتغيير المرشح أو /stop لإيقاف إرسال النتيجة.");
+      return true;
+    }
+    if (cmd === "/stop") {
+      const stopped = await stopImageGenerationTest(chatId, db);
+      await send(bot, chatId, stopped ? "⏹️ أوقفت إرسال نتيجة التوليد. قد يواصل الاستديو الحساب حتى ينتهي طلبه." : "لا يوجد توليد نشط لإيقافه.");
+      return true;
+    }
+    if (cmd === "/new") {
+      await send(bot, chatId, "🆕 لا يحتفظ اختبار الصور بسجل محادثة؛ أرسل وصفاً جديداً لبدء توليد مستقل.");
+      return true;
+    }
+    if (!text) {
+      await send(bot, chatId, "أرسل وصف الصورة كنص حتى يرسله المرشح المختار إلى مولّد الصور الخاص به.");
+      return true;
+    }
+    try {
+      await startImageGenerationTest(bot, chatId, text, botRow.id, db, imageId, globalThis.fetch, botRow.webhookSecret || "");
+    } catch (error) {
+      const message = String((error as Error)?.message || error).slice(0, 700);
+      await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
+    }
     return true;
   }
   if (owner && (isDonorTestId(st.model || "") || (st.donorTestModel && isDonorTestId(st.donorTestModel)))) {

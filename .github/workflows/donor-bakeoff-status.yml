@@ -1,5 +1,5 @@
-# Refresh ModelScope state after isolated runner r7 rollout.
-name: "Read-only status of isolated donor Studios — live post-r7 refresh"
+# Read-only live ModelScope status after isolated runner r8 rollout.
+name: "Read-only status of isolated donor Studios — live post-r8 refresh"
 # Status only: never deploys, restarts, or changes candidate models.
 on:
   push:
@@ -82,7 +82,7 @@ jobs:
                       except Exception: continue
                   if isinstance(item,dict) and item.get("phase"):
                       payload.update(item)
-                      payload["expected_app_revision"] = "donor-bakeoff-2026-10-30-r7"
+                      payload["expected_app_revision"] = "donor-bakeoff-2026-10-30-r8"
                       payload["snapshot_commit"] = os.environ.get("GITHUB_SHA", "")
                       payload["ready_for_bot"] = payload.get("phase") == "ready" and payload.get("app_revision") == payload["expected_app_revision"]
                       break
