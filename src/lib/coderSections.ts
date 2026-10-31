@@ -1006,6 +1006,34 @@ export async function startDonorTestTelegramTask(
   return { runId, queued: false };
 }
 
+/**
+ * Persist a candidate response delivered asynchronously by its private ModelScope Studio.
+ * This is used when image generation outlives Vercel's 60-second Telegram webhook limit.
+ */
+export async function recordDonorAsyncDelivery(
+  chatId: number,
+  runId: string,
+  id: DonorTestId,
+  prompt: string,
+  answer: string,
+  db: Db = prismaDb,
+): Promise<boolean> {
+  if (!isDonorTestId(id)) return false;
+  const st = await loadStateStrict(chatId, db);
+  if (st.donorTestInFlight?.[id] !== runId) return false;
+  const current: DonorHistoryMessage[] = [
+    ...(st.donorTestHistory?.[id] || []),
+    { role: "user", content: String(prompt || "").slice(0, 12_000) },
+    { role: "assistant", content: String(answer || "").slice(0, 4_000) },
+  ];
+  st.donorTestHistory = { ...(st.donorTestHistory || {}), [id]: current.filter((x) => Boolean(x.content)).slice(-16) };
+  const active = { ...(st.donorTestInFlight || {}) };
+  delete active[id];
+  st.donorTestInFlight = active;
+  await saveStateStrict(chatId, st, db);
+  return true;
+}
+
 async function runDonorTestTask(
   chatId: number,
   runId: string,
