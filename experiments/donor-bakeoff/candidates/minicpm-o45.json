@@ -7,7 +7,7 @@
   "family": "MiniCPM-o",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.03,
-  "context_tokens": 2048,
+  "context_tokens": 4096,
   "max_output_tokens": 768,
   "model_native_outputs": {
     "image": false,

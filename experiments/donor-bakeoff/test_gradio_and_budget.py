@@ -88,3 +88,30 @@ class CandidateImageSettings(unittest.TestCase):
             res = conf["image_generation"]["resolution"]
             app = (here.parent / studio / "app.py").read_text(encoding="utf-8")
             self.assertIn('"' + res + '"', app, f"{cand}: '{res}' is not a choice of {studio}")
+
+
+class TextToolFallback(unittest.TestCase):
+    def test_payload_has_no_tools_field_and_turns_become_text(self):
+        s = load("_text_tools_system", "_text_tool_payload")
+        tools = [{"type": "function", "function": {"name": "github_repo_scan", "description": "scan", "parameters": {"type": "object"}}}]
+        options = {"model": "m", "max_tokens": 50, "tools": tools, "tool_choice": "auto"}
+        messages = [
+            {"role": "user", "content": "scan it"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "1", "type": "function", "function": {"name": "github_repo_scan", "arguments": {"repo": "a/b"}}}]},
+            {"role": "tool", "tool_call_id": "1", "name": "github_repo_scan", "content": "{\"ok\": true}"},
+        ]
+        body = s["_text_tool_payload"](options, messages)
+        self.assertNotIn("tools", body)
+        self.assertNotIn("tool_choice", body)
+        self.assertEqual(body["messages"][0]["role"], "system")
+        self.assertIn("github_repo_scan", body["messages"][0]["content"])
+        self.assertIn("<tool_call>", body["messages"][2]["content"])
+        self.assertEqual(body["messages"][3]["role"], "user")
+        self.assertIn("{\"ok\": true}", body["messages"][3]["content"])
+        self.assertTrue(all(m["role"] in ("system", "user", "assistant") for m in body["messages"]))
+
+    def test_the_text_call_form_is_what_the_parser_reads(self):
+        from tool_parsing import parse_tool_calls
+        calls = parse_tool_calls({"content": "<tool_call>{\"name\": \"github_repo_scan\", \"arguments\": {\"repo\": \"a/b\"}}</tool_call>"})
+        self.assertEqual(calls[0]["name"], "github_repo_scan")
+        self.assertEqual(calls[0]["arguments"], {"repo": "a/b"})

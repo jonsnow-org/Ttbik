@@ -792,6 +792,41 @@ def _approx_tokens(text: str) -> int:
     return int(len(text) / 2.4) + 1
 
 
+def _text_tools_system(tools: list) -> str:
+    """For a runtime whose chat template cannot take a `tools` list (MiniCPM answered every such request with HTTP 500): the tools are described in
+    plain text and the model answers with <tool_call>{...}</tool_call>, which tool_parsing.py already reads. The model still decides when to call."""
+    lines = []
+    for item in tools:
+        fn = item.get("function") or {}
+        lines.append("- " + str(fn.get("name")) + ": " + str(fn.get("description") or "")[:260] + " | parameters: " + json.dumps(fn.get("parameters") or {}, ensure_ascii=False)[:420])
+    return (
+        "You can call these tools when they are needed:\n" + "\n".join(lines) +
+        "\nTo call a tool answer ONLY with <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call> and wait for the result. "
+        "Never claim a tool ran unless its result was returned to you."
+    )
+
+
+def _text_tool_payload(options: dict, messages: list) -> dict:
+    """The same conversation without the `tools` field: tool calls and results become ordinary text turns."""
+    wire = []
+    for m in messages:
+        role = m.get("role")
+        if role == "assistant" and m.get("tool_calls"):
+            calls = "".join(
+                "<tool_call>" + json.dumps({"name": c["function"]["name"], "arguments": c["function"]["arguments"]}, ensure_ascii=False) + "</tool_call>"
+                for c in m["tool_calls"]
+            )
+            wire.append({"role": "assistant", "content": (str(m.get("content") or "") + calls)})
+        elif role == "tool":
+            wire.append({"role": "user", "content": "[tool result: " + str(m.get("name")) + "]\n" + str(m.get("content") or "")})
+        else:
+            wire.append({"role": role, "content": m.get("content") if m.get("content") is not None else ""})
+    wire.insert(0, {"role": "system", "content": _text_tools_system(options.get("tools") or [])})
+    body = {k: v for k, v in options.items() if k not in ("tools", "tool_choice")}
+    body["messages"] = wire
+    return body
+
+
 def _fit_tool_result(tool_result, messages: list, options: dict, call_count: int) -> str:
     """A tool result is cut to what the context window still has room for (the prompt, the tool schemas and the answer to come are counted first),
     instead of a fixed 8000 characters that overflows a 2048-token window. The cut keeps the start and the end and says so."""
@@ -1029,6 +1064,7 @@ def infer(
         executed_tools = []
         generated_media = []
         pending_calls = []
+        text_tool_mode = False
         choice_item = {}
         choice = {}
         # The model chooses when and which tool to call. Only allowlisted read-only
@@ -1036,9 +1072,12 @@ def infer(
         for tool_round in range(4):
             response = requests.post(
                 SERVER_BASE + "/v1/chat/completions",
-                json={**options, "messages": messages},
+                json=_text_tool_payload(options, messages) if text_tool_mode else {**options, "messages": messages},
                 timeout=(10, 240),
             )
+            if response.status_code >= 500 and options.get("tools") and not text_tool_mode:
+                text_tool_mode = True      # this runtime's chat template cannot take a tools list: describe the tools in text instead
+                response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, 240))
             response.raise_for_status()
             data = response.json()
             choice_item = (data.get("choices") or [{}])[0]
