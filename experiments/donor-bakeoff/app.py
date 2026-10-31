@@ -113,6 +113,25 @@ TOOLS = [
     },
 ]
 
+IMAGE_GENERATION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "generate_image",
+        "description": "Create an actual image using ONLY this candidate's own dedicated private ModelScope image-weight Studio. Call it when the user asks to generate an image. Do not claim success without a returned image file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string"},
+                "negative_prompt": {"type": "string"},
+                "seed": {"type": "integer"}
+            },
+            "required": ["prompt"],
+            "additionalProperties": False
+        }
+    }
+}
+
+
 TESTS = [
     {
         "id": "arabic",
@@ -172,6 +191,14 @@ TESTS = [
         "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي.",
         "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
         "max_tokens": 760,
+        "temperature": 0.0,
+    },
+    {
+        "id": "image_generation",
+        "label": "توليد صورة فعلية من الوزن الخاص بالمرشح",
+        "prompt": "أنشئ صورة فوتوغرافية واقعية لمشهد شارع حجري هادئ بعد المطر عند ضوء النهار. استخدم أداة generate_image فعلياً، ولا تقل إن الصورة أُنشئت ما لم تُرجع الأداة ملف الصورة.",
+        "tool": "generate_image",
+        "max_tokens": 180,
         "temperature": 0.0,
     },
     {
@@ -939,6 +966,9 @@ def infer(
         }
         if use_tools:
             by_name = {item["function"]["name"]: item for item in TOOLS}
+            if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
+                by_name["generate_image"] = IMAGE_GENERATION_TOOL
+                messages.insert(0, {"role": "system", "content": "When the user requests image creation, call generate_image using this candidate's own private image Studio. Do not claim success without a returned image."})
             if isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
                 for item in tool_bridge["tools"]:
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
@@ -948,6 +978,7 @@ def infer(
         started = time.monotonic()
         token_count = 0
         executed_tools = []
+        generated_media = []
         pending_calls = []
         choice_item = {}
         choice = {}
@@ -979,6 +1010,9 @@ def infer(
                 arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
                 call_id = "call_" + uuid.uuid4().hex[:16]
                 tool_result = _execute_tool(name, arguments, tool_bridge)
+                generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
+                if isinstance(generated, dict):
+                    generated_media.append(generated)
                 executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
                 assistant_calls.append({
                     "id": call_id,
@@ -1003,6 +1037,7 @@ def infer(
             "text": output,
             "tool_calls": pending_calls,
             "executed_tools": executed_tools,
+            "generated_media": generated_media,
             "media_attached": media_labels,
             "seconds": round(elapsed, 2),
             "completion_tokens": token_count,
