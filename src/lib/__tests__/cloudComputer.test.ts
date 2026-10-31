@@ -68,7 +68,8 @@ function providerFetch() {
       }
       if (url.pathname.startsWith("/sandbox/")) {
         const tail = decodeURIComponent(url.pathname.slice("/sandbox/".length));
-        const sandbox = sandboxes.get(tail) || [...sandboxes.values()].find((item) => item.name === tail);
+        const idOrName = tail.split("/")[0];
+        const sandbox = sandboxes.get(idOrName) || [...sandboxes.values()].find((item) => item.name === idOrName);
         if (!sandbox) return new Response("not found", { status: 404 });
         if (url.pathname.endsWith("/stop") && method === "POST") {
           sandbox.state = "stopped";
