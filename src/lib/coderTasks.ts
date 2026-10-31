@@ -6,13 +6,14 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
-export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "all";
+export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "qwen35-9b" | "gemma4-e4b" | "minicpmo45" | "all";
 export const shamTaskSlot = (variant: "v1" | "v2"): string => variant === "v2" ? "sham_v2" : "sham_v1";
 function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column = "slot"): void {
   if (!model || model === "all") return;
   if (model === "coder") where.push(`(${column} = '' OR ${column} LIKE 's:%')`);
   else if (model === "sham_v2") where.push(`${column} = 'sham_v2'`);
-  else where.push(`${column} IN ('sham_v1', 'sham')`);
+  else if (model === "sham") where.push(`${column} IN ('sham_v1', 'sham')`);
+  else where.push(`${column} = 'model:${model}'`);
 }
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
