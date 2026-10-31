@@ -1025,7 +1025,7 @@ async function donorHandOff(botRow: BotRow, chatId: number, state: DonorChain): 
   const res = await fetch(`${selfUrl()}/api/coder/donor-continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000), cache: "no-store" });
   if (res.status !== 202) throw new Error(`donor continuation was not accepted (HTTP ${res.status})`);
 }
-export type DonorChain = { runId: string; id: DonorTestId; jobId: string; prompt: string; surface: "telegram" | "app"; started: number; botId: string };
+export type DonorChain = { runId: string; id: DonorTestId; jobId: string; prompt: string; surface: "telegram" | "app"; started: number; botId: string; hadMedia?: boolean; retried?: boolean };
 
 export async function continueDonorRun(botRow: BotRow, chatId: number, chain: DonorChain, db: Db = prismaDb, fetchImpl: typeof fetch = globalThis.fetch): Promise<void> {
   const st = await loadState(chatId, db);
@@ -1053,7 +1053,7 @@ async function runDonorTestTask(
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
     const jobId = await donorJobStart(id, prompt, prior, media, { chatId, db, runId, botId }, fetchImpl);
-    await followDonorJob(chatId, { runId, id, jobId, prompt, surface, started: Date.now(), botId: botId || "" }, prior, db, fetchImpl, bot);
+    await followDonorJob(chatId, { runId, id, jobId, prompt, surface, started: Date.now(), botId: botId || "", hadMedia: Boolean(media) }, prior, db, fetchImpl, bot);
   } catch (error) {
     await failDonorRun(chatId, runId, id, label, error, db, bot, surface);
   }
@@ -1078,7 +1078,7 @@ async function failDonorRun(chatId: number, runId: string, id: DonorTestId, labe
 async function followDonorJob(
   chatId: number, chain: DonorChain, prior: DonorHistoryMessage[], db: Db, fetchImpl: typeof fetch, bot?: TelegramBot, botRow?: BotRow,
 ): Promise<void> {
-  const { runId, id, jobId, prompt, surface } = chain;
+  const { runId, id, prompt, surface } = chain;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   const legEnd = Date.now() + DONOR_LEG_MS(surface);
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
@@ -1089,7 +1089,7 @@ async function followDonorJob(
     while (true) {
       if (!(await taskIsActive(runId, db))) return;
       try {
-        result = await donorJobPoll(id, jobId, fetchImpl);
+        result = await donorJobPoll(id, chain.jobId, fetchImpl);
         pollFailures = 0;
       } catch (error) {
         // A reset connection or a Studio gateway hiccup: the job keeps running inside the Studio. Only a long outage is reported.
@@ -1098,7 +1098,15 @@ async function followDonorJob(
         result = null;
       }
       if (result?.state === "done") break;
-      if (result?.state === "unknown") throw new Error("فقد الاستوديو هذه المهمة (أُعيد تشغيله). أعد إرسال الطلب.");
+      if (result?.state === "unknown") {
+        // The Studio restarted and lost the running job. A text request is started again once, automatically; one with an attachment needs the user to resend it.
+        if (chain.retried || chain.hadMedia) throw new Error("فقد الاستوديو هذه المهمة (أُعيد تشغيله). أعد إرسال الطلب.");
+        await taskEvent(runId, "info", "↻ أُعيد تشغيل استوديو النموذج أثناء الطلب؛ أعيد إرساله تلقائياً مرة واحدة.", db);
+        chain = { ...chain, jobId: await donorJobStart(id, prompt, prior, undefined, { chatId, db, runId, botId: chain.botId || undefined }, fetchImpl), retried: true };
+        pollFailures = 0;
+        await donorPause(4_000);
+        continue;
+      }
       if (Date.now() - chain.started > DONOR_TOTAL_MS) throw new Error("تجاوز الطلب الحد الأقصى للمدة (40 دقيقة).");
       if (Date.now() >= legEnd) {
         let row = botRow || null;
