@@ -5,6 +5,7 @@ import { tierFor } from "@/lib/coderAuth";
 import { verifyDonorToolTicket } from "@/lib/donorToolBridge";
 import { photoWeightProfile } from "@/lib/photoWeightMedia";
 import { taskEvent, taskIsActive, taskStatus } from "@/lib/coderTasks";
+import { recordDonorAsyncDelivery } from "@/lib/coderSections";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
       }
       await taskEvent(ticket.runId, "info", "✅ تم تسليم الصورة من الوزن المستقل " + profile.sourceModel + " إلى محادثة المرشح " + ticket.model + ".");
     }
+    await recordDonorAsyncDelivery(chatId, ticket.runId, ticket.model as "qwen35-9b" | "gemma4-e4b" | "minicpmo45", String(body.prompt || ""), text).catch(() => false);
     await taskEvent(ticket.runId, "done", "اكتمل رد المرشح وتسليم الوسائط من استوديوه المخصص.");
     await taskStatus(ticket.runId, "done");
     return NextResponse.json({ ok: true, delivered: true, media_count: prepared.length }, { headers: { "Cache-Control": "no-store" } });
