@@ -566,6 +566,46 @@ export async function cloudComputerTerminalInput(ctx: CloudComputerContext, sess
   return { ok: true, sessionId: expected };
 }
 
+/** Mint a short-lived, port-scoped Daytona token for the browser's direct PTY WebSocket.
+ * The project API key never leaves this server. The token is limited to this user's selected VM toolbox port.
+ */
+export async function cloudComputerTerminalTicket(ctx: CloudComputerContext, sessionId: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
+  const expected = terminalSessionId(identity.chatKey);
+  if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
+  const { sandbox } = await openSandbox(ctx);
+  await ensureTerminalPty(ctx, sandbox);
+  const preview = await providerRequest<Json>(
+    ctx,
+    `${apiBase()}/sandbox/${encodeURIComponent(sandbox.id)}/ports/2280/preview-url`,
+  );
+  const scopedToken = String(preview?.token || "").trim();
+  if (!scopedToken) throw new Error("Daytona did not return a port-scoped terminal access token.");
+  const proxy = String(sandbox.toolboxProxyUrl || terminalToolboxBase()).replace(/\\/+$/, "");
+  const wsBase = proxy.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
+  const url = `${wsBase}/${encodeURIComponent(sandbox.id)}/processes/${encodeURIComponent(expected)}/attach?rlp_token=${encodeURIComponent(scopedToken)}`;
+  return { url, transport: "websocket", expiresAt: preview?.expiresAt || null, sandboxId: sandbox.id, sessionId: expected };
+}
+
+/** Forward xterm's measured dimensions to the PTY so TUI applications receive SIGWINCH. */
+export async function cloudComputerTerminalResize(ctx: CloudComputerContext, sessionId: string, cols: number, rows: number): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
+  const expected = terminalSessionId(identity.chatKey);
+  if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
+  const c = Math.max(20, Math.min(300, Math.floor(Number(cols) || 0)));
+  const r = Math.max(5, Math.min(120, Math.floor(Number(rows) || 0)));
+  if (!c || !r) throw new Error("Terminal dimensions are invalid.");
+  const { sandbox } = await openSandbox(ctx);
+  await ensureTerminalPty(ctx, sandbox);
+  const result = await terminalRequest<Json>(ctx, sandbox, `/processes/${encodeURIComponent(expected)}/resize`, {
+    method: "POST",
+    body: JSON.stringify({ cols: c, rows: r }),
+  });
+  return { ok: true, cols: c, rows: r, terminal: result?.terminal || { cols: c, rows: r } };
+}
+
 export async function cloudComputerExecute(ctx: CloudComputerContext, command: string, cwd?: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<Json> {
   await requireComputeAllowance(ctx);
   const text = String(command || "").trim();
