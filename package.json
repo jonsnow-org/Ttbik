@@ -22,6 +22,7 @@
     "@ton/ton": "^16.3.0",
     "@vercel/functions": "^3.9.9",
     "@vercel/sandbox": "^3.8.0",
+    "@xterm/xterm": "^6.0.0",
     "adhan": "^4.4.6",
     "framer-motion": "^11.18.2",
     "grammy": "^1.46.0",
