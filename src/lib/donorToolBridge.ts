@@ -80,7 +80,7 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
     if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
     if (parsed.runId !== undefined && (typeof parsed.runId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.runId))) return null;
     if (parsed.runId !== undefined && (typeof parsed.botId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.botId))) return null;
-    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 16 * 60_000) return null;
+    if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 31 * 60_000) return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.length < 12) return null;
     return parsed;
   } catch {
@@ -112,7 +112,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
     model,
     connectors: available,
     ...(runId ? { runId, botId } : {}),
-    exp: Date.now() + 14 * 60_000,
+    exp: Date.now() + 29 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
   return { url, ticket, model, run_id: runId || "", bot_id: botId || "", connectors: available, tools };

@@ -1332,7 +1332,7 @@ def infer(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
 
-def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str) -> tuple[bool, str]:
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str, failed: bool = False) -> tuple[bool, str]:
     if not isinstance(tool_bridge, dict):
         return False, "no signed owner task ticket"
     ticket = str(tool_bridge.get("ticket") or "")
@@ -1387,6 +1387,7 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
                 "prompt": str(prompt or "")[:12000],
                 "text": str(result.get("text") or "")[:12000],
                 "generated_media": outgoing_media,
+                "failed": bool(failed),
             },
             headers={"Cache-Control": "no-store"},
             timeout=(8, 28),
@@ -1449,6 +1450,9 @@ def chat_payload(payload_json: str) -> str:
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],
         )
+        if "error" in result and bridge:
+            # The Vercel request that started this may be long gone (60 s webhook limit): tell the chat instead of failing silently.
+            _deliver_candidate_result(bridge, {"text": "⚠️ تعذّر إكمال الطلب: " + str(result.get("error"))[:600]}, str(payload.get("prompt") or ""), failed=True)
         if "error" not in result and bridge:
             delivered, delivery_error = _deliver_candidate_result(bridge, result, str(payload.get("prompt") or ""))
             result["delivered_to_telegram"] = delivered
