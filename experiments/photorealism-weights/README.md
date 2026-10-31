@@ -16,9 +16,10 @@ This directory is an evaluation plan, not a production routing change.
 
 | ID | Exact checkpoint | Architecture | Photographic use | Package / resource notes | Decision |
 |---|---|---|---|---|---|
-| RV6 | `SG161222/Realistic_Vision_V6.0_B1_noVAE` | SD 1.5 | Baseline photoreal human portraits and scenes | 2.13-GB FP16 checkpoint + separately verified MSE VAE; already staged in `novaai2026/realistic-vision-v6-test-models` and served by its own Studio | Existing baseline; keep isolated |
-| CYBER-FINAL | `cyberdelia/CyberRealistic` → `CyberRealistic_FINAL_FP16.safetensors` | SD 1.5 | Author-described photorealistic human portraits/scenes; baked VAE | About 1.99 GiB FP16; no second VAE should be silently substituted. Author documents DPM++ SDE Karras / DPM++ 2M Karras, 30 steps, CFG 5, 512×768 | Next low-memory candidate; verify exact official file hash before staging |
-| EPIC | `emilianJR/epiCRealism` | SD 1.5 Diffusers | Natural-light / RAW-photo portrait and lifestyle examples | OpenRAIL-M; Diffusers pipeline; approx. 0.9B parameters. UNet safetensors is about 3.44 GB, plus text encoder and VAE; test memory use before deployment | Distinct third SD 1.5 style; lower priority due age and larger complete package |
+| RV6 | `SG161222/Realistic_Vision_V6.0_B1_noVAE` | SD 1.5 | Baseline photoreal human portraits and scenes | 2.13-GB FP16 checkpoint + separately verified MSE VAE; already staged in `novaai2026/realistic-vision-v6-test-models` | **Assigned to Gemma 4 E4B** — previous generation success; do not repeat the generation test |
+| CYBER-FINAL | `cyberdelia/CyberRealistic` → `CyberRealistic_FINAL_FP16.safetensors` | SD 1.5 | Author-described photorealistic human portraits/scenes; baked VAE | About 1.99 GiB FP16; no second VAE should be silently substituted. Author documents DPM++ SDE Karras / DPM++ 2M Karras, 30 steps, CFG 5, 512×768 | **Assigned to Qwen3.5-9B** — previous generation success; exact checkpoint hash pinned; do not repeat the generation test |
+| UMRANZ | `Umranz/SD1.5-Uncensored-Photoreal` | SD 1.5 | Photorealistic people and scenes | Staged in `novaai2026/umranz-sd15-test-models`; prior Studio launch failed before a verified sample was produced | **Assigned to MiniCPM-o 4.5** — repair/restart the Studio and retest; not yet counted as successful |
+| EPIC | `emilianJR/epiCRealism` | SD 1.5 Diffusers | Natural-light / RAW-photo portrait and lifestyle examples | OpenRAIL-M; Diffusers pipeline; approx. 0.9B parameters. UNet safetensors is about 3.44 GB, plus text encoder and VAE; test memory use before deployment | Unassigned reserve for phase 2; earlier download/deployment issue must be fixed before testing |
 | REALVISXL | `SG161222/RealVisXL_V5.0` | SDXL | Clean, natural photoreal portraits and scenes; higher native detail | FP16 single checkpoint about 6.94 GB; OpenRAIL++; SDXL. Dedicated GPU required; do not try on the free 8-GB CPU Studio | High-resolution tier, pending GPU hardware confirmation |
 | JUGGERNAUT-R | `Kandoo/Juggernaut-XL-Ragnarok` | SDXL | Versatile photoreal people, portraits and cinematic scenes | Official creator upload; 7.1-GB FP16 or 4.54-GB FP8 file; OpenRAIL-M; creator showcase uses 896×1152, 30 steps, CFG 5 for portraits | Optional SDXL comparator after hardware confirmation |
 
@@ -62,7 +63,8 @@ A checkpoint is not accepted from one attractive sample. Require at least three 
 
 ## Current status
 
-- Realistic Vision V6.0 remains a dedicated, isolated baseline.
-- CYBER-FINAL and EPIC are distinct candidates; they have not been mixed into RV6.
-- SDXL candidates remain un-staged until a dedicated non-production GPU tier and its cost are verified.
-- Sham, Sham v2, Nova, and their production media routes are not changed by this test matrix.
+- **Qwen3.5-9B → CyberRealistic FINAL** (previous generation success; keep its saved sample and do not repeat the test).
+- **Gemma 4 E4B → Realistic Vision V6** (previous generation success; keep its saved samples and do not repeat the test).
+- **MiniCPM-o 4.5 → Umranz** (assigned as the next test; Studio must be repaired/restarted before generation can be judged).
+- epiCRealism remains unassigned for phase 2; Juggernaut XL Ragnarok and RealVisXL remain unassigned until a dedicated GPU tier is verified.
+- Nova and Sham v2 have **no new donor-weight assignment during this phase**. They are considered only after the three candidates have been evaluated and any remaining successful weights are known.
