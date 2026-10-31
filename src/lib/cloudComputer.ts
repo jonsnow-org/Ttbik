@@ -431,7 +431,7 @@ function terminalSessionId(chatKey: string): string {
 }
 
 function terminalToolboxBase(): string {
-  return (process.env.DAYTONA_TOOLBOX_V2_URL || "https://toolbox.daytona.com/toolbox").trim().replace(/\\/+$/, "");
+  return (process.env.DAYTONA_TOOLBOX_V2_URL || "https://toolbox.daytona.com/toolbox").trim().replace(/\/+$/, "");
 }
 
 async function terminalRequest<T = any>(
