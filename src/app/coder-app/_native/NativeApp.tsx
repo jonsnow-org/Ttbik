@@ -989,7 +989,7 @@ function TerminalTab({ lang, model }: { lang: Lang; model: string }) {
     void pull();
     const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
     return () => { stopped = true; clearInterval(id); };
-  }, [selected]);
+  }, [selected, model]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
   return (
     <div style={{ padding: "12px", color: "#d1fae5" }}>
@@ -1180,8 +1180,6 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
       {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
       {section === "activity" && <Section header={ar ? "نشاط هذا النموذج" : "Activity for this model"}><TerminalTab lang={lang} model={model} /></Section>}
       {section === "desktop" && <>
-
-      <>
       <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
         footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
         <Cell multiline subtitle={(ar ? "النموذج: " : "Model: ") + model + " · " + (status?.snapshot || (ar ? "لم يُنشأ بعد" : "Not created yet"))}>
@@ -1215,7 +1213,7 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
           {(test.results || []).map((r: any) => <Cell key={r.test} multiline after={r.ok ? "✅" : "❌"} subtitle={r.detail}>{r.test}</Cell>)}
         </Section>
       )}
-      </>
+      </>}
     </List>
   );
 }
