@@ -1023,7 +1023,7 @@ async function runDonorTestTask(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db });
+    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db, runId });
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
@@ -1046,13 +1046,13 @@ async function runDonorTestTask(
       st.donorTestInFlight = active;
       await saveStateStrict(chatId, st, db);
     }
-    if (answer) {
+    if (answer && !result.delivered_to_telegram) {
       for (const piece of splitForTelegram(answer, 3600)) {
         await taskEvent(runId, "text", piece, db);
         if (bot && surface === "telegram") await bot.api.sendMessage(chatId, piece).catch(() => null);
       }
     }
-    const generatedMedia = Array.isArray(result.generated_media) ? result.generated_media : [];
+    const generatedMedia = result.delivered_to_telegram ? [] : (Array.isArray(result.generated_media) ? result.generated_media : []);
     if (generatedMedia.length) {
       const photo = await import("@/lib/photoWeightMedia");
       const assigned = photo.photoWeightProfile(id);
