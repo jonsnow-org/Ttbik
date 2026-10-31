@@ -872,7 +872,7 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("The persistent disk did not preserve the test file.");
     return { sandboxIdUnchanged: true, filePreserved: true };
   });
-  await check("persistent interactive PTY terminal in the same VM", async () => {
+  await check("persistent interactive shell session in the same VM", async () => {
     const opened = await cloudComputerTerminalOpen(ctx);
     const id = String(opened.sessionId || "");
     if (!id) throw new Error("PTY session did not return a stable id.");
