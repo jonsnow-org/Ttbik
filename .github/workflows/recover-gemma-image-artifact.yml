@@ -1,0 +1,128 @@
+name: "Recover the already-generated Gemma private image sample"
+
+on:
+  push:
+    branches:
+      - realistic-vision-v6-isolated-test
+    paths:
+      - .github/workflows/recover-gemma-image-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retrieve the previous generated image without generating again
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, time, urllib.parse, urllib.request
+          from pathlib import Path
+          from PIL import Image
+
+          api = "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net"
+          token = os.environ["T"]
+          expected_repo = "novaai2026/gemma4-realistic-vision-v6-test-models"
+          expected_sha = "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7"
+
+          def request(url, data=None, timeout=60):
+              headers = {"Authorization": "Bearer " + token}
+              payload = None
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+                  payload = json.dumps(data).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers)
+              with urllib.request.urlopen(req, timeout=timeout) as response:
+                  return response.read(), response.headers
+
+          raw, _ = request(api + "/gradio_api/call/status", {"data": []})
+          event_id = str(json.loads(raw).get("event_id") or "")
+          if not event_id:
+              raise SystemExit("Gemma status endpoint returned no event id.")
+          raw, _ = request(api + "/gradio_api/call/status/" + urllib.parse.quote(event_id, safe=""), timeout=60)
+          status_text = raw.decode("utf-8", "replace")
+
+          def walk(value, depth=0):
+              if depth > 12:
+                  return
+              if isinstance(value, str):
+                  try:
+                      yield from walk(json.loads(value), depth + 1)
+                  except Exception:
+                      return
+              elif isinstance(value, dict):
+                  yield value
+                  for child in value.values():
+                      if isinstance(child, (dict, list, str)):
+                          yield from walk(child, depth + 1)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child, depth + 1)
+
+          values = []
+          for line in status_text.splitlines():
+              if line.startswith("data:"):
+                  try:
+                      values.extend(walk(json.loads(line[5:].strip())))
+                  except Exception:
+                      pass
+          state = next((x for x in values if x.get("phase") and x.get("model_repo")), None)
+          if not state:
+              raise SystemExit("Could not read Gemma Studio status.")
+          if state.get("phase") != "ready":
+              raise SystemExit("Gemma Studio is not ready: " + str(state.get("phase")))
+          if state.get("model_repo") != expected_repo or str(state.get("checkpoint_sha256") or "").lower() != expected_sha:
+              raise SystemExit("Gemma Studio model identity/hash mismatch; refusing the artifact.")
+          if str(state.get("vae_sha256") or "").lower() != "735e4c3a447a3255760d7f86845f09f937809baa529c17370d83e4c3758f3c75":
+              raise SystemExit("Gemma Studio VAE hash mismatch; refusing the artifact.")
+          file_path = str(state.get("last_result") or "")
+          if not file_path:
+              raise SystemExit("No prior generated image is saved in Gemma Studio status.")
+          if not file_path.startswith("/"):
+              file_path = "/" + file_path.lstrip("/")
+          if ".." in file_path.split("/"):
+              raise SystemExit("Gemma Studio returned an unsafe stored image path.")
+
+          file_url = api + "/gradio_api/file=" + urllib.parse.quote(file_path, safe="/")
+          image_bytes, headers = request(file_url, timeout=120)
+          mime = headers.get("Content-Type", "").split(";", 1)[0].lower()
+          if not mime.startswith("image/") or len(image_bytes) < 1000:
+              raise SystemExit("Recovered Gemma output is empty or not an image.")
+          out = Path("gemma4-photo-recovered")
+          out.mkdir(exist_ok=True)
+          image_path = out / "gemma4-realistic-vision-smoke.png"
+          image_path.write_bytes(image_bytes)
+          with Image.open(image_path) as image:
+              image.verify()
+          with Image.open(image_path) as image:
+              dimensions = image.size
+
+          report = {
+              "candidate": "gemma4-e4b",
+              "model_repo": state["model_repo"],
+              "checkpoint_sha256": state["checkpoint_sha256"],
+              "vae_sha256": state["vae_sha256"],
+              "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+              "image_bytes": len(image_bytes),
+              "mime": mime,
+              "dimensions": dimensions,
+              "last_generation_seconds": state.get("last_generation_seconds"),
+              "image_checks": state.get("last_image_checks"),
+              "saved_file_in_studio": file_path,
+              "recovery_only": True,
+              "new_generation_performed": False,
+          }
+          (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gemma4-independent-image-smoke-recovered
+          path: gemma4-photo-recovered/
+          retention-days: 30
+          if-no-files-found: error
