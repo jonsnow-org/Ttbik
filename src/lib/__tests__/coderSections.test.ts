@@ -1,6 +1,6 @@
 import { chunkRanges, parseCoderSse, renderRange, splitForTelegram, openFenceAt } from "@/lib/openCoderStudio";
 import { guardCall, githubClient, trimMessages, coderTools, coderSystemPrompt } from "@/lib/coderAgent";
-import { drive, handleCoderSections, loadState, saveState, signContinue, verifyContinue, type Db } from "@/lib/coderSections";
+import { drive, handleCoderSections, loadState, recordDonorAsyncDelivery, saveState, signContinue, verifyContinue, type Db } from "@/lib/coderSections";
 
 const CHAT = 4242;
 const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
@@ -591,5 +591,28 @@ describe("isolated primary candidate route", () => {
       if (originalConnectorKey === undefined) delete process.env.CODER_TOKEN_KEY;
       else process.env.CODER_TOKEN_KEY = originalConnectorKey;
     }
+  });
+});
+
+describe("candidate isolation", () => {
+  it("keeps each candidate's history and in-flight task separate, per candidate and per chat", async () => {
+    const db = memDb();
+    const base = { mode: "coder" as const, think: false, messages: [], notes: "", inbox: [], run: null };
+    await saveState(CHAT, { ...base, model: "qwen35-9b", donorTestInFlight: { "qwen35-9b": "run-q", "gemma4-e4b": "run-g" }, donorTestHistory: { "gemma4-e4b": [{ role: "user", content: "gemma only" }] } } as any, db);
+    await saveState(CHAT + 1, { ...base, model: "gemma4-e4b", donorTestInFlight: { "gemma4-e4b": "run-other-chat" } } as any, db);
+
+    expect(await recordDonorAsyncDelivery(CHAT, "run-q", "qwen35-9b", "سؤال", "جواب qwen", db)).toBe(true);
+    const mine = await loadState(CHAT, db);
+    expect(mine.donorTestHistory?.["qwen35-9b"]?.map((m: any) => m.content)).toEqual(["سؤال", "جواب qwen"]);
+    expect(mine.donorTestHistory?.["gemma4-e4b"]?.map((m: any) => m.content)).toEqual(["gemma only"]);   // untouched
+    expect(mine.donorTestInFlight?.["gemma4-e4b"]).toBe("run-g");                                         // another candidate's task is still running
+    expect(mine.donorTestInFlight?.["qwen35-9b"]).toBeUndefined();
+
+    // a delivery for another chat's run id, or the wrong candidate, changes nothing
+    expect(await recordDonorAsyncDelivery(CHAT, "run-other-chat", "gemma4-e4b", "x", "y", db)).toBe(false);
+    expect(await recordDonorAsyncDelivery(CHAT + 1, "run-q", "qwen35-9b", "x", "y", db)).toBe(false);
+    const other = await loadState(CHAT + 1, db);
+    expect(other.donorTestHistory?.["qwen35-9b"]).toBeUndefined();
+    expect(other.donorTestInFlight?.["gemma4-e4b"]).toBe("run-other-chat");
   });
 });
