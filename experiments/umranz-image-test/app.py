@@ -19,7 +19,7 @@ import gradio as gr
 
 MODEL_ID = "Umranz/SD1.5-Uncensored-Photoreal"
 MODEL_REPO = os.environ.get("PHOTO_MODEL_REPO", "novaai2026/umranz-sd15-test-models")
-APP_REVISION = "umranz-image-test-2026-10-31-r2"
+APP_REVISION = "umranz-image-test-2026-10-31-r3"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "umranz_model_cache"
 OUTPUTS = ROOT / "umranz_outputs"
