@@ -509,7 +509,7 @@ export async function cloudComputerTerminalExecute(ctx: CloudComputerContext, co
   const sessionId = await ensureTerminalPty(ctx, sandbox);
   await terminalRequest(ctx, sandbox, "/processes/" + encodeURIComponent(sessionId) + "/stdin", {
     method: "POST",
-    body: JSON.stringify({ data: text.replace(/\\r?\\n$/, "") + "\\n" }),
+    body: JSON.stringify({ data: text.replace(/\r?\n$/, "") + "\n" }),
   });
   return { ok: true, sessionId };
 }
