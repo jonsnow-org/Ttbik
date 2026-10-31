@@ -570,19 +570,21 @@ export async function cloudComputerTerminalInput(ctx: CloudComputerContext, sess
 /** Mint a short-lived, port-scoped Daytona token for the browser's direct PTY WebSocket.
  * The project API key never leaves this server. The token is limited to this user's selected VM toolbox port.
  */
-export async function cloudComputerTerminalTicket(ctx: CloudComputerContext, sessionId: string): Promise<Json> {
+export async function cloudComputerTerminalTicket(ctx: CloudComputerContext, sessionId: string, cursor?: string): Promise<Json> {
   await requireComputeAllowance(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const expected = terminalSessionId(identity.chatKey);
   if (String(sessionId || "") !== expected) throw new Error("This terminal session does not belong to the selected model computer.");
   const { sandbox } = await openSandbox(ctx);
   await ensureTerminalPty(ctx, sandbox);
-  // Signed preview URLs embed a short-lived credential bound to this single Toolbox port.
-  // The project's Daytona API key is never exposed to the browser or placed in a URL.
+  // Port-scoped, short-lived preview credential: the project API key never reaches the browser.
   const signedPreview = await readSignedPreview(ctx, sandbox, 2280);
   const socketUrl = new URL(signedPreview);
   socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
-  socketUrl.pathname = `/toolbox/${encodeURIComponent(sandbox.id)}/processes/${encodeURIComponent(expected)}/attach`;
+  // A signed preview host is already routed to this sandbox's Toolbox port, so use the Toolbox API path
+  // relative to that port rather than repeating the proxy's /toolbox/{sandboxId} routing prefix.
+  socketUrl.pathname = `/processes/${encodeURIComponent(expected)}/attach`;
+  if (cursor) socketUrl.searchParams.set("cursor", String(cursor).slice(0, 300));
   return { url: socketUrl.toString(), transport: "websocket", sandboxId: sandbox.id, sessionId: expected };
 }
 
