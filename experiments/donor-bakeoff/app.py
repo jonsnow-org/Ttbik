@@ -743,7 +743,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
             raise RuntimeError("Image Studio returned an unsafe file path.")
         from urllib.parse import quote
         file_response = requests.get(
-            proof["base"] + "/gradio_api/file=" + quote(relative, safe="/"),
+            proof["base"] + "/gradio_api/file=/" + quote(relative, safe="/"),
             headers={"Authorization": "Bearer " + token},
             timeout=(8, 90),
         )
