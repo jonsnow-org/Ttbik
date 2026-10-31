@@ -16,7 +16,7 @@ import {
   payInvoice, rawInitData, setBio, startTma, closeApp,
 } from "../_tma/sdk";
 
-type Tab = "tasks" | "terminal" | "schedules" | "connect" | "memory" | "settings";
+type Tab = "tasks" | "computer" | "terminal" | "schedules" | "connect" | "memory" | "settings";
 type Page = "billing" | "panel" | null;
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
@@ -25,7 +25,7 @@ type Pending = { runId: string; nonce: string; reason: string; summary: string; 
 type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 type Accuracy = "fast" | "balanced" | "precise";
-type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
+type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean; computer?: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
 type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link" };
@@ -1019,8 +1019,76 @@ function TerminalTab({ lang }: { lang: Lang }) {
   );
 }
 
+function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
+  const ar = lang === "ar";
+  const [status, setStatus] = useState<any>(null);
+  const [preview, setPreview] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [test, setTest] = useState<any>(null);
+  const load = useCallback(async () => {
+    try { setStatus(await api<any>("computer_status", { model })); setError(""); }
+    catch (e: any) { setError(String(e?.message || e)); }
+  }, [model]);
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 12000);
+    return () => clearInterval(id);
+  }, [load]);
+  const act = async (kind: string, op: string) => {
+    setBusy(kind); setError("");
+    try {
+      const d = await api<any>(op, { model });
+      if (d.previewUrl) setPreview(d.previewUrl);
+      if (op === "computer_stop") setPreview("");
+      if (op === "computer_self_test") setTest(d);
+      if (op === "computer_open" || op === "computer_stop") await load();
+      haptic(d.ok === false ? "warning" : "success");
+    } catch (e: any) { setError(String(e?.message || e)); haptic("error"); }
+    finally { setBusy(""); }
+  };
+  const running = ["started", "running"].includes(String(status?.state || "").toLowerCase());
+  return (
+    <List>
+      <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
+        footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
+        <Cell multiline subtitle={(ar ? "النموذج: " : "Model: ") + model + " · " + (status?.snapshot || (ar ? "لم يُنشأ بعد" : "Not created yet"))}>
+          {ar ? "مساحة عمل مستقلة" : "Isolated workspace"}
+        </Cell>
+        <Cell after={running ? "● " + (ar ? "يعمل" : "Running") : (status?.state || (ar ? "غير منشأ" : "Not created"))}>
+          {ar ? "حالة الحاسوب" : "Computer state"}
+        </Cell>
+        {status?.resources && <Cell subtitle={status.resources.memoryGiB + " GB RAM · " + status.resources.diskGiB + " GB disk"} after={status.resources.vcpu + " vCPU"}>{ar ? "الموارد" : "Resources"}</Cell>}
+        <div style={{ padding: "8px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <Button size="m" loading={busy === "open"} disabled={!!busy} onClick={() => void act("open", "computer_open")}>{ar ? (running ? "فتح الحاسوب" : "تشغيل الحاسوب") : (running ? "Open computer" : "Start computer")}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "refresh"} disabled={!!busy || !status?.exists} onClick={() => void act("refresh", "computer_refresh")}>{ar ? "تحديث الاتصال" : "Refresh connection"}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "stop"} disabled={!!busy || !status?.exists || !running} onClick={() => void act("stop", "computer_stop")}>{ar ? "إيقاف مع حفظ الملفات" : "Stop and keep files"}</Button>
+          {owner && <Button size="m" mode="bezeled" loading={busy === "test"} disabled={!!busy} onClick={() => void act("test", "computer_self_test")}>{ar ? "اختبار الحاسوب الكامل" : "Full computer test"}</Button>}
+        </div>
+        {preview && (
+          <div style={{ padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <Caption>{ar ? "سطح المكتب المباشر · رابط مؤقت" : "Live desktop · temporary signed link"}</Caption>
+              <Button size="s" mode="plain" onClick={() => openExternal(preview)}>{ar ? "فتح خارج التطبيق" : "Open externally"}</Button>
+            </div>
+            <div style={{ width: "100%", height: "min(68vh, 620px)", minHeight: 320, overflow: "hidden", borderRadius: 12, border: "1px solid var(--tgui--divider)" }}>
+              <iframe title="Private cloud computer" src={preview} allow="clipboard-read; clipboard-write; fullscreen" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", border: 0, background: "#111827" }} />
+            </div>
+          </div>
+        )}
+        {error && <Cell multiline before="⚠️">{error}</Cell>}
+      </Section>
+      {test && (
+        <Section header={ar ? ("نتيجة الاختبار: " + test.passed + "/" + test.total) : ("Test result: " + test.passed + "/" + test.total)}>
+          {(test.results || []).map((r: any) => <Cell key={r.test} multiline after={r.ok ? "✅" : "❌"} subtitle={r.detail}>{r.test}</Cell>)}
+        </Section>
+      )}
+    </List>
+  );
+}
+
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
-const TAB_ICON: Record<Tab, string> = {
+const TAB_ICON: Record<Tab, string> = {\n  computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
   tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
   terminal: "M4 17l6-5-6-5M12 19h8",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
@@ -1029,8 +1097,8 @@ const TAB_ICON: Record<Tab, string> = {
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
 const TAB_KEY: Partial<Record<Tab, keyof Str>> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
-const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { tasks: { ar: "المحادثة", en: "Chat" }, terminal: { ar: "الطرفية", en: "Terminal" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
-const TABS: Tab[] = ["tasks", "terminal", "schedules", "connect", "memory", "settings"];
+const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { computer: { ar: "حاسـوبي", en: "Computer" }, tasks: { ar: "المحادثة", en: "Chat" }, terminal: { ar: "الطرفية", en: "Terminal" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const TABS: Tab[] = ["tasks", "computer", "terminal", "schedules", "connect", "memory", "settings"];
 function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "panel") return { tab: "settings", page: "panel" };
   if (want === "plans" || want === "billing") return { tab: "settings", page: "billing" };
@@ -1099,7 +1167,7 @@ export default function NativeApp() {
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
           : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
-          : tab === "terminal" ? (me.features?.terminal ? <TerminalTab lang={lang} /> : <ThreadsTab t={t} me={me} lang={lang} />)
+          : tab === "computer" ? (me.features?.computer ? <CloudComputerTab lang={lang} model={me.settings.model || "coder"} owner={me.tier === "owner"} /> : <ThreadsTab t={t} me={me} lang={lang} />)\n          : tab === "terminal" ? (me.features?.terminal ? <TerminalTab lang={lang} /> : <ThreadsTab t={t} me={me} lang={lang} />)
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
@@ -1107,7 +1175,7 @@ export default function NativeApp() {
       </main>
       {!page && (
         <Tabbar style={{ paddingBottom: "var(--safe-bottom)" }}>
-          {TABS.filter((id) => id !== "terminal" || me?.features?.terminal).map((id) => (
+          {TABS.filter((id) => (id !== "terminal" || me?.features?.terminal) && (id !== "computer" || me?.features?.computer)).map((id) => (
             <Tabbar.Item key={id} text={TAB_KEY[id] ? (t[TAB_KEY[id]!] as string) : TAB_LABEL[id][lang]} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={TAB_ICON[id]} /></svg>
             </Tabbar.Item>
