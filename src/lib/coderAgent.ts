@@ -75,6 +75,19 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
 
+export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
+  tool("cloud_computer_status", "Inspect the persistent Linux computer assigned to the current user and selected model.", obj({})),
+  tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; ordinary package installation, browser, compilers, system tools and background processes are available inside it. Never attempt to access the host or another account.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
+  tool("cloud_computer_write_file", "Write a file into the persistent cloud computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
+  tool("cloud_computer_read_file", "Read a file from the persistent cloud computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
+  tool("cloud_computer_click", "Click the desktop at screen coordinates.", obj({ x: n("screen x"), y: n("screen y"), button: s("left | middle | right"), double: { type: "boolean" } }, ["x", "y"])),
+  tool("cloud_computer_type", "Type text into the focused desktop application.", obj({ text: s("text to type"), delay: n("delay between characters in milliseconds") }, ["text"])),
+  tool("cloud_computer_press", "Press a keyboard key, optionally with modifiers such as ctrl or shift.", obj({ key: s("key name, e.g. enter, esc, f5"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") } }, ["key"])),
+  tool("cloud_computer_hotkey", "Press a keyboard shortcut such as ctrl+l or alt+tab.", obj({ keys: s("hotkey combination") }, ["keys"])),
+  tool("cloud_computer_scroll", "Scroll the desktop at screen coordinates.", obj({ x: n("screen x"), y: n("screen y"), direction: s("up | down"), amount: n("wheel ticks") }, ["x", "y", "direction"])),
+  tool("cloud_computer_screenshot", "Capture the current desktop screenshot and inspect it visually in your next model step.", obj({})),
+  tool("cloud_computer_windows", "List the windows currently open on the cloud desktop.", obj({})),
+];
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
@@ -138,7 +151,7 @@ export function renderPlan(items: unknown): string {
 export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
-  computer: "computer (a private Linux VM: clone a repo, run any command and tests, read / write / edit / search files, make documents or archives and send them to the user)",
+  computer: "computer (your own persistent Linux desktop, browser, files and full shell for this user and this selected model; run programs, install packages, inspect screenshots, click and type; the same computer is reused across tasks)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
   media: "media (look at a picture or a few frames of a video; make a picture, sound or video with the media Studio and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
@@ -148,7 +161,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: [...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...CLOUD_COMPUTER_TOOL_DEFS, ...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
     memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
@@ -576,7 +589,7 @@ function stripHtml(html: string): string {
 
 export type ToolCtx = {
   gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
-  userId?: number | string; db?: import("@/lib/coderAuth").Db;           // long-term memory and plan metering: whose, and where
+  userId?: number | string; modelId?: string; db?: import("@/lib/coderAuth").Db;           // account/model computer namespace, memory and plan metering
   tier?: "owner" | "user";
   memory?: { remember: boolean; recall: boolean };                         // the user's own memory switches for this model (undefined = both on)
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
@@ -671,6 +684,25 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       }
       const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
       return formatResearch(r, 24000);
+    }
+    if (name.startsWith("cloud_computer_")) {
+      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model computer context is available";
+      const computer = await import("@/lib/cloudComputer");
+      const cloudCtx = { chatId: ctx.userId, modelId: ctx.modelId, tier: ctx.tier || "user", db: ctx.db, fetchImpl: ctx.fetchImpl };
+      if (name === "cloud_computer_status") return JSON.stringify(await computer.cloudComputerStatus(cloudCtx));
+      if (name === "cloud_computer_execute") {
+        const result = await computer.cloudComputerExecute(cloudCtx, String(a.command || ""), typeof a.cwd === "string" ? a.cwd : undefined, Math.max(1000, Math.min(300000, (Number(a.timeout_seconds) || 120) * 1000)));
+        return clip(JSON.stringify(result), 16000);
+      }
+      if (name === "cloud_computer_write_file") return JSON.stringify(await computer.cloudComputerWriteFile(cloudCtx, String(a.path || ""), String(a.content || "")));
+      if (name === "cloud_computer_read_file") {
+        const file = await computer.cloudComputerReadFile(cloudCtx, String(a.path || ""));
+        return file ? clip(file.bytes.toString("utf8"), 16000) : "error: file not found";
+      }
+      const action = name.replace("cloud_computer_", "");
+      if (action === "screenshot") return "Screenshot capture is routed through the visual result handler.";
+      const result = await computer.cloudComputerAction(cloudCtx, action, a);
+      return clip(JSON.stringify(result), 6000);
     }
     if (SANDBOX_TOOLS.has(name)) {
       // plan limit: sandbox time (measured as the time these tools run, in seconds; shown in minutes). The owner has none.
@@ -978,7 +1010,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-  sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+  cloud_computer_execute: ["🖥️", "تشغيل أمر على الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "التقاط شاشة الحاسوب"], cloud_computer_click: ["🖱️", "النقر على سطح المكتب"], cloud_computer_type: ["⌨️", "الكتابة على الحاسوب"], cloud_computer_windows: ["🪟", "عرض النوافذ المفتوحة"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
