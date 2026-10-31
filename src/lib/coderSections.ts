@@ -2156,16 +2156,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                   "Active windows: " + JSON.stringify(windows).slice(0, 3500),
                   "Accessibility tree: " + JSON.stringify(tree).slice(0, 8000),
                   "Visible text (Arabic + English OCR from this same isolated computer): " + String(ocr).slice(0, 12000),
-                ].join("\\n");
+                ].join("\n");
                 if (visionReady) {
                   const img = await toModelImage(file.bytes, 1024);
                   if (img) {
                     shown = [img];
                     from = "the selected model's private cloud desktop";
-                    out = description + "\\nThe screenshot is also attached as a visual input. Correlate its pixels with the accessibility tree and OCR; verify actions with a new screenshot.";
-                  } else out = description + "\\nImage conversion was unavailable; use the accessibility tree and OCR text above.";
+                    out = description + "\nThe screenshot is also attached as a visual input. Correlate its pixels with the accessibility tree and OCR; verify actions with a new screenshot.";
+                  } else out = description + "\nImage conversion was unavailable; use the accessibility tree and OCR text above.";
                 } else {
-                  out = description + "\\nThis model does not have a native image projector in its current route. It can still operate this desktop using the accessibility tree, OCR, window metadata, shell, and mouse/keyboard tools. Do not infer non-text image content that OCR and UI metadata cannot reveal.";
+                  out = description + "\nThis model does not have a native image projector in its current route. It can still operate this desktop using the accessibility tree, OCR, window metadata, shell, and mouse/keyboard tools. Do not infer non-text image content that OCR and UI metadata cannot reveal.";
                 }
               }
             }
