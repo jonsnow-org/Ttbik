@@ -324,7 +324,8 @@ export async function cloudComputerRuntimeTick(db: Db = prismaDb, now = new Date
     const ctx: CloudComputerContext = { chatId, modelId: row.model_id, tier: tierFor(chatId), db };
     const seconds = Math.max(1, Number(row.elapsed_seconds) || 60);
     if (ctx.tier !== "owner") {
-      const allowance = await checkLimit(chatId, "sandbox_minutes", Math.ceil(seconds / 60), db);
+      const paid = await terminalAllowed(chatId, db);
+      const allowance = paid ? await checkLimit(chatId, "sandbox_minutes", Math.ceil(seconds / 60), db) : { ok: false as const };
       if (!allowance.ok) {
         try {
           const sandbox = await getSandbox(ctx, row.sandbox_id);
@@ -410,6 +411,7 @@ export async function cloudComputerStop(ctx: CloudComputerContext): Promise<Json
 }
 
 export async function cloudComputerRefreshPreview(ctx: CloudComputerContext): Promise<Json> {
+  await requireComputeAllowance(ctx);
   const { sandbox, identity, snapshot } = await openSandbox(ctx);
   const desktop = await startDesktop(ctx, sandbox);
   const previewUrl = await readSignedPreview(ctx, sandbox);
