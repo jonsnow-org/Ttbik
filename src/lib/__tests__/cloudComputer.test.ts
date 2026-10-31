@@ -365,7 +365,7 @@ describe("cloud desktop lifecycle and controls", () => {
     const db = computerDb();
     const provider = providerFetch();
     const result = await cloudComputerSelfTest(ownerCtx(db, provider.fetchImpl));
-    expect(result).toMatchObject({ ok: true, passed: result.total, total: 14 });
+    expect(result).toMatchObject({ ok: true, passed: result.total, total: 15 });
     expect(result.results.every((test) => test.ok)).toBe(true);
   });
 });
