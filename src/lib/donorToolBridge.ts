@@ -186,7 +186,8 @@ export async function executeDonorTool(input: {
     addNote: (_text: string) => undefined,
     fetchImpl,
     runId: "candidate-" + input.model + "-" + ticket.chatId + "-" + ticket.nonce,
-    chatKey: coderChatKey(ticket.chatId + ":" + input.model),   // the candidate's own computer / scope, never Nova's
+    chatKey: coderChatKey(ticket.chatId + ":" + input.model),   // candidate-private computer scope
+    modelId: input.model,
     githubToken: connections.github?.token || null,
     userId: ticket.chatId,
     db,
