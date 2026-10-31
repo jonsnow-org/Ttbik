@@ -1,0 +1,69 @@
+name: "Inspect one Studio (read-only): runtime, build log, run log, model repo files"
+
+# Read only. Prints the state of ONE private ModelScope Studio and, optionally, the file list of its model repo. Changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio name under novaai2026, e.g. umranz-sd15-image-test"
+        required: true
+      model_repo:
+        description: "Optional model repo to list, e.g. novaai2026/umranz-sd15-test-models"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read the Studio and model repo
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          MODEL_REPO: ${{ inputs.model_repo }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          python -m pip install -q "modelscope>=1.26.0"
+          python - <<'PY'
+          import json, os, re
+          from modelscope.hub.api import HubApi
+
+          studio = os.environ["STUDIO"].strip()
+          if not re.fullmatch(r"[A-Za-z0-9_.-]{3,80}", studio):
+              raise SystemExit("bad studio name")
+          api = HubApi()
+          api.login(os.environ["MODELSCOPE_TOKEN"].strip())
+          repo = "novaai2026/" + studio
+          info = api.get_repo(repo, "studio")
+          print("RUNTIME", json.dumps(getattr(info, "runtime", None), ensure_ascii=False))
+          for log_type in ("build", "run"):
+              print(log_type.upper() + "_LOG_BEGIN")
+              try:
+                  result = api.get_repo_logs(repo, log_type=log_type, page_size=100)
+                  logs = result.get("logs", []) if isinstance(result, dict) else []
+                  for line in logs[-80:]:
+                      print(line)
+                  print(log_type.upper() + "_LOG_TOTAL", result.get("total_count") if isinstance(result, dict) else "unknown")
+              except Exception as exc:
+                  print(log_type.upper() + "_LOG_ERROR", type(exc).__name__, str(exc)[:600])
+              print(log_type.upper() + "_LOG_END")
+          model = os.environ.get("MODEL_REPO", "").strip()
+          if model:
+              if not re.fullmatch(r"novaai2026/[A-Za-z0-9_.-]{3,80}", model):
+                  raise SystemExit("bad model repo")
+              try:
+                  files = api.get_model_files(model, recursive=True)
+                  total = 0
+                  for f in files:
+                      size = int(f.get("Size") or 0)
+                      total += size
+                      print("FILE", f.get("Path"), size)
+                  print("MODEL_REPO_TOTAL_BYTES", total, "FILES", len(files))
+              except Exception as exc:
+                  print("MODEL_FILES_ERROR", type(exc).__name__, str(exc)[:600])
+          PY
