@@ -758,6 +758,8 @@ def _generate_candidate_image(arguments: dict) -> dict:
         return {"ok": False, "error": "This candidate has no valid, unique image-weight assignment."}
     prompt = str(arguments.get("prompt") or "").strip()
     negative = str(arguments.get("negative_prompt") or "").strip()[:1800]
+    if 2 <= len(prompt) < 8:
+        prompt = "a photo of " + prompt        # a short subject such as "a lion" is a valid request
     if len(prompt) < 8 or len(prompt) > 1800:
         return {"ok": False, "error": "Image prompt must be between 8 and 1800 characters."}
     token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()

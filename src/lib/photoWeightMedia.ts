@@ -164,7 +164,9 @@ export async function makePhotoMedia(
   if (!base) return { type: "error", reason: "studio_disabled", text: profile.displayName + "'s dedicated image Studio is disabled. No fallback was attempted." };
   const token = photoToken();
   if (!token) return { type: "error", reason: "missing_token", text: "The private ModelScope Studio token is not configured on the bot server. No fallback was attempted." };
-  const description = String(prompt || "").trim();
+  let description = String(prompt || "").trim();
+  // A short subject such as "a lion" is a valid request: give it a minimal frame instead of refusing it.
+  if (description.length >= 2 && description.length < 8) description = "a photo of " + description;
   if (description.length < 8 || description.length > 1800) return { type: "error", reason: "bad_prompt", text: "The image description must be between 8 and 1800 characters." };
   const fetchImpl = opts.fetchImpl || fetch;
   const timeoutMs = Math.max(30000, Math.min(900000, Number(opts.timeoutMs) || 360000));
