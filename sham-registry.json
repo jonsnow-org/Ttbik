@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-31 12:47 UTC",
+  "generated_at": "2026-10-31 19:26 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -104,10 +104,10 @@
     {
       "alias": "دفتر المحادثة والمرمزات 1",
       "track": "chat_image_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-30",
-      "gpu": false,
+      "last_run": "2026-10-31",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -233,7 +233,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 718.6,
+      "size_mb": 719.2,
       "last_updated": "2026-10-31",
       "progress": {},
       "has_key_files": true
@@ -241,7 +241,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 792.4,
+      "size_mb": 792.5,
       "last_updated": "2026-10-31",
       "progress": {},
       "has_key_files": true
@@ -297,7 +297,7 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4205.7,
+      "size_mb": 4208.3,
       "last_updated": "2026-10-31",
       "progress": {},
       "has_key_files": true
@@ -305,7 +305,7 @@
     {
       "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
-      "size_mb": 0.0,
+      "size_mb": 794.7,
       "last_updated": "2026-10-31",
       "progress": {},
       "has_key_files": true
@@ -331,8 +331,8 @@
     {
       "alias": "نتائج المرحلة الثانية 1",
       "track": "stage2_multimodal",
-      "size_mb": 581.4,
-      "last_updated": "2026-10-28",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-31",
       "progress": {},
       "has_key_files": true
     },
