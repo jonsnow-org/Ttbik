@@ -169,22 +169,66 @@ jobs:
                 if [ "$poll_code" = "200" ]; then
                   python3 - <<'PY' > status-values.txt
           import json
-          raw=open("status.sse",encoding="utf-8").read()
-          for line in raw.splitlines():
-              if line.startswith("data:"):
+          
+          def walk(value, depth=0):
+              if depth > 10:
+                  return
+              if isinstance(value, str):
                   try:
-                      v=json.loads(line[5:].strip())
-                      if isinstance(v,list) and v and isinstance(v[0],dict):
-                          d=v[0]; print(str(d.get("phase",""))); print(str(d.get("app_revision",""))); print(str(d.get("error",""))); print(str(d.get("model_repo",""))); print(str(d.get("checkpoint_sha256",""))); print(str(d.get("source_revision","")))
-                  except Exception: pass
-          PY
+                      decoded = json.loads(value)
+                  except Exception:
+                      return
+                  yield from walk(decoded, depth + 1)
+              elif isinstance(value, dict):
+                  if isinstance(value.get("phase"), str):
+                      yield value
+                  for child in value.values():
+                      if isinstance(child, (dict, list, str)):
+                          yield from walk(child, depth + 1)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child, depth + 1)
+          
+          found = None
+          raw = open("status.sse", encoding="utf-8").read()
+          for line in raw.splitlines():
+              if not line.startswith("data:"):
+                  continue
+              try:
+                  values = list(walk(json.loads(line[5:].strip())))
+              except Exception:
+                  values = []
+              if values:
+                  found = values[-1]
+                  break
+          
+          if found is None:
+              print("")
+              print("")
+              print("Could not parse a phase object from the Gradio status event.")
+              print("")
+              print("")
+              print("")
+              print("")
+          else:
+              print(str(found.get("phase") or ""))
+              print(str(found.get("app_revision") or ""))
+              print(str(found.get("error") or ""))
+              print(str(found.get("model_repo") or found.get("modelscope_model_repo") or ""))
+              print(str(found.get("checkpoint_sha256") or ""))
+              print(str(found.get("source_revision") or ""))
+              print("memory_gb=" + str(found.get("memory_gb") or ""))
+              if found.get("traceback"):
+                  print("Model startup traceback: " + str(found.get("traceback"))[-3500:], file=__import__("sys").stderr)
+              if found.get("error"):
+                  print("Model startup error: " + str(found.get("error"))[:3500], file=__import__("sys").stderr)
                   phase=$(sed -n '1p' status-values.txt)
                   revision=$(sed -n '2p' status-values.txt)
                   err=$(sed -n '3p' status-values.txt)
                   model_repo=$(sed -n '4p' status-values.txt)
                   checkpoint_sha=$(sed -n '5p' status-values.txt)
                   source_revision=$(sed -n '6p' status-values.txt)
-                  echo "epiCRealism phase=$phase revision=$revision model_repo=$model_repo"
+                  echo "epiCRealism phase=$phase revision=$revision model_repo=$model_repo $(sed -n '7p' status-values.txt)"
                   if [ "$phase" = "ready" ] && [ "$revision" = "epicrealism-image-test-2026-10-31-r1" ] && [ "$model_repo" = "novaai2026/epicrealism-image-test-models" ] && [[ "$checkpoint_sha" =~ ^[a-f0-9]{64}$ ]] && [ -n "$source_revision" ]; then
                     echo "$checkpoint_sha" > model-checkpoint.sha256
                     echo "$source_revision" > model-source-revision.txt
