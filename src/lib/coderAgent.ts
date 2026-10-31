@@ -77,17 +77,25 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
   tool("cloud_computer_status", "Inspect the persistent Linux computer assigned to the current user and selected model.", obj({})),
-  tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; ordinary package installation, browser, compilers, system tools and background processes are available inside it. Never attempt to access the host or another account.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
+  tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; install packages, run browsers, compilers, servers and background processes as needed.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
   tool("cloud_computer_write_file", "Write a file into the persistent cloud computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
   tool("cloud_computer_read_file", "Read a file from the persistent cloud computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
-  tool("cloud_computer_click", "Click the desktop at screen coordinates.", obj({ x: n("screen x"), y: n("screen y"), button: s("left | middle | right"), double: { type: "boolean" } }, ["x", "y"])),
-  tool("cloud_computer_type", "Type text into the focused desktop application.", obj({ text: s("text to type"), delay: n("delay between characters in milliseconds") }, ["text"])),
-  tool("cloud_computer_press", "Press a keyboard key, optionally with modifiers such as ctrl or shift.", obj({ key: s("key name, e.g. enter, esc, f5"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") } }, ["key"])),
-  tool("cloud_computer_hotkey", "Press a keyboard shortcut such as ctrl+l or alt+tab.", obj({ keys: s("hotkey combination") }, ["keys"])),
-  tool("cloud_computer_scroll", "Scroll the desktop at screen coordinates.", obj({ x: n("screen x"), y: n("screen y"), direction: s("up | down"), amount: n("wheel ticks") }, ["x", "y", "direction"])),
-  tool("cloud_computer_screenshot", "Capture the current desktop screenshot and inspect it visually in your next model step.", obj({})),
-  tool("cloud_computer_windows", "List the windows currently open on the cloud desktop.", obj({})),
+  tool("cloud_computer_action", "Full Computer Use API: mouse move/click/drag/position/scroll; keyboard type/key/hotkey; accessibility tree/search/focus/invoke/set value; display and windows; process status/restart/logs/errors; screen recording start/stop/list/get/delete/download.", obj({
+    action: { type: "string", enum: ["click","move","drag","mouse_position","type","press","hotkey","scroll","windows","display_info","desktop_status","accessibility_tree","accessibility_find","accessibility_focus","accessibility_invoke","accessibility_set_value","recording_start","recording_stop","recording_list","recording_get","recording_delete","recording_download","process_status","process_restart","process_logs","process_errors"] },
+    x: n("screen x"), y: n("screen y"), start_x: n("drag start x"), start_y: n("drag start y"), end_x: n("drag end x"), end_y: n("drag end y"),
+    width: n("region width"), height: n("region height"), button: s("left | middle | right"), double: { type: "boolean" },
+    text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"),
+    direction: s("up | down"), amount: n("scroll ticks"), scope: s("focused | all | pid"), pid: n("process id"), max_depth: n("accessibility tree depth"),
+    role: s("accessibility role"), name: s("accessible element name"), name_match: s("exact | substring | regex"), states: { type: "array", items: s("visible | enabled | focusable | focused") }, limit: n("result count"),
+    node_id: s("accessibility node id"), node_action: s("node action, e.g. click"), value: s("accessibility value"), process: s("desktop service name"),
+    id: s("recording id"), recording_id: s("recording id"), path: s("destination path for recording_download"),
+  }, ["action"])),
+  tool("cloud_computer_screenshot", "Capture a desktop screenshot and inspect it visually in your next model step. Supports full screen or a selected region and compressed output.", obj({
+    region: { type: "object", properties: { x: n("region x"), y: n("region y"), width: n("region width"), height: n("region height") } },
+    compressed: { type: "boolean" }, format: { type: "string", enum: ["png","jpeg"] }, quality: n("quality 1-100"), scale: n("scale 0.1-1"),
+  })),
 ];
+
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
@@ -1010,7 +1018,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-  cloud_computer_execute: ["🖥️", "تشغيل أمر على الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "التقاط شاشة الحاسوب"], cloud_computer_click: ["🖱️", "النقر على سطح المكتب"], cloud_computer_type: ["⌨️", "الكتابة على الحاسوب"], cloud_computer_windows: ["🪟", "عرض النوافذ المفتوحة"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+  cloud_computer_execute: ["🖥️", "تشغيل أوامر في الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "فهم لقطة شاشة الحاسوب"], cloud_computer_action: ["🖱️", "التحكم الكامل بسطح المكتب"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
