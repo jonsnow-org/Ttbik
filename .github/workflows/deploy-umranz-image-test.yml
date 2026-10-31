@@ -14,7 +14,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 210
     env:
       MS: https://www.modelscope.cn
       OWNER: novaai2026
@@ -22,6 +22,17 @@ jobs:
       API: https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net
     steps:
       - uses: actions/checkout@v4
+      - name: Mirror Umranz SD1.5 weights into its private ModelScope repository
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN1 }}
+          PHOTO_MODEL_REPO: novaai2026/umranz-sd15-test-models
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN"
+          python3 -m pip install --upgrade "modelscope>=1.26.0" "huggingface_hub>=0.27.0" safetensors
+          python3 -m py_compile experiments/umranz-image-test/prepare_and_push.py
+          python3 experiments/umranz-image-test/prepare_and_push.py
       - name: Validate only Umranz app
         run: |
           set -euo pipefail
@@ -97,6 +108,28 @@ jobs:
           git add app.py requirements.txt README.md
           git diff --cached --quiet || git commit -m "Deploy Umranz dedicated CPU 8GB image app"
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Set private ModelScope model-read token on Umranz Studio only
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          token = os.environ["MODELSCOPE_TOKEN"]
+          api.login(token)
+          studio = "novaai2026/umranz-sd15-image-test"
+          try:
+              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              message = str(exc).lower()
+              if not any(x in message for x in ("exist", "already", "duplicate")):
+                  raise
+              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          print("Umranz private ModelScope model access configured.")
+          PY
       - name: Deploy and wait for Umranz app revision
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -121,14 +154,22 @@ jobs:
                   try:
                       v=json.loads(line[5:].strip())
                       if isinstance(v,list) and v and isinstance(v[0],dict):
-                          d=v[0]; print(str(d.get("phase",""))); print(str(d.get("app_revision",""))); print(str(d.get("error","")))
+                          d=v[0]; print(str(d.get("phase",""))); print(str(d.get("app_revision",""))); print(str(d.get("error",""))); print(str(d.get("model_repo",""))); print(str(d.get("checkpoint_sha256",""))); print(str(d.get("source_revision","")))
                   except Exception: pass
           PY
                   phase=$(sed -n '1p' status-values.txt)
                   revision=$(sed -n '2p' status-values.txt)
                   err=$(sed -n '3p' status-values.txt)
-                  echo "Umranz phase=$phase revision=$revision"
-                  if [ "$phase" = "ready" ] && [ "$revision" = "umranz-image-test-2026-10-31-r1" ]; then ready=1; break; fi
+                  model_repo=$(sed -n '4p' status-values.txt)
+                  checkpoint_sha=$(sed -n '5p' status-values.txt)
+                  source_revision=$(sed -n '6p' status-values.txt)
+                  echo "Umranz phase=$phase revision=$revision model_repo=$model_repo"
+                  if [ "$phase" = "ready" ] && [ "$revision" = "umranz-image-test-2026-10-31-r2" ] && [ "$model_repo" = "novaai2026/umranz-sd15-test-models" ] && [[ "$checkpoint_sha" =~ ^[a-f0-9]{64}$ ]] && [ -n "$source_revision" ]; then
+                    echo "$checkpoint_sha" > model-checkpoint.sha256
+                    echo "$source_revision" > model-source-revision.txt
+                    ready=1
+                    break
+                  fi
                   if [ "$phase" = "error" ]; then echo "$err"; cat status.sse; exit 1; fi
                 fi
               fi
@@ -194,7 +235,7 @@ jobs:
           im=Image.open(p).convert("RGB")
           if im.size != (512,512): raise SystemExit(f"Unexpected resolution: {im.size}")
           data=p.read_bytes()
-          result={"status":"smoke_pass","model":"Umranz/SD1.5-Uncensored-Photoreal","device":"CPU only","resolution":"512x512","bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()}
+          result={"status":"smoke_pass","model":"Umranz/SD1.5-Uncensored-Photoreal","model_repo":"novaai2026/umranz-sd15-test-models","model_checkpoint_sha256":Path("model-checkpoint.sha256").read_text().strip(),"source_revision":Path("model-source-revision.txt").read_text().strip(),"device":"CPU only","ram_target":"8GB","resolution":"512x512","bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()}
           Path("umranz-smoke/result.json").write_text(json.dumps(result,indent=2))
           print(json.dumps(result))
           PY

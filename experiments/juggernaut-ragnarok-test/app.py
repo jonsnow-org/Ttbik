@@ -17,8 +17,9 @@ from pathlib import Path
 import gradio as gr
 
 MODEL_ID = "Kandoo/Juggernaut-XL-Ragnarok"
+MODEL_REPO = os.environ.get("PHOTO_MODEL_REPO", "novaai2026/juggernaut-ragnarok-test-models")
 CHECKPOINT_NAME = "juggernautXL_ragnarok_fp8_e4m3fn.safetensors"
-APP_REVISION = "juggernaut-ragnarok-cpu8g-2026-10-31-r1"
+APP_REVISION = "juggernaut-ragnarok-cpu8g-2026-10-31-r2"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "juggernaut_cache"
 OUTPUTS = ROOT / "juggernaut_outputs"
@@ -52,6 +53,7 @@ STATE = {
     "app_revision": APP_REVISION,
     "candidate": "juggernaut-ragnarok",
     "model_id": MODEL_ID,
+    "model_repo": MODEL_REPO,
     "checkpoint": CHECKPOINT_NAME,
     "checkpoint_bytes": 4539473080,
     "device": "CPU only",
@@ -69,6 +71,7 @@ STATE = {
 STATE_LOCK = threading.RLock()
 INFER_LOCK = threading.Lock()
 PIPE = None
+MANIFEST = None
 
 
 def set_state(**values):
@@ -83,10 +86,77 @@ def status():
     return value
 
 
+def _load_model_package():
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError("MODELSCOPE_API_TOKEN is not configured in this private Studio.")
+    from modelscope import snapshot_download
+    from modelscope.hub.api import HubApi
+    api = HubApi()
+    api.login(token)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    root = Path(snapshot_download(MODEL_REPO, cache_dir=str(CACHE)))
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError("ModelScope model manifest is missing; refusing to load unverified FP8 weights.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("source_repo") != MODEL_ID or manifest.get("checkpoint") != CHECKPOINT_NAME:
+        raise RuntimeError("Unexpected Juggernaut source/checkpoint in the ModelScope manifest.")
+    if not manifest.get("source_revision"):
+        raise RuntimeError("Pinned upstream revision is missing from the ModelScope manifest.")
+    declared = manifest.get("files")
+    if not isinstance(declared, dict) or not declared:
+        raise RuntimeError("ModelScope manifest has no file SHA-256 inventory.")
+    for relative, expected in declared.items():
+        rel = Path(relative)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise RuntimeError("Unsafe path in Juggernaut model manifest.")
+        path = root / rel
+        if not path.is_file():
+            raise FileNotFoundError(f"ModelScope model file is missing: {relative}")
+        if path.stat().st_size != int(expected.get("size_bytes", -1)):
+            raise RuntimeError(f"File size mismatch for {relative}; refusing to load.")
+        h = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                h.update(chunk)
+        if h.hexdigest() != expected.get("sha256"):
+            raise RuntimeError(f"SHA-256 mismatch for {relative}; refusing to load.")
+    required = (
+        CHECKPOINT_NAME, "model_index.json", "scheduler/scheduler_config.json",
+        "tokenizer/tokenizer.json", "tokenizer_2/tokenizer.json",
+        "text_encoder/config.json", "text_encoder_2/config.json", "unet/config.json", "vae/config.json",
+    )
+    for relative in required:
+        if not (root / relative).is_file():
+            raise FileNotFoundError(f"Required Juggernaut SDXL config/checkpoint file is absent: {relative}")
+    if manifest["files"][CHECKPOINT_NAME]["size_bytes"] != 4539473080:
+        raise RuntimeError("FP8 checkpoint size differs from the expected creator file; refusing to load.")
+    return root, manifest
+
+
+def memory_telemetry():
+    result = {"memory_limit_gb": memory_gb()}
+    try:
+        import resource
+        result["process_peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 ** 2), 3)
+    except Exception:
+        result["process_peak_rss_gb"] = None
+    for key, path in (
+        ("cgroup_memory_current_gb", "/sys/fs/cgroup/memory.current"),
+        ("cgroup_memory_peak_gb", "/sys/fs/cgroup/memory.peak"),
+    ):
+        try:
+            result[key] = round(int(Path(path).read_text().strip()) / (1024 ** 3), 3)
+        except Exception:
+            result[key] = None
+    return result
+
+
 def load_model():
-    global PIPE
+    global PIPE, MANIFEST
     started = time.monotonic()
-    set_state(phase="downloading", error="")
+    set_state(phase="downloading", error="", model_repo=MODEL_REPO)
     available = memory_gb()
     if available and available > RAM_TARGET_GB + 0.35:
         raise RuntimeError(
@@ -96,46 +166,35 @@ def load_model():
     if available and available < 6.8:
         raise RuntimeError(f"Only {available:.2f} GB CPU RAM is visible; the 8 GB test profile is not available.")
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    root, manifest = _load_model_package()
+    checkpoint = root / CHECKPOINT_NAME
+    actual_size = checkpoint.stat().st_size
+    checkpoint_sha = manifest["files"][CHECKPOINT_NAME]["sha256"]
+    set_state(
+        phase="loading", checkpoint_bytes=actual_size, checkpoint_sha256=checkpoint_sha,
+        model_repo=MODEL_REPO, source_revision=manifest["source_revision"],
+    )
     import torch
-    # The environment hides all CUDA devices before PyTorch is imported.
-    # This candidate never uses a GPU, even if the host has one.
-
-    from huggingface_hub import hf_hub_download
     from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
-
+    if torch.cuda.is_available():
+        raise RuntimeError("CUDA remained visible after CPU-only isolation; refusing GPU execution.")
     torch.set_num_threads(2)
     try:
         torch.backends.mkldnn.enabled = True
     except Exception:
         pass
-
-    checkpoint = Path(hf_hub_download(
-        repo_id=MODEL_ID,
-        filename=CHECKPOINT_NAME,
-        revision="main",
-        cache_dir=str(CACHE),
-    ))
-    actual_size = checkpoint.stat().st_size
-    if actual_size < 4_000_000_000 or actual_size > 5_000_000_000:
-        raise RuntimeError(f"Unexpected FP8 checkpoint size: {actual_size} bytes.")
-    set_state(phase="loading", checkpoint_bytes=actual_size)
-
-    # The creator's standalone file is FP8 for the UNet, FP16 for both CLIP
-    # encoders, and FP32 for the VAE. Diffusers converts the checkpoint to
-    # FP16 CPU compute, then generation is verified under this exact 8 GB cap.
     pipe = StableDiffusionXLPipeline.from_single_file(
         str(checkpoint),
-        config=MODEL_ID,
+        config=str(root),
         torch_dtype=torch.float16,
         use_safetensors=True,
         local_files_only=True,
         low_cpu_mem_usage=True,
     )
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        pipe.scheduler.config,
-        algorithm_type="sde-dpmsolver++",
-        use_karras_sigmas=True,
+        pipe.scheduler.config, algorithm_type="sde-dpmsolver++", use_karras_sigmas=True
     )
     pipe.set_progress_bar_config(disable=True)
     pipe.enable_attention_slicing("max")
@@ -146,15 +205,13 @@ def load_model():
         pass
     pipe.to("cpu")
     PIPE = pipe
-
+    MANIFEST = manifest
     elapsed = round(time.monotonic() - started, 2)
     set_state(
-        phase="ready",
-        error="",
-        load_seconds=elapsed,
-        memory_gb=memory_gb(),
-        cpu_threads=2,
-        cuda_used=False,
+        phase="ready", error="", load_seconds=elapsed, memory_gb=memory_gb(),
+        cpu_threads=2, cuda_used=False, checkpoint_bytes=actual_size,
+        checkpoint_sha256=checkpoint_sha, model_repo=MODEL_REPO,
+        source_revision=manifest["source_revision"], device="CPU only",
     )
 
 
@@ -218,6 +275,10 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
             "result": "image_generated",
             "candidate": "juggernaut-ragnarok",
             "model": MODEL_ID,
+            "model_repo": MODEL_REPO,
+            "source_revision": MANIFEST["source_revision"],
+            "checkpoint_sha256": MANIFEST["files"][CHECKPOINT_NAME]["sha256"],
+            **memory_telemetry(),
             "checkpoint": CHECKPOINT_NAME,
             "app_revision": APP_REVISION,
             "source_precision": "FP8 e4m3fn UNet / FP16 text encoders / FP32 VAE",

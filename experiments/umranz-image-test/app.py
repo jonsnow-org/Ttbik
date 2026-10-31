@@ -18,7 +18,8 @@ from pathlib import Path
 import gradio as gr
 
 MODEL_ID = "Umranz/SD1.5-Uncensored-Photoreal"
-APP_REVISION = "umranz-image-test-2026-10-31-r1"
+MODEL_REPO = os.environ.get("PHOTO_MODEL_REPO", "novaai2026/umranz-sd15-test-models")
+APP_REVISION = "umranz-image-test-2026-10-31-r2"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "umranz_model_cache"
 OUTPUTS = ROOT / "umranz_outputs"
@@ -52,6 +53,7 @@ STATE = {
     "app_revision": APP_REVISION,
     "candidate": "umranz",
     "model_id": MODEL_ID,
+    "model_repo": MODEL_REPO,
     "device": "CPU only",
     "cuda_available": False,
     "memory_gb": memory_gb(),
@@ -65,6 +67,7 @@ STATE = {
 LOCK = threading.RLock()
 INFER_LOCK = threading.Lock()
 PIPE = None
+MANIFEST = None
 
 
 def set_state(**values):
@@ -79,49 +82,107 @@ def status():
     return value
 
 
+def _load_model_package():
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError("MODELSCOPE_API_TOKEN is not configured in this private Studio.")
+    from modelscope import snapshot_download
+    from modelscope.hub.api import HubApi
+    api = HubApi()
+    api.login(token)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    root = Path(snapshot_download(MODEL_REPO, cache_dir=str(CACHE)))
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError("ModelScope model manifest is missing; refusing to load unverified weights.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("source_repo") != MODEL_ID or not manifest.get("source_revision"):
+        raise RuntimeError("Unexpected Umranz source or missing pinned upstream revision.")
+    declared = manifest.get("files")
+    if not isinstance(declared, dict) or not declared:
+        raise RuntimeError("ModelScope manifest has no file SHA-256 inventory.")
+    for relative, expected in declared.items():
+        rel = Path(relative)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise RuntimeError("Unsafe path in model manifest.")
+        path = root / rel
+        if not path.is_file():
+            raise FileNotFoundError(f"ModelScope model file is missing: {relative}")
+        if path.stat().st_size != int(expected.get("size_bytes", -1)):
+            raise RuntimeError(f"File size mismatch for {relative}; refusing to load.")
+        h = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                h.update(chunk)
+        if h.hexdigest() != expected.get("sha256"):
+            raise RuntimeError(f"SHA-256 mismatch for {relative}; refusing to load.")
+    required = (
+        "model_index.json",
+        "scheduler/scheduler_config.json",
+        "text_encoder/model.safetensors",
+        "tokenizer/tokenizer.json",
+        "unet/diffusion_pytorch_model.safetensors",
+        "vae/diffusion_pytorch_model.safetensors",
+    )
+    for relative in required:
+        if not (root / relative).is_file():
+            raise FileNotFoundError(f"Required Umranz Diffusers file is absent: {relative}")
+    return root, manifest
+
+
+def memory_telemetry():
+    result = {"memory_limit_gb": memory_gb()}
+    try:
+        import resource
+        result["process_peak_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 ** 2), 3)
+    except Exception:
+        result["process_peak_rss_gb"] = None
+    for key, path in (
+        ("cgroup_memory_current_gb", "/sys/fs/cgroup/memory.current"),
+        ("cgroup_memory_peak_gb", "/sys/fs/cgroup/memory.peak"),
+    ):
+        try:
+            result[key] = round(int(Path(path).read_text().strip()) / (1024 ** 3), 3)
+        except Exception:
+            result[key] = None
+    return result
+
+
 def load_model():
-    global PIPE
+    global PIPE, MANIFEST
     started = time.monotonic()
-    set_state(phase="downloading", error="")
+    set_state(phase="downloading", error="", model_repo=MODEL_REPO)
     available = memory_gb()
-    if available and available > MAX_MEMORY_GB + 0.5:
-        # Do not silently migrate this candidate to a larger-memory runtime.
+    if available and available > MAX_MEMORY_GB + 0.35:
         raise RuntimeError(f"Expected the configured 8 GB CPU Studio, detected {available:.2f} GB.")
-    if os.environ.get("CUDA_VISIBLE_DEVICES", ""):
-        raise RuntimeError("This candidate must run on CPU; CUDA_VISIBLE_DEVICES must be empty.")
-
-    from huggingface_hub import snapshot_download
-    from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+    if available and available < 6.8:
+        raise RuntimeError(f"Only {available:.2f} GB CPU RAM is visible; the 8 GB test profile is unavailable.")
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    root, manifest = _load_model_package()
+    set_state(phase="verifying", source_revision=manifest["source_revision"],
+              model_file_sha256={k: v["sha256"] for k, v in manifest["files"].items()})
     import torch
-
+    from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+    if torch.cuda.is_available():
+        raise RuntimeError("CUDA remained visible after CPU-only isolation; refusing GPU execution.")
     torch.set_num_threads(2)
     try:
         torch.backends.mkldnn.enabled = True
     except Exception:
         pass
-
-    model_dir = snapshot_download(
-        repo_id=MODEL_ID,
-        revision="main",
-        cache_dir=str(CACHE),
-        allow_patterns=[
-            "model_index.json", "*.json", "*.safetensors", "*.txt", "*.model", "*.bin",
-            "scheduler/*", "text_encoder/*", "tokenizer/*", "unet/*", "vae/*",
-        ],
-    )
-    set_state(phase="loading", download_complete=True)
     pipe = StableDiffusionPipeline.from_pretrained(
-        model_dir,
+        str(root),
         torch_dtype=torch.float32,
         use_safetensors=True,
         low_cpu_mem_usage=True,
+        local_files_only=True,
         safety_checker=None,
         feature_extractor=None,
     )
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        pipe.scheduler.config,
-        algorithm_type="dpmsolver++",
-        use_karras_sigmas=True,
+        pipe.scheduler.config, algorithm_type="dpmsolver++", use_karras_sigmas=True
     )
     pipe.set_progress_bar_config(disable=True)
     pipe.enable_attention_slicing("max")
@@ -132,12 +193,14 @@ def load_model():
         pass
     pipe.to("cpu")
     PIPE = pipe
+    MANIFEST = manifest
+    unet_sha = manifest["files"]["unet/diffusion_pytorch_model.safetensors"]["sha256"]
     set_state(
-        phase="ready",
-        error="",
-        load_seconds=round(time.monotonic() - started, 2),
-        memory_gb=memory_gb(),
-        cpu_threads=2,
+        phase="ready", error="", load_seconds=round(time.monotonic() - started, 2),
+        memory_gb=memory_gb(), cpu_threads=2, model_repo=MODEL_REPO,
+        source_revision=manifest["source_revision"],
+        model_file_sha256={k: v["sha256"] for k, v in manifest["files"].items()},
+        checkpoint_sha256=unet_sha, device="CPU only", cuda_available=False,
     )
 
 
@@ -196,6 +259,11 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
             "result": "image_generated",
             "candidate": "umranz",
             "model": MODEL_ID,
+            "model_repo": MODEL_REPO,
+            "source_revision": MANIFEST["source_revision"],
+            "checkpoint_sha256": MANIFEST["files"]["unet/diffusion_pytorch_model.safetensors"]["sha256"],
+            "model_file_sha256": {k: v["sha256"] for k, v in MANIFEST["files"].items()},
+            **memory_telemetry(),
             "app_revision": APP_REVISION,
             "device": "CPU only",
             "precision": "float32",
