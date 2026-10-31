@@ -34,7 +34,7 @@ export const shamHost: ShamHost = {
     writeFile: (c, path, content) => cloudComputerWriteFile({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, path, content),
     readFile: (c, path) => cloudComputerReadFile({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, path),
     action: (c, action, args) => cloudComputerAction({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, action, args),
-    screenshot: (c) => cloudComputerScreenshot({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }),
+    screenshot: (c, options) => cloudComputerScreenshot({ chatId: c.chatId, modelId: c.modelId, tier: c.owner ? "owner" : "user", db: d(c.db) }, options),
   },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
