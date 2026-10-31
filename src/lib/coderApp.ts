@@ -107,15 +107,20 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
-  const cloudComputerContext = async () => {
+  const cloudComputerContext = async (allowRevoked = false) => {
     const st = await loadStateStrict(chatId, db);
-    const requested = canonModelId(typeof body.model === "string" ? body.model : st.model) || "coder";
+    const currentModel = canonModelId(st.model) || "coder";
+    const requested = typeof body.model === "string" ? canonModelId(body.model) : currentModel;
+    // Revoked/expired users may inspect or stop only the machine for their server-stored current model.
+    if (allowRevoked && requested !== currentModel) throw new AppError(403, "لا يمكن إيقاف حاسوب نموذج آخر.");
     const model = (await listModels(db)).find((item) => item.id === requested);
-    if (!model || !modelUsableBy(model, user.tier === "owner")) throw new AppError(403, "الحاسوب غير متاح لهذا النموذج في حسابك.");
+    if (!model || (!modelUsableBy(model, user.tier === "owner") && !(allowRevoked && requested === currentModel))) {
+      throw new AppError(403, "الحاسوب غير متاح لهذا النموذج في حسابك.");
+    }
     return { chatId, modelId: requested, tier: user.tier, db, fetchImpl: deps.fetchImpl };
   };
-  const computerCall = async (fn: (ctx: Awaited<ReturnType<typeof cloudComputerContext>>) => Promise<Json>) => {
-    try { return await fn(await cloudComputerContext()); }
+  const computerCall = async (fn: (ctx: Awaited<ReturnType<typeof cloudComputerContext>>) => Promise<Json>, allowRevoked = false) => {
+    try { return await fn(await cloudComputerContext(allowRevoked)); }
     catch (error) {
       if (error instanceof AppError) throw error;
       throw new AppError(503, String((error as Error)?.message || "Cloud computer operation failed").slice(0, 320));
@@ -671,12 +676,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
     }
     case "computer_status":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);
     case "computer_open":
     case "computer_refresh":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => op === "computer_open" ? m.cloudComputerOpen(ctx) : m.cloudComputerRefreshPreview(ctx)));
     case "computer_stop":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStop(ctx)));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStop(ctx)), true);
     case "computer_self_test":
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerSelfTest(ctx)));
