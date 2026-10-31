@@ -45,6 +45,7 @@ function providerFetch() {
   const files = new Map<string, Buffer>();
   const calls: Array<{ url: string; method: string; body: any }> = [];
   let seq = 0;
+  let desktopReady = false;
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const method = String(init.method || "GET").toUpperCase();
@@ -86,8 +87,8 @@ function providerFetch() {
 
     if (url.origin === "https://toolbox.test") {
       const path = url.pathname.replace(/^\/sandbox-[^/]+/, "");
-      if (path === "/computeruse/status") return Response.json({ status: "ready" });
-      if (path === "/computeruse/start" && method === "POST") return Response.json({ status: "ready" });
+      if (path === "/computeruse/status") return Response.json({ status: desktopReady ? "ready" : "stopped" });
+      if (path === "/computeruse/start" && method === "POST") { desktopReady = true; return Response.json({ status: "ready" }); }
       if (path === "/computeruse/screenshot") return Response.json({ screenshot: PNG_1PX, width: 1, height: 1 });
       if (path === "/computeruse/display/windows") return Response.json({ windows: [{ title: "Test browser" }] });
       if (path === "/process/execute" && method === "POST") {
@@ -103,7 +104,7 @@ function providerFetch() {
       if (path === "/files/download" && method === "GET") {
         const target = url.searchParams.get("path") || "";
         const file = files.get(target);
-        return file ? new Response(file) : new Response("not found", { status: 404 });
+        return file ? new Response(new Uint8Array(file)) : new Response("not found", { status: 404 });
       }
       if (path.startsWith("/computeruse/") && method === "POST") return Response.json({ ok: true, action: path });
     }
@@ -220,7 +221,6 @@ describe("cloud desktop lifecycle and controls", () => {
     const provider = providerFetch();
     const ctx = ownerCtx(db, provider.fetchImpl);
     const opened = await cloudComputerOpen(ctx);
-    const id = String(opened.state);
     const path = "/home/daytona/test-persistent.txt";
     const { cloudComputerWriteFile, cloudComputerReadFile } = await import("@/lib/cloudComputer");
     await cloudComputerWriteFile(ctx, path, "persistent-across-restart");
