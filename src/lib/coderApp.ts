@@ -685,6 +685,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "computer_self_test":
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerSelfTest(ctx)));
+    case "computer_terminal_open":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalOpen(ctx)));
+    case "computer_terminal_execute": {
+      const command = String(body.command || "");
+      if (!command.trim()) throw new AppError(400, "shell command is required");
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalExecute(ctx, command, { async: true })));
+    }
+    case "computer_terminal_poll":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalPoll(ctx, String(body.commandId || ""))));
+    case "computer_terminal_input":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.commandId || ""), String(body.data || ""))));
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
