@@ -28,8 +28,8 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     validationStatus: "previously_passed" },
   // Previously generated successfully: moved from the Sham v2 reservation to Gemma for the donor bake-off.
   "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
-    modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
-    defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
+    modelRepo: "novaai2026/gemma4-realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
+    defaultEndpoint: "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
     resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
