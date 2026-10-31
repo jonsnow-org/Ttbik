@@ -669,6 +669,90 @@ export async function cloudComputerReadFile(ctx: CloudComputerContext, path: str
   return { path: filePath, bytes };
 }
 
+function checkedComputerPath(value: unknown): string {
+  const path = String(value || "").trim();
+  if (!path.startsWith("/") || path.includes("\\0") || path.split("/").includes("..")) {
+    throw new Error("Use an absolute path without parent-directory segments.");
+  }
+  if (path.length > 1200) throw new Error("The computer file path is too long.");
+  return path;
+}
+
+export type CloudComputerFile = {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modifiedAt: string | null;
+  mode: string | null;
+};
+
+export async function cloudComputerListFiles(ctx: CloudComputerContext, path = "/home/daytona", depth = 1): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const directory = checkedComputerPath(path);
+  const maxDepth = Math.max(1, Math.min(3, Math.floor(Number(depth) || 1)));
+  const { sandbox } = await openSandbox(ctx);
+  const query = new URLSearchParams({ path: directory, depth: String(maxDepth) });
+  const result = await toolboxRequest<any>(ctx, sandbox, "/files?" + query.toString());
+  const rows = Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : Array.isArray(result?.files) ? result.files : [];
+  const items: CloudComputerFile[] = rows.slice(0, 500).map((file: any) => {
+    const name = String(file?.name || String(file?.path || "").split("/").pop() || "");
+    const filePath = String(file?.path || (directory.replace(/\\/$/, "") + "/" + name));
+    return {
+      name,
+      path: checkedComputerPath(filePath.startsWith("/") ? filePath : (directory.replace(/\\/$/, "") + "/" + filePath)),
+      isDir: Boolean(file?.isDir ?? file?.is_dir ?? file?.isDirectory),
+      size: Math.max(0, Number(file?.size) || 0),
+      modifiedAt: String(file?.modTime || file?.modifiedAt || file?.modifiedTime || file?.mod_time || "") || null,
+      mode: String(file?.mode || file?.permissions || "") || null,
+    };
+  }).filter((file) => file.name);
+  items.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
+  return { path: directory, items, truncated: rows.length > 500 };
+}
+
+export async function cloudComputerCreateFolder(ctx: CloudComputerContext, path: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const folder = checkedComputerPath(path);
+  if (folder === "/") throw new Error("The root directory already exists.");
+  const { sandbox } = await openSandbox(ctx);
+  const query = new URLSearchParams({ path: folder, mode: "755" });
+  await toolboxRequest(ctx, sandbox, "/files/folder?" + query.toString(), { method: "POST" });
+  return { ok: true, path: folder };
+}
+
+export async function cloudComputerDeleteFile(ctx: CloudComputerContext, path: string, recursive = false): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const filePath = checkedComputerPath(path);
+  if (filePath === "/" || filePath === "/home" || filePath === "/home/daytona") throw new Error("Refusing to delete a protected computer root.");
+  const { sandbox } = await openSandbox(ctx);
+  const query = new URLSearchParams({ path: filePath });
+  if (recursive) query.set("recursive", "true");
+  await toolboxRequest(ctx, sandbox, "/files?" + query.toString(), { method: "DELETE" });
+  return { ok: true, path: filePath };
+}
+
+export async function cloudComputerFileDownload(ctx: CloudComputerContext, path: string): Promise<Json> {
+  const file = await cloudComputerReadFile(ctx, checkedComputerPath(path));
+  if (!file) throw new Error("The requested file was not found.");
+  if (file.bytes.length > 8 * 1024 * 1024) throw new Error("Browser file transfers are limited to 8 MB; use the terminal for larger files.");
+  return { path: file.path, size: file.bytes.length, base64: file.bytes.toString("base64") };
+}
+
+export async function cloudComputerFileUpload(ctx: CloudComputerContext, path: string, base64: string): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  const filePath = checkedComputerPath(path);
+  const encoded = String(base64 || "");
+  if (!encoded || encoded.length > 11_200_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Invalid file upload payload.");
+  const bytes = Buffer.from(encoded, "base64");
+  if (!bytes.length || bytes.length > MAX_FILE_BYTES) throw new Error("File upload limit is 8 MB.");
+  const { sandbox } = await openSandbox(ctx);
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)]), filePath.split("/").pop() || "file");
+  await toolboxRequest(ctx, sandbox, "/files/upload-v2?path=" + encodeURIComponent(filePath), { method: "POST", body: form });
+  return { ok: true, path: filePath, bytes: bytes.length };
+}
+
 export type CloudScreenshotOptions = {
   region?: { x: number; y: number; width: number; height: number };
   compressed?: boolean;
