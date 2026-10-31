@@ -1042,9 +1042,11 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
     let resizeDisposable: any = null;
     let terminal: any = null;
     let fit: any = null;
+    let attachActive = false;
 
     const attach = async (isReconnect: boolean) => {
-      if (disposed || !terminal || connecting) return;
+      if (disposed || !terminal || attachActive) return;
+      attachActive = true;
       setConnecting(true);
       setError("");
       try {
@@ -1055,6 +1057,8 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
         sessionRef.current = id;
         setSession(id);
         setCwd(String(opened.cwd || "/home/daytona"));
+        // Fit after the session id is known so the first resize reaches the actual PTY.
+        try { fit?.fit(); } catch { /* the terminal may be in a hidden tab */ }
 
         // Drain the retained scrollback before attaching. The returned cursor is passed to
         // Daytona's WebSocket attach endpoint so there is no gap between replay and live output.
@@ -1099,6 +1103,7 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
           setError(String(e?.message || e));
         }
       } finally {
+        attachActive = false;
         if (!disposed) setConnecting(false);
       }
       void isReconnect;
