@@ -220,13 +220,24 @@ export async function executeDonorTool(input: {
         },
       };
     }
-    const ocr = await computer.cloudComputerOcrScreenshot(computerCtx, file.bytes, "image/jpeg").catch((error) =>
-      "OCR fallback had a problem in this model's own computer: " + String((error as Error)?.message || error).slice(0, 300)
-    );
+    const [ocr, visual] = await Promise.all([
+      computer.cloudComputerOcrScreenshot(computerCtx, file.bytes, "image/jpeg").catch((error) =>
+        "OCR fallback had a problem in this model's own computer: " + String((error as Error)?.message || error).slice(0, 300)
+      ),
+      computer.cloudComputerVisionDescribeScreenshot(
+        computerCtx,
+        file.bytes,
+        "image/jpeg",
+        "Describe this live computer screen. Identify visible apps, layout, UI elements and controls with approximate normalized coordinates. Return structured JSON. Use Arabic if the user is speaking Arabic; never guess unreadable content.",
+      ).catch((error) => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) })),
+    ]);
+    const visualText = visual.ok && visual.description
+      ? "\nLocal visual-perception sidecar (private to this candidate's VM):\n" + String(visual.description).slice(0, 10000)
+      : "\nPrivate visual-perception sidecar is " + String(visual.state || "starting") + (visual.detail ? ": " + String(visual.detail).slice(0, 220) : "") + ". Use OCR and accessibility metadata and do not infer unseen details.";
     return {
       ok: true,
-      result: baseDescription + "\nVisible screen text (OCR in this same isolated computer):\n" + ocr +
-        "\nThis model cannot decode the screenshot pixels with its current projector, but it can still inspect the UI tree, active windows, exact visible text and control the same desktop using mouse/keyboard/accessibility tools. Never guess missing visual details.",
+      result: baseDescription + "\nVisible screen text (Arabic + English OCR in this same isolated computer):\n" + ocr + visualText +
+        "\nUse visual coordinates together with the accessibility tree; verify actions with a fresh screenshot.",
     };
   }
 
