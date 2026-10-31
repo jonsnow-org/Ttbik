@@ -2131,7 +2131,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
             if (call.function.name === "cloud_computer_screenshot") {
-              const { cloudComputerScreenshot, cloudComputerOcrScreenshot, cloudComputerAction } = await import("@/lib/cloudComputer");
+              const { cloudComputerScreenshot, cloudComputerOcrScreenshot, cloudComputerVisionDescribeScreenshot, cloudComputerAction } = await import("@/lib/cloudComputer");
               const shotArgs = parseArgs(call);
               const rawRegion = shotArgs.region && typeof shotArgs.region === "object" ? shotArgs.region as Record<string, unknown> : null;
               const options = {
@@ -2165,7 +2165,20 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                     out = description + "\nThe screenshot is also attached as a visual input. Correlate its pixels with the accessibility tree and OCR; verify actions with a new screenshot.";
                   } else out = description + "\nImage conversion was unavailable; use the accessibility tree and OCR text above.";
                 } else {
-                  out = description + "\nThis model does not have a native image projector in its current route. It can still operate this desktop using the accessibility tree, OCR, window metadata, shell, and mouse/keyboard tools. Do not infer non-text image content that OCR and UI metadata cannot reveal.";
+                  const visual = await cloudComputerVisionDescribeScreenshot(
+                    computerCtx,
+                    file.bytes,
+                    options.format === "jpeg" ? "image/jpeg" : "image/png",
+                    "Describe this live computer screen. Identify visual regions, active application, UI elements, controls and approximate normalized coordinates. Return JSON; use Arabic if the user is speaking Arabic. Do not guess unreadable content.",
+                  ).catch((error) => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) }));
+                  if (visual.ok && visual.description) {
+                    out = description + "\nLocal visual-perception sidecar (runs inside this exact account+model VM; no screenshot leaves the VM):\n" + String(visual.description).slice(0, 10000) +
+                      "\nUse the visual coordinates together with the accessibility tree. Verify every UI action with a fresh screenshot.";
+                  } else {
+                    out = description + "\nThe model has no native image projector in its current route. Its private visual-perception sidecar is " +
+                      String(visual.state || "starting") + (visual.detail ? ": " + String(visual.detail).slice(0, 250) : "") +
+                      ". OCR and the accessibility tree remain available. Never invent visual details that are not visible in those results.";
+                  }
                 }
               }
             }
