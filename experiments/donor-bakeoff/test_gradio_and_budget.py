@@ -144,3 +144,15 @@ class CandidateMediaStudios(unittest.TestCase):
         for route in ("qwen35-9b", "gemma4-e4b", "minicpmo45"):
             self.assertIn("- id: " + route, wf)
         self.assertIn("REPO: sham-donor-${{ matrix.candidate.id }}-media", wf)
+
+
+class SmokeTestList(unittest.TestCase):
+    def test_every_test_in_the_app_runs_in_the_workflow(self):
+        import re as _re
+        ids = _re.findall(r'^\s{8}"id": "([a-z_]+)",', SRC, flags=_re.M)
+        wf = (Path(__file__).parents[2] / ".github" / "workflows" / "donor-bakeoff-modelscope.yml").read_text(encoding="utf-8")
+        loop = _re.search(r"for TEST_ID in ([a-z_ ]+); do", wf).group(1).split()
+        tests = [i for i in ids if i in loop or i in ("arabic",)]
+        for needed in ("image_tool_direct", "audio_tool_direct", "video_tool_direct", "image_generation", "long_multistep_repo"):
+            self.assertIn(needed, ids)
+            self.assertIn(needed, loop)
