@@ -15,6 +15,16 @@ export async function generateShamMediaThroughRoute(
     return { type: "error", route: "unselected", reason: "model_not_selected", text: "No Sham model was selected for this media request; no Studio was called." };
   }
   const modelId = model === "v2" ? "sham_v2" : "sham";
+  // Sham v2 images use its assigned Realistic Vision V6 checkpoint in a separate image Studio.
+  // The model's native audio/video routes remain isolated in its own Studios below.
+  if (model === "v2" && kind === "image") {
+    const photo = await import("@/lib/photoWeightMedia");
+    const generated = await photo.makePhotoMedia("sham_v2", prompt, { timeoutMs: Math.min(480000, Math.max(30000, opts.timeoutMs ?? 420000)) });
+    if (generated.type === "image" && generated.b64) {
+      return { type: "image", mime: "image/png", b64: generated.b64, text: generated.text, route: "sham_v2_photo_weight" };
+    }
+    return { type: "error", route: "sham_v2_photo_weight", reason: generated.reason, text: generated.text };
+  }
   const route = targetOf(modelId, await shamEngine(modelId)).route;
   const timeoutMs = Math.min(240000, Math.max(8000, opts.timeoutMs ?? 240000));
   try {
