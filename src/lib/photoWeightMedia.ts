@@ -197,7 +197,7 @@ export async function makePhotoMedia(
     if (found.metadata.result !== "image_generated") return { type: "error", reason: "generation_not_confirmed", text: "The Studio did not confirm a successful image generation." };
     const path = safeRelativeFilePath(found.file);
     if (!path) return { type: "error", reason: "bad_file_path", text: "The Studio returned an invalid image file path." };
-    const fileResponse = await fetchImpl(base + "/gradio_api/file=" + encodedGradioPath(path), {
+    const fileResponse = await fetchImpl(base + "/gradio_api/file=/" + encodedGradioPath(path), {
       headers, signal: AbortSignal.timeout(Math.min(timeoutMs, 120000)),
     });
     if (!fileResponse.ok) throw new Error("HTTP " + fileResponse.status + " while downloading the generated image");
