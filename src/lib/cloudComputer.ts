@@ -865,7 +865,7 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     await cloudComputerTerminalExecute(ctx, "printf 'TTBIK_PTY_ACCEPTANCE\\n'");
     const output = await cloudComputerTerminalPoll(ctx, id);
     if (!String(output.output || "").includes("TTBIK_PTY_ACCEPTANCE")) throw new Error("PTY output was not returned to the computer panel.");
-    await cloudComputerTerminalInput(ctx, id, "\\u0003");
+    await cloudComputerTerminalInput(ctx, id, "\u0003");
     return { sessionId: id, state: output.state, outputReceived: true };
   });
   await check("desktop services start", async () => {
