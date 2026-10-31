@@ -23,6 +23,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
   coder: { modelId: "coder", displayName: "Nova AI", sourceModel: "emilianJR/epiCRealism",
     modelRepo: "novaai2026/epicrealism-image-test-models", endpointEnv: "NOVA_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net",
+    expectedCheckpointSha256: "657a6b9cf3594b1c30f1b7bc35418e07caaaa0ca668fbefb13bbecc5391181e0",
     resolution: "512 × 768", steps: 30, cfg: 7, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Previously successful weight; a separate Gemma-owned copy lives in its own repo/Studio.
@@ -43,6 +44,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
   minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
     modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "MINICPMO45_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
+    expectedCheckpointSha256: "28e09ca1ce1f0682deda6df1039beaded321db379eea9c7cd850f15ea37ca0ed",
     resolution: "512 × 768", steps: 30, cfg: 6.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Existing Sham v2 route is preserved on its original successful Studio; Gemma uses a private clone.
