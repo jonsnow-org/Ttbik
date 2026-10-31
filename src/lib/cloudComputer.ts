@@ -786,17 +786,20 @@ export async function cloudComputerOcrScreenshot(
   const script = [
     "set +e",
     "if ! command -v tesseract >/dev/null 2>&1; then",
-    "  if command -v dnf >/dev/null 2>&1; then sudo dnf install -y tesseract tesseract-langpack-eng tesseract-langpack-ara >/tmp/ttbik-ocr-install.log 2>&1",
-    "  elif command -v apt-get >/dev/null 2>&1; then sudo apt-get update -qq >/tmp/ttbik-ocr-install.log 2>&1 && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara >>/tmp/ttbik-ocr-install.log 2>&1",
+    "  if command -v dnf >/dev/null 2>&1; then",
+    "    sudo dnf install -y tesseract tesseract-langpack-eng tesseract-langpack-ara >/tmp/ttbik-ocr-install.log 2>&1",
+    "  elif command -v apt-get >/dev/null 2>&1; then",
+    "    sudo apt-get update -qq >/tmp/ttbik-ocr-install.log 2>&1 && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara >>/tmp/ttbik-ocr-install.log 2>&1",
     "  fi",
     "fi",
     "if command -v tesseract >/dev/null 2>&1; then",
     "  LANGS=$(tesseract --list-langs 2>/dev/null | grep -q '^ara$' && echo eng+ara || echo eng)",
-    "  tesseract " + quoted + " stdout -l \"$LANGS\" 2>/dev/null",
+    "  tesseract " + quoted + " stdout -l \\"$LANGS\\" 2>/dev/null",
     "else echo '__TTBIK_OCR_UNAVAILABLE__'; fi",
     "rm -f " + quoted,
-  ].join("; ");
-  const result = await cloudComputerExecute(ctx, "bash -lc " + JSON.stringify(script), "/home/daytona", 120000);
+  ].join("\\n");
+  const shellQuote = (value: string) => "'" + value.replace(/'/g, "'\\\\''") + "'";
+  const result = await cloudComputerExecute(ctx, "bash -lc " + shellQuote(script), "/home/daytona", 120000);
   const text = String(result.stdout || "").trim();
   if (!text || text.includes("__TTBIK_OCR_UNAVAILABLE__")) {
     return "OCR fallback is not installed in this model's private computer. The accessibility tree and window list are still available for computer interaction.";
