@@ -18,7 +18,7 @@ describe("per-model photo weight routing", () => {
     expect(new Set(entries.map((x) => x.defaultEndpoint)).size).toBe(entries.length);
     expect(photoWeightProfile("gemma4-e4b")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
     expect(photoWeightProfile("qwen35-9b")?.modelRepo).toBe("novaai2026/cyberrealistic-final-test-models");
-    expect(photoWeightProfile("minicpmo45")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
+    expect(photoWeightProfile("minicpmo45")?.modelRepo).toBe("novaai2026/umranz-sd15-test-models");
     expect(photoWeightProfile("qwen35-9b")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("gemma4-e4b")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("minicpmo45")?.validationStatus).toBe("needs_retest");
