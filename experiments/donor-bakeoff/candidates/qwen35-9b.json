@@ -10,5 +10,20 @@
   "purpose": "Arabic, code, tool-call shape, image and video input tests. Audio is enabled only if the MTMD projector reports support.",
   "enable_thinking": false,
   "temperature": 0.7,
-  "top_p": 0.8
+  "top_p": 0.8,
+  "route_id": "qwen35-9b",
+  "image_generation": {
+    "for_candidate": "qwen35-9b",
+    "model_repo": "novaai2026/cyberrealistic-final-test-models",
+    "studio_api": "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
+    "expected_checkpoint_sha256": "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
+    "resolution": "512 × 768",
+    "steps": 30,
+    "cfg": 5
+  },
+  "runtime_generation_capabilities": {
+    "image": true,
+    "audio": false,
+    "video": false
+  }
 }
