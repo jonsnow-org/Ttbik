@@ -1,0 +1,62 @@
+name: "Redeploy one existing Studio (same code, no changes)"
+
+# Asks ModelScope to build and start ONE existing private Studio again, from the code it already holds. Used when ModelScope's own build step failed
+# (e.g. its registry login timed out) and nothing in our code is at fault. It changes no files, no settings, and touches only the named Studio.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio under novaai2026 (umranz-, gemma4-, cyberrealistic-, epicrealism-, realistic-vision-, sham-donor-)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redeploy-studio-${{ inputs.studio }}
+  cancel-in-progress: false
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Redeploy and watch
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          MS: https://www.modelscope.cn
+          OWNER: novaai2026
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          [[ "$STUDIO" =~ ^(umranz|gemma4|cyberrealistic|epicrealism|realistic-vision|sham-donor)-[A-Za-z0-9_.-]{2,60}$ ]] || { echo "::error::studio name not allowed"; exit 1; }
+          state() { curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true; }
+          echo "before: $(state)"
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO/deploy")
+          echo "deploy HTTP $code"; [[ "$code" =~ ^2[0-9][0-9]$ ]] || { cat deploy.json; exit 1; }
+          for i in $(seq 1 120); do
+            s=$(state); echo "$(date -u +%H:%M:%S) $s ($i/120)"
+            case "$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')" in
+              running|ready) echo "Studio is $s"; break ;;
+              *error*|*fail*) echo "::error::Studio state $s"; break ;;
+            esac
+            sleep 20
+          done
+          python -m pip install -q "modelscope>=1.26.0"
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi(); api.login(os.environ["T"].strip())
+          repo = "novaai2026/" + os.environ["STUDIO"]
+          for kind in ("build", "run"):
+              try:
+                  r = api.get_repo_logs(repo, log_type=kind, page_size=100)
+                  logs = r.get("logs", []) if isinstance(r, dict) else []
+                  print(kind.upper() + "_LOG_TOTAL", r.get("total_count") if isinstance(r, dict) else "?")
+                  for line in logs[-25:]:
+                      print(str(line)[:400])
+              except Exception as exc:
+                  print(kind.upper() + "_LOG_ERROR", type(exc).__name__, str(exc)[:300])
+          PY
