@@ -1058,8 +1058,9 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
     ticket = str(tool_bridge.get("ticket") or "")
     model = str(tool_bridge.get("model") or "")
     run_id = str(tool_bridge.get("run_id") or "")
+    bot_id = str(tool_bridge.get("bot_id") or "")
     bridge_url = str(tool_bridge.get("url") or "").rstrip("/")
-    if not ticket or model != str(CONFIG.get("route_id") or "") or not run_id:
+    if not ticket or model != str(CONFIG.get("route_id") or "") or not run_id or not bot_id:
         return False, "no valid candidate-scoped delivery ticket"
     suffix = "/api/coder/app/donor-tools"
     if not bridge_url.startswith("https://") or not bridge_url.endswith(suffix):
@@ -1097,6 +1098,7 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
                 "ticket": ticket,
                 "model": model,
                 "run_id": run_id,
+                "bot_id": bot_id,
                 "prompt": str(prompt or "")[:12000],
                 "text": str(result.get("text") or "")[:12000],
                 "generated_media": outgoing_media,
