@@ -700,7 +700,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "computer_terminal_input":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.sessionId || ""), String(body.data || ""))));
     case "computer_terminal_ticket":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalTicket(ctx, String(body.sessionId || ""))));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalTicket(ctx, String(body.sessionId || ""), typeof body.cursor === "string" ? body.cursor : undefined)));
+    case "computer_files_list":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerListFiles(ctx, String(body.path || "/home/daytona"), Number(body.depth) || 1)));
+    case "computer_files_mkdir":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerCreateFolder(ctx, String(body.path || ""))));
+    case "computer_files_delete":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerDeleteFile(ctx, String(body.path || ""), body.recursive === true)));
+    case "computer_files_download":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileDownload(ctx, String(body.path || ""))));
+    case "computer_files_upload":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileUpload(ctx, String(body.path || ""), String(body.base64 || ""))));
     case "computer_terminal_resize":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalResize(ctx, String(body.sessionId || ""), Number(body.cols), Number(body.rows))));
     case "status": {
