@@ -18,7 +18,7 @@ import gradio as gr
 
 HERE = Path(__file__).resolve().parent
 MODEL_REPO = os.environ.get(
-    "PHOTO_MODEL_REPO", "novaai2026/gemma4-gemma4-realistic-vision-v6-test-models"
+    "PHOTO_MODEL_REPO", "novaai2026/gemma4-realistic-vision-v6-test-models"
 )
 CACHE = HERE / "_photo_model_cache"
 CHECKPOINT_REL = "checkpoint/Realistic_Vision_V6.0_NV_B1_fp16.safetensors"
