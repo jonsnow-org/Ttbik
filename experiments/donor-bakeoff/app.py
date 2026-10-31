@@ -209,10 +209,28 @@ TESTS = [
     {
         "id": "long_multistep_repo",
         "label": "مهمة طويلة متعددة المراحل: بحث وقراءة ملفات وتحليل",
-        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي.",
+        "prompt": "أنجز مهمة تحليل حقيقية متعددة المراحل ولا تكتفِ بوصف ما ستفعله: (1) استخدم github_repo_scan لفحص جذر المستودع العام jonsnow-org/Ttbik. (2) استخدم github_read_files لقراءة package.json وsrc/lib/donorTests.ts من الفرع claude/free-services-marketplace-h6rwk2، وابحث داخل الملف الثاني عن donorTestChat. (3) استخدم vercel_deployment_status لفحص استجابة الموقع العام ttbik. بعد استلام النتائج الفعلية، اكتب تقريراً عربياً منظماً يذكر أسماء الملفات، اسم الحزمة وأحد أوامر scripts الحقيقية من package.json، وظيفة donorTestChat كما تظهر في الملف، وحالة فحص Vercel وسببها. لا تخمّن ولا تكرر طلبي. اجعل التقرير موجزاً (سطر أو سطران لكل بند) حتى يكتمل ضمن حدود الإخراج.",
         "tools": ["github_repo_scan", "github_read_files", "vercel_deployment_status"],
         "max_tokens": 760,
         "temperature": 0.0,
+    },
+    {
+        "id": "image_tool_direct",
+        "label": "أداة توليد الصورة مباشرة (استوديو الصور الخاص بالمرشح، بلا محادثة)",
+        "direct_tool": "generate_image",
+        "direct_args": {"prompt": "A natural photograph of a quiet stone street after rain in daylight, a woman in a coat standing on the wet pavement, realistic skin and fabric"},
+    },
+    {
+        "id": "audio_tool_direct",
+        "label": "أداة الصوت مباشرة (استوديو الوسائط الخاص بالمرشح)",
+        "direct_tool": "generate_audio",
+        "direct_args": {"text": "مرحباً، هذا اختبار صوتي عربي قصير من استوديو الوسائط الخاص بهذا النموذج."},
+    },
+    {
+        "id": "video_tool_direct",
+        "label": "أداة الفيديو مباشرة (استوديو الوسائط الخاص بالمرشح)",
+        "direct_tool": "generate_video",
+        "direct_args": {"prompt": "a candle flame flickering in a dark room, slow camera", "seconds": 2},
     },
     {
         "id": "image_generation",
@@ -1471,7 +1489,53 @@ def _make_video_fixture() -> str:
         raise RuntimeError("Could not create the video smoke fixture: " + run.stderr.decode("utf-8", "replace")[-600:])
     return str(path)
 
+def _run_direct_tool(test: dict) -> dict:
+    """Runs one generation tool by itself (no model turns): the call to the candidate's OWN image / media Studio is what is checked, so a slow
+    model cannot push the test past the gateway's stream limit. The file must be real: a valid image, a WAV with sound, an MP4 with motion."""
+    name = str(test["direct_tool"])
+    started = time.monotonic()
+    if name in MEDIA_TOOLS and _media_profile() is None:
+        return _unsupported(test, "this candidate has no dedicated media Studio assigned.")
+    result = _execute_tool(name, dict(test.get("direct_args") or {}), None)
+    seconds = round(time.monotonic() - started, 2)
+    generated = result.pop("_generated_media", None) if isinstance(result, dict) else None
+    out = {"id": test["id"], "label": test["label"], "check_type": "direct_tool", "seconds": seconds, "tool": name, "tool_result": result, "generated_media": []}
+    if not isinstance(generated, dict):
+        out["passed"] = False
+        return out
+    problem = ""
+    try:
+        raw = base64.b64decode(str(generated.get("b64") or ""), validate=True)
+        kind = str(generated.get("kind"))
+        if kind == "image":
+            from PIL import Image
+            from io import BytesIO
+            im = Image.open(BytesIO(raw)).convert("RGB")
+            colors = len(set(im.resize((64, 64)).getdata()))
+            if colors < 200:
+                problem = f"image has only {colors} distinct colours (blank / noise?)"
+        elif kind == "audio":
+            with wave.open(__import__("io").BytesIO(raw)) as w:
+                frames = w.readframes(w.getnframes())
+                if w.getnframes() / max(1, w.getframerate()) < 0.5 or not any(frames[:200000]):
+                    problem = "audio is shorter than 0.5 s or silent"
+        elif kind == "video":
+            if raw[4:8] != b"ftyp":
+                problem = "not an MP4 file"
+    except Exception as exc:
+        problem = f"file could not be checked: {type(exc).__name__}: {str(exc)[:120]}"
+    out["generated_media"] = [generated]
+    out["problem"] = problem
+    out["passed"] = bool(result.get("ok")) and not problem
+    return out
+
+
 def _run_one(test: dict) -> dict:
+    if test.get("direct_tool"):
+        try:
+            return _run_direct_tool(test)
+        except Exception as exc:
+            return {"id": test["id"], "label": test["label"], "passed": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
     try:
         media_kind = test.get("media")
         caps = get_state().get("media") or {}
