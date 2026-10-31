@@ -25,7 +25,7 @@ export interface ShamHost {
     writeFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string, content: string): Promise<Record<string, unknown>>;
     readFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string): Promise<{ path: string; bytes: Buffer } | null>;
     action(c: { chatId: number; modelId: string; owner: boolean; db: Db }, action: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>;
-    screenshot(c: { chatId: number; modelId: string; owner: boolean; db: Db }): Promise<{ path: string; bytes: Buffer } | null>;
+    screenshot(c: { chatId: number; modelId: string; owner: boolean; db: Db }, options?: { region?: { x: number; y: number; width: number; height: number }; compressed?: boolean; format?: "png" | "jpeg"; quality?: number; scale?: number }): Promise<{ path: string; bytes: Buffer } | null>;
   };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
@@ -73,8 +73,17 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("cloud_computer_execute", "Run a full shell command inside your own persistent isolated Linux computer. Package installation, browsers, compilers and background processes are available inside this VM.", obj({ command: s("shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
   tool("cloud_computer_write_file", "Write a file into your persistent Linux computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
   tool("cloud_computer_read_file", "Read a file from your persistent Linux computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
-  tool("cloud_computer_action", "Interact with the Linux desktop: click, type, press, hotkey, scroll, list windows or inspect desktop status.", obj({ action: { type: "string", enum: ["click", "type", "press", "hotkey", "scroll", "windows", "desktop_status"] }, x: n("screen x"), y: n("screen y"), button: s("left | middle | right"), double: { type: "boolean" }, text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"), direction: s("up | down"), amount: n("scroll amount") }, ["action"])),
-  tool("cloud_computer_screenshot", "Take a screenshot of the desktop and understand it with Sham's own vision model and Studio.", obj({})),
+  tool("cloud_computer_action", "Full Computer Use: mouse move/click/drag/position/scroll; keyboard type/key/hotkey; accessibility tree/find/focus/invoke/set value; display and windows; process status/restart/logs/errors; screen recording start/stop/list/get/delete/download.", obj({
+    action: { type: "string", enum: ["click","move","drag","mouse_position","type","press","hotkey","scroll","windows","display_info","desktop_status","accessibility_tree","accessibility_find","accessibility_focus","accessibility_invoke","accessibility_set_value","recording_start","recording_stop","recording_list","recording_get","recording_delete","recording_download","process_status","process_restart","process_logs","process_errors"] },
+    x: n("screen x"), y: n("screen y"), start_x: n("drag start x"), start_y: n("drag start y"), end_x: n("drag end x"), end_y: n("drag end y"),
+    width: n("region width"), height: n("region height"), button: s("left | middle | right"), double: { type: "boolean" },
+    text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"),
+    direction: s("up | down"), amount: n("scroll amount"), scope: s("focused | all | pid"), pid: n("process id"), max_depth: n("accessibility tree depth"),
+    role: s("accessibility role"), name: s("accessible name"), name_match: s("exact | substring | regex"), states: { type: "array", items: s("visible | enabled | focusable | focused") }, limit: n("result count"),
+    node_id: s("accessibility node id"), node_action: s("node action"), value: s("accessibility value"), process: s("desktop process name"),
+    id: s("recording id"), recording_id: s("recording id"), path: s("download destination inside VM"),
+  }, ["action"])),
+  tool("cloud_computer_screenshot", "Take a full or region screenshot of the desktop and understand it with Sham's own vision model and Studio.", obj({ region: { type: "object", properties: { x: n("x"), y: n("y"), width: n("width"), height: n("height") } }, compressed: { type: "boolean" }, format: s("png | jpeg"), quality: n("quality 1-100"), scale: n("scale 0.1-1") })),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -321,7 +330,8 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     }
     if (name === "cloud_computer_action") return clip(await H0.computer.action(computerCtx, String(a.action || ""), a));
     if (name === "cloud_computer_screenshot") {
-      const file = await H0.computer.screenshot(computerCtx);
+      const rawRegion = a.region && typeof a.region === "object" ? a.region as Record<string, unknown> : null;
+      const file = await H0.computer.screenshot(computerCtx, { ...(rawRegion ? { region: { x: Number(rawRegion.x) || 0, y: Number(rawRegion.y) || 0, width: Number(rawRegion.width) || 1, height: Number(rawRegion.height) || 1 } } : {}), compressed: a.compressed === true, format: a.format === "jpeg" ? "jpeg" : "png", quality: Number(a.quality) || 85, scale: Number(a.scale) || 1 });
       if (!file) return "error: the selected model's cloud desktop is unavailable.";
       const vision = await shamUnderstandImage(file.bytes.toString("base64"), "اشرح صورة شاشة حاسوبك الحالية، وحدد ما يظهر والنافذة النشطة والخيارات المتاحة.", 90000);
       return clip(vision, 5000);
