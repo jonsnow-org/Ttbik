@@ -1,11 +1,12 @@
 // The owner's read-only picture of "which engine makes which media for which model" and whether each Studio behind it is alive.
-// Nova → nova-media-server only. Sham v2 → sham-v2-server (image, speech) + sham-v2-video-server (video) (+ the overflow Studio for chat). Old Sham → its own Studio.
+// Five distinct photo-weight Studios are listed in photoWeights. Nova speech/video and Sham speech/video remain on their own native routes. Old Sham is untouched.
 // Owner-only (the caller checks). The probes are the Studios' own `status` call, a few seconds each, all in parallel.
 import type { Db } from "@/lib/coderAuth";
 import { novaMediaUrl } from "@/lib/novaMedia";
 import { DEFAULT_URL, DEFAULT_V2_URL, DEFAULT_V2_VIDEO_URL } from "@/lib/shamStudio";
 import { overflowConfigured, overflowVerdict } from "@/lib/shamPool";
 import { SHAM_ENGINE_OPTIONS, shamEngine, type ShamEngine, type ShamModelId } from "@/lib/shamMediaEngine";
+import { photoWeightStatus } from "@/lib/photoWeightMedia";
 
 export type StudioProbe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string };
 export type MediaLine = { kind: "image" | "audio" | "video"; ar: string; en: string; studio: string };
@@ -55,25 +56,26 @@ const ROLE = {
   v1: { ar: "استوديو شام القديم", en: "Old Sham Studio" },
 };
 
-export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; checkedAt: string }> {
+export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; checkedAt: string }> {
   const msToken = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   const novaToken = (process.env.OPEN_CODER_STUDIO_TOKEN || msToken).trim();
   const novaUrl = novaMediaUrl();
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
-  const [pNova, pV2, pV2v, pV1] = await Promise.all([probeStudio(novaUrl, novaToken, f), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f)]);
+  const [pNova, pV2, pV2v, pV1, photoWeights] = await Promise.all([probeStudio(novaUrl, novaToken, f), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f)]);
   const S = (id: string, role: { ar: string; en: string }, p: { ok: boolean; phase: string; detail: string }): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();
   const overflow: StudioProbe[] = over ? [S(hostOf(over), ROLE.v2over, { ok: ov.ok, phase: ov.ok ? "ready" : "unverified", detail: ov.ok ? "" : ov.why })] : [];
   const e2 = await shamEngine("sham_v2", db), e1 = await shamEngine("sham", db);
   const v2lines = (e: ShamEngine): MediaLine[] => e === "ready"
-    ? [{ kind: "image", ar: "صورة: أوزان جاهزة (SDXS) على المعالج", en: "Image: ready weights (SDXS) on CPU", studio: hostOf(v2) }, { kind: "audio", ar: "صوت: أوزان جاهزة (Piper) على المعالج", en: "Speech: ready weights (Piper) on CPU", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: hostOf(v2v) }]
-    : [{ kind: "image", ar: "صورة: مولّد شام الداخلي", en: "Image: Sham's own generator", studio: hostOf(v2) }, { kind: "audio", ar: "صوت: مولّد شام الداخلي", en: "Speech: Sham's own generator", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: مولّد شام الداخلي", en: "Video: Sham's own generator", studio: hostOf(v2) }];
+    ? [{ kind: "image", ar: "صورة: Realistic Vision V6 (استوديو مستقل)", en: "Image: Realistic Vision V6 (independent Studio)", studio: "realistic-vision-v6-test" }, { kind: "audio", ar: "صوت: أوزان جاهزة (Piper) على المعالج", en: "Speech: ready weights (Piper) on CPU", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: hostOf(v2v) }]
+    : [{ kind: "image", ar: "صورة: Realistic Vision V6 (استوديو مستقل)", en: "Image: Realistic Vision V6 (independent Studio)", studio: "realistic-vision-v6-test" }, { kind: "audio", ar: "صوت: مولّد شام الداخلي", en: "Speech: Sham's own generator", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: مولّد شام الداخلي", en: "Video: Sham's own generator", studio: hostOf(v2) }];
   return {
     checkedAt: new Date().toISOString(),
+    photoWeights,
     models: [
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
-        lines: [{ kind: "image", ar: "صورة: SDXS على المعالج", en: "Image: SDXS on CPU", studio: "nova-media-server" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },
+        lines: [{ kind: "image", ar: "صورة: epiCRealism (وزن Nova المستقل)", en: "Image: epiCRealism dedicated Nova weight", studio: "epicrealism-image-test" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },
       { id: "sham_v2", engine: e2, options: opts("sham_v2"), lines: v2lines(e2), studios: [S(hostOf(v2), ROLE.v2chat, pV2), S(hostOf(v2v), ROLE.v2video, pV2v), ...overflow] },
       { id: "sham", engine: e1, options: opts("sham"), lines: [{ kind: "image", ar: "صورة: مولّد شام القديم الداخلي", en: "Image: old Sham's own generator", studio: hostOf(v1) }, { kind: "audio", ar: "صوت: مولّد شام القديم الداخلي", en: "Speech: old Sham's own generator", studio: hostOf(v1) }, { kind: "video", ar: "فيديو: مولّد شام القديم الداخلي", en: "Video: old Sham's own generator", studio: hostOf(v1) }],
         studios: [S(hostOf(v1), ROLE.v1, pV1)] },
