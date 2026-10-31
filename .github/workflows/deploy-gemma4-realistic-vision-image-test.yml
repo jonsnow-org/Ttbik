@@ -289,3 +289,134 @@ jobs:
             echo "- Status: checkpoint and recommended VAE passed hash verification and loaded."
             echo "- Manual visual review is still required before any production routing change."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate one image from Gemma's private image-weight Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p gemma4-photo-smoke
+          python - <<'PY'
+          import hashlib, json, os, time, urllib.parse, urllib.request
+          from pathlib import Path
+
+          api = "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net"
+          token = os.environ["T"]
+          expected_repo = "novaai2026/gemma4-realistic-vision-v6-test-models"
+          expected_sha = "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7"
+
+          def call(url, data=None, timeout=60):
+              headers = {"Authorization": "Bearer " + token}
+              payload = None
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+                  payload = json.dumps(data).encode()
+              req = urllib.request.Request(url, data=payload, headers=headers)
+              with urllib.request.urlopen(req, timeout=timeout) as response:
+                  return response.read(), response.headers
+
+          raw, _ = call(api + "/gradio_api/call/image", {
+              "data": [
+                  "A documentary RAW photograph of a quiet old stone street just after rain, natural overcast daylight, realistic reflections, detailed stone texture, candid photography",
+                  "cartoon, anime, illustration, CGI, plastic skin, deformed, blurry, watermark, text",
+                  "512 × 512", 25, 5.5, 31415
+              ]
+          })
+          event_id = str(json.loads(raw).get("event_id") or "")
+          if not event_id:
+              raise SystemExit("Gemma image Studio returned no Gradio generation event.")
+          completed = None
+          last = ""
+          deadline = time.time() + 900
+          while time.time() < deadline:
+              try:
+                  body, _ = call(api + "/gradio_api/call/image/" + urllib.parse.quote(event_id, safe=""), timeout=90)
+                  last = body.decode("utf-8", "replace")
+                  if "event: error" in last:
+                      raise SystemExit("Gemma image generation returned an error event: " + last[-2500:])
+                  if "event: complete" in last:
+                      completed = last
+                      break
+              except Exception as exc:
+                  if "error event" in str(exc):
+                      raise
+                  last = str(exc)
+              time.sleep(8)
+          if not completed:
+              raise SystemExit("Gemma image generation timed out after 900 seconds. Last response: " + last[-1000:])
+
+          def walk(value, depth=0):
+              if depth > 10:
+                  return
+              if isinstance(value, str):
+                  try:
+                      yield from walk(json.loads(value), depth + 1)
+                  except Exception:
+                      return
+              elif isinstance(value, dict):
+                  yield value
+                  for child in value.values():
+                      if isinstance(child, (dict, list, str)):
+                          yield from walk(child, depth + 1)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child, depth + 1)
+
+          objects = []
+          for line in completed.splitlines():
+              if line.startswith("data:"):
+                  try:
+                      objects.extend(walk(json.loads(line[5:].strip())))
+                  except Exception:
+                      pass
+          metadata = next((x for x in objects if x.get("result") == "image_generated"), None)
+          file_obj = next((x for x in objects if isinstance(x.get("path"), str) and x.get("path")), None)
+          if not metadata or not file_obj:
+              raise SystemExit("Gemma completed but no generated image and metadata were returned.")
+          if metadata.get("model_repo") != expected_repo:
+              raise SystemExit("Gemma output came from a different private model repo.")
+          if str(metadata.get("checkpoint_sha256") or "").lower() != expected_sha:
+              raise SystemExit("Gemma output checkpoint SHA-256 differs from its pinned Realistic Vision copy.")
+
+          relative = file_obj["path"].replace("\\", "/")
+          marker = "/gradio_api/file="
+          if marker in relative:
+              relative = relative.split(marker, 1)[1]
+          relative = relative.lstrip("/")
+          if not relative or ".." in relative.split("/"):
+              raise SystemExit("Gemma returned an unsafe image file path.")
+          image_bytes, image_headers = call(api + "/gradio_api/file=" + urllib.parse.quote(relative, safe="/"), timeout=120)
+          mime = image_headers.get("Content-Type", "").split(";", 1)[0].lower()
+          if not mime.startswith("image/") or len(image_bytes) < 1000:
+              raise SystemExit("Gemma returned an empty or non-image output.")
+          if mime == "image/png" and not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+              raise SystemExit("Gemma returned invalid PNG bytes.")
+          out = Path("gemma4-photo-smoke/gemma4-realistic-vision-smoke.png")
+          out.write_bytes(image_bytes)
+          report = {
+              "candidate": "gemma4-e4b",
+              "model_repo": metadata["model_repo"],
+              "checkpoint_sha256": metadata["checkpoint_sha256"],
+              "vae_sha256": metadata.get("vae_sha256"),
+              "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+              "image_bytes": len(image_bytes),
+              "mime": mime,
+              "seed": metadata.get("seed"),
+              "seconds": metadata.get("seconds"),
+              "resolution": metadata.get("resolution"),
+              "basic_image_checks": metadata.get("basic_image_checks"),
+              "app_revision": metadata.get("app_revision"),
+              "device": metadata.get("device"),
+              "file": str(out),
+          }
+          Path("gemma4-photo-smoke/result.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Save Gemma generated image and proof metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemma4-independent-image-smoke
+          path: gemma4-photo-smoke/
+          retention-days: 30
+          if-no-files-found: error
