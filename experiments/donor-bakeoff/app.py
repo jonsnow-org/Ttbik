@@ -1087,7 +1087,7 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
                     "media_capabilities": get_state().get("media") or {},
                 },
                 headers={"Cache-Control": "no-store"},
-                timeout=(10, 180),
+                timeout=(10, 180 if name == "cloud_computer_screenshot" else 38),
             )
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
@@ -1321,7 +1321,7 @@ def infer(
                     encoded_screen = str(computer_vision.get("b64") or "")
                     mime_screen = str(computer_vision.get("mimeType") or "image/jpeg").lower()
                     if (
-                        get_state().get("media", {}).get("vision") is True
+                        (get_state().get("media") or {}).get("vision") is True
                         and mime_screen in {"image/jpeg", "image/png", "image/webp"}
                         and 100 <= len(encoded_screen) <= 12_000_000
                         and re.fullmatch(r"[A-Za-z0-9+/=]+", encoded_screen)
@@ -1366,6 +1366,7 @@ def infer(
                         {"type": "image_url", "image_url": {"url": data_url}},
                     ],
                 })
+            computer_vision_frames.clear()
             if use_tools and isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
                 for item in tool_bridge["tools"]:      # tools loaded by load_tools in this round are shown from the next one
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
