@@ -110,7 +110,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const cloudComputerContext = async (allowRevoked = false) => {
     const st = await loadStateStrict(chatId, db);
     const currentModel = canonModelId(st.model) || "coder";
-    const requested = typeof body.model === "string" ? canonModelId(body.model) : currentModel;
+    const requestedInput = typeof body.model === "string" ? body.model : currentModel;
+    const requestedModel = canonModelId(requestedInput);
+    if (!requestedModel) throw new AppError(400, "نموذج الحاسوب المحدد غير معروف.");
+    const requested: string = requestedModel;
     // Revoked/expired users may inspect or stop only the machine for their server-stored current model.
     if (allowRevoked && requested !== currentModel) throw new AppError(403, "لا يمكن إيقاف حاسوب نموذج آخر.");
     const model = (await listModels(db)).find((item) => item.id === requested);
