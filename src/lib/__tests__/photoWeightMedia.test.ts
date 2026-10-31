@@ -49,6 +49,7 @@ describe("per-model photo weight routing", () => {
     expect(result).toMatchObject({ type: "error", reason: "studio_not_ready" });
     expect(urls.length).toBe(2);
     expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
+    expect(urls.some((url) => url.includes("/gradio_api/file=/tmp/rv6-test.png"))).toBe(true);
     expect(urls.some((url) => url.includes("cyberrealistic") || url.includes("epicrealism") || url.includes("juggernaut"))).toBe(false);
   });
 
