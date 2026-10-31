@@ -9,6 +9,13 @@ import {
   cloudComputerTerminalInput,
   cloudComputerTerminalOpen,
   cloudComputerTerminalPoll,
+  cloudComputerTerminalTicket,
+  cloudComputerTerminalResize,
+  cloudComputerListFiles,
+  cloudComputerCreateFolder,
+  cloudComputerDeleteFile,
+  cloudComputerFileDownload,
+  cloudComputerFileUpload,
   cloudComputerSelfTest,
   cloudComputerStatus,
   cloudComputerStop,
@@ -62,7 +69,8 @@ const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8
 function providerFetch() {
   const sandboxes = new Map<string, any>();
   const files = new Map<string, Buffer>();
-  const processes = new Map<string, { id: string; state: string; cwd: string; logs: Array<{ data: string; cursor: string }> }>();
+  const directories = new Set<string>(["/home/daytona"]);
+  const processes = new Map<string, { id: string; state: string; cwd: string; terminal: { cols: number; rows: number }; logs: Array<{ data: string; cursor: string }> }>();
   const calls: Array<{ url: string; method: string; body: any }> = [];
   let seq = 0;
   let desktopReady = false;
@@ -100,7 +108,10 @@ function providerFetch() {
           return Response.json({ state: "started" });
         }
         if (url.pathname.includes("/ports/6080/signed-preview-url")) {
-          return Response.json({ url: "https://preview.daytona.test/signed?token=temporary" });
+          return Response.json({ url: "https://6080-signedvnc.preview.daytona.test/" });
+        }
+        if (url.pathname.includes("/ports/2280/signed-preview-url")) {
+          return Response.json({ url: "https://2280-signedpty.preview.daytona.test/" });
         }
         return Response.json(sandbox);
       }
@@ -111,11 +122,11 @@ function providerFetch() {
       if (path === "/processes" && method === "POST") {
         const id = String(body.name || "process-" + (++seq));
         if (processes.has(id)) return new Response("name conflict", { status: 409 });
-        const process = { id, state: "running", cwd: String(body.cwd || "/home/daytona"), logs: [] as Array<{ data: string; cursor: string }> };
+        const process = { id, state: "running", cwd: String(body.cwd || "/home/daytona"), terminal: { cols: Number(body.terminal?.cols || 120), rows: Number(body.terminal?.rows || 32) }, logs: [] as Array<{ data: string; cursor: string }> };
         processes.set(id, process);
         return Response.json(process, { status: 201 });
       }
-      const processMatch = /^\/processes\/([^/]+)(?:\/(stdin|logs))?$/.exec(path);
+      const processMatch = /^\/processes\/([^/]+)(?:\/(stdin|logs|resize))?$/.exec(path);
       if (processMatch) {
         const id = decodeURIComponent(processMatch[1]);
         const process = processes.get(id);
@@ -130,6 +141,10 @@ function providerFetch() {
         if (processMatch[2] === "logs" && method === "GET") {
           const after = Number(url.searchParams.get("cursor") || 0);
           return Response.json({ items: process.logs.filter((item) => Number(item.cursor) > after) });
+        }
+        if (processMatch[2] === "resize" && method === "POST") {
+          process.terminal = { cols: Number(body.cols), rows: Number(body.rows) };
+          return Response.json({ terminal: process.terminal });
         }
       }
       if (path === "/computeruse/status") return Response.json({ status: desktopReady ? "ready" : "stopped" });
@@ -160,6 +175,39 @@ function providerFetch() {
         const target = url.searchParams.get("path") || "";
         const file = files.get(target);
         return file ? new Response(new Uint8Array(file)) : new Response("not found", { status: 404 });
+      }
+      if (path === "/files" && method === "GET") {
+        const dir = url.searchParams.get("path") || "/home/daytona";
+        const prefix = dir.replace(/\\/$/, "") + "/";
+        const childDirs = new Set<string>();
+        const items: any[] = [];
+        for (const folder of directories) {
+          if (folder.startsWith(prefix)) {
+            const rest = folder.slice(prefix.length);
+            if (rest && !rest.includes("/")) childDirs.add(folder);
+          }
+        }
+        for (const filePath of files.keys()) {
+          if (filePath.startsWith(prefix)) {
+            const rest = filePath.slice(prefix.length);
+            if (rest && !rest.includes("/")) items.push({ name: rest, path: filePath, isDir: false, size: files.get(filePath)?.length || 0 });
+          }
+        }
+        for (const folder of childDirs) items.push({ name: folder.slice(prefix.length), path: folder, isDir: true, size: 0 });
+        return Response.json({ items });
+      }
+      if (path === "/files/folder" && method === "POST") {
+        directories.add(url.searchParams.get("path") || "");
+        return Response.json({ ok: true });
+      }
+      if (path === "/files" && method === "DELETE") {
+        const target = url.searchParams.get("path") || "";
+        files.delete(target); directories.delete(target);
+        if (url.searchParams.get("recursive") === "true") {
+          for (const key of [...files.keys()]) if (key.startsWith(target.replace(/\\/$/, "") + "/")) files.delete(key);
+          for (const key of [...directories]) if (key.startsWith(target.replace(/\\/$/, "") + "/")) directories.delete(key);
+        }
+        return Response.json({ ok: true });
       }
       if (path.startsWith("/computeruse/") && method === "POST") return Response.json({ ok: true, action: path });
     }
@@ -239,6 +287,39 @@ describe("cloud desktop lifecycle and controls", () => {
     });
     expect(provider.calls.some((call) => call.url.includes("/computeruse/start"))).toBe(true);
     expect((await cloudComputerStatus(ownerCtx(db, provider.fetchImpl))).state).toBe("started");
+  });
+
+  it("issues a short-lived signed Toolbox WebSocket ticket and resizes only the selected model PTY", async () => {
+    const db = computerDb();
+    const mock = providerFetch();
+    const ctx = ownerCtx(db, mock.fetchImpl);
+    const opened = await cloudComputerTerminalOpen(ctx);
+    const ticket = await cloudComputerTerminalTicket(ctx, opened.sessionId, "17");
+    const url = new URL(String(ticket.url));
+    expect(url.protocol).toBe("wss:");
+    expect(url.hostname).toBe("2280-signedpty.preview.daytona.test");
+    expect(url.pathname).toBe(`/processes/${opened.sessionId}/attach`);
+    expect(url.searchParams.get("cursor")).toBe("17");
+    expect(String(ticket.url)).not.toContain("daytona-test-secret");
+    expect(await cloudComputerTerminalResize(ctx, opened.sessionId, 150, 42)).toMatchObject({ ok: true, cols: 150, rows: 42 });
+    await expect(cloudComputerTerminalTicket({ ...ctx, modelId: "gemma4-e4b" }, opened.sessionId)).rejects.toThrow("does not belong");
+  });
+
+  it("lists, creates, uploads, downloads and deletes files in the same computer filesystem", async () => {
+    const db = computerDb();
+    const mock = providerFetch();
+    const ctx = ownerCtx(db, mock.fetchImpl);
+    const folder = await cloudComputerCreateFolder(ctx, "/home/daytona/work");
+    expect(folder).toMatchObject({ ok: true, path: "/home/daytona/work" });
+    await cloudComputerFileUpload(ctx, "/home/daytona/work/readme.txt", Buffer.from("hello").toString("base64"));
+    const list = await cloudComputerListFiles(ctx, "/home/daytona");
+    expect(list.items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "work", isDir: true })]));
+    const nested = await cloudComputerListFiles(ctx, "/home/daytona/work");
+    expect(nested.items).toEqual([expect.objectContaining({ name: "readme.txt", isDir: false, size: 5 })]);
+    const downloaded = await cloudComputerFileDownload(ctx, "/home/daytona/work/readme.txt");
+    expect(Buffer.from(String(downloaded.base64), "base64").toString("utf8")).toBe("hello");
+    await cloudComputerDeleteFile(ctx, "/home/daytona/work", true);
+    expect((await cloudComputerListFiles(ctx, "/home/daytona/work")).items).toHaveLength(0);
   });
 
   it("keeps one interactive PTY inside the selected model's same persistent VM", async () => {
