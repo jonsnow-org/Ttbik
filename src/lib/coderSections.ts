@@ -1133,7 +1133,7 @@ async function finishDonorRun(
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
     const executedTools = Array.isArray(result.executed_tools) ? result.executed_tools : [];
     const auditForHistory = executedTools.length
-      ? "\n\n[سجل أدوات القراءة فقط]\n" + JSON.stringify(executedTools).slice(0, 3500)
+      ? "\n\n[سجل الأدوات المنفّذة]\n" + JSON.stringify(executedTools).slice(0, 3500)
       : "";
     const historyAnswer = (answer + auditForHistory).trim() || (toolCalls.length ? JSON.stringify(toolCalls) : "");
     const currentTurn: DonorHistoryMessage[] = [
