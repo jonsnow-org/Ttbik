@@ -18,7 +18,7 @@
     "studio_api": "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
     "expected_checkpoint_sha256": "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
     "resolution": "512 × 768 (author recommended)",
-    "steps": 30,
+    "steps": 24,
     "cfg": 5
   },
   "runtime_generation_capabilities": {

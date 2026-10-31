@@ -31,7 +31,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     modelRepo: "novaai2026/cyberrealistic-final-test-models", endpointEnv: "QWEN35_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
-    resolution: "512 × 768 (author recommended)", steps: 30, cfg: 5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 768 (author recommended)", steps: 24, cfg: 5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Gemma has its own duplicate checkpoint package and its own private image Studio; it does not share Sham v2's route.
   "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
