@@ -6,7 +6,7 @@
 export type PhotoModelId = "coder" | "qwen35-9b" | "gemma4-e4b" | "minicpmo45" | "sham_v2";
 export type PhotoWeightProfile = {
   modelId: PhotoModelId; displayName: string; sourceModel: string; modelRepo: string;
-  endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string;
+  endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string; expectedCheckpointSha256?: string;
 };
 export type PhotoMediaMetadata = Record<string, unknown> & {
   result: "image_generated"; model_repo: string; checkpoint_sha256: string; image_sha256?: string; seconds?: number;
@@ -26,6 +26,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
   "qwen35-9b": { modelId: "qwen35-9b", displayName: "Qwen3.5-9B", sourceModel: "cyberdelia/CyberRealistic",
     modelRepo: "novaai2026/cyberrealistic-final-test-models", endpointEnv: "QWEN35_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-cyberrealistic-final-test.api-inference.modelscope.net",
+    expectedCheckpointSha256: "2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554",
     resolution: "512 × 768 (author recommended)", steps: 30, cfg: 5, negative: COMMON_NEGATIVE },
   "gemma4-e4b": { modelId: "gemma4-e4b", displayName: "Gemma 4 E4B", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
     modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
@@ -38,6 +39,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
   sham_v2: { modelId: "sham_v2", displayName: "Sham v2", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
     modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
+    expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
     resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE },
 };
 
@@ -201,4 +203,59 @@ export async function makePhotoMedia(
     const message = String((error as Error)?.message || error).slice(0, 240);
     return { type: "error", reason: "studio_error", text: profile.displayName + "'s own image Studio failed: " + message + ". No other Studio or model was used." };
   }
+}
+
+
+export type PhotoWeightStatus = {
+  modelId: PhotoModelId;
+  displayName: string;
+  sourceModel: string;
+  modelRepo: string;
+  endpoint: string;
+  ready: boolean;
+  phase: string;
+  checkpointSha256: string | null;
+  sourceRevision: string | null;
+  memoryGb: number | null;
+  detail: string;
+};
+
+/** Owner-panel probe for every image weight; status only, no generation. */
+export async function photoWeightStatus(fetchImpl: typeof fetch = fetch): Promise<PhotoWeightStatus[]> {
+  const token = photoToken();
+  return Promise.all(Object.values(PHOTO_WEIGHT_PROFILES).map(async (profile) => {
+    const endpoint = photoWeightEndpoint(profile);
+    const base: PhotoWeightStatus = {
+      modelId: profile.modelId, displayName: profile.displayName, sourceModel: profile.sourceModel,
+      modelRepo: profile.modelRepo, endpoint, ready: false, phase: endpoint ? "unknown" : "off",
+      checkpointSha256: null, sourceRevision: null, memoryGb: null, detail: "",
+    };
+    if (!endpoint) return { ...base, detail: "Studio endpoint disabled" };
+    if (!token) return { ...base, phase: "no_token", detail: "No ModelScope API token configured" };
+    try {
+      const headers = { "Content-Type": "application/json", Authorization: "Bearer " + token };
+      const sse = await submitAndRead(endpoint, "status", { data: [] }, headers, 12000, fetchImpl);
+      const state = findStatus(dataValues(sse));
+      if (!state) return { ...base, phase: "unreadable", detail: "Studio status payload was not readable" };
+      const phase = String(state.phase || "unknown");
+      const repo = String(state.model_repo || state.modelscope_model_repo || "");
+      const hash = String(state.checkpoint_sha256 || "");
+      const validHash = /^[a-f0-9]{64}$/i.test(hash);
+      const expectedMatches = !profile.expectedCheckpointSha256 || profile.expectedCheckpointSha256 === hash;
+      const ready = phase === "ready" && repo === profile.modelRepo && validHash && expectedMatches;
+      const reason = phase !== "ready" ? String(state.error || ("phase=" + phase))
+        : repo !== profile.modelRepo ? "Model repository mismatch"
+        : !validHash ? "Checkpoint SHA-256 missing"
+        : !expectedMatches ? "Checkpoint SHA-256 differs from the previously verified source" : "";
+      return {
+        ...base, ready, phase: ready ? "ready" : phase,
+        checkpointSha256: validHash ? hash : null,
+        sourceRevision: typeof state.source_revision === "string" ? state.source_revision : null,
+        memoryGb: Number.isFinite(Number(state.memory_gb)) ? Number(state.memory_gb) : null,
+        detail: reason.slice(0, 240),
+      };
+    } catch (error) {
+      return { ...base, phase: "down", detail: String((error as Error)?.message || error).slice(0, 180) };
+    }
+  }));
 }
