@@ -246,7 +246,7 @@ jobs:
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          EXPECTED_APP_REVISION="donor-bakeoff-2026-10-31-r10"
+          EXPECTED_APP_REVISION="$(sed -n 's/^APP_REVISION = "\(.*\)"$/\1/p' experiments/donor-bakeoff/app.py | head -1)"
           mkdir -p "donor-bakeoff-output/$CANDIDATE_ID"
           show_logs() { for kind in build run; do body=$(curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true); echo "Studio $kind logs:"; printf '%s\\n' "$body" | tail -c 5000 || true; done; }
           get_model_phase() {
@@ -341,6 +341,12 @@ jobs:
                   echo "Candidate model phase=$phase; app_revision=$revision"
                   if [ "$phase" = "ready" ] && [ "$revision" = "$EXPECTED_APP_REVISION" ]; then READY=1; break; fi
                   if [ "$phase" = "error" ]; then echo "::error::Candidate failed to load."; show_logs; exit 1; fi
+                  # The new image is built but the old container keeps running (seen on 2026-10-31: 85 minutes stuck). Ask ModelScope once to start the new one.
+                  if [ "$revision" != "$EXPECTED_APP_REVISION" ] && [ "$SECONDS" -gt 600 ] && [ "${KICKED:-0}" -ne 1 ]; then
+                    KICKED=1
+                    kick_code=$(curl -sS --connect-timeout 8 --max-time 30 -o kick-response.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true)
+                    echo "Old container still running after 10 minutes; asked ModelScope to deploy the new one: HTTP $kick_code"
+                  fi
                   ;;
               esac
               sleep 20

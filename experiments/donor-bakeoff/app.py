@@ -30,9 +30,30 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r12"
+APP_REVISION = "donor-bakeoff-2026-10-31-r13"
 ROOT = Path(__file__).resolve().parent
-CACHE = ROOT / "model_cache"
+def _persistent_root() -> Path | None:
+    """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
+    Used only when it is writable and has room for the model; otherwise the local (ephemeral) folder is used as before."""
+    base = Path(os.environ.get("DONOR_PERSIST_DIR", "/mnt/workspace"))
+    try:
+        if not base.is_dir():
+            return None
+        probe = base / ".donor-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        import shutil
+        if shutil.disk_usage(base).free < 9 * 1024 ** 3 and not (base / "donor-bakeoff").exists():
+            return None
+        target = base / "donor-bakeoff" / str(CONFIG.get("id") or "candidate")
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+    except Exception:
+        return None
+
+
+PERSIST = _persistent_root()
+CACHE = (PERSIST / "model_cache") if PERSIST else ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
 RUNTIME.mkdir(parents=True, exist_ok=True)
 
@@ -558,15 +579,16 @@ def status() -> str:
             "context_tokens": N_CTX,
             "max_output_tokens": MAX_OUTPUT,
             "thinking_enabled": bool(CONFIG.get("enable_thinking", False)),
-            "batch_size": 32,
+            "batch_size": PROMPT_BATCH,
             "batch_tokens": 256,
+            "persistent_storage": bool(PERSIST),
             "threads": THREADS,
             "load_seconds": STATE["load_seconds"],
             "media_capabilities": STATE.get("media") or {},
             "model_native_outputs": CONFIG.get("model_native_outputs", {"image": False, "audio": False, "video": False}),
-            "runtime_generation_capabilities": {"image": isinstance(CONFIG.get("image_generation"), dict), "audio": False, "video": False},
+            "runtime_generation_capabilities": {"image": isinstance(CONFIG.get("image_generation"), dict), "audio": _media_profile() is not None, "video": _media_profile() is not None},
             "image_generation_assignment": {k: v for k, v in (CONFIG.get("image_generation") or {}).items() if k in {"for_candidate", "model_repo", "studio_api", "expected_checkpoint_sha256"}},
-            "generation_note": "Image creation is routed only through this candidate's own dedicated private ModelScope image-weight Studio. Audio/video output are not enabled in this candidate bake-off.",
+            "generation_note": "Image, speech and video are produced only by this candidate's own private Studios (image Studio and media Studio); nothing is shared with another model.",
             "runtime_resources": _resource_snapshot(STATE.get("server_pid")),
             "server_exit_code": STATE.get("server_process").poll() if STATE.get("server_process") is not None else None,
             "error": STATE["error"],
@@ -1482,6 +1504,14 @@ def _purge_jobs() -> None:
             JOBS.pop(key, None)
 
 
+def _job_file(job_id: str) -> Path | None:
+    if PERSIST is None or not re.fullmatch(r"[0-9a-f]{32}", job_id or ""):
+        return None
+    folder = PERSIST / "jobs"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / (job_id + ".json")
+
+
 def _run_job(job_id: str, payload_json: str) -> None:
     with JOB_RUN_LOCK:
         with JOBS_LOCK:
@@ -1490,6 +1520,12 @@ def _run_job(job_id: str, payload_json: str) -> None:
         raw = chat_payload(payload_json)
     with JOBS_LOCK:
         JOBS[job_id].update({"state": "done", "result": raw, "finished": time.time()})
+    try:                                       # a finished answer survives a Studio restart
+        target = _job_file(job_id)
+        if target is not None:
+            target.write_text(json.dumps({"result": raw, "finished": time.time()}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def chat_start(payload_json: str) -> str:
@@ -1505,6 +1541,12 @@ def chat_poll(job_id: str) -> str:
     with JOBS_LOCK:
         job = JOBS.get(str(job_id or ""))
         if not job:
+            try:
+                target = _job_file(str(job_id or ""))
+                if target is not None and target.is_file():
+                    return json.dumps({"state": "done", "result": json.loads(target.read_text(encoding="utf-8"))["result"]}, ensure_ascii=False)
+            except Exception:
+                pass
             return json.dumps({"state": "unknown"}, ensure_ascii=False)
         if job["state"] != "done":
             return json.dumps({"state": job["state"], "elapsed": int(time.time() - job.get("started", job["created"]))}, ensure_ascii=False)

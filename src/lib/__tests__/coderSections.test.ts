@@ -555,7 +555,7 @@ describe("isolated primary candidate route", () => {
       }
       if (url.endsWith("/gradio_api/run/status") && method === "POST") {
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-31-r12", media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-10-31-r13", media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/run/chat_start") && method === "POST") {

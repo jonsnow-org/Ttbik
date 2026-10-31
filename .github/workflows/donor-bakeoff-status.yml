@@ -17,6 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: experiments/donor-bakeoff/app.py
+          sparse-checkout-cone-mode: false
+      - name: Expected runner revision (single source, app.py)
+        run: |
+          rev="$(sed -n 's/^APP_REVISION = "\(.*\)"$/\1/p' experiments/donor-bakeoff/app.py | head -1)"
+          echo "EXPECTED_APP_REVISION=$rev" >> "$GITHUB_ENV"
       - name: Read readiness and detected multimodal capabilities
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -82,7 +90,7 @@ jobs:
                       except Exception: continue
                   if isinstance(item,dict) and item.get("phase"):
                       payload.update(item)
-                      payload["expected_app_revision"] = "donor-bakeoff-2026-10-30-r8"
+                      payload["expected_app_revision"] = os.environ.get("EXPECTED_APP_REVISION", "")
                       payload["snapshot_commit"] = os.environ.get("GITHUB_SHA", "")
                       payload["ready_for_bot"] = payload.get("phase") == "ready" and payload.get("app_revision") == payload["expected_app_revision"]
                       break

@@ -1,0 +1,38 @@
+name: "Read the image checkpoint hashes reported by each model's own image Studio (read-only)"
+
+# Read only. Asks the four private image Studios for their status and prints model repo, checkpoint SHA-256 and app revision, so the hash of each
+# image weight can be pinned in the candidate manifests and compared with the pinned values. Changes nothing.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read status of each image Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          studios = {
+            "qwen35-9b (CyberRealistic)": "cyberrealistic-final-test",
+            "gemma4-e4b (Realistic Vision V6 copy)": "gemma4-realistic-vision-v6-test",
+            "minicpmo45 (Umranz)": "umranz-sd15-image-test",
+            "coder / Nova (epiCRealism)": "epicrealism-image-test",
+          }
+          for label, name in studios.items():
+              url = f"https://studio-novaai2026-{name}.api-inference.modelscope.net/gradio_api/run/status"
+              req = urllib.request.Request(url, data=json.dumps({"data": []}).encode(), headers={"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"})
+              try:
+                  body = json.load(urllib.request.urlopen(req, timeout=60))
+                  item = body.get("data", [None])[0]
+                  info = json.loads(item) if isinstance(item, str) else (item or {})
+                  print(label, "->", json.dumps({k: info.get(k) for k in ("phase", "app_revision", "model_repo", "checkpoint_sha256", "load_seconds")}, ensure_ascii=False))
+              except Exception as exc:
+                  print(label, "-> ERROR", type(exc).__name__, str(exc)[:200])
+          PY

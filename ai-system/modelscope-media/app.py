@@ -28,6 +28,22 @@ from pathlib import Path
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 HERE = Path(__file__).resolve().parent
+
+
+def _store() -> Path:
+    """Weights go under /mnt/workspace, the only folder ModelScope keeps across a Studio restart (falls back to the local folder when it is not writable)."""
+    base = Path(os.environ.get("MEDIA_PERSIST_DIR", "/mnt/workspace")) / "media-models"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        probe = base / ".write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return base
+    except Exception:                                       # noqa: BLE001
+        return HERE / "_models"
+
+
+MODEL_STORE = _store()
 REPO = os.environ.get("MEDIA_MODEL_REPO", "novaai2026/nova-media-models")
 STATE = {"phase": "starting", "error": "", "images": 0, "speech": 0, "videos": 0, "last_s": 0.0}
 _LOCK = threading.Lock()
@@ -248,12 +264,12 @@ def _root() -> Path:
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
     try:                                                    # the repo is public: anonymous first (a login can poison the download)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(HERE / "_models")))
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
     except Exception:                                       # noqa: BLE001
         tok = _token()
         if tok:
             HubApi().login(tok)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(HERE / "_models")))
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
     return _MODELS["root"]
 
 
