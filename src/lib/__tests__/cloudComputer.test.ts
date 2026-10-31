@@ -254,11 +254,58 @@ describe("cloud desktop lifecycle and controls", () => {
     expect([...provider.sandboxes.values()][0].id).toBe(first);
   });
 
+  it("covers full mouse, accessibility, display, process and recording controls", async () => {
+    const db = computerDb();
+    const provider = providerFetch();
+    const ctx = ownerCtx(db, provider.fetchImpl);
+    await cloudComputerOpen(ctx);
+    const actions: Array<[string, Record<string, unknown>]> = [
+      ["move", { x: 80, y: 40 }],
+      ["drag", { start_x: 20, start_y: 20, end_x: 60, end_y: 60, button: "left" }],
+      ["mouse_position", {}],
+      ["display_info", {}],
+      ["accessibility_tree", { scope: "all", max_depth: 2 }],
+      ["accessibility_find", { scope: "all", role: "button", limit: 5 }],
+      ["accessibility_focus", { node_id: "node-1" }],
+      ["accessibility_invoke", { node_id: "node-1", node_action: "click" }],
+      ["accessibility_set_value", { node_id: "node-1", value: "example" }],
+      ["process_status", { process: "desktop" }],
+      ["process_restart", { process: "desktop" }],
+      ["process_logs", { process: "desktop" }],
+      ["process_errors", { process: "desktop" }],
+    ];
+    for (const [action, args] of actions) {
+      const result = await cloudComputerAction(ctx, action, args);
+      expect(result).toBeTruthy();
+    }
+    const recording = await cloudComputerAction(ctx, "recording_start", { name: "test-capture" });
+    expect(recording.id).toBe("recording-1");
+    await cloudComputerAction(ctx, "recording_stop", { id: "recording-1" });
+    await cloudComputerAction(ctx, "recording_list");
+    await cloudComputerAction(ctx, "recording_get", { id: "recording-1" });
+    const downloaded = await cloudComputerAction(ctx, "recording_download", { id: "recording-1", path: "/home/daytona/recordings/test.mp4" });
+    expect(downloaded).toMatchObject({ ok: true, path: "/home/daytona/recordings/test.mp4" });
+    await cloudComputerAction(ctx, "recording_delete", { id: "recording-1" });
+    expect((await import("@/lib/cloudComputer")).cloudComputerReadFile(ctx, "/home/daytona/recordings/test.mp4")).resolves.toBeTruthy();
+  });
+
+  it("bills persistent VM wall time from the one-minute runtime heartbeat", async () => {
+    const db = computerDb();
+    const provider = providerFetch();
+    const ctx = ownerCtx(db, provider.fetchImpl);
+    await cloudComputerOpen(ctx);
+    const later = new Date(Date.now() + 180000);
+    const result = await cloudComputerRuntimeTick(db, later, 20);
+    expect(result.errors).toEqual([]);
+    expect(result.billedSeconds).toBeGreaterThanOrEqual(60);
+    expect(result.stopped).toBe(0);
+  });
+
   it("runs the owner full acceptance suite and reports every computer capability", async () => {
     const db = computerDb();
     const provider = providerFetch();
     const result = await cloudComputerSelfTest(ownerCtx(db, provider.fetchImpl));
-    expect(result).toMatchObject({ ok: true, passed: result.total, total: 9 });
+    expect(result).toMatchObject({ ok: true, passed: result.total, total: 14 });
     expect(result.results.every((test) => test.ok)).toBe(true);
   });
 });
