@@ -1001,7 +1001,7 @@ export async function startDonorTestTelegramTask(
     botId,
   }, db);
   await taskEvent(runId, "info", "🧪 رسالة تيليغرام متجهة مباشرة إلى " + label + " فقط.", db);
-  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media, surface));
+  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media, surface, botId));
   if (surface === "telegram") void bot.api.sendChatAction(chatId, "typing").catch(() => null);
   return { runId, queued: false };
 }
@@ -1045,13 +1045,14 @@ async function runDonorTestTask(
   bot?: TelegramBot,
   media?: DonorTestMedia,
   surface: "telegram" | "app" = "telegram",
+  botId?: string,
 ): Promise<void> {
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
   const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   try {
     await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db, runId });
+    const result = await donorTestChat(id, prompt, prior, media, fetchImpl, { chatId, db, runId, botId });
     if (!(await taskIsActive(runId, db))) return;
     const answer = String(result.text || "").trim();
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
