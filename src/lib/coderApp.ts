@@ -690,12 +690,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "computer_terminal_execute": {
       const command = String(body.command || "");
       if (!command.trim()) throw new AppError(400, "shell command is required");
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalExecute(ctx, command, { async: true })));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalExecute(ctx, command)));
     }
     case "computer_terminal_poll":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalPoll(ctx, String(body.commandId || ""))));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalPoll(ctx, String(body.sessionId || ""), typeof body.cursor === "string" ? body.cursor : undefined)));
     case "computer_terminal_input":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.commandId || ""), String(body.data || ""))));
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.sessionId || ""), String(body.data || ""))));
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
