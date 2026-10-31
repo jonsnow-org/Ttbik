@@ -962,6 +962,169 @@ export async function cloudComputerOcrScreenshot(
   return text.slice(0, 14000);
 }
 
+const VISION_SIDECAR_ROOT = "/home/daytona/.local/share/ttbik/vision-qwen3vl-2b";
+const VISION_SIDECAR_PORT = 8098;
+const VISION_SIDECAR_SETUP = [
+  "#!/usr/bin/env bash",
+  "set -Eeuo pipefail",
+  "ROOT=\"$HOME/.local/share/ttbik/vision-qwen3vl-2b\"",
+  "mkdir -p \"$ROOT\"",
+  "exec 9> \"$ROOT/setup.lock\"",
+  "if ! flock -n 9; then echo VISION_SETUP_ALREADY_RUNNING; exit 0; fi",
+  "cd \"$ROOT\"",
+  "echo VISION_SETUP_BEGIN",
+  "ARCH=\"$(uname -m)\"",
+  "case \"$ARCH\" in x86_64|amd64) ASSET=llama-b12022-bin-ubuntu-x64.tar.gz ;; aarch64|arm64) ASSET=llama-b12022-bin-ubuntu-arm64.tar.gz ;; *) echo \"VISION_UNSUPPORTED_ARCH:$ARCH\"; exit 21 ;; esac",
+  "python3 - \"$ASSET\" \"$ROOT\" <<'PY'",
+  "import hashlib,json,pathlib,shutil,sys,tarfile,urllib.request",
+  "asset_name,root=sys.argv[1],pathlib.Path(sys.argv[2])",
+  "api='https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b12022'",
+  "req=urllib.request.Request(api,headers={'Accept':'application/vnd.github+json','User-Agent':'Ttbik-Cloud-Computer'})",
+  "with urllib.request.urlopen(req,timeout=30) as response: release=json.load(response)",
+  "asset=next((item for item in release.get('assets',[]) if item.get('name')==asset_name),None)",
+  "if not asset: raise SystemExit('Pinned llama.cpp CPU asset missing.')",
+  "digest=str(asset.get('digest') or '')",
+  "if not digest.startswith('sha256:'): raise SystemExit('GitHub release did not expose a SHA-256 digest.')",
+  "archive=root/asset_name",
+  "def sha256(path):",
+  "    h=hashlib.sha256()",
+  "    with path.open('rb') as stream:",
+  "        for chunk in iter(lambda:stream.read(1024*1024),b''): h.update(chunk)",
+  "    return h.hexdigest()",
+  "if not archive.exists() or archive.stat().st_size!=int(asset.get('size') or -1) or sha256(archive)!=digest.split(':',1)[1]:",
+  "    tmp=archive.with_suffix(archive.suffix+'.part')",
+  "    url=str(asset.get('browser_download_url') or '')",
+  "    if not url.startswith('https://github.com/ggml-org/llama.cpp/releases/'): raise SystemExit('Unexpected llama.cpp asset URL.')",
+  "    with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Ttbik-Cloud-Computer'}),timeout=120) as response,tmp.open('wb') as output: shutil.copyfileobj(response,output,1024*1024)",
+  "    if sha256(tmp)!=digest.split(':',1)[1]: tmp.unlink(missing_ok=True); raise SystemExit('llama.cpp archive checksum mismatch.')",
+  "    tmp.replace(archive)",
+  "with tarfile.open(archive,'r:gz') as tar:",
+  "    members=[item for item in tar.getmembers() if pathlib.PurePosixPath(item.name).name=='llama-server' and item.isfile()]",
+  "    if not members: raise SystemExit('Verified llama.cpp archive has no llama-server.')",
+  "    source=tar.extractfile(members[0])",
+  "    if source is None: raise SystemExit('Could not read llama-server from archive.')",
+  "    target=root/'llama-server'",
+  "    with target.open('wb') as output: shutil.copyfileobj(source,output)",
+  "    target.chmod(0o755)",
+  "archive.unlink(missing_ok=True)",
+  "print('LLAMA_SERVER_VERIFIED')",
+  "PY",
+  "MODEL_REPO=mradermacher/Qwen3-VL-2B-Instruct-GGUF",
+  "MODEL_FILE=Qwen3-VL-2B-Instruct.Q4_K_M.gguf",
+  "MMPROJ_FILE=Qwen3-VL-2B-Instruct.mmproj-Q8_0.gguf",
+  "python3 - \"$MODEL_REPO\" \"$MODEL_FILE\" \"$MMPROJ_FILE\" \"$ROOT\" <<'PY'",
+  "import hashlib,json,pathlib,subprocess,sys,urllib.parse,urllib.request",
+  "repo,model_name,mmproj_name,root=sys.argv[1],sys.argv[2],sys.argv[3],pathlib.Path(sys.argv[4])",
+  "req=urllib.request.Request('https://huggingface.co/api/models/'+repo+'/revision/main',headers={'User-Agent':'Ttbik-Cloud-Computer'})",
+  "with urllib.request.urlopen(req,timeout=30) as response: meta=json.load(response)",
+  "siblings={item.get('rfilename'):item for item in meta.get('siblings',[])}",
+  "def sha256(path):",
+  "    h=hashlib.sha256()",
+  "    with path.open('rb') as stream:",
+  "        for chunk in iter(lambda:stream.read(1024*1024),b''): h.update(chunk)",
+  "    return h.hexdigest()",
+  "for name in (model_name,mmproj_name):",
+  "    entry=siblings.get(name); lfs=(entry or {}).get('lfs') or {}; oid=str(lfs.get('oid') or '')",
+  "    if len(oid)!=64 or any(char not in '0123456789abcdef' for char in oid.lower()): raise SystemExit('No trusted LFS SHA-256 for '+name)",
+  "    destination=root/name",
+  "    if destination.exists() and destination.stat().st_size==int(lfs.get('size') or -1) and sha256(destination)==oid: continue",
+  "    temporary=destination.with_suffix(destination.suffix+'.part')",
+  "    url='https://huggingface.co/'+repo+'/resolve/main/'+urllib.parse.quote(name)",
+  "    subprocess.run(['curl','-fL','--retry','5','--retry-all-errors','--connect-timeout','30','-o',str(temporary),url],check=True)",
+  "    if sha256(temporary)!=oid: temporary.unlink(missing_ok=True); raise SystemExit('Hugging Face checksum mismatch for '+name)",
+  "    temporary.replace(destination)",
+  "print('QWEN3_VL_MODEL_AND_MMPROJ_VERIFIED')",
+  "PY",
+  "SERVER=\"$ROOT/llama-server\"",
+  "MODEL=\"$ROOT/Qwen3-VL-2B-Instruct.Q4_K_M.gguf\"",
+  "MMPROJ=\"$ROOT/Qwen3-VL-2B-Instruct.mmproj-Q8_0.gguf\"",
+  "if [ ! -x \"$SERVER\" ] || [ ! -s \"$MODEL\" ] || [ ! -s \"$MMPROJ\" ]; then echo VISION_FILES_MISSING; exit 22; fi",
+  "if curl -fsS --max-time 2 http://127.0.0.1:8098/health >/dev/null 2>&1; then echo VISION_SIDECAR_READY; exit 0; fi",
+  "if pgrep -f '[l]lama-server.*qwen3-vl-2b' >/dev/null 2>&1; then echo VISION_SERVER_ALREADY_STARTING; exit 0; fi",
+  "nohup \"$SERVER\" -m \"$MODEL\" --mmproj \"$MMPROJ\" --host 127.0.0.1 --port 8098 --ctx-size 4096 --batch-size 256 --ubatch-size 128 --n-gpu-layers 0 --threads \"$(nproc)\" --parallel 1 --alias ttbik-qwen3-vl-2b --jinja >\"$ROOT/server.log\" 2>&1 </dev/null &",
+  "echo $! > \"$ROOT/server.pid\"",
+  "echo VISION_SERVER_STARTING",
+  "for i in $(seq 1 90); do if curl -fsS --max-time 2 http://127.0.0.1:8098/health >/dev/null 2>&1; then echo b12022 > \"$ROOT/installed.release\"; echo VISION_SIDECAR_READY; exit 0; fi; sleep 2; done",
+  "echo VISION_SERVER_START_TIMEOUT",
+  "tail -n 30 \"$ROOT/server.log\" || true",
+  "exit 23",
+].join("\n");
+
+function visionShellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+/** Install and start a CPU visual-perception model inside this account+model VM only.
+ * Qwen3-VL-2B Q4_K_M + Q8 projector; Apache-2.0 base model. Release/model files are SHA-256 verified.
+ */
+export async function cloudComputerVisionSidecarEnsure(ctx: CloudComputerContext): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  await cloudComputerExecute(ctx, "mkdir -p " + visionShellQuote(VISION_SIDECAR_ROOT), "/home/daytona", 15000);
+  const setupPath = VISION_SIDECAR_ROOT + "/setup.sh";
+  const existing = await cloudComputerReadFile(ctx, setupPath).catch(() => null);
+  if (!existing || existing.bytes.toString("utf8") !== VISION_SIDECAR_SETUP) {
+    await cloudComputerWriteFile(ctx, setupPath, VISION_SIDECAR_SETUP);
+    await cloudComputerExecute(ctx, "chmod 700 " + visionShellQuote(setupPath), "/home/daytona", 15000);
+  }
+  const command = [
+    "set +e",
+    "ROOT=" + visionShellQuote(VISION_SIDECAR_ROOT),
+    "if curl -fsS --max-time 2 http://127.0.0.1:" + VISION_SIDECAR_PORT + "/health >/dev/null 2>&1; then echo VISION_SIDECAR_READY; exit 0; fi",
+    "if pgrep -f '[s]etup.sh' | grep -q .; then echo VISION_SETUP_ALREADY_RUNNING; exit 0; fi",
+    "nohup bash \"$ROOT/setup.sh\" >\"$ROOT/setup.log\" 2>&1 </dev/null &",
+    "echo VISION_SETUP_STARTED",
+  ].join("\n");
+  const started = await cloudComputerExecute(ctx, "bash -lc " + visionShellQuote(command), "/home/daytona", 20000);
+  const output = String(started.stdout || started.stderr || "").trim();
+  return {
+    ok: true,
+    state: output.includes("VISION_SIDECAR_READY") ? "ready" : output.includes("VISION_SETUP_STARTED") ? "installing" : "starting",
+    model: "Qwen3-VL-2B-Instruct",
+    runtime: "llama.cpp b12022 CPU",
+    detail: output.slice(0, 500),
+    sandboxId: started.sandboxId,
+  };
+}
+
+/** Run visual perception on the same private VM. Screenshots are not forwarded to another model or remote vision API. */
+export async function cloudComputerVisionDescribeScreenshot(
+  ctx: CloudComputerContext,
+  imageBytes: Buffer,
+  mimeType = "image/jpeg",
+  prompt = "Describe the current computer screen: applications, layout, visible controls and text. Give approximate element positions normalized from 0 to 1000. Return structured JSON, distinguish uncertainty and do not invent unreadable content.",
+): Promise<Json> {
+  await requireComputeAllowance(ctx);
+  if (!imageBytes.length || imageBytes.length > 8 * 1024 * 1024) throw new Error("Screenshot is empty or exceeds the 8 MB visual sidecar limit.");
+  const status = await cloudComputerVisionSidecarEnsure(ctx);
+  if (status.state !== "ready") return { ok: false, state: status.state, model: status.model, detail: status.detail, retryable: true };
+  const { sandbox } = await openSandbox(ctx);
+  const path = "/tmp/ttbik-vision-" + createHash("sha256").update(String(ctx.chatId) + ":" + ctx.modelId + ":" + Date.now()).digest("hex").slice(0, 16) + (mimeType === "image/png" ? ".png" : ".jpg");
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(imageBytes)], { type: mimeType }), path.split("/").pop() || "screen.jpg");
+  await toolboxRequest(ctx, sandbox, "/files/upload-v2?path=" + encodeURIComponent(path), { method: "POST", body: form });
+  const payload = JSON.stringify({ path, mimeType, prompt: String(prompt || "").slice(0, 1600) });
+  const py = [
+    "import base64,json,sys,urllib.request",
+    "from pathlib import Path",
+    "p=json.loads(sys.argv[1])",
+    "image=Path(p['path']).read_bytes()",
+    "data={'model':'ttbik-qwen3-vl-2b','temperature':0.1,'max_tokens':1000,'stream':False,'messages':[{'role':'system','content':'You are a private computer-perception sidecar. Return valid JSON with keys screen_summary, active_application, visible_text, ui_elements (each label, role, bbox_1000 [x1,y1,x2,y2], confidence), notable_regions, uncertain. Coordinates are normalized 0..1000. Use the language of the user request. Never infer hidden or unreadable text.'},{'role':'user','content':[{'type':'text','text':p['prompt']},{'type':'image_url','image_url':{'url':'data:'+p['mimeType']+';base64,'+base64.b64encode(image).decode('ascii')}}]}]}",
+    "request=urllib.request.Request('http://127.0.0.1:8098/v1/chat/completions',data=json.dumps(data).encode(),headers={'Content-Type':'application/json'},method='POST')",
+    "with urllib.request.urlopen(request,timeout=180) as response: result=json.load(response)",
+    "choice=(result.get('choices') or [{}])[0]; message=choice.get('message') or {}; content=message.get('content') or ''",
+    "if isinstance(content,list): content=''.join(str(item.get('text','')) for item in content if isinstance(item,dict))",
+    "print(str(content)[:14000])",
+  ].join("\n");
+  try {
+    const result = await cloudComputerExecute(ctx, "python3 -c " + visionShellQuote(py) + " " + visionShellQuote(payload), "/home/daytona", 210000);
+    const output = String(result.stdout || "").trim();
+    if (result.exitCode !== 0 || !output) throw new Error(String(result.stderr || "Vision sidecar returned no visual description.").slice(0, 500));
+    return { ok: true, state: "ready", model: "Qwen3-VL-2B-Instruct", description: output.slice(0, 14000), sandboxId: sandbox.id };
+  } finally {
+    await toolboxRequest(ctx, sandbox, "/files?path=" + encodeURIComponent(path), { method: "DELETE" }).catch(() => null);
+  }
+}
+
 export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<Json> {
   const results: Array<{ test: string; ok: boolean; detail: string }> = [];
   const check = async (test: string, task: () => Promise<string | boolean | Json>) => {
