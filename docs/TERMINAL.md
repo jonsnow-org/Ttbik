@@ -21,14 +21,19 @@ only the neutral shell modules (`coderApp.ts`, `coderChats.ts`, `coderTasks.ts`,
 | Commands from the app | `appOp` | `stop`, `task_stop` (one), `stop_all` (every running task), `task_delete`, `tasks_clear`, `thread_*`, `chat_*` |
 | Reports to the chat | `send`, `sendShamReply` | chunks at line ends, each under 4096; a Sham report beyond ~24 000 characters is sent whole as `report.txt`; nothing is cut |
 | Media | `mediaFastLane` (Nova), `shamMediaFastLane` (Sham / Sham v2) | a clear "make a picture / video of X" is recognised **before** the model (`coderMediaFast.ts`), runs in the background as a task, goes quota -> Studio -> `vetMedia` -> photo/video with **no caption** -> quota handed back on failure; the result is delivered even if the webhook call that started it has long returned |
-| One shared view | `/api/coder/terminal`, `threads`/`tasks` ops | one task list and one terminal for all models (no per-model filtering); the Chats tab has one list of every conversation of every model, each tagged with its model, any chat can be continued by selecting its model |
+| Model-aware activity | `/api/coder/terminal`, `threads`/`tasks` ops | task events are filtered by the selected model and shown inside Computer → Activity; chat threads remain model-tagged |
 | Guard against raw plans | `looksLikeToolPlan` (`shamDeliver`) | a final answer that is only a tool plan ("… ← sandbox_exec ثم …") is never delivered; the user gets an honest failure line |
 
-## Cloud computer (separate from the task terminal)
+## Cloud computer (desktop + integrated terminal + activity)
 
-The Mini App now has a separate **Computer / حاسوبي** tab. It is a persistent, dedicated Linux VM per Telegram account and selected model (see `docs/CLOUD_COMPUTER.md`). It has a graphical desktop, VNC preview, full shell, files, browser and Computer Use. It is not the task log viewer.
+The Mini App has one **Computer / حاسوبي** tab. It contains three views inside the same model-specific machine:
+- **Desktop:** signed VNC preview and Computer Use.
+- **Terminal:** an interactive PTY session created inside that same Daytona VM; it shares the same filesystem and installed software as the desktop.
+- **Activity:** persisted task events filtered to the selected model. It is not a second terminal or a second execution environment.
 
-The Terminal tab remains the durable task/event log view described above. Existing per-task sandboxes remain for disposable one-off jobs; persistent computer calls go through `cloudComputer.ts`. Nova/donor tools use the coder agent adapter, while Sham v1/v2 use the independent `ShamHost.computer` adapter. The model id is part of the server-derived workspace identity; switching models changes computers without copying files.
+The previous standalone Terminal tab has been removed from the tab bar. Legacy links to \`terminal\` route to Computer. The PTY has its own session id, cursor-based output polling and input channel. The PTY process itself is recreated after a VM stop/start; files and packages survive on the persistent disk.
+
+The separate task-scoped sandbox still exists for disposable operations on legacy task paths. New computer-group tools use the persistent VM; donor candidates are explicitly prevented from loading \`sandbox_*\` tools as a competing machine. Sham v1 and v2 use their own variant-specific model IDs and the ShamHost adapter.
 
 ## Model-provider interface (shared)
 
