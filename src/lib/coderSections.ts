@@ -1052,6 +1052,45 @@ async function runDonorTestTask(
         if (bot && surface === "telegram") await bot.api.sendMessage(chatId, piece).catch(() => null);
       }
     }
+    const generatedMedia = Array.isArray(result.generated_media) ? result.generated_media : [];
+    if (generatedMedia.length) {
+      const photo = await import("@/lib/photoWeightMedia");
+      const assigned = photo.photoWeightProfile(id);
+      let delivered = 0;
+      for (const item of generatedMedia.slice(0, 2)) {
+        if (!assigned || !item || item.kind !== "image" || item.candidate !== id ||
+            item.model_repo !== assigned.modelRepo || !/^[a-f0-9]{64}$/i.test(String(item.checkpoint_sha256 || "")) ||
+            (assigned.expectedCheckpointSha256 && String(item.checkpoint_sha256).toLowerCase() !== assigned.expectedCheckpointSha256.toLowerCase()) ||
+            !item.metadata || item.metadata.result !== "image_generated" ||
+            item.metadata.model_repo !== assigned.modelRepo ||
+            String(item.metadata.checkpoint_sha256 || "").toLowerCase() !== String(item.checkpoint_sha256).toLowerCase()) {
+          await taskEvent(runId, "failed", "رُفض ملف وسيط مولّد لأن هوية النموذج أو مستودع الوزن أو بصمة الملف لا تطابق التعيين الخاص بالمرشح؛ لم يُرسل إلى المستخدم.", db);
+          continue;
+        }
+        const bytes = Buffer.from(String(item.b64 || ""), "base64");
+        if (bytes.length < 1000 || bytes.length > 20 * 1024 * 1024) {
+          await taskEvent(runId, "failed", "رُفض ملف الصورة المولّد لأنه فارغ أو يتجاوز الحجم المسموح.", db);
+          continue;
+        }
+        if (!bot) {
+          await taskEvent(runId, "failed", "تم إنشاء الصورة والتحقق من هويتها، لكن لا يوجد كائن بوت لإرسال الملف إلى المحادثة.", db);
+          continue;
+        }
+        const ext = item.mime === "image/jpeg" ? "jpg" : item.mime === "image/webp" ? "webp" : "png";
+        const inputFile = new InputFile(bytes, id + "-generated." + ext);
+        const caption = "🖼 صورة مولّدة بواسطة " + label + "\nالوزن المستقل: " + assigned.sourceModel + "\nStudio: " + assigned.modelRepo;
+        if (bytes.length <= 10 * 1024 * 1024 && item.mime !== "image/webp") {
+          await bot.api.sendPhoto(chatId, inputFile, { caption });
+        } else {
+          await bot.api.sendDocument(chatId, inputFile, { caption });
+        }
+        delivered += 1;
+        await taskEvent(runId, "info", "✅ تم تسليم صورة مولّدة من وزن " + assigned.sourceModel + " المخصص حصراً لـ " + label + ". بصمة الوزن: " + String(item.checkpoint_sha256).slice(0, 16) + "…", db);
+      }
+      if (delivered === 0) {
+        await taskEvent(runId, "failed", "لم يتم تسليم أي صورة مولّدة؛ لم يحدث تحويل إلى مرشح أو وزن آخر.", db);
+      }
+    }
     if (executedTools.length) {
       const auditLines = executedTools.slice(0, 4).map((entry: any) => {
         const name = String(entry?.name || "unknown_tool");
