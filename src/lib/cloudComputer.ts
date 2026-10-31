@@ -430,7 +430,7 @@ function terminalSessionId(chatKey: string): string {
   return "ttbik-shell-" + createHash("sha256").update("ttbik-cloud-shell-v2|" + chatKey).digest("hex").slice(0, 20);
 }
 
-function terminalToolboxBase(sandbox: SandboxInfo): string {
+function terminalToolboxBase(): string {
   return (process.env.DAYTONA_TOOLBOX_V2_URL || "https://toolbox.daytona.com/toolbox").trim().replace(/\\/+$/, "");
 }
 
@@ -441,7 +441,7 @@ async function terminalRequest<T = any>(
   init: RequestInit = {},
   notFoundIsNull = false,
 ): Promise<T | null> {
-  const base = terminalToolboxBase(sandbox);
+  const base = terminalToolboxBase();
   return providerRequest<T>(ctx, `${base}/${encodeURIComponent(sandbox.id)}${path}`, init, notFoundIsNull);
 }
 
