@@ -11,6 +11,7 @@ import {
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "../_nova/OwnerModelsPanel";
+import "@xterm/xterm/css/xterm.css";
 import {
   addToHome, bindBack, bindMain, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
   payInvoice, rawInitData, setBio, startTma, closeApp,
@@ -1021,115 +1022,328 @@ function TerminalTab({ lang, model }: { lang: Lang; model: string }) {
 
 function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
   const ar = lang === "ar";
-  const [command, setCommand] = useState("");
-  const [input, setInput] = useState("");
-  const [output, setOutput] = useState("");
+  const hostRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<any>(null);
+  const fitRef = useRef<any>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const sessionRef = useRef("");
+  const cursorRef = useRef("");
+  const reconnectRef = useRef<(() => Promise<void>) | null>(null);
+  const [state, setState] = useState("opening");
+  const [error, setError] = useState("");
   const [session, setSession] = useState("");
   const [cwd, setCwd] = useState("/home/daytona");
-  const [state, setState] = useState("opening");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const cursor = useRef("");
-  const polling = useRef(false);
-
-  const openSession = useCallback(async () => {
-    try {
-      setState("connecting");
-      const result = await api<any>("computer_terminal_open", { model });
-      setSession(result.sessionId || "");
-      setCwd(result.cwd || "/home/daytona");
-      setState(result.state || "running");
-      setError("");
-      cursor.current = "";
-    } catch (e: any) {
-      setState("unavailable");
-      setError(String(e?.message || e));
-    }
-  }, [model]);
-
-  useEffect(() => { void openSession(); }, [openSession]);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
-    if (!session) return;
-    let stopped = false;
-    const poll = async () => {
-      if (polling.current || stopped) return;
-      polling.current = true;
+    let disposed = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let dataDisposable: any = null;
+    let resizeDisposable: any = null;
+    let terminal: any = null;
+    let fit: any = null;
+
+    const attach = async (isReconnect: boolean) => {
+      if (disposed || !terminal || connecting) return;
+      setConnecting(true);
+      setError("");
       try {
-        const result = await api<any>("computer_terminal_poll", { model, sessionId: session, cursor: cursor.current || undefined });
-        if (stopped) return;
-        const delta = String(result.output || "");
-        if (delta) setOutput((old) => (old + delta).slice(-48000));
-        if (result.cursor) cursor.current = String(result.cursor);
-        if (result.cwd) setCwd(String(result.cwd));
-        setState(String(result.state || "running"));
-        if (result.complete) setError(ar ? "انتهت جلسة shell؛ اضغط إعادة الاتصال لفتح جلسة جديدة." : "The shell process ended. Reconnect to open a fresh shell.");
+        setState("connecting");
+        const opened = await api<any>("computer_terminal_open", { model });
+        const id = String(opened.sessionId || "");
+        if (!id) throw new Error("The computer did not return a PTY session id.");
+        sessionRef.current = id;
+        setSession(id);
+        setCwd(String(opened.cwd || "/home/daytona"));
+
+        // Drain the retained scrollback before attaching. The returned cursor is passed to
+        // Daytona's WebSocket attach endpoint so there is no gap between replay and live output.
+        const previous = await api<any>("computer_terminal_poll", {
+          model, sessionId: id, cursor: cursorRef.current || undefined,
+        });
+        if (disposed) return;
+        if (previous.output) terminal.write(String(previous.output));
+        if (previous.cursor) cursorRef.current = String(previous.cursor);
+
+        const ticket = await api<any>("computer_terminal_ticket", {
+          model, sessionId: id, cursor: cursorRef.current || undefined,
+        });
+        const socketUrl = String(ticket.url || "");
+        if (!/^wss:\/\//i.test(socketUrl)) throw new Error("The computer did not return a secure WebSocket URL.");
+        const socket = new WebSocket(socketUrl);
+        socket.binaryType = "arraybuffer";
+        socketRef.current = socket;
+        socket.onopen = () => {
+          if (disposed) { socket.close(); return; }
+          setState("connected");
+          setError("");
+          terminal.focus();
+        };
+        socket.onmessage = (event) => {
+          if (disposed) return;
+          if (event.data instanceof ArrayBuffer) terminal.write(new Uint8Array(event.data));
+          else if (event.data instanceof Blob) {
+            void event.data.arrayBuffer().then((buffer) => { if (!disposed) terminal.write(new Uint8Array(buffer)); });
+          } else terminal.write(String(event.data));
+        };
+        socket.onerror = () => {
+          if (!disposed) setError(ar ? "انقطع اتصال الطرفية المباشر. أعد الاتصال للاحتفاظ بنفس جلسة shell." : "The live terminal connection failed. Reconnect to the existing shell session.");
+        };
+        socket.onclose = () => {
+          if (!disposed) setState("disconnected");
+          if (socketRef.current === socket) socketRef.current = null;
+        };
       } catch (e: any) {
-        if (!stopped) {
-          const status = Number(e?.status || 0);
-          if (status === 409) cursor.current = "";
+        if (!disposed) {
+          setState("unavailable");
           setError(String(e?.message || e));
         }
-      } finally { polling.current = false; }
+      } finally {
+        if (!disposed) setConnecting(false);
+      }
+      void isReconnect;
     };
-    void poll();
-    const timer = setInterval(() => void poll(), 900);
-    return () => { stopped = true; clearInterval(timer); };
-  }, [session, model, ar]);
 
-  const execute = async () => {
-    const text = command;
-    if (!text.trim() || busy || !session) return;
-    setBusy(true);
-    setError("");
-    setCommand("");
-    try {
-      await api("computer_terminal_execute", { model, command: text, sessionId: session });
-    } catch (e: any) { setError(String(e?.message || e)); }
-    finally { setBusy(false); }
-  };
+    const init = async () => {
+      try {
+        const [{ Terminal }, { FitAddon }] = await Promise.all([
+          import("@xterm/xterm"),
+          import("@xterm/addon-fit"),
+        ]);
+        if (disposed || !hostRef.current) return;
+        terminal = new Terminal({
+          cursorBlink: true,
+          convertEol: true,
+          scrollback: 12000,
+          fontSize: 12,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          allowTransparency: false,
+          theme: { background: "#050b10", foreground: "#d1fae5", cursor: "#5eead4", selectionBackground: "#164e63" },
+        });
+        fit = new FitAddon();
+        terminal.loadAddon(fit);
+        terminal.open(hostRef.current);
+        fit.fit();
+        terminalRef.current = terminal;
+        fitRef.current = fit;
 
-  const sendInput = async (data: string) => {
-    if (!session || !data) return;
-    try {
-      await api("computer_terminal_input", { model, sessionId: session, data });
-      setInput("");
-      setError("");
-    } catch (e: any) { setError(String(e?.message || e)); }
+        dataDisposable = terminal.onData((data: string) => {
+          const socket = socketRef.current;
+          if (socket?.readyState === WebSocket.OPEN) {
+            try { socket.send(data); } catch (e) { setError(String((e as Error)?.message || e)); }
+          }
+        });
+        resizeDisposable = terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
+          const id = sessionRef.current;
+          if (id) void api("computer_terminal_resize", { model, sessionId: id, cols, rows }).catch((e: any) => {
+            if (!disposed) setError(String(e?.message || e));
+          });
+        });
+        resizeObserver = new ResizeObserver(() => {
+          try { fit.fit(); } catch { /* container is temporarily hidden */ }
+        });
+        resizeObserver.observe(hostRef.current);
+        terminal.writeln(ar ? "حاسوبك السحابي · طرفية PTY مباشرة" : "Cloud computer · live PTY terminal");
+        await attach(false);
+      } catch (e: any) {
+        if (!disposed) {
+          setState("unavailable");
+          setError(String(e?.message || e));
+        }
+      }
+    };
+
+    reconnectRef.current = () => attach(true);
+    void init();
+    return () => {
+      disposed = true;
+      resizeObserver?.disconnect();
+      dataDisposable?.dispose?.();
+      resizeDisposable?.dispose?.();
+      const socket = socketRef.current;
+      socketRef.current = null;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "terminal component closed");
+      terminalRef.current?.dispose?.();
+      terminalRef.current = null;
+      fitRef.current = null;
+      reconnectRef.current = null;
+    };
+  }, [model, ar]);
+
+  const reconnect = async () => {
+    const socket = socketRef.current;
+    socketRef.current = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "manual reconnect");
+    await reconnectRef.current?.();
   };
 
   return (
     <div style={{ padding: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontFamily: "ui-monospace,monospace", fontWeight: 800, color: "var(--tgui--text-color)" }}>{ar ? "طرفية الحاسوب" : "Computer terminal"}</div>
-          <Caption>{ar ? "PTY تفاعلي داخل الحاسوب نفسه" : "Interactive PTY inside this same computer"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
+          <Caption>{ar ? "اتصال WebSocket مباشر بجلسة PTY داخل الآلة نفسها" : "Direct WebSocket connection to the PTY inside this same VM"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
         </div>
-        <Button size="s" mode="bezeled" onClick={() => void openSession()} disabled={busy}>{ar ? "إعادة الاتصال" : "Reconnect"}</Button>
+        <Button size="s" mode="bezeled" onClick={() => void reconnect()} disabled={connecting}>{connecting ? "…" : (ar ? "إعادة الاتصال" : "Reconnect")}</Button>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 2px 8px", color: "var(--tgui--hint-color)", fontSize: 11 }}>
         <span>{cwd}</span><span>{state}</span>
       </div>
-      <div style={{ border: "1px solid var(--tgui--divider)", borderRadius: 12, overflow: "hidden", background: "#050b10" }}>
-        <pre aria-live="polite" style={{ margin: 0, padding: 12, minHeight: 280, maxHeight: "52vh", overflow: "auto", color: "#d1fae5", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.55 }}>
-          {output || (ar ? "جلسة Bash تفاعلية جاهزة. اكتب أمراً للبدء.\n" : "Interactive Bash session is ready. Enter a command to begin.\n")}
-        </pre>
+      <div style={{ border: "1px solid var(--tgui--divider)", borderRadius: 12, overflow: "hidden", background: "#050b10", padding: 8 }}>
+        <div ref={hostRef} role="application" aria-label={ar ? "طرفية الحاسوب السحابية" : "Cloud computer terminal"} style={{ minHeight: 320, height: "min(58vh, 620px)", width: "100%" }} />
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <textarea value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void execute(); } }}
-          placeholder={ar ? "أمر Bash... (Enter للتنفيذ، Shift+Enter لسطر جديد)" : "Bash command... (Enter to run, Shift+Enter for a new line)"} rows={2} disabled={busy || !session || state === "terminal"}
-          style={{ flex: 1, minWidth: 0, resize: "vertical", borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)", fontFamily: "ui-monospace,monospace", fontSize: 13 }} />
-        <Button size="m" disabled={busy || !session || !command.trim() || state === "terminal"} onClick={() => void execute()}>{busy ? "…" : (ar ? "تنفيذ" : "Run")}</Button>
+      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8, overflowWrap: "anywhere" }}>{error}</div>}
+      <Caption>{ar ? "تدفق حي ثنائي الاتجاه، يدعم ANSI والبرامج التفاعلية وتغيير حجم الطرفية وإعادة الاتصال دون فتح shell جديد." : "Live bidirectional stream with ANSI, interactive programs, terminal resizing and session-preserving reconnects."}</Caption>
+    </div>
+  );
+}
+
+function CloudFilesPane({ lang, model }: { lang: Lang; model: string }) {
+  const ar = lang === "ar";
+  const [path, setPath] = useState("/home/daytona");
+  const [items, setItems] = useState<any[]>([]);
+  const [selected, setSelected] = useState("");
+  const [editor, setEditor] = useState("");
+  const [binary, setBinary] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async (dir = path) => {
+    setBusy("list"); setError("");
+    try {
+      const result = await api<any>("computer_files_list", { model, path: dir, depth: 1 });
+      setItems(Array.isArray(result.items) ? result.items : []);
+      setPath(String(result.path || dir));
+      setSelected("");
+      setEditor("");
+      setBinary(false);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  }, [model, path]);
+
+  useEffect(() => { void load("/home/daytona"); }, [model]);
+
+  const openItem = async (item: any) => {
+    if (item.isDir) { await load(item.path); return; }
+    setBusy("read"); setError("");
+    try {
+      const result = await api<any>("computer_files_download", { model, path: item.path });
+      const raw = atob(String(result.base64 || ""));
+      const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+      const hasNul = bytes.subarray(0, Math.min(bytes.length, 8192)).includes(0);
+      setSelected(item.path);
+      setBinary(hasNul);
+      setEditor(hasNul ? "" : new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const saveText = async () => {
+    if (!selected || binary) return;
+    setBusy("save"); setError("");
+    try {
+      await api("computer_files_write_text", { model, path: selected, content: editor });
+      await load(path);
+      setSelected(selected);
+      setEditor(editor);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setBusy("upload"); setError("");
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read the selected file."));
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      const target = path.replace(/\/$/, "") + "/" + file.name.replace(/[\\/]/g, "_");
+      await api("computer_files_upload", { model, path: target, base64 });
+      await load(path);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); if (fileInput.current) fileInput.current.value = ""; }
+  };
+
+  const createFolder = async () => {
+    const name = window.prompt(ar ? "اسم المجلد الجديد" : "New folder name");
+    if (!name) return;
+    const target = path.replace(/\/$/, "") + "/" + name.replace(/[\\/]/g, "_");
+    setBusy("mkdir"); setError("");
+    try { await api("computer_files_mkdir", { model, path: target }); await load(path); }
+    catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const removeItem = async (item: any) => {
+    const ok = window.confirm(ar ? `هل تريد حذف ${item.name}؟` : `Delete ${item.name}?`);
+    if (!ok) return;
+    setBusy("delete"); setError("");
+    try { await api("computer_files_delete", { model, path: item.path, recursive: item.isDir }); await load(path); }
+    catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const downloadSelected = async () => {
+    if (!selected) return;
+    setBusy("download"); setError("");
+    try {
+      const result = await api<any>("computer_files_download", { model, path: selected });
+      const bytes = Uint8Array.from(atob(String(result.base64 || "")), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = selected.split("/").pop() || "download";
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const parent = () => {
+    const p = path.replace(/\/$/, "").split("/");
+    p.pop();
+    return load(p.join("/") || "/");
+  };
+
+  return (
+    <div style={{ padding: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div style={{ flex: 1, minWidth: 150, fontFamily: "ui-monospace,monospace", fontSize: 12, overflowWrap: "anywhere" }}>{path}</div>
+        <Button size="s" mode="bezeled" disabled={!!busy || path === "/"} onClick={() => void parent()}>{ar ? "للأعلى" : "Up"}</Button>
+        <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void load()}>{ar ? "تحديث" : "Refresh"}</Button>
+        <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void createFolder()}>{ar ? "مجلد جديد" : "New folder"}</Button>
+        <Button size="s" disabled={!!busy} onClick={() => fileInput.current?.click()}>{ar ? "رفع ملف" : "Upload"}</Button>
+        <input ref={fileInput} type="file" hidden onChange={(e) => void upload(e.target.files?.[0])} />
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendInput(input + "\n"); } }}
-          placeholder={ar ? "إدخال للبرنامج الجاري أو الموافقة على سؤال..." : "Input for the running program or an interactive prompt..."}
-          style={{ flex: 1, minWidth: 0, borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)" }} />
-        <Button size="m" mode="bezeled" disabled={!input || !session} onClick={() => void sendInput(input + "\n")}>{ar ? "إرسال" : "Send"}</Button>
-        <Button size="m" mode="bezeled" disabled={!session} onClick={() => void sendInput("\u0003")}>{ar ? "مقاطعة" : "Ctrl+C"}</Button>
+      <div style={{ marginTop: 10, border: "1px solid var(--tgui--divider)", borderRadius: 10, overflow: "hidden" }}>
+        {busy === "list" ? <Loading /> : items.length ? items.map((item) => (
+          <div key={item.path} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderBottom: "1px solid var(--tgui--divider)" }}>
+            <button type="button" onClick={() => void openItem(item)} style={{ flex: 1, minWidth: 0, textAlign: "start", border: 0, background: "transparent", color: "var(--tgui--text-color)", overflowWrap: "anywhere" }}>
+              {item.isDir ? "📁" : "📄"} {item.name}
+              <span style={{ display: "block", color: "var(--tgui--hint-color)", fontSize: 10 }}>{item.isDir ? (ar ? "مجلد" : "Folder") : `${item.size} bytes`}</span>
+            </button>
+            <Button size="s" mode="plain" disabled={!!busy} onClick={() => void removeItem(item)}>{ar ? "حذف" : "Delete"}</Button>
+          </div>
+        )) : <div style={{ padding: 16, color: "var(--tgui--hint-color)", textAlign: "center" }}>{ar ? "المجلد فارغ" : "This folder is empty"}</div>}
       </div>
-      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8 }}>{error}</div>}
-      <Caption>{ar ? "هذه ليست نافذة أوامر منفصلة: إنها نفس الحاسوب الذي يراه النموذج ويستخدم ملفاته وبرامجه. تحتفظ الجلسة بمجلد العمل ومتغيرات البيئة حتى إيقاف الحاسوب." : "This is not a separate command service: it is the same computer the model sees and uses, with the same files and installed software. The PTY keeps its working directory and environment until the computer is stopped."}</Caption>
+      {selected && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <Caption style={{ flex: 1, minWidth: 140 }}>{selected}</Caption>
+            <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void downloadSelected()}>{ar ? "تنزيل" : "Download"}</Button>
+            {!binary && <Button size="s" disabled={!!busy} onClick={() => void saveText()}>{busy === "save" ? "…" : (ar ? "حفظ التعديلات" : "Save changes")}</Button>}
+          </div>
+          {binary
+            ? <div style={{ padding: 14, background: "var(--tgui--secondary-bg-color)", borderRadius: 10 }}>{ar ? "ملف ثنائي. استخدم تنزيل للحصول عليه." : "Binary file. Use Download to retrieve it."}</div>
+            : <textarea value={editor} onChange={(e) => setEditor(e.target.value)} spellCheck={false} rows={12} style={{ boxSizing: "border-box", width: "100%", resize: "vertical", borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)", fontFamily: "ui-monospace,monospace", fontSize: 12 }} />}
+        </div>
+      )}
+      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8, overflowWrap: "anywhere" }}>{error}</div>}
+      <Caption>{ar ? "هذا مدير ملفات داخل مساحة الحاسوب نفسها. الحد الأقصى لرفع/تنزيل الملف عبر الواجهة 8 ميغابايت؛ الملفات الأكبر تُدار من الطرفية." : "This file manager accesses the same VM filesystem as the desktop and terminal. Browser transfers are capped at 8 MB per file; larger files can be handled from the terminal."}</Caption>
     </div>
   );
 }
