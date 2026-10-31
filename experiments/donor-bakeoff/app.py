@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r10"
+APP_REVISION = "donor-bakeoff-2026-10-31-r11"
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "model_cache"
 RUNTIME = Path(os.environ.get("DONOR_RUNTIME_DIR", "/tmp/donor-bakeoff-runtime"))
@@ -48,6 +48,8 @@ MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 THREADS = max(1, min(int(os.cpu_count() or 2), 2))
 N_CTX = int(os.environ.get("DONOR_N_CTX", CONFIG.get("context_tokens", 2048)))
 MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", CONFIG.get("max_output_tokens", 768)))
+# Prompt processing speed on the 2-vCPU Studio is bounded by the batch size: 32 made every prompt (tool schemas, history, images) crawl.
+PROMPT_BATCH = max(32, min(512, int(os.environ.get("DONOR_PROMPT_BATCH", 256))))
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 AUDIO_MAX_BYTES = 24 * 1024 * 1024
 VIDEO_MAX_BYTES = 32 * 1024 * 1024
@@ -353,8 +355,8 @@ def _write_server_config(model_path: str, mmproj_path: str) -> None:
             "path": model_path,
             "n_gpu_layers": 0,
             "n_ctx": N_CTX,
-            "n_batch": 32,
-            "n_ubatch": 32,
+            "n_batch": PROMPT_BATCH,
+            "n_ubatch": PROMPT_BATCH,
             "n_seq_max": 1,
             "threads": THREADS,
             "threads_batch": THREADS,
@@ -1330,7 +1332,7 @@ def infer(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:1200]}"}
 
-def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str) -> tuple[bool, str]:
+def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: str, failed: bool = False) -> tuple[bool, str]:
     if not isinstance(tool_bridge, dict):
         return False, "no signed owner task ticket"
     ticket = str(tool_bridge.get("ticket") or "")
@@ -1385,6 +1387,7 @@ def _deliver_candidate_result(tool_bridge: dict | None, result: dict, prompt: st
                 "prompt": str(prompt or "")[:12000],
                 "text": str(result.get("text") or "")[:12000],
                 "generated_media": outgoing_media,
+                "failed": bool(failed),
             },
             headers={"Cache-Control": "no-store"},
             timeout=(8, 28),
@@ -1447,6 +1450,9 @@ def chat_payload(payload_json: str) -> str:
             audio_path=paths["audio_path"],
             video_path=paths["video_path"],
         )
+        if "error" in result and bridge:
+            # The Vercel request that started this may be long gone (60 s webhook limit): tell the chat instead of failing silently.
+            _deliver_candidate_result(bridge, {"text": "⚠️ تعذّر إكمال الطلب: " + str(result.get("error"))[:600]}, str(payload.get("prompt") or ""), failed=True)
         if "error" not in result and bridge:
             delivered, delivery_error = _deliver_candidate_result(bridge, result, str(payload.get("prompt") or ""))
             result["delivered_to_telegram"] = delivered

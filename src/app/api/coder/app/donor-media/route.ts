@@ -142,13 +142,19 @@ export async function POST(req: NextRequest) {
       }
       await taskEvent(ticket.runId, "info", "✅ تم تسليم " + (clip.kind === "video" ? "الفيديو" : "الصوت") + " من استوديو الوسائط الخاص بالمرشح " + ticket.model + ".");
     }
+    if (body.failed === true) {
+      await recordDonorAsyncDelivery(chatId, ticket.runId, ticket.model as "qwen35-9b" | "gemma4-e4b" | "minicpmo45", "", "").catch(() => false);
+      await taskEvent(ticket.runId, "failed", "تعذّر إكمال الطلب.");
+      await taskStatus(ticket.runId, "failed");
+      return NextResponse.json({ ok: true, delivered: true, media_count: 0 }, { headers: { "Cache-Control": "no-store" } });
+    }
     await recordDonorAsyncDelivery(chatId, ticket.runId, ticket.model as "qwen35-9b" | "gemma4-e4b" | "minicpmo45", String(body.prompt || ""), text).catch(() => false);
-    await taskEvent(ticket.runId, "done", "اكتمل رد المرشح وتسليم الوسائط من استوديوه المخصص.");
+    await taskEvent(ticket.runId, "done", "اكتمل رد النموذج وتسليم الوسائط من استوديوه المخصص.");
     await taskStatus(ticket.runId, "done");
     return NextResponse.json({ ok: true, delivered: true, media_count: prepared.length + clips.length }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const reason = String((error as Error)?.message || error).slice(0, 500);
-    await taskEvent(ticket.runId, "failed", "تعذّر تسليم نتيجة المرشح إلى تيليغرام: " + reason);
+    await taskEvent(ticket.runId, "failed", "تعذّر تسليم نتيجة النموذج إلى تيليغرام: " + reason);
     await taskStatus(ticket.runId, "failed");
     console.error("[donor-media-callback]", reason);
     return NextResponse.json({ ok: false, error: "Telegram delivery failed" }, { status: 502, headers: { "Cache-Control": "no-store" } });

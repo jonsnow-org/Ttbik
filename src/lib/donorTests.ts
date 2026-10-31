@@ -22,19 +22,19 @@ export const DONOR_TESTS = [
     id: "qwen35-9b",
     studio: "sham-donor-qwen35-9b-test",
     name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" },
-    desc: { ar: "اختبار مباشر داخل محادثة البوت · مسار معزول", en: "Isolated Qwen candidate · Telegram bot route" },
+    desc: { ar: "مسار مستقل داخل محادثة البوت", en: "Isolated Qwen candidate · Telegram bot route" },
   },
   {
     id: "gemma4-e4b",
     studio: "sham-donor-gemma4-e4b-test",
     name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" },
-    desc: { ar: "اختبار مباشر داخل محادثة البوت · مسار معزول", en: "Isolated Gemma candidate · Telegram bot route" },
+    desc: { ar: "مسار مستقل داخل محادثة البوت", en: "Isolated Gemma candidate · Telegram bot route" },
   },
   {
     id: "minicpmo45",
     studio: "sham-donor-minicpmo45-test",
     name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" },
-    desc: { ar: "مرشح متعدد الوسائط · مرفقات تيليغرام حسب قدرات المشغّل", en: "Multimodal candidate · Telegram media according to runtime capabilities" },
+    desc: { ar: "متعدد الوسائط · مرفقات تيليغرام", en: "Multimodal candidate · Telegram media according to runtime capabilities" },
   },
 ] as const;
 
@@ -49,12 +49,12 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-31-r10";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-10-31-r11";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
   const value = DONOR_TESTS.find((x) => x.id === id);
-  if (!value) throw new Error("مرشح الاختبار غير معروف.");
+  if (!value) throw new Error("النموذج غير معروف.");
   return value;
 };
 const apiOf = (config: (typeof DONOR_TESTS)[number]) =>
@@ -80,14 +80,14 @@ async function readSseResult(response: Response): Promise<string> {
         buffer = buffer.slice(match.index + match[0].length);
         if (/(^|\r?\n)event:\s*complete(\r?\n|$)/.test(frame)) return frame;
         if (/(^|\r?\n)event:\s*error(\r?\n|$)/.test(frame)) {
-          throw new Error("أعاد استديو المرشح خطأ أثناء تنفيذ الطلب.");
+          throw new Error("أعاد استوديو النموذج خطأ أثناء تنفيذ الطلب.");
         }
       }
     }
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  throw new Error("انتهت مهلة انتظار الرد المكتمل من استديو المرشح.");
+  throw new Error("انتهت مهلة انتظار الرد المكتمل من استوديو النموذج.");
 }
 
 function parseSseData(raw: string): unknown {
@@ -102,7 +102,7 @@ function parseSseData(raw: string): unknown {
       return value;
     } catch { /* ignore non-JSON heartbeat lines */ }
   }
-  throw new Error("لم يصل محتوى صالح من استديو المرشح.");
+  throw new Error("لم يصل محتوى صالح من استوديو النموذج.");
 }
 
 async function callGradio(
@@ -127,7 +127,7 @@ async function callGradio(
     throw new Error("استديو " + config.name.ar + ": HTTP " + start.status + (detail ? " · " + detail : ""));
   }
   const started = await start.json().catch(() => ({})) as { event_id?: string };
-  if (!started.event_id) throw new Error("استديو المرشح لم يُرجع معرّف الطلب.");
+  if (!started.event_id) throw new Error("استوديو النموذج لم يُرجع معرّف الطلب.");
   const result = await fetchImpl(base + "/gradio_api/call/" + apiName + "/" + encodeURIComponent(started.event_id), {
     headers: authHeaders(token),
     cache: "no-store",
@@ -135,7 +135,7 @@ async function callGradio(
   });
   if (!result.ok) {
     const detail = (await result.text().catch(() => "")).slice(0, 300);
-    throw new Error("تعذّر استلام رد المرشح · HTTP " + result.status + (detail ? " · " + detail : ""));
+    throw new Error("تعذّر استلام رد النموذج · HTTP " + result.status + (detail ? " · " + detail : ""));
   }
   return parseSseData(await readSseResult(result));
 }
@@ -256,7 +256,7 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
         id: config.id,
         phase: "deploying",
         studio: "deploying",
-        detail: "يجري تحديث مشغّل المرشح قبل إتاحته للاختبار المباشر.",
+        detail: "يجري تحديث مشغّل النموذج قبل إتاحته.",
       };
     }
     const caps = statusValue?.media_capabilities;
