@@ -31,7 +31,7 @@ The Mini App has one **Computer / حاسوبي** tab. It contains three views in
 - **Terminal:** an interactive PTY session created inside that same Daytona VM; it shares the same filesystem and installed software as the desktop.
 - **Activity:** persisted task events filtered to the selected model. It is not a second terminal or a second execution environment.
 
-The previous standalone Terminal tab has been removed from the tab bar. Legacy links to \`terminal\` route to Computer. The PTY has its own session id, cursor-based output polling and input channel. The PTY process itself is recreated after a VM stop/start; files and packages survive on the persistent disk.
+The previous standalone Terminal tab has been removed from the tab bar. Legacy links to \`terminal\` route to Computer. The shell session has its own id, output polling and input channel. The session is recreated after a VM stop/start; files and packages survive on the persistent disk.
 
 The separate task-scoped sandbox still exists for disposable operations on legacy task paths. New computer-group tools use the persistent VM; donor candidates are explicitly prevented from loading \`sandbox_*\` tools as a competing machine. Sham v1 and v2 use their own variant-specific model IDs and the ShamHost adapter.
 
@@ -46,3 +46,6 @@ shared. Today Nova's engine is `coderSections.ts` (`drive`, `driveLoop`), Sham's
 - Per-user concurrency limits and priority queues exist for Nova's Studio queue (Pro/owner first) but not as a shared executor setting.
 - SSE for the event log: polling with a cursor is used (works through every proxy); SSE would only lower latency.
 - Sham v1 and Sham v2 share the `sham-` run prefix: their tasks are distinguishable only by title, not by a model tag.
+
+
+The current terminal is a shell-session interface, not yet a full PTY/WebSocket terminal. Completing xterm.js rendering, terminal resize, ANSI fidelity and a signed WebSocket attach path remains a separate acceptance gate.
