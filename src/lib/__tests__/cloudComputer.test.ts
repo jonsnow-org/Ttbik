@@ -6,6 +6,7 @@ import {
   cloudComputerSelfTest,
   cloudComputerStatus,
   cloudComputerStop,
+  cloudComputerRuntimeTick,
 } from "@/lib/cloudComputer";
 import type { Db } from "@/lib/coderAuth";
 
@@ -20,15 +21,27 @@ function computerDb(): ComputerDb {
       if (sql.includes("INSERT INTO cloud_computers")) {
         computers.set(args[0], {
           chat_key: args[0],
-          model_id: args[1],
-          sandbox_id: args[2],
-          sandbox_name: args[3],
-          snapshot: args[4],
-          state: args[5],
+          chat_id: args[1],
+          model_id: args[2],
+          sandbox_id: args[3],
+          sandbox_name: args[4],
+          snapshot: args[5],
+          state: args[6],
+          last_billed_at: args[6] === "started" ? new Date().toISOString() : null,
         });
       }
     },
     query: async <T,>(sql: string, ...args: any[]): Promise<T[]> => {
+      if (sql.includes("WITH due AS")) {
+        const now = new Date(args[0]).getTime();
+        const checkpoint = Math.floor(now / 60000) * 60000;
+        const due = [...computers.values()].filter((row) => row.state === "started" && row.last_billed_at && Date.parse(row.last_billed_at) < checkpoint - 60000).slice(0, Number(args[1]) || 20);
+        return due.map((row) => {
+          const elapsed_seconds = Math.max(1, Math.floor((checkpoint - Date.parse(row.last_billed_at)) / 1000));
+          row.last_billed_at = new Date(checkpoint).toISOString();
+          return { chat_key: row.chat_key, chat_id: row.chat_id, model_id: row.model_id, sandbox_id: row.sandbox_id, sandbox_name: row.sandbox_name, snapshot: row.snapshot, elapsed_seconds };
+        }) as T[];
+      }
       if (sql.includes("FROM cloud_computers")) {
         const row = computers.get(args[0]);
         return (row ? [row] : []) as T[];
@@ -90,8 +103,17 @@ function providerFetch() {
       const path = url.pathname.replace(/^\/sandbox-[^/]+/, "");
       if (path === "/computeruse/status") return Response.json({ status: desktopReady ? "ready" : "stopped" });
       if (path === "/computeruse/start" && method === "POST") { desktopReady = true; return Response.json({ status: "ready" }); }
-      if (path === "/computeruse/screenshot") return Response.json({ screenshot: PNG_1PX, width: 1, height: 1 });
+      if (path.startsWith("/computeruse/screenshot")) return Response.json({ screenshot: PNG_1PX, width: 1, height: 1 });
       if (path === "/computeruse/display/windows") return Response.json({ windows: [{ title: "Test browser" }] });
+      if (path === "/computeruse/recordings/start" && method === "POST") return Response.json({ id: "recording-1", name: body.name });
+      if (path === "/computeruse/recordings/stop" && method === "POST") return Response.json({ id: body.id, status: "stopped" });
+      if (path === "/computeruse/recordings") return Response.json({ recordings: [{ id: "recording-1", status: "stopped" }] });
+      if (path === "/computeruse/recordings/recording-1" && method === "GET") return Response.json({ id: "recording-1", status: "stopped" });
+      if (path === "/computeruse/recordings/recording-1" && method === "DELETE") return Response.json({ ok: true });
+      if (path === "/computeruse/recordings/recording-1/download") return new Response(new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]));
+      if (path === "/computeruse/display/info") return Response.json({ displays: [{ width: 1280, height: 720 }], total_displays: 1 });
+      if (path === "/computeruse/a11y/tree") return Response.json({ nodes: [{ id: "node-1", role: "button" }] });
+      if (path === "/computeruse/a11y/find" && method === "POST") return Response.json({ nodes: [{ id: "node-1", role: "button" }] });
       if (path === "/process/execute" && method === "POST") {
         return Response.json({ exitCode: 0, result: "TTBIK_CLOUD_COMPUTER_OK\n" + body.command });
       }
