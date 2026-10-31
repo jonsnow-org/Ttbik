@@ -34,6 +34,7 @@ _STATE = {
     "phase": "starting",
     "model_repo": MODEL_REPO,
     "model": "CyberRealistic FINAL FP16",
+            "precision": "bfloat16 autocast" if used_fast else "float32",
     "checkpoint": CHECKPOINT_REL,
     "checkpoint_sha256": None,
     "creator_sha256_verified": False,
@@ -60,6 +61,20 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _fast_cpu() -> bool:
+    """bfloat16 maths pays off only on CPUs with AVX512-BF16 / AMX (the Xeon Studios have both). PHOTO_FAST=0 turns the fast path off."""
+    if os.environ.get("PHOTO_FAST", "1") == "0":
+        return False
+    try:
+        flags = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
+        return "amx_bf16" in flags or "avx512_bf16" in flags
+    except Exception:
+        return False
+
+
+FAST = _fast_cpu()
 
 
 def _set_state(**values) -> None:
@@ -152,7 +167,8 @@ def _load_pipeline():
         use_karras_sigmas=True,
     )
     pipe.set_progress_bar_config(disable=True)
-    pipe.enable_attention_slicing("max")
+    if not FAST:
+        pipe.enable_attention_slicing("max")      # the memory-safe (slow) path; the fast path uses PyTorch's fused attention, which does not build the full matrix
     pipe.enable_vae_slicing()
     try:
         pipe.enable_vae_tiling()
@@ -216,7 +232,7 @@ def generate_image(
         "768 × 512": (768, 512),
     }
     width, height = shapes.get(aspect, (512, 768))
-    steps = max(25, min(35, int(steps)))
+    steps = max(18, min(35, int(steps)))
     guidance = max(3.0, min(8.0, float(guidance)))
     seed = int(seed)
     started = time.monotonic()
@@ -225,26 +241,37 @@ def generate_image(
         raise gr.Error("يوجد توليد آخر جارٍ على معالج CPU؛ انتظر حتى ينتهي.")
     _set_state(phase="generating", last_prompt=prompt[:240])
     try:
-        generator = torch.Generator(device="cpu").manual_seed(seed)
-        with torch.inference_mode():
-            result = _PIPE(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=width,
-                height=height,
-                num_inference_steps=steps,
-                guidance_scale=guidance,
-                generator=generator,
-            ).images[0]
+        def run_once(fast: bool):
+            generator = torch.Generator(device="cpu").manual_seed(seed)
+            with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16, enabled=fast):
+                picture = _PIPE(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    generator=generator,
+                ).images[0]
+            rgb = picture.convert("RGB")
+            gray_values = np.asarray(rgb, dtype=np.float32).mean(axis=2)
+            return rgb, {
+                "width": rgb.width,
+                "height": rgb.height,
+                "gray_std": round(float(gray_values.std()), 2),
+                "gray_range": round(float(gray_values.max() - gray_values.min()), 2),
+            }
 
-        image = result.convert("RGB")
-        gray = np.asarray(image, dtype=np.float32).mean(axis=2)
-        stats = {
-            "width": image.width,
-            "height": image.height,
-            "gray_std": round(float(gray.std()), 2),
-            "gray_range": round(float(gray.max() - gray.min()), 2),
-        }
+        used_fast = FAST
+        try:
+            image, stats = run_once(FAST)
+            if FAST and (stats["gray_std"] < 8.0 or stats["gray_range"] < 24.0):
+                raise ValueError("fast path produced a blank image")
+        except Exception:
+            if not FAST:
+                raise
+            used_fast = False                      # any problem on the fast path: run the proven path once
+            image, stats = run_once(False)
         if stats["gray_std"] < 8.0 or stats["gray_range"] < 24.0:
             raise gr.Error("الناتج فارغ أو شبه ثابت؛ لم نعتمده كصورة صالحة.")
 
@@ -311,7 +338,7 @@ with gr.Blocks(title="CyberRealistic FINAL — isolated photo test") as demo:
             value="512 × 768 (author recommended)",
             label="الدقة",
         )
-        steps_box = gr.Slider(25, 35, value=30, step=1, label="خطوات التوليد")
+        steps_box = gr.Slider(18, 35, value=24, step=1, label="خطوات التوليد")
         guidance_box = gr.Slider(3, 8, value=5.0, step=0.5, label="CFG")
         seed_box = gr.Number(value=42, precision=0, label="Seed")
     generate = gr.Button("توليد صورة اختبار", variant="primary")
