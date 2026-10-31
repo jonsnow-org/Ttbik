@@ -23,7 +23,8 @@ export async function generateShamMediaThroughRoute(
     if (generated.type === "image" && generated.b64) {
       return { type: "image", mime: "image/png", b64: generated.b64, text: generated.text, route: "sham_v2_photo_weight" };
     }
-    return { type: "error", route: "sham_v2_photo_weight", reason: generated.reason, text: generated.text };
+    const reason = generated.type === "error" ? generated.reason : "image_payload_missing";
+    return { type: "error", route: "sham_v2_photo_weight", reason, text: generated.text };
   }
   const route = targetOf(modelId, await shamEngine(modelId)).route;
   const timeoutMs = Math.min(240000, Math.max(8000, opts.timeoutMs ?? 240000));
