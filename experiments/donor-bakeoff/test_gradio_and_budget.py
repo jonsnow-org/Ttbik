@@ -92,7 +92,7 @@ class CandidateImageSettings(unittest.TestCase):
 
 class TextToolFallback(unittest.TestCase):
     def test_payload_has_no_tools_field_and_turns_become_text(self):
-        s = load("_text_tools_system", "_text_tool_payload")
+        s = load("_one_system_message", "_text_tools_system", "_text_tool_payload")
         tools = [{"type": "function", "function": {"name": "github_repo_scan", "description": "scan", "parameters": {"type": "object"}}}]
         options = {"model": "m", "max_tokens": 50, "tools": tools, "tool_choice": "auto"}
         messages = [
@@ -156,3 +156,47 @@ class SmokeTestList(unittest.TestCase):
         for needed in ("image_tool_direct", "audio_tool_direct", "video_tool_direct", "image_generation", "long_multistep_repo"):
             self.assertIn(needed, ids)
             self.assertIn(needed, loop)
+
+
+class OneSystemMessage(unittest.TestCase):
+    def test_many_system_turns_become_one_first_turn(self):
+        f = load("_one_system_message")["_one_system_message"]
+        got = f([
+            {"role": "system", "content": "A"},
+            {"role": "system", "content": "B"},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "yo"},
+            {"role": "system", "content": "C"},
+            {"role": "user", "content": "again"},
+        ])
+        self.assertEqual([m["role"] for m in got], ["system", "user", "assistant", "user"])
+        self.assertEqual(got[0]["content"], "A\n\nB\n\nC")
+
+    def test_no_system_turn_stays_without_one(self):
+        f = load("_one_system_message")["_one_system_message"]
+        self.assertEqual(f([{"role": "user", "content": "x"}]), [{"role": "user", "content": "x"}])
+
+    def test_text_tool_payload_has_exactly_one_system_message(self):
+        s = load("_one_system_message", "_text_tools_system", "_text_tool_payload")
+        body = s["_text_tool_payload"]({"tools": [], "max_tokens": 5}, [{"role": "system", "content": "extra"}, {"role": "user", "content": "q"}])
+        self.assertEqual(sum(1 for m in body["messages"] if m["role"] == "system"), 1)
+        self.assertEqual(body["messages"][0]["role"], "system")
+
+
+class SniffImage(unittest.TestCase):
+    def test_real_type_comes_from_the_bytes_not_the_header(self):
+        f = load("_sniff_image_mime")["_sniff_image_mime"]
+        self.assertEqual(f(b"\x89PNG\r\n\x1a\n" + b"x" * 20), "image/png")
+        self.assertEqual(f(b"\xff\xd8\xff\xe0" + b"x" * 20), "image/jpeg")
+        self.assertEqual(f(b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"x" * 20), "image/webp")
+        self.assertEqual(f(b"<html>nope</html>"), "")
+        self.assertEqual(f(b""), "")
+
+
+class InferenceTimeout(unittest.TestCase):
+    def test_scales_with_max_tokens_and_has_floor_and_cap(self):
+        f = load("_inference_read_timeout")["_inference_read_timeout"]
+        self.assertGreaterEqual(f(16), 60)
+        self.assertEqual(f(1), 60)
+        self.assertGreater(f(768), 240)
+        self.assertLessEqual(f(100000), 900)

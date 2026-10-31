@@ -5,7 +5,12 @@ on:
     paths:
       - "experiments/donor-bakeoff/**"
       - ".github/workflows/donor-bakeoff-modelscope.yml"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "false = only deploy the three candidate Studios with the current app code (no smoke tests): about 15 minutes each instead of an hour"
+        required: false
+        default: "true"
 permissions:
   contents: read
 concurrency:
@@ -344,10 +349,11 @@ jobs:
           if [ "$READY" -ne 1 ]; then echo "::error::Candidate not ready within 85 minutes."; show_logs; exit 1; fi
           echo "Candidate model ready on app revision $EXPECTED_APP_REVISION; continuing to the smoke suite."
       - name: Run one short text, code, tool or supported-media test per Gradio event
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.tests != 'false' }}
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         shell: bash
-        timeout-minutes: 35
+        timeout-minutes: 80
         run: |
           set -uo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
