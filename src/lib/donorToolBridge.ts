@@ -4,7 +4,7 @@ import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool } from 
 import { connectedIds, connectorById, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
-type TicketBody = { chatId: number; model: string; connectors: string[]; runId?: string; exp: number; nonce: string };
+type TicketBody = { chatId: number; model: string; connectors: string[]; runId?: string; botId?: string; exp: number; nonce: string };
 const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 const isCandidate = (id: string) => CANDIDATES.has(id);
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
@@ -37,6 +37,7 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
     const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as TicketBody;
     if (!Number.isSafeInteger(parsed.chatId) || !isCandidate(parsed.model) || !Array.isArray(parsed.connectors)) return null;
     if (parsed.runId !== undefined && (typeof parsed.runId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.runId))) return null;
+    if (parsed.runId !== undefined && (typeof parsed.botId !== "string" || !/^[a-zA-Z0-9_-]{8,120}$/.test(parsed.botId))) return null;
     if (!Number.isFinite(parsed.exp) || parsed.exp < Date.now() || parsed.exp > Date.now() + 16 * 60_000) return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.length < 12) return null;
     return parsed;
@@ -46,9 +47,10 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
 }
 
 /** Describe only services this owner has actually connected. Credentials remain in the app server. */
-export async function createDonorToolBridge(chatId: number, model: string, db: Db, runId?: string) {
+export async function createDonorToolBridge(chatId: number, model: string, db: Db, runId?: string, botId?: string) {
   if (tierFor(chatId) !== "owner") throw new Error("Candidate models are owner-only.");
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
+  if (runId && !botId) throw new Error("The originating bot ID is required for signed candidate media delivery.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
   // Candidate sessions share connected accounts, but expose strictly read-only GitHub capabilities.
@@ -76,18 +78,19 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   // A Studio with no linked services can still chat and use its public read-only tools.
   // Authenticated app connectors require the same encryption/signing key used by the connector store.
   if (!signingKey()) {
+    if (runId) throw new Error("CODER_TOKEN_KEY is required for signed, asynchronous candidate media delivery.");
     if (available.length) throw new Error("CODER_TOKEN_KEY is required to expose connected services to this candidate.");
-    return { url: "", ticket: "", model, run_id: runId || "", connectors: [], tools: [] };
+    return { url: "", ticket: "", model, run_id: "", bot_id: "", connectors: [], tools: [] };
   }
   const ticket = issueTicket({
     chatId,
     model,
     connectors: available,
-    ...(runId ? { runId } : {}),
+    ...(runId ? { runId, botId } : {}),
     exp: Date.now() + 14 * 60_000,
     nonce: randomBytes(12).toString("hex"),
   });
-  return { url, ticket, model, run_id: runId || "", connectors: available, tools };
+  return { url, ticket, model, run_id: runId || "", bot_id: botId || "", connectors: available, tools };
 }
 
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
