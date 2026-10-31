@@ -653,6 +653,7 @@ export async function cloudComputerWriteFile(ctx: CloudComputerContext, path: st
 }
 
 export async function cloudComputerReadFile(ctx: CloudComputerContext, path: string): Promise<{ path: string; bytes: Buffer } | null> {
+  await requireComputeAllowance(ctx);
   const filePath = String(path || "").trim();
   if (!filePath.startsWith("/") || filePath.includes("\0") || filePath.split("/").includes("..")) throw new Error("Use an absolute file path inside the computer.");
   const { sandbox } = await openSandbox(ctx);
