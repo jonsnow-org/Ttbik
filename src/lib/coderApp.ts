@@ -699,6 +699,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalPoll(ctx, String(body.sessionId || ""), typeof body.cursor === "string" ? body.cursor : undefined)));
     case "computer_terminal_input":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.sessionId || ""), String(body.data || ""))));
+    case "computer_terminal_ticket":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalTicket(ctx, String(body.sessionId || ""))));
+    case "computer_terminal_resize":
+      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalResize(ctx, String(body.sessionId || ""), Number(body.cols), Number(body.rows))));
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
