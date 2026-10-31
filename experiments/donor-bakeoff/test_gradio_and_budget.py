@@ -191,3 +191,12 @@ class SniffImage(unittest.TestCase):
         self.assertEqual(f(b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"x" * 20), "image/webp")
         self.assertEqual(f(b"<html>nope</html>"), "")
         self.assertEqual(f(b""), "")
+
+
+class InferenceTimeout(unittest.TestCase):
+    def test_scales_with_max_tokens_and_has_floor_and_cap(self):
+        f = load("_inference_read_timeout")["_inference_read_timeout"]
+        self.assertGreaterEqual(f(16), 60)
+        self.assertEqual(f(1), 60)
+        self.assertGreater(f(768), 240)
+        self.assertLessEqual(f(100000), 900)

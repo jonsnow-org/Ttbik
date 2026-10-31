@@ -851,6 +851,13 @@ def _approx_tokens(text: str) -> int:
     return int(len(text) / 2.4) + 1
 
 
+def _inference_read_timeout(max_tokens: int) -> int:
+    """How long to wait for one /v1/chat/completions answer. A slow CPU candidate (MiniCPM measured as low as 0.6 tok/s with the text-tool
+    fallback's extra system text) can legitimately take minutes for a large max_tokens; a flat 240s cut it off mid-generation and the whole
+    tool round was lost, not just slow. Floored at a conservative 0.5 tok/s, capped so a stuck server is still not waited on forever."""
+    return max(60, min(900, int(max_tokens / 0.5) + 30))
+
+
 def _one_system_message(messages: list) -> list:
     """Qwen3.5's chat template answers HTTP 400 "System message must be at the beginning" when a conversation has more than one system turn
     (the image hint, the media hint and the connected-services note were each inserted as their own). All system texts become ONE first message."""
@@ -1247,15 +1254,16 @@ def infer(
         choice = {}
         # The model chooses when and which tool to call. Only allowlisted read-only
         # tools execute here; their real results are fed back to the model.
+        read_timeout = _inference_read_timeout(int(options.get("max_tokens") or MAX_OUTPUT))
         for tool_round in range(4):
             response = requests.post(
                 SERVER_BASE + "/v1/chat/completions",
                 json=_text_tool_payload(options, messages) if text_tool_mode else {**options, "messages": _one_system_message(messages)},
-                timeout=(10, 240),
+                timeout=(10, read_timeout),
             )
             if response.status_code >= 500 and options.get("tools") and not text_tool_mode:
                 text_tool_mode = True      # this runtime's chat template cannot take a tools list: describe the tools in text instead
-                response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, 240))
+                response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, read_timeout))
             response.raise_for_status()
             data = response.json()
             choice_item = (data.get("choices") or [{}])[0]
