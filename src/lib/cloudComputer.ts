@@ -664,8 +664,21 @@ export async function cloudComputerAction(ctx: CloudComputerContext, action: str
   await requireComputeAllowance(ctx);
   const { sandbox } = await openSandbox(ctx);
   await startDesktop(ctx, sandbox);
-  const processName = () => safeProcessName(args.process || args.process_name);
-  const id = () => safeRecordingId(args.id || args.recording_id);
+  const processName = () => safeProcessName(
+    ["process_status", "process_restart", "process_logs", "process_errors"].includes(action)
+      ? (args.process || args.process_name)
+      : "desktop",
+  );
+  const id = () => safeRecordingId(
+    ["recording_stop", "recording_get", "recording_delete", "recording_download"].includes(action)
+      ? (args.id || args.recording_id)
+      : "unused",
+  );
+  const nodeId = () => safeRecordingId(
+    ["accessibility_focus", "accessibility_invoke", "accessibility_set_value"].includes(action)
+      ? args.node_id
+      : "unused",
+  );
   const calls: Record<string, { path: string; method?: string; body?: Json }> = {
     click: { path: "/computeruse/mouse/click", method: "POST", body: { x: Number(args.x), y: Number(args.y), button: args.button || "left", double: Boolean(args.double) } },
     move: { path: "/computeruse/mouse/move", method: "POST", body: { x: Number(args.x), y: Number(args.y) } },
@@ -688,7 +701,7 @@ export async function cloudComputerAction(ctx: CloudComputerContext, action: str
       ...(Array.isArray(args.states) ? { states: args.states.map(String).slice(0, 12) } : {}),
       limit: Math.max(1, Math.min(100, Number(args.limit) || 20)),
     } },
-    accessibility_focus: { path: "/computeruse/a11y/node/focus", method: "POST", body: { id: safeRecordingId(args.node_id) } },
+    accessibility_focus: { path: "/computeruse/a11y/node/focus", method: "POST", body: { id: nodeId() } },
     accessibility_invoke: { path: "/computeruse/a11y/node/invoke", method: "POST", body: { id: safeRecordingId(args.node_id), ...(args.node_action ? { action: String(args.node_action).slice(0, 80) } : {}) } },
     accessibility_set_value: { path: "/computeruse/a11y/node/value", method: "POST", body: { id: safeRecordingId(args.node_id), value: String(args.value || "").slice(0, 12000) } },
     recording_start: { path: "/computeruse/recordings/start", method: "POST", body: { name: String(args.name || `ttbik-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80) } },
