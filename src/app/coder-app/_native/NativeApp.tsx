@@ -1137,6 +1137,7 @@ function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
 
 function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
   const ar = lang === "ar";
+  const [section, setSection] = useState<"desktop" | "terminal" | "activity">("desktop");
   const [status, setStatus] = useState<any>(null);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState("");
@@ -1166,6 +1167,21 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
   const running = ["started", "running"].includes(String(status?.state || "").toLowerCase());
   return (
     <List>
+      <Section>
+        <div style={{ display: "flex", gap: 6, padding: "4px 8px", flexWrap: "wrap" }}>
+          {(["desktop", "terminal", "activity"] as const).map((id) => (
+            <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
+              style={{ borderRadius: 10, padding: "8px 12px", border: "1px solid var(--tgui--divider)", background: section === id ? "var(--tgui--secondary-bg-color)" : "transparent", color: "var(--tgui--text-color)", fontWeight: section === id ? 700 : 500 }}>
+              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : (ar ? "النشاط" : "Activity")}
+            </button>
+          ))}
+        </div>
+      </Section>
+      {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
+      {section === "activity" && <Section header={ar ? "نشاط هذا النموذج" : "Activity for this model"}><TerminalTab lang={lang} model={model} /></Section>}
+      {section === "desktop" && <>
+
+      <>
       <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
         footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
         <Cell multiline subtitle={(ar ? "النموذج: " : "Model: ") + model + " · " + (status?.snapshot || (ar ? "لم يُنشأ بعد" : "Not created yet"))}>
@@ -1199,6 +1215,7 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
           {(test.results || []).map((r: any) => <Cell key={r.test} multiline after={r.ok ? "✅" : "❌"} subtitle={r.detail}>{r.test}</Cell>)}
         </Section>
       )}
+      </>
     </List>
   );
 }
@@ -1207,17 +1224,17 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
 const TAB_ICON: Record<Tab, string> = {
   computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
   tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
-  terminal: "M4 17l6-5-6-5M12 19h8",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   connect: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   memory: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm6 0a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
 const TAB_KEY: Partial<Record<Tab, keyof Str>> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
-const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { computer: { ar: "حاسـوبي", en: "Computer" }, tasks: { ar: "المحادثة", en: "Chat" }, terminal: { ar: "الطرفية", en: "Terminal" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
-const TABS: Tab[] = ["tasks", "computer", "terminal", "schedules", "connect", "memory", "settings"];
+const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { computer: { ar: "حاسـوبي", en: "Computer" }, tasks: { ar: "المحادثة", en: "Chat" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const TABS: Tab[] = ["tasks", "computer", "schedules", "connect", "memory", "settings"];
 function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "panel") return { tab: "settings", page: "panel" };
+  if (want === "terminal") return { tab: "computer", page: null };
   if (want === "plans" || want === "billing") return { tab: "settings", page: "billing" };
   if (want === "connectors" || want === "connect") return { tab: "connect", page: null };
   return { tab: (TABS as string[]).includes(want) ? (want as Tab) : "tasks", page: null };
@@ -1284,7 +1301,7 @@ export default function NativeApp() {
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
           : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
-          : tab === "computer" ? (me.features?.computer ? <CloudComputerTab lang={lang} model={me.settings.model || "coder"} owner={me.tier === "owner"} /> : <ThreadsTab t={t} me={me} lang={lang} />)\n          : tab === "terminal" ? (me.features?.terminal ? <TerminalTab lang={lang} /> : <ThreadsTab t={t} me={me} lang={lang} />)
+          : tab === "computer" ? (me.features?.computer ? <CloudComputerTab lang={lang} model={me.settings.model || "coder"} owner={me.tier === "owner"} /> : <ThreadsTab t={t} me={me} lang={lang} />)
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
@@ -1292,7 +1309,7 @@ export default function NativeApp() {
       </main>
       {!page && (
         <Tabbar style={{ paddingBottom: "var(--safe-bottom)" }}>
-          {TABS.filter((id) => (id !== "terminal" || me?.features?.terminal) && (id !== "computer" || me?.features?.computer)).map((id) => (
+          {TABS.filter((id) => id !== "computer" || me?.features?.computer).map((id) => (
             <Tabbar.Item key={id} text={TAB_KEY[id] ? (t[TAB_KEY[id]!] as string) : TAB_LABEL[id][lang]} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={TAB_ICON[id]} /></svg>
             </Tabbar.Item>
