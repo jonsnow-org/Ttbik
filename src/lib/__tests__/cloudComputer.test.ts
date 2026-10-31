@@ -3,6 +3,11 @@ import {
   cloudComputerExecute,
   cloudComputerIdentity,
   cloudComputerOpen,
+  cloudComputerOcrScreenshot,
+  cloudComputerTerminalExecute,
+  cloudComputerTerminalInput,
+  cloudComputerTerminalOpen,
+  cloudComputerTerminalPoll,
   cloudComputerSelfTest,
   cloudComputerStatus,
   cloudComputerStop,
@@ -56,6 +61,7 @@ const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8
 function providerFetch() {
   const sandboxes = new Map<string, any>();
   const files = new Map<string, Buffer>();
+  const processes = new Map<string, { id: string; state: string; cwd: string; logs: Array<{ data: string; cursor: string }> }>();
   const calls: Array<{ url: string; method: string; body: any }> = [];
   let seq = 0;
   let desktopReady = false;
@@ -101,6 +107,30 @@ function providerFetch() {
 
     if (url.origin === "https://toolbox.test") {
       const path = url.pathname.replace(/^\/sandbox-[^/]+/, "");
+      if (path === "/processes" && method === "POST") {
+        const id = String(body.name || "process-" + (++seq));
+        if (processes.has(id)) return new Response("name conflict", { status: 409 });
+        const process = { id, state: "running", cwd: String(body.cwd || "/home/daytona"), logs: [] as Array<{ data: string; cursor: string }> };
+        processes.set(id, process);
+        return Response.json(process, { status: 201 });
+      }
+      const processMatch = /^\/processes\/([^/]+)(?:\/(stdin|logs))?$/.exec(path);
+      if (processMatch) {
+        const id = decodeURIComponent(processMatch[1]);
+        const process = processes.get(id);
+        if (!process) return new Response("not found", { status: 404 });
+        if (!processMatch[2] && method === "GET") return Response.json(process);
+        if (!processMatch[2] && method === "DELETE") { process.state = "killed"; return Response.json({ ok: true }); }
+        if (processMatch[2] === "stdin" && method === "POST") {
+          const data = String(body.data || "");
+          process.logs.push({ data: data === "\u0003" ? "^C\r\n" : data, cursor: String(process.logs.length + 1) });
+          return Response.json({ ok: true });
+        }
+        if (processMatch[2] === "logs" && method === "GET") {
+          const after = Number(url.searchParams.get("cursor") || 0);
+          return Response.json({ items: process.logs.filter((item) => Number(item.cursor) > after) });
+        }
+      }
       if (path === "/computeruse/status") return Response.json({ status: desktopReady ? "ready" : "stopped" });
       if (path === "/computeruse/start" && method === "POST") { desktopReady = true; return Response.json({ status: "ready" }); }
       if (path.startsWith("/computeruse/screenshot")) return Response.json({ screenshot: PNG_1PX, width: 1, height: 1 });
@@ -115,7 +145,8 @@ function providerFetch() {
       if (path === "/computeruse/a11y/tree") return Response.json({ nodes: [{ id: "node-1", role: "button" }] });
       if (path === "/computeruse/a11y/find" && method === "POST") return Response.json({ nodes: [{ id: "node-1", role: "button" }] });
       if (path === "/process/execute" && method === "POST") {
-        return Response.json({ exitCode: 0, result: "TTBIK_CLOUD_COMPUTER_OK\n" + body.command });
+        const result = String(body.command || "").includes("tesseract") ? "Visible screen text: TTBik browser dashboard" : "TTBIK_CLOUD_COMPUTER_OK\\n" + body.command;
+        return Response.json({ exitCode: 0, result });
       }
       if (path === "/files/upload-v2" && method === "POST") {
         const form = init.body as FormData;
@@ -205,6 +236,33 @@ describe("cloud desktop lifecycle and controls", () => {
     });
     expect(provider.calls.some((call) => call.url.includes("/computeruse/start"))).toBe(true);
     expect((await cloudComputerStatus(ownerCtx(db, provider.fetchImpl))).state).toBe("started");
+  });
+
+  it("keeps one interactive PTY inside the selected model's same persistent VM", async () => {
+    const db = computerDb();
+    const provider = providerFetch();
+    const ctx = ownerCtx(db, provider.fetchImpl, "qwen35-9b");
+    await cloudComputerOpen(ctx);
+    const opened = await cloudComputerTerminalOpen(ctx);
+    expect(opened).toMatchObject({ ok: true, state: "running", shell: "/bin/bash" });
+    await cloudComputerTerminalExecute(ctx, "pwd");
+    const polled = await cloudComputerTerminalPoll(ctx, opened.sessionId);
+    expect(polled.output).toContain("pwd");
+    expect(polled.complete).toBe(false);
+    await cloudComputerTerminalInput(ctx, opened.sessionId, "\u0003");
+    const other = await cloudComputerTerminalOpen({ ...ctx, modelId: "gemma4-e4b" });
+    expect(other.sessionId).not.toBe(opened.sessionId);
+    expect(db.computers.size).toBe(2);
+  });
+
+  it("performs OCR inside that same model's own isolated computer when native vision is unavailable", async () => {
+    const db = computerDb();
+    const provider = providerFetch();
+    const ctx = ownerCtx(db, provider.fetchImpl, "minicpmo45");
+    const text = await cloudComputerOcrScreenshot(ctx, Buffer.from(PNG_1PX, "base64"), "image/png");
+    expect(text).toContain("Visible screen text");
+    expect(provider.calls.some((call) => call.url.includes("/files/upload-v2?path=%2Ftmp%2Fttbik-screen-ocr-"))).toBe(true);
+    expect(provider.calls.some((call) => call.url.endsWith("/process/execute"))).toBe(true);
   });
 
   it("runs arbitrary shell commands without a command-name allowlist", async () => {
