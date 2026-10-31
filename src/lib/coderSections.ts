@@ -2130,9 +2130,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             }
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
-            if (!(await anyVisionStudio())) out = "error: no Studio reads pictures yet (vision is not switched on). Say so to the user; do not guess what the picture shows.";
-            else if (call.function.name === "cloud_computer_screenshot") {
-              const { cloudComputerScreenshot } = await import("@/lib/cloudComputer");
+            if (call.function.name === "cloud_computer_screenshot") {
+              const { cloudComputerScreenshot, cloudComputerOcrScreenshot, cloudComputerAction } = await import("@/lib/cloudComputer");
               const shotArgs = parseArgs(call);
               const rawRegion = shotArgs.region && typeof shotArgs.region === "object" ? shotArgs.region as Record<string, unknown> : null;
               const options = {
@@ -2142,11 +2141,35 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                 quality: Number(shotArgs.quality) || 85,
                 scale: Number(shotArgs.scale) || 1,
               };
-              const file = await cloudComputerScreenshot({ chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db }, options);
-              const img = file ? await toModelImage(file.bytes, 1024) : null;
-              if (img) { shown = [img]; from = "the selected model cloud desktop"; }
-              else out = "error: the cloud desktop screenshot could not be read by the selected vision model.";
+              const computerCtx = { chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db };
+              const file = await cloudComputerScreenshot(computerCtx, options);
+              if (!file?.bytes?.length) out = "error: the private cloud desktop returned an empty screenshot.";
+              else {
+                const [windows, tree, ocr, visionReady] = await Promise.all([
+                  cloudComputerAction(computerCtx, "windows").catch((e) => ({ error: String((e as Error)?.message || e).slice(0, 160) })),
+                  cloudComputerAction(computerCtx, "accessibility_tree", { scope: "all", max_depth: 8 }).catch((e) => ({ error: String((e as Error)?.message || e).slice(0, 160) })),
+                  cloudComputerOcrScreenshot(computerCtx, file.bytes, options.format === "jpeg" ? "image/jpeg" : "image/png").catch((e) => "OCR error: " + String((e as Error)?.message || e).slice(0, 220)),
+                  anyVisionStudio().catch(() => false),
+                ]);
+                const description = [
+                  "This is the selected model's own persistent cloud desktop.",
+                  "Active windows: " + JSON.stringify(windows).slice(0, 3500),
+                  "Accessibility tree: " + JSON.stringify(tree).slice(0, 8000),
+                  "Visible text (Arabic + English OCR from this same isolated computer): " + String(ocr).slice(0, 12000),
+                ].join("\\n");
+                if (visionReady) {
+                  const img = await toModelImage(file.bytes, 1024);
+                  if (img) {
+                    shown = [img];
+                    from = "the selected model's private cloud desktop";
+                    out = description + "\\nThe screenshot is also attached as a visual input. Correlate its pixels with the accessibility tree and OCR; verify actions with a new screenshot.";
+                  } else out = description + "\\nImage conversion was unavailable; use the accessibility tree and OCR text above.";
+                } else {
+                  out = description + "\\nThis model does not have a native image projector in its current route. It can still operate this desktop using the accessibility tree, OCR, window metadata, shell, and mouse/keyboard tools. Do not infer non-text image content that OCR and UI metadata cannot reveal.";
+                }
+              }
             }
+            else if (!(await anyVisionStudio())) out = "error: no vision-capable route is configured for reading this external picture. Use cloud_computer_screenshot for the computer, which provides OCR and accessibility text without requiring model vision.";
             else if (call.function.name === "view_image") {
               let bytes: Buffer | null = null;
               if (a.url) {
