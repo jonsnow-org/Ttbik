@@ -155,7 +155,7 @@ export async function donorTestChat(
   history: DonorHistoryMessage[],
   media?: DonorTestMedia,
   fetchImpl: typeof fetch = globalThis.fetch,
-  context?: { chatId: number; db: Db },
+  context?: { chatId: number; db: Db; runId?: string },
 ): Promise<{
   text: string;
   tool_calls: { name?: string; arguments?: unknown }[];
@@ -163,9 +163,10 @@ export async function donorTestChat(
   seconds?: number;
   tokens_per_second?: number;
   generated_media: { kind: "image"; mime: string; b64: string; metadata: Record<string, unknown>; candidate: string; model_repo: string; checkpoint_sha256: string; seed?: number; bytes?: number }[];
+  delivered_to_telegram?: boolean;
 }> {
   const config = configOf(id);
-  const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db) : undefined;
+  const toolBridge = context ? await createDonorToolBridge(context.chatId, id, context.db, context.runId) : undefined;
   const prior = (Array.isArray(history) ? history : [])
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
     .slice(-12)
@@ -187,6 +188,7 @@ export async function donorTestChat(
     tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
     executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
     generated_media: Array.isArray(result.generated_media) ? result.generated_media.filter((item: any) => item && item.kind === "image" && typeof item.b64 === "string").map((item: any) => ({ ...item, metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {} })) : [],
+    delivered_to_telegram: result.delivered_to_telegram === true,
     seconds: Number.isFinite(Number(result.seconds)) ? Number(result.seconds) : undefined,
     tokens_per_second: Number.isFinite(Number(result.tokens_per_second)) ? Number(result.tokens_per_second) : undefined,
   };
