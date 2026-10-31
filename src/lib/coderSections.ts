@@ -673,51 +673,61 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 
 /** Takes a clear media request out of the general worker's hands. False = not a media request (or media is off here): the normal path runs. */
 async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, content: string, db: Db): Promise<boolean> {
-  if (st.model && novaModelOf(st.model) === undefined) return false;                       // Sham / Sham v2 make media their own way
+  const selectedModel = st.model || "coder";
+  if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
   const { detectMediaIntent } = await import("@/lib/coderMediaFast");
   const intent = detectMediaIntent(content);
   if (!intent) return false;
-  const nm = await import("@/lib/novaMedia");
-  // never left to the model (it invented "the media Studio is not connected in this session"): a missing Studio is a precise, deterministic answer
-  if (!nm.novaMediaEnabled()) {
-    const why = "استوديو الوسائط غير مفعّل في إعدادات الخادم (NOVA_MEDIA_STUDIO_URL=off).";
+  if (intent.kind === "video" && selectedModel !== "coder") {
+    const why = "لم يتم تجهيز مولّد فيديو مستقل لهذا النموذج بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
     return true;
   }
+  if (intent.kind === "video") {
+    const nm = await import("@/lib/novaMedia");
+    if (!nm.novaMediaEnabled()) {
+      const why = "استوديو الفيديو الخاص بنوفا غير مفعّل (NOVA_MEDIA_STUDIO_URL=off).";
+      st.messages.push({ role: "user", content }, { role: "assistant", content: why });
+      await saveState(chatId, st, db);
+      await send(bot, chatId, why);
+      return true;
+    }
+  }
   const runId = randomUUID().slice(0, 12);
   st.messages.push({ role: "user", content });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
-  const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });        // ONE message: the model's understanding + real steps (queue notes); the picture / video goes separately
-  later(() => fastMedia(bot, chatId, runId, intent, content, db, card).catch(async (e) => { await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة (خطأ داخلي). أعد المحاولة بعد قليل.").catch(() => false); await taskStatus(runId, "failed", 0, db); await taskEvent(runId, "failed", `media fast lane: ${String((e as Error)?.message || e).slice(0, 200)}`, db); }));
+  const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
+  later(() => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
+    await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة. لم يتم استخدام مولّد آخر.").catch(() => false);
+    await taskStatus(runId, "failed", 0, db);
+    await taskEvent(runId, "failed", "media fast lane: " + String((e as Error)?.message || e).slice(0, 200), db);
+  }));
   return true;
 }
 
-/** One tiny call on an idle Studio: the request as a short English picture prompt (the media models read English). */
+
 async function englishMediaPrompt(subject: string, original: string): Promise<string | null> {
+  // Keep prompt preparation local to this request: do not send a selected model's media prompt through Nova.
+  void original;
   const mf = await import("@/lib/coderMediaFast");
-  if (/^[\x00-\x7f]+$/.test(subject)) { const p = mf.cleanEnglishPrompt(subject); if (p) return p; }
-  const messages: CoderMessage[] = [
-    { role: "system", content: "You turn a user's request for a picture or a video into ONE short English prompt for an image model: max 25 words, describe only what is shown (subject, colours, setting, style). Output the prompt only, no quotes, no explanation." },
-    { role: "user", content: original.slice(0, 300) },
-  ];
-  try {
-    const o = await coderChat(messages, { maxTokens: 60, temperature: 0.2, waitS: 15, timeoutMs: 30000, fresh: true, tag: "media-prompt" });
-    let r: CoderReply | null | undefined = o?.reply;
-    for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
-      await new Promise((res) => setTimeout(res, 3000));
-      r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
-    }
-    if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
-    const p = r?.type === "done" ? mf.cleanEnglishPrompt(r.text || "") : null;
-    if (p) return p;
-  } catch { /* the glossary below */ }
+  if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
   return mf.glossaryPrompt(subject);
 }
 
-async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent: { kind: "image" | "video"; subject: string }, content: string, db: Db, card?: MsgCard | null): Promise<void> {
+
+async function fastMedia(
+  bot: TelegramBot,
+  chatId: number,
+  runId: string,
+  intent: { kind: "image" | "video"; subject: string },
+  content: string,
+  modelId: string,
+  db: Db,
+  card?: MsgCard | null,
+): Promise<void> {
   const { kind } = intent;
   const rb = realBot(bot);
   const beat = setInterval(() => void taskTouch(runId, db), 20000);
@@ -733,25 +743,41 @@ async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent
       reserved = true;
       await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
       const rbm = realBot(bot) as never;
-      const needsModel = !/^[\x00-\x7f]+$/.test(intent.subject);               // an English subject needs no model call: no such step is shown for it
-      if (needsModel) await cardTool(rbm, chatId, card, "كتابة وصف إنجليزي للصورة");
+      const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
+      if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
       const prompt = await englishMediaPrompt(intent.subject, content);
-      if (needsModel) await cardStepDone(rbm, chatId, card, Boolean(prompt));
-      if (!prompt) { say = "تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة."; result = "no prompt"; }
-      else {
-        await taskEvent(runId, "info", `🖼️ ${kind}: ${prompt}`, db);
-        const nm = await import("@/lib/novaMedia");
+      if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
+      if (!prompt) {
+        say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف صورة موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
+        result = "no prompt";
+      } else {
+        await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);
         const { vetMedia } = await import("@/lib/mediaQuality");
         await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
-        const r0 = await nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, onWait: (n) => { void cardNote(realBot(bot) as never, chatId, card, `⏳ استوديو الوسائط يخدم طلباً آخر — طلبك في الدور وسيبدأ تلقائياً (محاولة ${n})`); void taskEvent(runId, "info", `⏳ media Studio busy, waiting in line (${n})`, db).catch(() => null); } });
-        const r = (await vetMedia(r0)) as typeof r0;                    // the last gate before Telegram
-        await cardStepDone(rbm, chatId, card, Boolean(r?.b64));
-        if (r?.b64 && (r.type === "image" || r.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
-        if (r?.b64 && r.type === "image" && kind === "image") { await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.png")); delivered = true; }
-        else if (r?.b64 && r.type === "video" && kind === "video") { await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(r.b64, "base64"), "nova.mp4")); delivered = true; }
+        let raw: any;
+        if (kind === "image") {
+          const photo = await import("@/lib/photoWeightMedia");
+          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000 });
+        } else {
+          const nm = await import("@/lib/novaMedia");
+          raw = await nm.novaMakeMedia("video", prompt, { timeoutMs: 300000 });
+        }
+        const media = (await vetMedia(raw)) as any;
+        await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
+        if (media?.b64 && (media.type === "image" || media.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
+        if (media?.b64 && media.type === "image" && kind === "image") {
+          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));
+          delivered = true;
+        } else if (media?.b64 && media.type === "video" && kind === "video") {
+          await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
+          delivered = true;
+        }
         if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
-        if (delivered) { result = kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع."; }
-        else { say = `تعذّر إنشاء ${kind === "image" ? "الصورة" : "المقطع"} هذه المرة (${r?.text ? String(r.text).slice(0, 120) : r ? `${r.type || "?"}${r.reason ? `/${r.reason}` : ""}` : "لا رد من الاستوديو"}). لم يُرسل شيء ولم يُحسب من حصتك. أعد المحاولة بعد قليل.`; result = "failed"; }
+        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة من مولّد " + modelId + " المستقل." : "🎬 أُرسل المقطع.";
+        else {
+          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
+          result = "failed";
+        }
       }
     }
     if (say && !(await cardSay(realBot(bot) as never, chatId, card, say))) await send(bot, chatId, say);
@@ -769,11 +795,7 @@ async function fastMedia(bot: TelegramBot, chatId: number, runId: string, intent
   }
 }
 
-/**
- * The quick lane: the main worker has to read the whole conversation first (minutes on a CPU, silent), so a second, tiny call on a Studio
- * nobody is using answers within seconds: what the model understood and what it will do first. It never touches a Studio that holds a
- * conversation's prompt cache, never answers the task itself, and is dropped if the real answer has already started.
- */
+
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
   if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
