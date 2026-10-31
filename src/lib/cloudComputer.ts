@@ -454,19 +454,26 @@ async function ensureTerminalPty(ctx: CloudComputerContext, sandbox: SandboxInfo
   if (existing) {
     await terminalRequest(ctx, sandbox, "/processes/" + encodeURIComponent(id), { method: "DELETE" }, true);
   }
-  await terminalRequest(ctx, sandbox, "/processes", {
-    method: "POST",
-    body: JSON.stringify({
-      kind: "pty",
-      name: id,
-      shellCommand: "/bin/bash -l",
-      cwd: "/home/daytona",
-      stdin: "open",
-      keepLogs: "until_cleanup",
-      terminal: { cols: 120, rows: 32 },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
+  try {
+    await terminalRequest(ctx, sandbox, "/processes", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "pty",
+        name: id,
+        shellCommand: "/bin/bash -l",
+        cwd: "/home/daytona",
+        stdin: "open",
+        keepLogs: "until_cleanup",
+        terminal: { cols: 120, rows: 32 },
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (error) {
+    // Two tabs may reconnect at the same time. Reuse the PTY created by the winning request.
+    const raced = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(id), {}, true).catch(() => null);
+    if (raced && ["running", "queued", "starting"].includes(String(raced.state || "").toLowerCase())) return id;
+    throw error;
+  }
   const created = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(id), {}, true);
   const createdState = String(created?.state || "").toLowerCase();
   if (!created || !["running", "queued", "starting"].includes(createdState)) {
@@ -516,15 +523,20 @@ export async function cloudComputerTerminalPoll(ctx: CloudComputerContext, sessi
   const { sandbox } = await openSandbox(ctx);
   const query = new URLSearchParams({ limit: "500" });
   if (cursor) query.set("cursor", String(cursor).slice(0, 300));
-  const [page, info] = await Promise.all([
-    terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected) + "/logs?" + query.toString()),
-    terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected)),
-  ]);
+  let page: Json | null = null;
+  try {
+    page = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected) + "/logs?" + query.toString());
+  } catch (error) {
+    if (!cursor || !/HTTP 409/.test(String((error as Error)?.message || error))) throw error;
+    // A PTY's log retention can expire an old cursor; replay the oldest still-retained output.
+    page = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected) + "/logs?limit=500");
+  }
+  const info = await terminalRequest<Json>(ctx, sandbox, "/processes/" + encodeURIComponent(expected));
   const items = Array.isArray(page?.items) ? page.items : [];
   const output = items.map((frame: any) => String(frame?.data || "")).join("");
   const nextCursor = items.length ? String(items[items.length - 1]?.cursor || cursor || "") : String(cursor || "");
   const state = String(info?.state || "unknown").toLowerCase();
-  const complete = ["terminal", "failed", "killed", "exited"].includes(state);
+  const complete = ["terminal", "failed", "killed", "exited", "stopped", "completed", "finished"].includes(state);
   return {
     sessionId: expected,
     output: output.slice(-24000),
@@ -748,7 +760,7 @@ export async function cloudComputerAction(ctx: CloudComputerContext, action: str
 }
 
 async function cloudComputerScreenshotFromSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo, options: CloudScreenshotOptions = {}): Promise<Json> {
-  if (options.region) return cloudComputerAction(ctx, options.compressed ? "screenshot_region_compressed" : "screenshot_region", options.region as unknown as Json);
+  if (options.region) return cloudComputerAction(ctx, options.compressed ? "screenshot_region_compressed" : "screenshot_region", { ...options.region, format: options.format, quality: options.quality });
   if (options.compressed) return cloudComputerAction(ctx, "screenshot_compressed", options as Json);
   const started = Date.now();
   try {
@@ -845,6 +857,16 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     if (before.sandbox.id !== after.sandbox.id) throw new Error("The resumed computer has a different sandbox id.");
     if (!read || read.bytes.toString("utf8") !== "ttbik-cloud-computer-persistence-check") throw new Error("The persistent disk did not preserve the test file.");
     return { sandboxIdUnchanged: true, filePreserved: true };
+  });
+  await check("persistent interactive PTY terminal in the same VM", async () => {
+    const opened = await cloudComputerTerminalOpen(ctx);
+    const id = String(opened.sessionId || "");
+    if (!id) throw new Error("PTY session did not return a stable id.");
+    await cloudComputerTerminalExecute(ctx, "printf 'TTBIK_PTY_ACCEPTANCE\\n'");
+    const output = await cloudComputerTerminalPoll(ctx, id);
+    if (!String(output.output || "").includes("TTBIK_PTY_ACCEPTANCE")) throw new Error("PTY output was not returned to the computer panel.");
+    await cloudComputerTerminalInput(ctx, id, "\\u0003");
+    return { sessionId: id, state: output.state, outputReceived: true };
   });
   await check("desktop services start", async () => {
     const { sandbox } = await openSandbox(ctx);
