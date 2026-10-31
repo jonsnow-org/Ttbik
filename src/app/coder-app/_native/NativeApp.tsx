@@ -1088,7 +1088,8 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
 }
 
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
-const TAB_ICON: Record<Tab, string> = {\n  computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
+const TAB_ICON: Record<Tab, string> = {
+  computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
   tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
   terminal: "M4 17l6-5-6-5M12 19h8",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
