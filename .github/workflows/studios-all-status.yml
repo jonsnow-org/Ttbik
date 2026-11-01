@@ -1,0 +1,41 @@
+name: "Status of every Studio at once (read-only)"
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Status of each Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from concurrent.futures import ThreadPoolExecutor
+          names = ["cyberrealistic-final-test","epicrealism-image-test","gemma4-realistic-vision-v6-test","realistic-vision-v6-test","umranz-sd15-image-test",
+                   "nova-media-server","sham-donor-qwen35-9b-media","sham-donor-gemma4-e4b-media","sham-donor-minicpmo45-media",
+                   "sham-v1-server","sham-v2-server","sham-v2-overflow-server","sham-v2-video-server","nova-inference-server"]
+          head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          def one(n):
+              base = f"https://studio-novaai2026-{n}.api-inference.modelscope.net/gradio_api/call/status"
+              try:
+                  r = urllib.request.urlopen(urllib.request.Request(base, data=b'{"data": []}', headers=head, method="POST"), timeout=40)
+                  ev = json.loads(r.read())["event_id"]
+                  text = urllib.request.urlopen(urllib.request.Request(base + "/" + ev, headers=head), timeout=40).read().decode("utf-8", "ignore")
+                  for b in text.split("\n\n"):
+                      if "event: complete" in b:
+                          line = [l for l in b.splitlines() if l.startswith("data:")][0][5:].strip()
+                          v = json.loads(line)[0]
+                          v = v if isinstance(v, dict) else json.loads(v)
+                          return n, "UP phase=" + str(v.get("phase")) + " " + str(v.get("error") or "")[:120]
+                  return n, "NO_COMPLETE " + text[:100].replace("\n", " ")
+              except urllib.error.HTTPError as e:
+                  return n, f"HTTP {e.code}"
+              except Exception as e:
+                  return n, "UNREACHABLE " + type(e).__name__ + " " + str(e)[:80]
+          with ThreadPoolExecutor(8) as ex:
+              for n, s in ex.map(one, names): print(f"{n:40s} {s}")
+          PY
