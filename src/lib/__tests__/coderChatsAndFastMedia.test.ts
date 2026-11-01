@@ -99,6 +99,14 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect((await listTasks(FREE, { limit: 5 }, db()))[0].status).toBe("failed");
   });
 
+  it("a request whose Arabic words no list knows: the MODEL (Nova's own coder Studio) writes the English prompt, code does not guess", async () => {
+    const urls = net({ type: "image", b64: b64(await png("gradient", 256)) }, "a beautiful girl, soft light");
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("قم بتوليد صورة فتاة حسناء"), db());
+    expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
+    expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /a beautiful girl/.test(u))).toBe(true);   // the picture Studio got the model's own English prompt
+  });
   it("the 4th picture of the day gets the quota message and nothing is generated", async () => {
     const urls = net({ type: "image", b64: b64(await png("gradient", 256)) });
     const { bot, api, sent } = fakeBot();
