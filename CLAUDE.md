@@ -17,6 +17,8 @@
 - **Everything about the owner's website, its tools and bots and Mini Apps, the coins (Zenobia, Palmyra Launch, Athar), promotion and hosting — wherever it lives (Vercel, Oracle, Cloudflare, anywhere else) — belongs to the main Claude session and the section supervisors it created (`docs/agents/`).** That session has full authority to organise it so that it never interferes with the Sham AI model. For that session this order is the owner's explicit permission required by the Hands-off list below (the safety rules about live contracts and secrets still apply to *how* it works). The list still binds every other AI and every supervisor.
 - **Everything about training the Sham AI model (`ai-system/**`, the `sham-*` workflows and the workflows that deploy ai-system, Kaggle / ModelScope / Lightning / Modal / Hugging Face notebooks and Studios, `docs/*SHAM*`, `docs/FOR_SHAM_*`, `docs/sham-*`, on Oracle `install-sham.sh` and `SHAM_ON`) is supervised by the owner and the main Claude session — nobody else (owner's order, 2026-10-26: "there is no other supervisor but me and you").** The main Claude session may edit, fix, re-run and tidy all of it without asking again; it only keeps the safety rules (never print secrets, never break the notebooks that are running: check them first). Any other AI session still must not touch it.
 
+Working on both branches (production + `main`) without collisions: follow `docs/BRANCH_FLOW.md`.
+
 Where to read next: `docs/REPO_NOTEBOOK.md` (how everything works), `docs/agents/README.md` (section supervisors and their rules), `docs/GROK_GUIDE.md` (for Grok).
 
 ## ⛔ HANDS OFF (owner's standing order, 2026-10-05)
