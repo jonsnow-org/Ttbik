@@ -160,14 +160,12 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
     Path(env["XDG_RUNTIME_DIR"]).mkdir(parents=True, exist_ok=True)
     if box.is_root():
         uid = box.session_uid(session)
-        for key in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", XDG_RUNTIME_KEY, "XDG_DATA_HOME", "XDG_RUNTIME_DIR"):
+        for key in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"):
             path = Path(env[key])
             path.mkdir(parents=True, exist_ok=True)
             os.chown(path, uid, uid)
+        os.chmod(Path(env["XDG_RUNTIME_DIR"]), 0o700)
     return env
-
-
-XDG_RUNTIME_KEY = "XDG_DATA_HOME"
 
 
 def _spawn(command: list[str], env: dict[str, str], label: str, timeout_cpu: int = 7200) -> subprocess.Popen:
@@ -300,6 +298,8 @@ def _spawn_desktop(session: str) -> None:
             _UID = None
             _PHASE = "failed"
             _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
+            _SESSION_HASH = ""
+            _SESSION_RAW = ""
 
 
 def _start_async(session: str) -> None:
@@ -331,7 +331,6 @@ def _desktop_status(session: str) -> dict:
         available is not None
         and available >= MIN_AVAILABLE_MB
         and _PHASE in ("stopped", "failed")
-        and pkgs["ready"]
     )
     return {
         "ok": True,
@@ -374,7 +373,21 @@ def _run_input(args: list[str]) -> None:
 def _screenshot() -> dict:
     from PIL import Image, ImageGrab
 
-    image = ImageGrab.grab(xdisplay=_DISPLAY)
+    old_display = os.environ.get("DISPLAY")
+    old_auth = os.environ.get("XAUTHORITY")
+    os.environ["DISPLAY"] = _DISPLAY
+    os.environ["XAUTHORITY"] = _AUTH_FILE
+    try:
+        image = ImageGrab.grab(xdisplay=_DISPLAY)
+    finally:
+        if old_display is None:
+            os.environ.pop("DISPLAY", None)
+        else:
+            os.environ["DISPLAY"] = old_display
+        if old_auth is None:
+            os.environ.pop("XAUTHORITY", None)
+        else:
+            os.environ["XAUTHORITY"] = old_auth
     if image.size[0] > WIDTH or image.size[1] > HEIGHT:
         image.thumbnail((WIDTH, HEIGHT))
     image = image.convert("RGB")
