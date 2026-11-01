@@ -190,7 +190,10 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
       const tailMarker = "/tmp/coder-cmd/";
       const tailIndex = command.indexOf(tailMarker);
       const tailPath = tailIndex >= 0 ? command.slice(tailIndex).split(" ")[0] : "";
-      if (tailPath) {
+      // Only intercept the explicit short tail read used by waitFor().
+      // The detached start script itself also contains /tmp/coder-cmd/*.out;
+      // treating that as a read suppresses job_start and silently skips work.
+      if (tailPath && command.includes("tail -c")) {
         const result = await call({ action: "read", path: tailPath });
         return { exitCode: result?.ok ? 0 : 1, stdout: String(result?.text || ""), stderr: String(result?.error || "") };
       }
