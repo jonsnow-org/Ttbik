@@ -48,6 +48,21 @@ jobs:
             git commit -q -m "app code from ${GITHUB_SHA::8}"
             git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
           fi
+          # the Studio reads its private model repository with this secret; (re)write it so a restart never leaves it without access
+          python3 -m pip install -q "modelscope>=1.26.0" >/dev/null 2>&1
+          STUDIO_ID="novaai2026/${STUDIO}" MODELSCOPE_TOKEN="$T" python3 - <<'PY' 2>&1 | sed "s/${T}/***/g"
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi(); token = os.environ["MODELSCOPE_TOKEN"]; api.login(token); sid = os.environ["STUDIO_ID"]
+          try:
+              api.add_studio_secret(sid, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              m = str(exc).lower()
+              if "exist" not in m and "already" not in m and "duplicate" not in m:
+                  raise
+              api.update_studio_secret(sid, "MODELSCOPE_API_TOKEN", token)
+          print("model-read secret set")
+          PY
           code=$(curl -sS --connect-timeout 8 --max-time 60 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/${STUDIO}/deploy")
           echo "deploy HTTP $code"
           [[ "$code" =~ ^2[0-9][0-9]$ ]] || { cat deploy.json; exit 1; }
