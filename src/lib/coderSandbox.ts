@@ -1,21 +1,11 @@
-// A virtual computer per task for the coder agent: an isolated Vercel Sandbox microVM (zero cost on the Hobby plan: a monthly free
-// allotment, hard-capped — when it runs out, creation pauses until the next cycle, nothing is billed). One VM per user per task
-// (the name carries the salted chat hash and the run id), stopped when the task ends, and it times out on its own anyway.
+// A virtual computer per task for the coder agent. Zero-cost policy:
+//   1. Oracle: one isolated, capped Linux container per task on our existing Always Free VM.
+//   2. Light: in-process QuickJS/WebAssembly JavaScript runner (no shell/npm/network), used when Oracle is down, busy or low on RAM.
+// Vercel Sandbox, CodeSandbox VM, GitHub Codespaces, Daytona and E2B are disabled from automatic selection because their VM usage
+// is metered, relies on personal credits, or has an account-level $0 spending cap that could not be verified.
+// We do not silently use those providers if Oracle runs out of capacity or credit. SANDBOX_BACKEND can select Oracle or Light only.
 // Tools: sandbox_clone, sandbox_exec (+ sandbox_wait for long commands), sandbox_write_file, sandbox_read_file.
-// Commands run inside the VM only, so they are auto-allowed for both tiers. The user's GitHub token is used just for the clone
-// (as a one-off header, never written into the repo's config) and scrubbed from every output; pushes still go through the guarded
-// GitHub tools. No dark-web tooling (tor/i2p/.onion) is run.
-// Backends (failover chain, SANDBOX_BACKEND to reorder/limit; all zero cost, none shares a quota with Sham — no GitHub Actions):
-//   0. oracle      — capped container per task on the Oracle VM (coder-sandbox/runner.mjs), with CODER_SANDBOX_ORACLE_URL + _SECRET;
-//                    it refuses new work while Sham needs the machine.                                  (src/lib/coderSandboxRunner.ts)
-//   0b. codesandbox / codespaces — the same runner on a CodeSandbox VM or a personal GitHub Codespace (free monthly allowances), each
-//                    only with its keys; they sit between vercel and daytona.                           (src/lib/coderSandboxRunner.ts)
-//   1. vercel  — Vercel Sandbox microVM (Hobby free allowance, hard-capped), on Vercel deployments (OIDC).
-//   2. daytona — Daytona Cloud sandbox (free sign-up credit, no card), only with DAYTONA_API_KEY.        (src/lib/coderSandboxDrivers.ts)
-//   3. e2b     — E2B Firecracker sandbox (free one-time credit, no card), only with E2B_API_KEY.          (src/lib/coderSandboxDrivers.ts)
-//   4. light   — in-process QuickJS/WebAssembly JavaScript runner: always there, no shell (src/lib/coderSandboxLight.ts). CODER_LIGHT=off.
-// A task sticks to the backend that holds its VM. A backend that failed (quota / capacity / auth / network) is skipped for a cool-down
-// and the next one is used; sandboxHealth() reports the chain for the status page.
+// The GitHub token is used only for an explicit clone/push and scrubbed from output. No dark-web tooling is run.
 import { createHash, randomUUID } from "crypto";
 import { oracleConfigured } from "@/lib/coderSandboxRunner";
 
@@ -111,41 +101,35 @@ export function vercelDriver(): SbxDriver {
 // ---------------------------------------------------------------- backend selection + fallback
 export type Backend = { id: string; driver: SbxDriver };
 /** Backend ids in order of use; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
-export const VM_BACKENDS = ["oracle", "vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
-const RUNNER_BACKENDS = new Set(["oracle", "codesandbox", "codespaces"]);
+/**
+ * Zero-cost execution policy (2026-11-01):
+ * Oracle is the only full Linux VM backend enabled automatically.
+ * Metered and personal-credit backends are deliberately excluded.
+ * If Oracle is unavailable, runLightTool is the only automatic fallback.
+ * SANDBOX_BACKEND can select Oracle or disable VM execution; it cannot opt into
+ * a provider that may bill the account.
+ */
+export const VM_BACKENDS = ["oracle"] as const;
+export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
+const RUNNER_BACKENDS = new Set(["oracle"]);
 export function backendConfigured(id: string): boolean {
-  if (id === "vercel") return Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN);
-  if (id === "daytona") return Boolean((process.env.DAYTONA_API_KEY || "").trim());
-  if (id === "e2b") return Boolean((process.env.E2B_API_KEY || "").trim());
-  if (id === "oracle") return oracleConfigured();
-  if (id === "codesandbox") return Boolean((process.env.CSB_API_KEY || "").trim() && (process.env.CODER_CSB_TEMPLATE || "").trim() && (process.env.CODER_CSB_RUNNER_SECRET || "").trim());
-  if (id === "codespaces") return Boolean((process.env.CODER_CODESPACES_TOKEN || "").trim() && (process.env.CODER_CODESPACES_REPO || "").trim() && (process.env.CODER_CODESPACES_RUNNER_SECRET || "").trim());
-  return false;
+  return id === "oracle" && oracleConfigured();
 }
-/** VM backend ids in order of use: SANDBOX_BACKEND (comma list) or auto = every configured one in the default order. */
-export function backendOrder(env = (process.env.SANDBOX_BACKEND || "auto").trim().toLowerCase()): string[] {
-  const known = new Set<string>(VM_BACKENDS);
-  const want = env === "auto" || !env ? [...VM_BACKENDS].filter(backendConfigured) : env.split(",").map((x) => x.trim()).filter((x) => known.has(x));
-  return want.length ? want : ["vercel"];
+/** The only full VM permitted by the zero-cost policy. Empty means Light-only mode. */
+export function backendOrder(env = (process.env.SANDBOX_BACKEND || "oracle").trim().toLowerCase()): string[] {
+  if (!env || env === "auto" || env === "oracle") return backendConfigured("oracle") ? ["oracle"] : [];
+  if (env === "off" || env === "none" || env === "light") return [];
+  return env.split(",").map((x) => x.trim()).includes("oracle") && backendConfigured("oracle") ? ["oracle"] : [];
 }
 export const lightEnabled = () => (process.env.CODER_LIGHT || "on").trim().toLowerCase() !== "off";
 function driverFor(id: string): SbxDriver {
-  if (RUNNER_BACKENDS.has(id)) {
-    // lazy, like the other extra drivers
-    const pick = async () => {
-      const m = await import("@/lib/coderSandboxRunner");
-      return id === "oracle" ? m.oracleDriver() : id === "codesandbox" ? m.codesandboxDriver() : m.codespacesDriver();
-    };
-    return { get: async (n) => (await pick()).get(n), create: async (n, o) => (await pick()).create(n, o) };
+  if (id !== "oracle" || !RUNNER_BACKENDS.has(id)) {
+    throw new Error("Backend " + id + " is disabled by the zero-cost execution policy.");
   }
-  if (id === "daytona" || id === "e2b") {
-    // lazy so the extra drivers cost nothing unless used
-    return {
-      get: async (n) => (await import("@/lib/coderSandboxDrivers"))[id === "daytona" ? "daytonaDriver" : "e2bDriver"]().get(n),
-      create: async (n, o) => (await import("@/lib/coderSandboxDrivers"))[id === "daytona" ? "daytonaDriver" : "e2bDriver"]().create(n, o),
-    };
-  }
-  return vercelDriver();
+  return {
+    get: async (n) => (await import("@/lib/coderSandboxRunner")).oracleDriver().get(n),
+    create: async (n, o) => (await import("@/lib/coderSandboxRunner")).oracleDriver().create(n, o),
+  };
 }
 let driverOverride: SbxDriver | null = null;
 let backendsOverride: Backend[] | null = null;
@@ -169,12 +153,13 @@ const COOL_MS = () => Math.max(60000, Number(process.env.CODER_SANDBOX_COOLDOWN_
 export const isQuotaError = (m: string) => /quota|limit|exceeded|paused|capacity|insufficient|credit|402|429|503/i.test(m);
 const SHORT_COOL_MS = 5 * 60000;                                                                      // network / 5xx hiccups
 /** The chain as the status page shows it. */
-export function sandboxHealth(now = Date.now()): { id: string; configured: boolean; ok: boolean; coolingUntil: number | null }[] {
-  const ids = backendsOverride ? backendsOverride.map((b) => b.id) : [...new Set([...backendOrder(), ...VM_BACKENDS])];
+export function sandboxHealth(now = Date.now()): { id: string; configured: boolean; ok: boolean; coolingUntil: number | null; disabledReason?: string }[] {
+  const ids = backendsOverride ? backendsOverride.map((b) => b.id) : [...new Set([...VM_BACKENDS, ...DISABLED_METERED_BACKENDS])];
   const rows = ids.map((id) => {
     const until = cooling.get(id) || 0;
-    const configured = backendsOverride ? true : backendConfigured(id) && backendOrder().includes(id);
-    return { id, configured, ok: configured && until <= now, coolingUntil: until > now ? until : null };
+    const disabled = !backendsOverride && (DISABLED_METERED_BACKENDS as readonly string[]).includes(id);
+    const configured = backendsOverride ? true : !disabled && backendConfigured(id);
+    return { id, configured, ok: configured && until <= now, coolingUntil: until > now ? until : null, ...(disabled ? { disabledReason: "disabled_by_zero_cost_policy" } : {}) };
   });
   rows.push({ id: "light", configured: lightEnabled(), ok: lightEnabled(), coolingUntil: null });
   return rows;
