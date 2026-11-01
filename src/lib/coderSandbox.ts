@@ -259,16 +259,17 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
 function backends(ctx?: SbxCtx): Backend[] {
   if (backendsOverride) return backendsOverride;
   if (driverOverride) return [{ id: "vercel", driver: driverOverride }];
-  // Prefer the current model's own Studio. Its admission check reads live free
-  // memory and the Studio-wide execution slot, and never picks another model.
+  // Oracle is the primary, independently provisioned Linux worker. It has
+  // its own capacity gate and protects Sham's machine when the model is busy.
+  const oracle = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
+  // On Oracle refusal, fall back only to this selected model's own Studio.
+  // That admission check reads live free memory and the Studio-wide slot.
   const modelScope: Backend[] = (
     ctx?.modelId && ctx.chatKey && ctx.runId &&
     browserStudioFor(ctx.modelId) &&
-    (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim()
+    (process.env.MODELSCOPE_API_TOKEN || "").trim()
   ) ? [{ id: "modelscope", driver: modelScopeDriver(ctx) }] : [];
-  // Oracle is the second Linux worker; it refuses work while Sham needs memory.
-  const oracle = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
-  return [...modelScope, ...oracle];
+  return [...oracle, ...modelScope];
 }
 
 async function open(ctx: SbxCtx): Promise<{ sb: SbxHandle; fresh: boolean; backend: Backend["id"] }> {
