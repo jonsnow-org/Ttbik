@@ -178,7 +178,7 @@ function providerFetch() {
       }
       if (path === "/files" && method === "GET") {
         const dir = url.searchParams.get("path") || "/home/daytona";
-        const prefix = dir.replace(/\\/$/, "") + "/";
+        const prefix = (dir.endsWith("/") ? dir.slice(0, -1) : dir) + "/";
         const childDirs = new Set<string>();
         const items: any[] = [];
         for (const folder of directories) {
@@ -204,8 +204,8 @@ function providerFetch() {
         const target = url.searchParams.get("path") || "";
         files.delete(target); directories.delete(target);
         if (url.searchParams.get("recursive") === "true") {
-          for (const key of [...files.keys()]) if (key.startsWith(target.replace(/\\/$/, "") + "/")) files.delete(key);
-          for (const key of [...directories]) if (key.startsWith(target.replace(/\\/$/, "") + "/")) directories.delete(key);
+          for (const key of [...files.keys()]) if (key.startsWith((target.endsWith("/") ? target.slice(0, -1) : target) + "/")) files.delete(key);
+          for (const key of [...directories]) if (key.startsWith((target.endsWith("/") ? target.slice(0, -1) : target) + "/")) directories.delete(key);
         }
         return Response.json({ ok: true });
       }
