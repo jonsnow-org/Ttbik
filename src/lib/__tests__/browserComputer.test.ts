@@ -24,6 +24,16 @@ describe("the model's own browser", () => {
     expect(renderBrowserReply({ ok: false, error: "nope" })).toBe("error: nope");
   });
 
+  test("waiting, the outline, drawn areas and a restored session are part of the contract", () => {
+    expect(cleanBrowserArgs({ action: "wait", text: "Welcome", seconds: 999 })).toEqual({ action: "wait", text: "Welcome", seconds: 20 });
+    expect(cleanBrowserArgs({ action: "aria" })).toEqual({ action: "aria" });
+    const text = renderBrowserReply({ ok: true, url: "https://a.test/", title: "A", text: "Hi", elements: "", visual: "canvas at x=1 y=2 size 300x200", outline: "- heading \"Hi\"", resumed: true });
+    expect(text).toContain("earlier session was restored");
+    expect(text).toContain("DRAWN AREAS WITHOUT READABLE TEXT");
+    expect(text).toContain("canvas at x=1 y=2");
+    expect(text).toContain("PAGE OUTLINE");
+  });
+
   test("a call goes to the model's own Studio with its own session id", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const calls: { url: string; body?: any }[] = [];
