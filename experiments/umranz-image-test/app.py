@@ -31,6 +31,36 @@ NONCONSENSUAL = re.compile(r"\b(?:non[- ]consensual|without consent|revenge porn
 REAL_PERSON = re.compile(r"\b(?:real person|celebrity|public figure|my ex|my wife|my girlfriend|my colleague)\b|شخص حقيقي|مشهور|مشاهير|زوجتي|طليقتي|حبيبتي|زميلتي|زميلي", re.I)
 
 
+
+def _cpu_has_bf16() -> bool:
+    """bfloat16 maths is fast only on CPUs with AVX512-BF16 / AMX (the Xeon Studios have both). PHOTO_FAST=0 turns the fast path off."""
+    if os.environ.get("PHOTO_FAST", "1") == "0":
+        return False
+    try:
+        flags = open("/proc/cpuinfo", encoding="utf-8", errors="ignore").read()
+        return "amx_bf16" in flags or "avx512_bf16" in flags
+    except Exception:
+        return False
+
+
+FAST = _cpu_has_bf16()
+
+
+def _fast_ok(pipe) -> bool:
+    """One tiny bf16 generation at load time: the fast path stays on only if it gives a real picture (no NaN / blank); otherwise the proven fp32 path is used."""
+    if not FAST:
+        return False
+    try:
+        import torch as _t
+        import numpy as _np
+        with _t.inference_mode(), _t.autocast("cpu", dtype=_t.bfloat16):
+            img = pipe("a red apple on a wooden table, photo", num_inference_steps=3, width=256, height=256,
+                       generator=_t.Generator(device="cpu").manual_seed(1)).images[0]
+        return float(_np.asarray(img.convert("RGB"), dtype=_np.float32).std()) > 5.0
+    except Exception:
+        return False
+
+
 def memory_gb() -> float:
     values = []
     try:
@@ -185,7 +215,10 @@ def load_model():
         pipe.scheduler.config, algorithm_type="dpmsolver++", use_karras_sigmas=True
     )
     pipe.set_progress_bar_config(disable=True)
-    pipe.enable_attention_slicing("max")
+    global FAST
+    FAST = FAST and _fast_ok(pipe)
+    if not FAST:
+        pipe.enable_attention_slicing("max")      # memory-safe but slow; the fast path uses the fused attention
     pipe.enable_vae_slicing()
     try:
         pipe.enable_vae_tiling()
@@ -226,7 +259,7 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
         raise gr.Error("لا ننشئ صوراً حميمة أو تزييفاً جنسياً لأشخاص حقيقيين دون موافقتهم.")
     sizes = {"512 × 512": (512, 512), "512 × 768": (512, 768), "768 × 512": (768, 512)}
     width, height = sizes.get(resolution, (512, 512))
-    steps = max(20, min(35, int(steps)))
+    steps = max(18, min(35, int(steps)))
     cfg = max(3.0, min(9.0, float(cfg)))
     seed = int(seed)
 
@@ -236,7 +269,7 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
     started = time.monotonic()
     try:
         generator = torch.Generator(device="cpu").manual_seed(seed)
-        with torch.inference_mode():
+        with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16, enabled=FAST):
             image = PIPE(
                 prompt=prompt,
                 negative_prompt=str(negative or "")[:1800],
@@ -296,7 +329,7 @@ with gr.Blocks(title="Umranz — dedicated CPU image test") as demo:
     negative_box = gr.Textbox(label="Negative prompt", value="deformed, distorted, disfigured, bad anatomy, bad eyes, blurry, watermark, text", lines=3)
     with gr.Row():
         resolution_box = gr.Dropdown(["512 × 512", "512 × 768", "768 × 512"], value="512 × 512", label="الدقة")
-        steps_box = gr.Slider(20, 35, value=30, step=1, label="Steps")
+        steps_box = gr.Slider(18, 35, value=24, step=1, label="Steps")
         cfg_box = gr.Slider(3, 9, value=6.5, step=0.5, label="CFG")
         seed_box = gr.Number(value=42, precision=0, label="Seed")
     button = gr.Button("توليد صورة Umranz", variant="primary")

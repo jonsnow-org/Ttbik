@@ -52,6 +52,36 @@ _PIPE = None
 _MANIFEST = None
 
 
+
+def _cpu_has_bf16() -> bool:
+    """bfloat16 maths is fast only on CPUs with AVX512-BF16 / AMX (the Xeon Studios have both). PHOTO_FAST=0 turns the fast path off."""
+    if os.environ.get("PHOTO_FAST", "1") == "0":
+        return False
+    try:
+        flags = open("/proc/cpuinfo", encoding="utf-8", errors="ignore").read()
+        return "amx_bf16" in flags or "avx512_bf16" in flags
+    except Exception:
+        return False
+
+
+FAST = _cpu_has_bf16()
+
+
+def _fast_ok(pipe) -> bool:
+    """One tiny bf16 generation at load time: the fast path stays on only if it gives a real picture (no NaN / blank); otherwise the proven fp32 path is used."""
+    if not FAST:
+        return False
+    try:
+        import torch as _t
+        import numpy as _np
+        with _t.inference_mode(), _t.autocast("cpu", dtype=_t.bfloat16):
+            img = pipe("a red apple on a wooden table, photo", num_inference_steps=3, width=256, height=256,
+                       generator=_t.Generator(device="cpu").manual_seed(1)).images[0]
+        return float(_np.asarray(img.convert("RGB"), dtype=_np.float32).std()) > 5.0
+    except Exception:
+        return False
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -168,7 +198,10 @@ def _load_pipeline():
         use_karras_sigmas=True,
     )
     pipe.set_progress_bar_config(disable=True)
-    pipe.enable_attention_slicing("max")
+    global FAST
+    FAST = FAST and _fast_ok(pipe)
+    if not FAST:
+        pipe.enable_attention_slicing("max")      # memory-safe but slow; the fast path uses the fused attention
     pipe.enable_vae_slicing()
     try:
         pipe.enable_vae_tiling()
@@ -231,7 +264,7 @@ def generate_image(
         "768 × 512": (768, 512),
     }
     width, height = shapes.get(aspect, (512, 512))
-    steps = max(25, min(35, int(steps)))
+    steps = max(18, min(35, int(steps)))
     guidance = max(3.0, min(8.0, float(guidance)))
     seed = int(seed)
     started = time.monotonic()
@@ -241,7 +274,7 @@ def generate_image(
     _set_state(phase="generating", last_prompt=prompt[:240])
     try:
         generator = torch.Generator(device="cpu").manual_seed(seed)
-        with torch.inference_mode():
+        with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16, enabled=FAST):
             result = _PIPE(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
@@ -334,7 +367,7 @@ with gr.Blocks(title="Gemma 4 — Realistic Vision V6.0 independent image weight
             value="512 × 512",
             label="الدقة",
         )
-        steps_box = gr.Slider(25, 35, value=25, step=1, label="خطوات التوليد")
+        steps_box = gr.Slider(18, 35, value=24, step=1, label="خطوات التوليد")
         guidance_box = gr.Slider(3, 8, value=5.5, step=0.5, label="CFG")
         seed_box = gr.Number(value=42, precision=0, label="Seed")
     generate = gr.Button("توليد صورة اختبار", variant="primary")
