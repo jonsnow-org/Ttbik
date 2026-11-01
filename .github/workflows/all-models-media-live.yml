@@ -41,9 +41,34 @@ jobs:
           cd athar
           set -o pipefail
           npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/allModelsMedia.live.ts' 2>&1 | grep -E "ALLMEDIA|PASS|FAIL|Tests:|●" | cut -c1-700
+      - name: Is each clip a real video? (duration, frames, motion between frames)
+        if: always()
+        run: |
+          sudo apt-get install -y -qq ffmpeg >/dev/null 2>&1 || true
+          pip install -q pillow >/dev/null 2>&1 || true
+          python3 - <<'PY'
+          import glob, os, subprocess, json, tempfile
+          from PIL import Image, ImageChops, ImageStat
+          for f in sorted(glob.glob(os.path.join(os.environ["RUNNER_TEMP"], "*-video.mp4"))):
+              try:
+                  info = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames,r_frame_rate,width,height,codec_name:format=duration", "-of", "json", f]))
+                  st, fm = info["streams"][0], info["format"]
+                  d = tempfile.mkdtemp(); subprocess.check_call(["ffmpeg", "-v", "error", "-i", f, os.path.join(d, "%04d.png")])
+                  fr = sorted(glob.glob(os.path.join(d, "*.png")))
+                  diffs = []
+                  for a, b in zip(fr, fr[1:]):
+                      diffs.append(round(sum(ImageStat.Stat(ImageChops.difference(Image.open(a).convert("L"), Image.open(b).convert("L"))).mean), 2))
+                  print("VIDEOCHECK", os.path.basename(f), "duration=%ss frames=%s fps=%s %sx%s codec=%s" % (fm.get("duration"), st.get("nb_read_frames"), st.get("r_frame_rate"), st.get("width"), st.get("height"), st.get("codec_name")),
+                        "motion(mean abs diff between neighbouring frames): min=%s max=%s avg=%s" % (min(diffs) if diffs else None, max(diffs) if diffs else None, round(sum(diffs) / len(diffs), 2) if diffs else None),
+                        "first_vs_last=%s" % (round(sum(ImageStat.Stat(ImageChops.difference(Image.open(fr[0]).convert("L"), Image.open(fr[-1]).convert("L"))).mean), 2) if len(fr) > 1 else None))
+              except Exception as e:
+                  print("VIDEOCHECK", os.path.basename(f), "ERROR", str(e)[:200])
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: all-models-media
-          path: ${{ runner.temp }}/*-image.png
+          path: |
+            ${{ runner.temp }}/*-image.png
+            ${{ runner.temp }}/*-video.mp4
           if-no-files-found: warn

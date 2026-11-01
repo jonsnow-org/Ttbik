@@ -7,7 +7,7 @@ import { api } from "./parts";
 import type { Lang } from "../i18n";
 
 const MODELS: { id: string; label: string }[] = [
-  { id: "coder", label: "Nova AI" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
+  { id: "coder", label: "Nova AI" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
 ];
 type Line = { cmd: string; out: string; code?: number | null; sec?: number; err?: boolean };
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
@@ -23,7 +23,7 @@ function joinPath(cwd: string, arg: string): string {
 export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang; defaultModel: string; logs?: React.ReactNode }) {
   const ar = lang === "ar";
   const [model, setModel] = useState(MODELS.some((m) => m.id === defaultModel) ? defaultModel : "coder");
-  const [tab, setTab] = useState<"term" | "files" | "jobs" | "log">("term");
+  const [tab, setTab] = useState<"desk" | "term" | "files" | "jobs" | "log">("desk");
   const [status, setStatus] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [cmd, setCmd] = useState("");
@@ -73,13 +73,32 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
   useEffect(() => { if (tab === "files" && !folder && !file) void openFolder("."); }, [tab, folder, file, openFolder]);
   const saveFile = async () => { if (!file) return; const r = await box(model, { action: "write", path: file.path, content: file.text }).catch((e) => ({ ok: false, error: String(e?.message || e) })); if (r.ok) setFile({ ...file, dirty: false }); else setErr(String(r.error)); };
 
+  // desktop: the model's own headless browser with a live screenshot; click on the picture, type, scroll
+  const [page, setPage] = useState<{ url: string; title: string; shot: string; text: string; elements: string; error: string } | null>(null);
+  const [addr, setAddr] = useState("https://example.com");
+  const [deskBusy, setDeskBusy] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const browse = async (args: Record<string, unknown>) => {
+    setDeskBusy(true);
+    try {
+      const r = await api<any>("browser", { model, args });
+      setPage({ url: String(r.url || ""), title: String(r.title || ""), shot: r.screenshot_b64 ? "data:image/jpeg;base64," + r.screenshot_b64 : (page?.shot || ""), text: String(r.text || ""), elements: String(r.elements || ""), error: r.ok === false ? String(r.error || "") : "" });
+      if (r.url) setAddr(String(r.url));
+    } catch (e: any) { setPage((p) => ({ url: p?.url || "", title: p?.title || "", shot: p?.shot || "", text: "", elements: "", error: String(e?.message || e) })); }
+    finally { setDeskBusy(false); }
+  };
+  const tapPicture = (e: React.MouseEvent<HTMLImageElement>) => {
+    const el = imgRef.current; if (!el || !el.naturalWidth) return;
+    const rect = el.getBoundingClientRect();
+    void browse({ action: "click", x: Math.round(((e.clientX - rect.left) / rect.width) * el.naturalWidth), y: Math.round(((e.clientY - rect.top) / rect.height) * el.naturalHeight) });
+  };
   const loadJobs = useCallback(async () => { try { const r = await box(model, { action: "job_list" }); setJobs(r.jobs || []); } catch { /* shown on the next refresh */ } }, [model]);
   const [jobLog, setJobLog] = useState<{ id: string; text: string } | null>(null);
   const showJob = async (id: string) => { const r = await box(model, { action: "job_log", id, tail: 80 }).catch(() => null); setJobLog({ id, text: r ? [r.output, r.running ? (ar ? "… ما زال يعمل" : "… still running") : `exit ${r.exit_code}`].filter(Boolean).join("\n") : "?" }); };
   useEffect(() => { if (tab !== "jobs") return; void loadJobs(); const t = setInterval(() => { void loadJobs(); if (jobLog) void showJob(jobLog.id); }, 4000); return () => clearInterval(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loadJobs, jobLog?.id]);
 
   const chip = (on: boolean) => ({ borderRadius: 999, padding: "6px 12px", border: "1px solid var(--n-line, #8883)", background: on ? "var(--n-accent, #0d9488)" : "transparent", color: on ? "#fff" : "inherit", font: "600 13px system-ui" });
-  const tabs: [typeof tab, string][] = [["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["log", ar ? "سجل المهام" : "Task log"]];
+  const tabs: [typeof tab, string][] = [["desk", ar ? "سطح المكتب" : "Desktop"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["log", ar ? "سجل المهام" : "Task log"]];
   const okStatus = status?.ok;
   return (
     <div className="n-page">
@@ -96,6 +115,29 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
       <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
         {tabs.map(([id, label]) => <button key={id} type="button" style={chip(tab === id)} onClick={() => setTab(id)}>{label}</button>)}
       </div>
+
+      {tab === "desk" && (
+        <div className="n-card" style={{ padding: 12 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input value={addr} dir="ltr" onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void browse({ action: "open", url: addr }); }} style={{ ...mono, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }} />
+            <button type="button" className="n-btn" disabled={deskBusy} onClick={() => void browse({ action: "open", url: addr })}>{ar ? "فتح" : "Go"}</button>
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "back" })}>←</button>
+            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "look" })}>⟳</button>
+            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "scroll", dy: 600 })}>↓</button>
+            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "scroll", dy: -600 })}>↑</button>
+          </div>
+          {deskBusy && <div className="n-meta">{ar ? "… يعمل" : "… working"}</div>}
+          {page?.error && <div className="n-note" role="alert">{page.error}</div>}
+          {page?.shot ? <img ref={imgRef} src={page.shot} alt={page.title} onClick={tapPicture} style={{ width: "100%", borderRadius: 8, border: "1px solid #8884", cursor: "pointer" }} /> : <div className="n-meta">{ar ? "المتصفح الخاص بحاسوب هذا النموذج: اكتب عنواناً واضغط «فتح». المتصفح نفسه الذي يستخدمه النموذج." : "This model's own browser: type an address and press Go. It is the same browser the model uses."}</div>}
+          {page?.title && <div className="n-meta" style={{ marginTop: 6 }}>{page.title}</div>}
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <input id="deskType" dir="auto" placeholder={ar ? "اكتب نصاً في الحقل المحدد…" : "type into the focused field…"} style={{ flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }}
+              onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value; (e.target as HTMLInputElement).value = ""; void browse({ action: "type", text: v, enter: true }); } }} />
+          </div>
+        </div>
+      )}
 
       {tab === "term" && (
         <div className="n-card" style={{ padding: 0, overflow: "hidden", background: "#0b1220", color: "#d1fae5" }}>

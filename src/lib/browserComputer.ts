@@ -13,6 +13,7 @@ const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "ba
 /** The browser lives in the media Studio of the model itself; models without such a Studio have no browser (null). */
 export function browserStudioFor(modelId: string | undefined): string | null {
   if (modelId === "coder") return novaMediaUrl() || null;
+  if (modelId === "sham_v2") return (process.env.SHAM_V2_VIDEO_URL || "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net").trim().replace(/\/+$/, "");   // Sham v2's own Studio hosts its computer
   return candidateMediaStudio(modelId)?.base || null;
 }
 

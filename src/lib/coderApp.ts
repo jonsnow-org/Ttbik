@@ -712,6 +712,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
+    case "browser": {                    // the desktop view of the model's computer: its own headless browser, with a screenshot (owner only)
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const model = String(body.model || "coder");
+      const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
+      const { browserStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
+      const base = browserStudioFor(model);
+      const clean = cleanBrowserArgs(args as never);
+      if (!base || !clean) throw new AppError(400, !base ? "this model has no computer Studio" : "unknown browser action");
+      try { return await studioCall(base, "browser_do", { ...clean, session: `${chatId}:${model}`, screenshot: true }, deps.fetchImpl || globalThis.fetch, 100_000) as Json; }
+      catch (error) { return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) } as Json; }
+    }
     case "computer_status":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);
     case "computer_open":

@@ -28,6 +28,16 @@ from media_quality import MediaQualityError, check_mp4  # noqa: E402
 
 ENVS = ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")
 
+# Sham v2's own free computer (shell, files, jobs, headless browser) lives in this Studio: Sham v2's own, never shared with Nova or a candidate.
+try:
+    import browser_computer
+except Exception:                                                             # noqa: BLE001  (the video Studio works without the browser)
+    browser_computer = None
+try:
+    import computer_box
+except Exception:                                                             # noqa: BLE001  (the video Studio works without the computer)
+    computer_box = None
+
 
 def _ram() -> dict:
     try:
@@ -99,10 +109,20 @@ def _warm() -> None:
 if __name__ == "__main__":
     import gradio as gr
     threading.Thread(target=_warm, daemon=True).start()
+    if browser_computer is not None:
+        threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
+    if computer_box is not None:
+        threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
     with gr.Blocks() as demo:
         gr.Markdown("Sham v2 video Studio — real text-to-video on CPU for Sham v2.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
         gr.Button("generate_video", visible=False).click(generate_video, box, out, api_name="generate_video")
         gr.Button("status", visible=False).click(status, None, out, api_name="status")
-    demo.queue(default_concurrency_limit=2).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
+        if browser_computer is not None:
+            gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
+            gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
+        if computer_box is not None:
+            gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
+            gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
+    demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
