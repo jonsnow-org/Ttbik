@@ -21,7 +21,11 @@ async function tg(token: string, method: string) {
 
 export async function GET(req: NextRequest) {
   const s = hookSecret();
-  if (!s || !safeEqual(req.headers.get("x-ops-key") || "", s)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const cron = process.env.CRON_SECRET || "";
+  // Also readable with the cron secret the GitHub supervisors already hold (owner's order 2026-11-01: live bot monitoring, no new secret).
+  const okKey = !!s && safeEqual(req.headers.get("x-ops-key") || "", s);
+  const okCron = !!cron && safeEqual(req.headers.get("authorization") || "", `Bearer ${cron}`);
+  if (!okKey && !okCron) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const bots = await prisma.bot.findMany({ select: { id: true, token: true, template: true, isActive: true } });
   const rows = await Promise.all(
     bots.map(async (b) => {

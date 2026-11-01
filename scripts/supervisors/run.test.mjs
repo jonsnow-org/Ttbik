@@ -42,6 +42,15 @@ test("tier-1 rerun: only after 12 h, once, when nobody fixed it and nobody is wo
   assert.equal(decideRerun(base({ file: "channel-post.yml" }), NOW).ok, false);
 });
 
+test("bots live check: broken webhook fails, healthy passes, unreadable warns", () => {
+  const mk = (bots) => evaluate({ bots: { checked: bots.length, bots } }, Date.now()).find((c) => c.name.startsWith("Bots"));
+  const good = { template: "x", username: "a_bot", active: true, tokenValid: true, webhookOk: true, pending: 0, lastError: null };
+  assert.equal(mk([good]).level, "ok");
+  assert.equal(mk([good, { ...good, webhookOk: false }]).level, "fail");
+  assert.equal(mk([{ ...good, lastError: "timeout", lastErrorAgoMin: 5 }]).level, "warn");
+  assert.equal(evaluate({ bots: { error: "HTTP 401" } }).find((c) => c.name.startsWith("Bots")).level, "warn");
+
+});
 import { notifyDecision } from "./run.mjs";
 test("mail control: blips are silent, 6h outage mails once, recovery mails once", () => {
   const t0 = Date.parse("2026-11-01T00:00:00Z");
