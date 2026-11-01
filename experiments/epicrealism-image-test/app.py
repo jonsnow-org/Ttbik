@@ -202,7 +202,7 @@ def generate(prompt,negative,resolution,steps,cfg,seed):
               "checkpoint_sha256":MANIFEST["files"]["unet/diffusion_pytorch_model.safetensors"]["sha256"],
               "model_file_sha256":{k:v["sha256"] for k,v in MANIFEST["files"].items()},
               **memory_telemetry(),"app_revision":APP_REVISION,"device":"CPU only","cuda_available":False,
-              "precision":"float32","safety_checker":"separate safety-checker omitted; platform safeguards remain active",
+              "precision":"bfloat16 autocast" if FAST else "float32","safety_checker":"separate safety-checker omitted; platform safeguards remain active",
               "resolution":f"{width}x{height}","steps":steps,"cfg":cfg,"seed":seed,"seconds":elapsed,
               "image_sha256":sha256(out),"basic_image_checks":stats,"saved_file":str(out),
               "production_routes_modified":False,"visual_review_required":True}

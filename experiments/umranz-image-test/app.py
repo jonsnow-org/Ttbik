@@ -303,7 +303,7 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
             **memory_telemetry(),
             "app_revision": APP_REVISION,
             "device": "CPU only",
-            "precision": "float32",
+            "precision": "bfloat16 autocast" if FAST else "float32",
             "resolution": f"{width}x{height}",
             "steps": steps,
             "cfg": cfg,
