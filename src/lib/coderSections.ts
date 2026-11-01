@@ -1346,7 +1346,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   await endRun(st, "stopped", db, "conversation switched", key);
   if (st.convId) {
     const conv = st.convId;
-    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv, st.model)));
   }
   if (st.threadId) {
     await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
@@ -1376,7 +1376,7 @@ export async function stopRun(chatId: number, slot = "", runId?: string, db: Db 
   await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
   if (!slot && st.convId) {
     const conv = st.convId;
-    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv)));
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv, st.model)));
   }
   st.inbox = [];
   await saveState(chatId, st, db, slot);
