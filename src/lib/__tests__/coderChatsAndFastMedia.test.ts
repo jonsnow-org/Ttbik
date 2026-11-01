@@ -47,6 +47,7 @@ describe("which requests take the fast media lane", () => {
     expect(glossaryPrompt("فتاه حسناء")).toBe("a beautiful girl");                 // live bot test 2026-11-01: «قم بتوليد صورة فتاة حسناء» was refused
     expect(glossaryPrompt("امراه جميله تبتسم")).toBe("a beautiful smiling woman");
     expect(glossaryPrompt("رجل وسيم")).toBe("a handsome man");
+    expect(glossaryPrompt("فتاه ترقص 5 ثوان")).toBe("a girl dancing");               // live bot test: «قم بتوليد فديو فتاة ترقص 5 ثوان» was refused
     expect(glossaryPrompt("كلمةمجهولة")).toBeNull();
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();

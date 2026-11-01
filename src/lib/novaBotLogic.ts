@@ -988,7 +988,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
       await saveChatTurn(chatId, text, intent.kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع.");
       return true;
     }
-    return await fail(`تعذّر إنشاء ${intent.kind === "image" ? "الصورة" : "المقطع"} هذه المرة. لم يُرسل شيء. أعد المحاولة بعد قليل.${tierFor(chatId) === "owner" && reply.text ? `\n\n🔧 للمالك: ${String(reply.text).slice(0, 300)}` : ""}`, String(reply.text || "failed"));
+    return await fail(`تعذّر إنشاء ${intent.kind === "image" ? "الصورة" : "المقطع"} هذه المرة. لم يُرسل شيء. أعد المحاولة بعد قليل.${reply.text ? `\n\n🔧 السبب: ${String(reply.text).slice(0, 220)}` : ""}`, String(reply.text || "failed"));
   } catch (e) {
     return await fail("تعذّر إنشاء الوسائط هذه المرة. أعد المحاولة بعد قليل.", String((e as Error)?.message || e).slice(0, 200));
   }
