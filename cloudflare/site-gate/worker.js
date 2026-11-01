@@ -135,8 +135,9 @@ async function proxy(request, env, ctx) {
       const r = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, name === "vercel" && mode === "auto" && state.downUntil > Date.now());
       // a static file the other build does not have (the two servers can be on different builds): ask the other server
       if (isAsset && r.status === 404 && more) { last = r; continue; }
-      // the server answered but is down behind its proxy (Caddy answers 502/503/504 when the app is not running)
-      if ([502, 503, 504].includes(r.status) && more) {
+      // the server answered but is down behind its proxy (Caddy answers 502/503/504 when the app is not running), or Cloudflare itself could not reach it and answers with
+      // its own page (520-530: «Error 1016 Origin DNS error» when sslip.io's DNS fails for a moment, 522 timeout, 523 unreachable...): the owner saw that page inside the Mini App
+      if (([502, 503, 504].includes(r.status) || (r.status >= 520 && r.status <= 530)) && more) {
         if (name === "oracle" && mode === "auto") state.downUntil = Date.now() + DOWN_MS;
         last = r; continue;
       }
