@@ -60,12 +60,16 @@ jobs:
               except Exception as exc:
                   print(label, "ERROR", type(exc).__name__, str(exc)[:160])
           show("BOX_STATUS", lambda: box(action="status"))
-          show("WHO", lambda: box(action="run", command="id; echo HOME=$HOME; python3 -V; pip --version; node -v; git --version"))
+          show("WHO_ID", lambda: box(action="run", command="id; echo HOME=$HOME"))
+          show("WHO_PY", lambda: box(action="run", command="python3 -V; pip --version"))
+          show("WHO_NODE_GIT", lambda: box(action="run", command="node -v; git --version"))
           show("SECRETS_IN_ENV", lambda: box(action="run", command="env | grep -c -i -E 'token|secret|key' || true"))
           show("WRITE", lambda: box(action="write", path="notes/hello.txt", content="hello from the probe"))
           show("READ", lambda: box(action="read", path="notes/hello.txt"))
           show("OTHER_FOLDER", lambda: box(action="run", command="ls /mnt/workspace/computer | head -5; cat /proc/1/environ 2>&1 | head -c 80"))
-          show("PIP", lambda: box(action="run", command="python3 -m pip install --quiet --target ~/pylib requests 2>&1 | tail -2; ls ~/pylib | head -3", timeout=90))
+          show("PIP_DEFAULT", lambda: box(action="run", timeout=70, command="mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd requests 2>&1 | tail -2); ls ~/pd"))
+          show("PIP_ALIYUN", lambda: box(action="run", timeout=70, command="rm -rf ~/pd && mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com requests 2>&1 | tail -2); ls ~/pd"))
+          show("PIP_PYPI", lambda: box(action="run", timeout=70, command="rm -rf ~/pd && mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd -i https://pypi.org/simple requests 2>&1 | tail -2); ls ~/pd"))
           started = {}
           try:
               started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")

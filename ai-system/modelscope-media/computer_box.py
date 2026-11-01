@@ -102,6 +102,10 @@ def clean_env(session: str) -> dict:
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm", "TMPDIR": home + "/.tmp",
         "PYTHONUNBUFFERED": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_INPUT": "1", "npm_config_cache": home + "/.npm",
         "DEBIAN_FRONTEND": "noninteractive",
+        # the Studio runs in China: package mirrors there are fast, pypi.org / registry.npmjs.org can hang (a live probe: pip install stopped after 90 s with no output)
+        "PIP_INDEX_URL": os.environ.get("COMPUTER_PIP_INDEX", "https://mirrors.aliyun.com/pypi/simple/"),
+        "PIP_TRUSTED_HOST": "mirrors.aliyun.com", "PIP_DEFAULT_TIMEOUT": "20",
+        "npm_config_registry": os.environ.get("COMPUTER_NPM_REGISTRY", "https://registry.npmmirror.com"),
     }
 
 
@@ -657,13 +661,17 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     clone_url = f"https://github.com/{owner}/{name}.git"
     branch = f"--branch {shell_quote(ref)} " if ref else ""
     tar_ref = ref or "HEAD"
+    q = shell_quote(folder)
+    tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
+    # github.com itself is slow or blocked from the Studio (a live probe: `git clone` gave up after 44 s) while codeload.github.com answers in under a second:
+    # the tarball goes first and becomes a local git checkout (a baseline commit, so `changes` / publish still see what the model edits); a real clone is the fallback
     script = (
         f"set -e; mkdir -p repos; "
-        f"if [ -d {shell_quote(folder)}/.git ]; then cd {shell_quote(folder)} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
-        f"else rm -rf {shell_quote(folder)}; "
-        f"git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {shell_quote(folder)} "
-        f"|| {{ rm -rf {shell_quote(folder)}; mkdir -p {shell_quote(folder)}; "
-        f"curl -fsSL --max-time 70 {shell_quote(f'https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}')} | tar xz -C {shell_quote(folder)} --strip-components=1; }}; fi; "
+        f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
+        f"else rm -rf {q}; mkdir -p {q}; "
+        f"if curl -fsSL --max-time 70 {tar_url} | tar xz -C {q} --strip-components=1; then "
+        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); "
+        f"else rm -rf {q}; git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {q}; fi; fi; "
         f"{repo_summary_command(folder)}"
     )
     started = job_start(session, script, f"repo {owner}/{name}")

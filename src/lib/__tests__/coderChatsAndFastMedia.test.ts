@@ -43,7 +43,10 @@ describe("which requests take the fast media lane", () => {
     for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "كيف أرسم", "مرحبا", "حلل الصورة", "/start", "make a python script", "ارسم لي موقع", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
   });
   it("the English prompt: the glossary never guesses an unknown Arabic word; a model answer must be English", () => {
-    expect(glossaryPrompt("فرس ابيض")).toBe("white horse");
+    expect(glossaryPrompt("فرس ابيض")).toBe("a white horse");
+    expect(glossaryPrompt("فتاه حسناء")).toBe("a beautiful girl");                 // live bot test 2026-11-01: «قم بتوليد صورة فتاة حسناء» was refused
+    expect(glossaryPrompt("امراه جميله تبتسم")).toBe("a beautiful smiling woman");
+    expect(glossaryPrompt("رجل وسيم")).toBe("a handsome man");
     expect(glossaryPrompt("كلمةمجهولة")).toBeNull();
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
