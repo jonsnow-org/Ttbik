@@ -2,6 +2,7 @@
 // Safe by design: it never posts to a channel, never merges or edits code. Its only writes are the report issue + its labels, and a single
 // "rerun failed jobs" for the idempotent workflows listed in RERUN_OK. See promo/README.md ("what the supervisor may do").
 // Usage: node scripts/promo/supervise.mjs        (env: GITHUB_REPOSITORY, GITHUB_TOKEN, CRON_SECRET optional, SITE_JSON path optional)
+import { notifyDecision } from "../supervisors/run.mjs";
 import fs from "node:fs";
 
 export const WORKFLOWS = [
@@ -135,10 +136,9 @@ async function main() {
   const issue = found.status === 200 ? found.body.find((i) => !i.pull_request) : null;
   const labels = ["promo-supervisor", ...(status === "ok" ? [] : ["needs-attention"])];
   if (!issue) { await gh(`/repos/${repo}/issues`, { method: "POST", body: JSON.stringify({ title: "Promo supervisor: daily report", body, labels }) }); return; }
-  const prev = /<!-- status:(\w+) -->/.exec(issue.body || "")?.[1] || "ok";
-  await gh(`/repos/${repo}/issues/${issue.number}`, { method: "PATCH", body: JSON.stringify({ body, labels }) });
-  const rank = { ok: 0, warn: 1, fail: 2 };
-  if (rank[status] > rank[prev]) await gh(`/repos/${repo}/issues/${issue.number}/comments`, { method: "POST", body: JSON.stringify({ body: `Status changed ${prev} -> ${status}. See the report above.` }) });
+  const nd = notifyDecision(issue.body, status);
+  await gh(`/repos/${repo}/issues/${issue.number}`, { method: "PATCH", body: JSON.stringify({ body: body + nd.marker, labels }) });
+  if (nd.comment) await gh(`/repos/${repo}/issues/${issue.number}/comments`, { method: "POST", body: JSON.stringify({ body: nd.comment }) });
 }
 
 if (process.argv[1] && process.argv[1].endsWith("supervise.mjs")) main().catch((e) => { console.error(String(e)); process.exit(1); });
