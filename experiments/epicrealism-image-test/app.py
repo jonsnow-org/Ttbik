@@ -162,10 +162,14 @@ def load_model():
               device="CPU only",cuda_available=False)
 
 def load_worker():
-    try: load_model()
-    except Exception as exc:
-        set_state(phase="error",error=f"{type(exc).__name__}: {exc}"[:1200],
-                  traceback=traceback.format_exc()[-4500:],memory_gb=memory_gb())
+    # retry a failed start-up (model-hub hiccups) instead of staying in "error" forever
+    for attempt in range(1,7):
+        try:
+            load_model(); return
+        except Exception as exc:
+            set_state(phase="error" if attempt==6 else "retrying",error=f"attempt {attempt}/6: {type(exc).__name__}: {exc}"[:1200],
+                      traceback=traceback.format_exc()[-4500:],memory_gb=memory_gb())
+            time.sleep(min(30*attempt,120))
 
 def generate(prompt,negative,resolution,steps,cfg,seed):
     import numpy as np
