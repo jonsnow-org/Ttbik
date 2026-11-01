@@ -249,22 +249,39 @@ def _release_reservation(session: str) -> None:
 
 
 def _spawn_desktop(session: str) -> None:
-    global _PHASE, _ERROR, _DISPLAY, _AUTH_FILE, _PROCESSES, _ENV, _UID, _LAST_USED
+    global _PHASE, _ERROR, _DISPLAY, _AUTH_FILE, _PROCESSES, _ENV, _UID, _LAST_USED, _SESSION_HASH, _SESSION_RAW
     processes: list[subprocess.Popen] = []
+    auth: Path | None = None
+
+    def cancelled() -> bool:
+        with _LOCK:
+            return _CANCEL_INSTALL or not _same_session(session)
+
+    def cleanup_cancelled() -> None:
+        _kill_processes(processes)
+        if auth is not None:
+            auth.unlink(missing_ok=True)
+        _release_reservation(session)
+
     try:
         _install_packages()
-        if _CANCEL_INSTALL:
-            _release_reservation(session)
+        if cancelled():
+            cleanup_cancelled()
             return
+
         number = _display_number()
         display = f":{number}"
         auth, _runtime = _write_xauthority(session, number)
         uid = box.session_uid(session)
         env = _child_env(session, display, auth)
         env["DESKTOP_UID"] = str(uid)
-        # The Studio's normal browser and shell use the same unprivileged UID.
-        # The owner rule blocks private / metadata egress when the host allows it.
-        box.install_egress_rules()
+
+        # Never launch a network-capable desktop unless the Studio could apply
+        # the UID-scoped private-network / metadata firewall rules.
+        egress = box.install_egress_rules()
+        if egress.startswith("not available") or egress.startswith("partly blocked"):
+            raise RuntimeError("The Studio could not confirm its private-network egress firewall: " + egress)
+
         xvfb = _spawn(
             ["Xvfb", display, "-screen", "0", f"{WIDTH}x{HEIGHT}x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
             env,
@@ -272,9 +289,17 @@ def _spawn_desktop(session: str) -> None:
         )
         processes.append(xvfb)
         _wait_for_x(number, xvfb)
+        if cancelled():
+            cleanup_cancelled()
+            return
+
         wm = _spawn(["openbox", "--sm-disable"], env, "openbox")
         processes.append(wm)
         time.sleep(0.5)
+        if cancelled():
+            cleanup_cancelled()
+            return
+
         terminal = _spawn(
             ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", "104x30+12+12", "-title", "Model Computer"],
             env,
@@ -284,30 +309,40 @@ def _spawn_desktop(session: str) -> None:
         if shutil.which("pcmanfm"):
             files = _spawn(["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))], env, "files")
             processes.append(files)
+
+        # A stop may arrive while packages or X11 are starting. Publish the
+        # process handles only if the caller still owns this exact session.
         with _LOCK:
-            _PROCESSES = processes
-            _DISPLAY = display
-            _AUTH_FILE = str(auth)
-            _ENV = env
-            _UID = uid
-            _PHASE = "running"
-            _ERROR = ""
-            _LAST_USED = time.time()
+            if _CANCEL_INSTALL or not _same_session(session):
+                was_cancelled = True
+            else:
+                was_cancelled = False
+                _PROCESSES = processes
+                _DISPLAY = display
+                _AUTH_FILE = str(auth)
+                _ENV = env
+                _UID = uid
+                _PHASE = "running"
+                _ERROR = ""
+                _LAST_USED = time.time()
+        if was_cancelled:
+            cleanup_cancelled()
+            return
+
     except Exception as exc:
-        _kill_processes(processes)
-        _release_reservation(session)
+        cleanup_cancelled()
         with _LOCK:
-            _PROCESSES = []
-            _DISPLAY = ""
-            _AUTH_FILE = ""
-            _ENV = {}
-            _UID = None
-            _PHASE = "failed"
-            _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
-            _SESSION_HASH = ""
-            _SESSION_RAW = ""
-            _SESSION_HASH = ""
-            _SESSION_RAW = ""
+            # Do not turn an intentional Stop into a failed startup.
+            if _same_session(session) and not _CANCEL_INSTALL:
+                _PROCESSES = []
+                _DISPLAY = ""
+                _AUTH_FILE = ""
+                _ENV = {}
+                _UID = None
+                _PHASE = "failed"
+                _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
+                _SESSION_HASH = ""
+                _SESSION_RAW = ""
 
 
 def _start_async(session: str) -> None:
@@ -315,6 +350,8 @@ def _start_async(session: str) -> None:
     with _LOCK:
         if _PHASE in ("installing", "starting", "running") and _same_session(session):
             return
+        if _INSTALL_THREAD is not None and _INSTALL_THREAD.is_alive():
+            raise RuntimeError("The previous desktop startup is still shutting down; retry after its cancellation completes.")
         _reserve(session)
         _CANCEL_INSTALL = False
         _PHASE = "installing"
