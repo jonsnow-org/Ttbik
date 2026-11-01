@@ -1,6 +1,6 @@
 import { shamGenerateMedia, shamVariant, SHAM_BACKEND_LABELS } from "@/lib/shamStudio";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
-import { b64, png } from "./mediaFixtures";
+import { b64, png, photoStudioFake } from "./mediaFixtures";
 
 jest.mock("@/lib/shamExec", () => ({ shamMediaRoute: jest.fn(), shamMediaRouteEnabled: jest.fn(async () => true) }));
 import { shamMediaRoute } from "@/lib/shamExec";
@@ -40,23 +40,32 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     expect(r).toMatchObject({ type: "error", reason: "unknown_route" });
     expect(calls).toHaveLength(0);
   });
-  it("sham_v2_ready runs on the v2 Studio, SDXS path; the typed reason of a refused (black) picture is kept and nothing is switched silently", async () => {
+  it("Sham v2 images go ONLY to its own dedicated image Studio (Realistic Vision), never to the chat Studio; the route says so", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
-    const calls = studio({ type: "image", b64: b64(await png("black", 512)), backend: "ready" });
+    const photo = photoStudioFake("sham_v2", [Buffer.from(b64(await png("gradient", 512)), "base64")]);
+    const calls = studio({ type: "error", text: "must not be called" });
+    const f = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => photo(url, init) || f(url, init));
     const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
-    expect(calls[0].url).toBe("https://v2.test/gradio_api/call/v2/generate_media_from_panel");
-    expect(calls[0].body.backend_label).toBe(SHAM_BACKEND_LABELS.ready);
-    expect(r).toMatchObject({ type: "error", route: "sham_v2_ready", reason: "blank_image" });
-    expect(r.b64).toBeUndefined();
-    expect(calls).toHaveLength(2);                       // one submit + one result: no retry on another route
+    expect(r).toMatchObject({ type: "image", route: "sham_v2_photo_weight" });
+    expect(photo.calls.length).toBeGreaterThan(0);
+    expect(calls).toHaveLength(0);                       // nothing reached the chat Studio or any other route
   });
-  it("on the internal route a blank result says honestly that the internal path is still training and points to the ready route", async () => {
-    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_internal");
-    studio({ type: "image", b64: b64(await png("black", 512)) });
+  it("Sham v2's image Studio unreachable: an honest typed error, no silent switch to another route", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
+    const calls = studio({ type: "error", text: "x" });
     const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
     expect(r.type).toBe("error");
+    expect(r.route).toBe("sham_v2_photo_weight");
+    expect(r.text).toMatch(/No other model or Studio was used|No fallback/);
+    expect(calls.every((c) => c.url.includes("realistic-vision"))).toBe(true);
+  });
+  it("on Sham v1's internal route a blank result says honestly that the internal path is still training", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v1");
+    studio({ type: "image", b64: b64(await png("black", 512)) });
+    const r = await shamVariant.run("v1", () => generateShamMediaThroughRoute("image", "a red apple"));
+    expect(r.type).toBe("error");
     expect(r.text).toMatch(/قيد التدريب/);
-    expect(r.text).toMatch(/الأوزان الجاهزة/);
   });
   it("Sham v2 video goes to Sham v2's own video Studio (generate_video), never to the chat Studio or Nova's media Studio", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
@@ -68,12 +77,7 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating" });
     expect(calls.some((c) => c.url.includes("v2.test") || c.url.includes("nova-media") || c.url.includes("generate_media_from_panel"))).toBe(false);
   });
-  it("Sham v2 image and speech stay on the chat Studio; Sham v1 video is not rerouted", async () => {
-    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
-    const good = b64(await png("gradient"));
-    const calls = studio({ type: "image", b64: good });
-    await shamVariant.run("v2", () => generateShamMediaThroughRoute("image", "a red apple"));
-    expect(calls[0].url).toBe("https://v2.test/gradio_api/call/v2/generate_media_from_panel");
+  it("Sham v1 video is not rerouted (it stays on Sham v1's own Studio)", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v1");
     const c2 = studio({ type: "error", text: "x" });
     await shamVariant.run("v1", () => generateShamMediaThroughRoute("video", "a clip"));

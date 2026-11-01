@@ -35,3 +35,26 @@ export function mp4Shell(payloadBytes = 4096): Buffer {
   return Buffer.concat([box("ftyp", Buffer.from([0x69,0x73,0x6f,0x6d,0,0,2,0,0x69,0x73,0x6f,0x6d,0x69,0x73,0x6f,0x32])), box("moov", Buffer.alloc(128)), box("mdat", Buffer.alloc(payloadBytes, 1))]);
 }
 export const b64 = (b: Buffer) => b.toString("base64");
+
+/** A fake dedicated image Studio of one chat model (what makePhotoMedia talks to): status -> ready with the model's repo/hash, image -> the next picture from `pics`, file -> its bytes.
+ *  Returns a Response for a Studio URL and null for any other URL, so it can sit in front of a test's own fetch mock. */
+export function photoStudioFake(model: string, pics: Buffer[]) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { photoWeightProfile, photoWeightEndpoint } = require("@/lib/photoWeightMedia");
+  const profile = photoWeightProfile(model)!;
+  const base: string = photoWeightEndpoint(profile);
+  const sha = profile.expectedCheckpointSha256 || "a".repeat(64);
+  let n = 0;
+  const calls: string[] = [];
+  const sse = (o: unknown) => new Response(`event: complete\ndata: ${JSON.stringify([o])}\n\n`, { status: 200 });
+  const fn = (url: string, init?: { method?: string }): Response | null => {
+    if (!url.startsWith(base)) return null;
+    calls.push(url);
+    if (init?.method === "POST") return new Response(JSON.stringify({ event_id: url.endsWith("/status") ? "s1" : "i1" }), { status: 200 });
+    if (url.endsWith("/status/s1")) return sse({ phase: "ready", model_repo: profile.modelRepo, checkpoint_sha256: sha });
+    if (url.endsWith("/image/i1")) return new Response(`event: complete\ndata: ${JSON.stringify([{ path: `tmp/p${n}.png` }, { result: "image_generated", model_repo: profile.modelRepo, checkpoint_sha256: sha, seconds: 3 }])}\n\n`, { status: 200 });
+    if (url.includes("/gradio_api/file=")) { const b = pics[Math.min(n++, pics.length - 1)]; return new Response(new Uint8Array(b), { status: 200, headers: { "content-type": "image/png" } }); }
+    return new Response("{}", { status: 404 });
+  };
+  return Object.assign(fn, { calls, base });
+}
