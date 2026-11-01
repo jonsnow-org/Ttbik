@@ -73,7 +73,10 @@ export async function novaMakeMedia(
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
   let last: MediaReply | null = null;
   const deadline = Date.now() + (opts.timeoutMs ?? 240000);
-  for (let seed = 0; seed < attempts; seed++) {
+  // every request starts from its own random seed (a fixed seed 0 made every Nova picture and clip share one noise start and look alike); tests keep 0
+  const base0 = process.env.NODE_ENV === "test" ? 0 : Math.floor(Math.random() * 2000000000);
+  for (let k = 0; k < attempts; k++) {
+    const seed = base0 + k;
     last = await novaMakeMediaOnce(kind, prompt, opts, seed);
     // the Studio does ONE job at a time and answers {"type":"busy"} (or "loading" while it starts): the request waits in line and asks again instead of failing
     for (let q = 1; last && (last.type === "busy" || last.type === "loading") && Date.now() + 20000 < deadline && q <= 40; q++) {
