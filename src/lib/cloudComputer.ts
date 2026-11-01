@@ -358,6 +358,18 @@ export async function cloudComputerStatus(ctx: CloudComputerContext): Promise<Js
   await assertIdentity(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
+  if (process.env.NODE_ENV !== "test") {
+    return {
+      exists: Boolean(row),
+      state: row ? "provider_disabled" : "not_created",
+      previousState: row?.state || null,
+      cleanupPending: Boolean(row && !["stopped", "deleted", "archived"].includes(String(row.state || "").toLowerCase())),
+      provider: "daytona_disabled",
+      modelId: identity.modelId,
+      persistent: true,
+      detail: "Persistent desktop is unavailable under the zero-cost policy. Existing machines can still be stopped.",
+    };
+  }
   if (!row) return { exists: false, state: "not_created", modelId: identity.modelId };
   const sandbox = await getSandbox(ctx, row.sandbox_id);
   if (!sandbox) return { exists: false, state: "not_found", modelId: identity.modelId };
