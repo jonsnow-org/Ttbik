@@ -2,7 +2,8 @@
 import { drive, loadState, saveState } from "@/lib/coderSections";
 import { novaMakeMedia } from "@/lib/novaMedia";
 import { fakeBot, fakeDb } from "./coderFakes";
-import { b64, png } from "./mediaFixtures";
+import { b64, png, photoStudioFake } from "./mediaFixtures";
+import { photoWeightProfile } from "@/lib/photoWeightMedia";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
 
@@ -15,12 +16,16 @@ const call = (id: string, name: string, args: object) => ({ id, type: "function"
 function net(modelReplies: object[], imageAnswers: object[]) {
   const urls: string[] = [], seeds: number[] = [];
   let m = 0, im = 0;
+  // Nova's pictures come from the image Studio of the selected model (makePhotoMedia): fake it with the given answers (a picture, in order)
+  const pics = imageAnswers.filter((a: any) => a?.type === "image").map((a: any) => Buffer.from(a.b64, "base64"));
+  const studio = pics.length ? photoStudioFake("coder", pics) : null;
   (global as any).fetch = jest.fn(async (url: string, init?: any) => {
     urls.push(url);
+    const ph = studio?.(url, init); if (ph) return ph;
     if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
     if (url.startsWith("https://media.test")) {
       if (url.includes("/call/v2/")) { try { seeds.push(JSON.parse(JSON.parse(init.body).body).seed); } catch { /* not an image call */ } return new Response(JSON.stringify({ event_id: "m1" }), { status: 200 }); }
-      return new Response(sse(imageAnswers[Math.min(im++, imageAnswers.length - 1)] as object), { status: 200 });
+      return new Response(sse(imageAnswers[Math.min(im++, imageAnswers.length - 1)] as object), { status: 200 });   // novaMakeMedia (direct calls and video)
     }
     if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: `e${urls.length}` }), { status: 200 });
     if (url.includes("/gradio_api/call/")) return new Response(sse(modelReplies[Math.min(m++, modelReplies.length - 1)] as object), { status: 200 });
@@ -39,6 +44,7 @@ beforeEach(() => {
   process.env.SUPER_ADMIN_TELEGRAM_ID = String(CHAT);
   process.env.CODER_TOKEN_KEY = "test-key";
   delete process.env.SHAM_STUDIO_URL; delete process.env.SHAM_V2_URL;
+  delete process.env[photoWeightProfile("coder")!.endpointEnv];
 });
 
 describe("novaMakeMedia retries a refused picture with another seed", () => {
@@ -72,7 +78,7 @@ describe("the make_media tool in a Nova task", () => {
     await drive(bot, botRow, CHAT, "c", db, 40000);
     expect((api as any).sendPhoto).toHaveBeenCalledTimes(1);
     expect(urls.some((u) => /sham/i.test(u))).toBe(false);
-    expect(urls.some((u) => u.startsWith("https://media.test"))).toBe(true);
+    expect(urls.some((u) => u.startsWith(photoStudioFake("coder", [Buffer.alloc(1)]).base))).toBe(true);
     expect(sent.some((s) => /هذه صورة الأرنب/.test(s.text))).toBe(true);
   });
 
@@ -88,11 +94,11 @@ describe("the make_media tool in a Nova task", () => {
     const st = await loadState(CHAT, db);
     const toolMsg = st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any;
     expect(toolMsg.content).toMatch(/^error:/);
-    expect(toolMsg.content).toMatch(/NOTHING was sent/);
+    expect(toolMsg.content).toMatch(/Nothing was sent|NOTHING was sent/i);
   });
 
   it("without Nova's media Studio it says so honestly — it does NOT fall back to Sham", async () => {
-    delete process.env.NOVA_MEDIA_STUDIO_URL;
+    process.env[photoWeightProfile("coder")!.endpointEnv] = "off";
     process.env.SHAM_STUDIO_URL = "https://sham.test";
     const { urls } = net([{ type: "done", job: "j1", text: "", tool_calls: [call("m", "make_media", { kind: "image", prompt: "a rabbit" })] }, { type: "done", job: "j2", text: "غير متاح.", tool_calls: [] }], []);
     const db = fakeDb();
@@ -103,7 +109,7 @@ describe("the make_media tool in a Nova task", () => {
     expect((api as any).sendPhoto).not.toHaveBeenCalled();
     expect(urls.some((u) => u.includes("sham.test"))).toBe(false);
     const st = await loadState(CHAT, db);
-    expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/not connected/);
+    expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/disabled/);
   });
 
   it("a legacy stored media=false is ignored: make_media still makes and sends the picture", async () => {

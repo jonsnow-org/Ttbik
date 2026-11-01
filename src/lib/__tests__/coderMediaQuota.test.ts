@@ -6,7 +6,7 @@ import { setSubscription, upsertPlan, DEFAULT_PLANS } from "@/lib/coderPlans";
 import { DEFAULT_MODELS, chooseModel } from "@/lib/coderModels";
 import { coderSystemPrompt } from "@/lib/coderAgent";
 import { fakeBot } from "./coderFakes";
-import { b64, mp4Shell, png } from "./mediaFixtures";
+import { b64, mp4Shell, png, photoStudioFake } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
@@ -21,7 +21,9 @@ const db = (): any => pgDb();
 
 function net(modelReplies: object[], media: object) {
   let m = 0;
-  (global as any).fetch = jest.fn(async (url: string) => {
+  const studio = (media as any).type === "image" ? photoStudioFake("coder", [Buffer.from((media as any).b64, "base64")]) : null;   // pictures come from the selected model's own image Studio
+  (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+    const ph = studio?.(url, init); if (ph) return ph;
     if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
     if (url.startsWith("https://media.test")) return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "m1" }), { status: 200 }) : new Response(sse(media), { status: 200 });
     if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: `e${m}` }), { status: 200 });
@@ -107,7 +109,7 @@ describe("through Nova's make_media tool in a chat", () => {
     const st = await loadState(FREE, d);
     const tools = st.messages.filter((m: any) => m.role === "tool" && m.name === "make_media") as any[];
     expect(tools.length).toBe(4);
-    expect(tools[0].content).toMatch(/Nova's media Studio/);
+    expect(tools[0].content).toMatch(/selected model's own dedicated weight Studio/);
     expect(tools[0].content).not.toMatch(/by Sham/);                                                  // the live bot once ran a build that said "made by Sham" (Oracle served an old main)
     expect(tools[3].content).toMatch(/quota is used up/);
     expect(tools[3].content).not.toMatch(/only for owners/i);
@@ -157,6 +159,7 @@ describe("what the model is told, and Sham", () => {
   it("Sham and Sham v2 stay owner-only until the owner flips each one's own expose switch", () => {
     process.env.MODELSCOPE_API_TOKEN = "ms";
     const models = DEFAULT_MODELS.map((m) => ({ ...m }));
+    models.find((m) => m.id === "sham_v2")!.visible = false;                           // Sham v2 is public by default since the rollout; here the owner hides it
     for (const id of ["sham", "sham_v2"]) {
       expect(models.find((m) => m.id === id)!.visible).toBe(false);
       expect(chooseModel({ mode: "coder" }, models, id, false)).toBe(false);          // a normal user cannot pick it

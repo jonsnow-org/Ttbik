@@ -8,7 +8,7 @@ import { claimOrphanTasks, reapStaleTasks, taskStart, listTasks } from "@/lib/co
 import { coderChatKey } from "@/lib/coderAuth";
 import { detectMediaIntent, glossaryPrompt, cleanEnglishPrompt } from "@/lib/coderMediaFast";
 import { fakeBot } from "./coderFakes";
-import { b64, png } from "./mediaFixtures";
+import { photoStudioFake, b64, png } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
@@ -53,8 +53,10 @@ describe("which requests take the fast media lane", () => {
 describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a real picture", () => {
   function net(media: object, translate = "a white horse") {
     const urls: string[] = [];
+    const studio = photoStudioFake("coder", [Buffer.from((media as any).b64, "base64")]);   // the picture comes from the selected model's own image Studio
     (global as any).fetch = jest.fn(async (url: string, init?: any) => {
       urls.push(url + (init?.body ? " " + String(init.body).slice(0, 400) : ""));
+      const ph = studio(url, init); if (ph) return ph;
       if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
       if (url.startsWith("https://media.test")) return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "m1" }), { status: 200 }) : new Response(sse(media), { status: 200 });
       if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
@@ -72,7 +74,7 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     await handleCoderSections(bot, botRow, say("قم بتوليد صورة فرس ابيض"), db());
     expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
     expect((api as any).sendPhoto.mock.calls[0][2]?.caption).toBeUndefined();                       // never the raw (English) prompt as a caption
-    expect(urls.filter((u) => u.startsWith("https://media.test")).some((u) => /white horse/.test(u))).toBe(true);   // the Studio got the English prompt
+    expect(urls.filter((u) => u.includes("/gradio_api/call/image ")).some((u) => /white horse/.test(u))).toBe(true);   // the Studio got the English prompt
     expect(sent.some((s) => /غير متاح|unavailable/.test(s.text))).toBe(false);
     for (let i = 0; i < 100; i++) { const x = await loadState(FREE, db()); if ((await listTasks(FREE, { limit: 5 }, db()))[0]?.status === "done" && x.messages.length >= 2) break; await new Promise((r) => setTimeout(r, 50)); }   // the picture goes first, the thread turn is saved a moment later
     const t = (await listTasks(FREE, { limit: 5 }, db()))[0];
@@ -104,7 +106,7 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     for (let i = 0; i < 4; i++) { await handleCoderSections(bot, botRow, say(`ارسم صورة قطة ${i}`), db()); await until(async () => (await listTasks(FREE, { limit: 9 }, db())).filter((x) => x.status !== "running").length === i + 1); }
     expect((api as any).sendPhoto).toHaveBeenCalledTimes(3);
     expect(sent.some((s) => /حدّك اليومي/.test(s.text))).toBe(true);
-    expect(urls.filter((u) => u.startsWith("https://media.test") && u.includes("/call/v2/")).length).toBe(3);
+    expect(urls.filter((u) => u.includes("/gradio_api/call/image ")).length).toBe(3);
   });
 
   it("a normal request (not a media one) still goes to the general worker", async () => {
@@ -189,7 +191,9 @@ describe("the background executor (terminal): the chat and the app are front-end
   const say = (text: string, from = FREE) => ({ message: { chat: { id: from }, from: { id: from, first_name: "Ali" }, text } });
   it("media is made in the background: the webhook call returns at once, the picture arrives later (a dropped connection loses nothing)", async () => {
     const good = b64(await png("gradient", 256));
-    (global as any).fetch = jest.fn(async (url: string) => {
+    const studio = photoStudioFake("coder", [Buffer.from(good, "base64")]);
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      { const ph = studio(url, init); if (ph) { await wait(400); return ph; } }
       if (url.startsWith("https://media.test")) { await wait(400); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "m1" }), { status: 200 }) : new Response(sse({ type: "image", b64: good }), { status: 200 }); }
       if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "done", job: "j", text: "a white horse", tool_calls: [] }), { status: 200 });

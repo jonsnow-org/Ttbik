@@ -17,7 +17,7 @@ describe("Sham gets Nova's tools as text", () => {
     expect(b).toMatch(/- github_read_file\(repo, path/);
     expect(b).toMatch(/sandbox_exec\(/);
     expect(b).toMatch(/<tool_call>/);
-    expect(b.length).toBeLessThan(2800);
+    expect(b.length).toBeLessThan(3300);   // grew with the GitHub / Vercel / connector lines (2026-10-30)
   });
   it("reads a call in the tag form, a json fence and a bare object, only for loaded tools", () => {
     const a = parseShamToolCalls('سأقرأ الملف. <tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"a.ts"}}</tool_call>', tools);
@@ -31,9 +31,9 @@ describe("Sham gets Nova's tools as text", () => {
   });
   it("shows earlier calls and results to Sham, keeping the end when it is too long", () => {
     const msgs: any[] = [{ role: "user", content: "اقرأ الملف" }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "github_read_file", arguments: '{"repo":"o/r","path":"a"}' } }] }, { role: "tool", name: "github_read_file", content: "x".repeat(5000), tool_call_id: "1" }];
-    const p = shamToolConversation(msgs, tools, { turns: 6, turnChars: 300, maxChars: 3200 });
+    const p = shamToolConversation(msgs, tools, { turns: 6, turnChars: 300, maxChars: 5400 });
     expect(p.startsWith("الأدوات المتاحة لك")).toBe(true); expect(p).toMatch(/نتيجة الأداة github_read_file/); expect(p).toMatch(/<tool_call>\{"name": "github_read_file"/); expect(p.endsWith("شام:")).toBe(true);
-    expect(p.length).toBeLessThanOrEqual(3400);
+    expect(p.length).toBeLessThanOrEqual(5600);
   });
 });
 

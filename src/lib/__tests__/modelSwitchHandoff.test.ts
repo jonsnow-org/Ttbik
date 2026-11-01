@@ -8,6 +8,7 @@ import * as N from "@/lib/coderThreads";
 import { shamContext, shamTools } from "@/lib/shamExec";
 import { connectedIds } from "@/lib/coderConnectors";
 import { fakeBot } from "./coderFakes";
+import { listModels } from "@/lib/coderModels";
 import { pgDb } from "./pgDb";
 import { listTasks, taskStart } from "@/lib/coderTasks";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
@@ -15,13 +16,16 @@ import { isolateLegacyCarryState } from "@/lib/coderChats";
 const OWNER = 4242, USER = 9001;
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
 const o = { chatId: OWNER, tier: "owner" as const }, u = { chatId: USER, tier: "user" as const };
-beforeEach(() => {
+beforeEach(async () => {
   process.env.OPEN_CODER_STUDIO_URL = "https://coder.test";
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.SUPER_ADMIN_TELEGRAM_ID = String(OWNER);
   process.env.CODER_TOKEN_KEY = "test-key";
   process.env.SHAM_MEMORY = "1";
   delete process.env.CODER_GITHUB_TOKEN;
+  // Sham v2 is public by default since the rollout; these tests are about the owner-only path, so start from "the owner hid it".
+  const db0: any = pgDb(); await listModels(db0);
+  await db0.exec(`INSERT INTO coder_models (id, data) VALUES ('sham_v2', $1::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, JSON.stringify({ visible: false, publicRolloutVersion: 1 }));
 });
 const setup = () => { const db: any = pgDb(); const { bot } = fakeBot(); return { db, d: { db, bot, botRow, fetchImpl: (async (url: string) => (url === "https://api.vercel.com/v2/user" ? new Response(JSON.stringify({ user: { username: "ahmad" } })) : new Response("{}"))) as any } }; };
 const novaSay = async (db: any, lines: [string, string][]) => {

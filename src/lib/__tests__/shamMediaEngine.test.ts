@@ -44,7 +44,8 @@ describe("per-model media engine", () => {
     const by = Object.fromEntries(r.models.map((m) => [m.id, m]));
     expect(by.coder.options).toEqual([]);
     expect(by.coder.studios[0]).toMatchObject({ id: "nova-media-server", ok: true });
-    expect(by.coder.lines.every((l) => l.studio === "nova-media-server")).toBe(true);
+    expect(by.coder.lines.find((l) => l.kind === "image")?.studio).toBe("epicrealism-image-test");   // Nova's picture is its own dedicated weight Studio
+    expect(by.coder.lines.filter((l) => l.kind !== "image").every((l) => l.studio === "nova-media-server")).toBe(true);
     expect(by.sham_v2.lines.find((l) => l.kind === "video")?.studio).toBe("sham-v2-video-server");
     expect(by.sham_v2.studios.map((s) => s.id)).toEqual(["sham-v2-server", "sham-v2-video-server"]);
     expect(JSON.stringify(by.coder)).not.toMatch(/sham/i);                           // Nova never touches a Sham Studio
