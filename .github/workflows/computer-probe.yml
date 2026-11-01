@@ -67,7 +67,10 @@ jobs:
           show("OTHER_FOLDER", lambda: box(action="run", command="ls /mnt/workspace/computer | head -5; cat /proc/1/environ 2>&1 | head -c 80"))
           show("PIP", lambda: box(action="run", command="python3 -m pip install --quiet --target ~/pylib requests 2>&1 | tail -2; ls ~/pylib | head -3", timeout=90))
           started = {}
-          try: started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")
+          try:
+              started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")
+          except Exception as exc:
+              started = {"error": str(exc)[:120]}
           show("JOB_START", lambda: started)
           time.sleep(5)
           show("JOB_LOG", lambda: box(action="job_log", id=started.get("id", "")))
