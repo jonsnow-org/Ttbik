@@ -55,5 +55,10 @@ jobs:
           show("JOB_START", started)
           time.sleep(5)
           show("JOB_LOG", box(action="job_log", id=started.get("id", "")))
+          # what a Studio in China can reach: GitHub (git, tarball, raw, api), npm and PyPI mirrors, the public web
+          show("NET", box(action="run", timeout=90, command="for u in https://github.com https://codeload.github.com/octocat/Hello-World/tar.gz/HEAD https://raw.githubusercontent.com/octocat/Hello-World/master/README https://api.github.com/zen https://registry.npmjs.org/left-pad https://pypi.org/simple/requests/ https://example.com; do printf '%s ' \"$u\"; curl -sS -m 10 -o /dev/null -w '%{http_code} %{time_total}s\\n' \"$u\" 2>&1 | tail -1; done"))
+          show("GIT_CLONE", box(action="repo", url="https://github.com/octocat/Hello-World"))
+          show("SEARCH", box(action="search", pattern="Hello", path="repos/octocat-Hello-World"))
+          show("EDIT", box(action="edit", path="notes/hello.txt", old="hello", new="HELLO"))
           show("BROWSER", call("browser_status", ""))
           PY
