@@ -9,7 +9,7 @@ The persistent graphical desktop feature (VNC, browser, PTY, file manager) was o
 - computer_open, desktop actions, terminal-in-desktop and file operations are blocked in production before any provider call.
 - computer_status reports that the Daytona desktop provider is disabled. For an existing row that is still marked started, the status check attempts a stop operation; it reports cleanup_pending if the stop cannot be confirmed.
 - The explicit computer_stop action remains available so an owner can release a previously created VM. A stopped Daytona VM may retain its filesystem and storage; stopping compute does not necessarily remove all provider storage charges.
-- The one-minute production heartbeat still runs the legacy in-app usage meter for rows already marked started. That meter is not a guarantee that provider compute has stopped. The owner maintenance panel now checks and attempts to stop the selected account/model's legacy VM; other users' old machines are not bulk-cleaned automatically by this change. Do not infer that all old VMs have been shut down by code deployment alone. Review the provider account for remaining running machines and verify their stopped state. A user or administrator can also call computer_stop for each account/model that previously opened one.
+- The one-minute production heartbeat still runs the legacy in-app usage meter for rows already marked started. That meter is not a guarantee that provider compute has stopped. The owner maintenance panel checks and attempts to stop the selected account/model's legacy VM, and its owner-only Stop all legacy desktops action enumerates up to 50 active database rows per request and calls the stop API in batches of five. The action reports stopped and pending counts; run it again if more than 50 rows existed or any stop remains pending. Do not infer that all old VMs have been shut down until the action succeeds and the provider account confirms there are no running machines. Stopped disks/snapshots may still have storage charges, so review the provider dashboard before deciding whether to delete old machines.
 
 The Daytona API credential remains stored in the deployment configuration for legacy compatibility and the safe stop path; it is not used to create or resume a desktop in production.
 
@@ -60,6 +60,7 @@ The authenticated Mini App API still recognizes:
 - computer_open
 - computer_refresh
 - computer_stop
+- computer_cleanup_all (owner-only legacy cleanup sweep; up to 50 active rows per request)
 - computer_self_test (owner only)
 
 In production, status/stop are kept for legacy resource cleanup; provisioning and interactive operations are disabled by the zero-cost policy. The model tool layer uses server-derived account/model identity and never accepts a client-supplied sandbox ID.
