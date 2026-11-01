@@ -1,9 +1,9 @@
 // A virtual computer per task. Zero-cost placement policy:
-//   1. Oracle: primary task-scoped Linux container (existing Always Free VM).
-//   2. ModelScope: fallback Linux workspace in the selected model's OWN Media Studio only.
+//   1. ModelScope: first choice, inside the selected model's OWN media Studio only.
+//   2. Oracle: second Linux worker when that Studio is unavailable or at capacity.
 //   3. Light: last-resort QuickJS/WASM for simple JS when neither Linux worker can accept the task.
-// GitHub Actions is reserved for a separate artifact-based batch lane; it is ephemeral and is not presented as an interactive shell.
-// No worker is allowed to borrow another model's Studio or weights. ModelScope admission is Studio-wide and memory-gated.
+// GitHub Actions remains an artifact-based batch lane for builds/tests, not a persistent shell or live desktop.
+// No worker may borrow another model's Studio or weights. ModelScope admission is Studio-wide and memory-gated.
 // Tools: sandbox_clone, sandbox_exec (+ sandbox_wait for long commands), sandbox_write_file, sandbox_read_file.
 // The GitHub token is used only for an explicit clone/push and scrubbed from output. No dark-web tooling is run.
 import { createHash, randomUUID } from "crypto";
@@ -103,12 +103,11 @@ export function vercelDriver(): SbxDriver {
 export type Backend = { id: string; driver: SbxDriver };
 /** Backend ids in order of use; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
 /**
- * Zero-cost execution policy (2026-11-01):
- * Oracle is the only full Linux VM backend enabled automatically.
- * Metered and personal-credit backends are deliberately excluded.
- * If Oracle is unavailable, runLightTool is the only automatic fallback.
- * SANDBOX_BACKEND can select Oracle or disable VM execution; it cannot opt into
- * a provider that may bill the account.
+ * Zero-cost three-tier policy (2026-11-02):
+ * The selected model's own free ModelScope Studio is the first Linux worker.
+ * Oracle is the second Linux worker and yields to Sham's protected memory reserve.
+ * GitHub Actions is reserved for short-lived CI/build/test batches that return artifacts.
+ * Metered and personal-credit desktop providers remain disabled.
  */
 export const VM_BACKENDS = ["oracle"] as const;
 export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
@@ -116,7 +115,7 @@ const RUNNER_BACKENDS = new Set(["oracle"]);
 export function backendConfigured(id: string): boolean {
   return id === "oracle" && oracleConfigured();
 }
-/** The only full VM permitted by the zero-cost policy. Empty means Light-only mode. */
+/** Oracle is the only external Linux VM permitted by the zero-cost policy. */
 export function backendOrder(env = (process.env.SANDBOX_BACKEND || "oracle").trim().toLowerCase()): string[] {
   if (!env || env === "auto" || env === "oracle") return backendConfigured("oracle") ? ["oracle"] : [];
   if (env === "off" || env === "none" || env === "light") return [];
@@ -257,11 +256,16 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
 function backends(ctx?: SbxCtx): Backend[] {
   if (backendsOverride) return backendsOverride;
   if (driverOverride) return [{ id: "vercel", driver: driverOverride }];
-  const selected = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
-  if (ctx?.modelId && ctx.chatKey && ctx.runId && browserStudioFor(ctx.modelId) && (process.env.MODELSCOPE_API_TOKEN || "").trim()) {
-    selected.push({ id: "modelscope", driver: modelScopeDriver(ctx) });
-  }
-  return selected;
+  // Prefer the current model's own Studio. Its admission check reads live free
+  // memory and the Studio-wide execution slot, and never picks another model.
+  const modelScope: Backend[] = (
+    ctx?.modelId && ctx.chatKey && ctx.runId &&
+    browserStudioFor(ctx.modelId) &&
+    (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim()
+  ) ? [{ id: "modelscope", driver: modelScopeDriver(ctx) }] : [];
+  // Oracle is the second Linux worker; it refuses work while Sham needs memory.
+  const oracle = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
+  return [...modelScope, ...oracle];
 }
 
 async function open(ctx: SbxCtx): Promise<{ sb: SbxHandle; fresh: boolean; backend: Backend["id"] }> {
