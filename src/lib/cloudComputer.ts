@@ -62,8 +62,8 @@ function toolboxBase(): string {
 }
 
 function token(): string {
-  const value = (process.env.DAYTONA_API_KEY || "").trim();
-  if (!value) throw new Error("Cloud computer provider is not configured (DAYTONA_API_KEY).");
+  const value = (process.env.DAYTONA_API_KEY1 || process.env.DAYTONA_API_KEY || "").trim();
+  if (!value) throw new Error("Cloud computer provider is not configured (DAYTONA_API_KEY1 or DAYTONA_API_KEY).");
   return value;
 }
 
