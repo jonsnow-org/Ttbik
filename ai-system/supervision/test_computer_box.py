@@ -28,6 +28,30 @@ class Box(unittest.TestCase):
         return json.loads(cb.api_box_do(json.dumps(job)))
 
 
+class Capacity(Box):
+    def test_only_one_execution_can_run_across_the_whole_studio(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        cb.MAX_GLOBAL_JOBS = 1
+        cb._JOBS.clear()
+        cb._ACTIVE_COMMANDS.clear()
+        cb._mem_available_mb = lambda: 8192
+        try:
+            first = cb.job_start("user-a:model-x", "sleep 20", "first")
+            self.assertTrue(first.get("ok"), first)
+            second = cb.job_start("user-b:model-x", "echo should-not-run", "second")
+            self.assertFalse(second.get("ok"))
+            self.assertIn("Studio is busy", second.get("error", ""))
+            blocked = cb.run_command("user-c:model-x", "echo should-not-run")
+            self.assertFalse(blocked.get("ok"))
+            self.assertIn("Studio is busy", blocked.get("error", ""))
+            stopped = cb.job_stop("user-a:model-x", first["id"])
+            self.assertTrue(stopped.get("ok"), stopped)
+        finally:
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._JOBS.clear()
+            cb._ACTIVE_COMMANDS.clear()
+
+
 class Paths(Box):
     def test_a_session_cannot_leave_its_home(self):
         for bad in ("../../etc/passwd", "/../x/../../etc", "a/../../b"):
@@ -42,11 +66,16 @@ class Paths(Box):
         with self.assertRaises(ValueError):
             cb.safe_path("u:m", "escape/passwd")
 
-    def test_each_session_has_its_own_folder_and_user(self):
+    def test_each_session_has_its_own_folder_and_persistently_unique_user(self):
         self.assertNotEqual(cb.session_home("a"), cb.session_home("b"))
-        self.assertNotEqual(cb.session_uid("a"), cb.session_uid("b"))
-        self.assertEqual(cb.session_uid("a"), cb.session_uid("a"))
-        self.assertTrue(cb.UID_BASE <= cb.session_uid("anything") < cb.UID_BASE + cb.UID_SPAN)
+        first = cb.session_uid("a")
+        second = cb.session_uid("b")
+        self.assertNotEqual(first, second)
+        self.assertEqual(cb.session_uid("a"), first)
+        self.assertTrue(cb.UID_BASE <= first < cb.UID_BASE + cb.UID_SPAN)
+        saved = json.loads((cb.ROOT / ".session-uids.json").read_text(encoding="utf-8"))
+        self.assertNotIn("a", saved)                       # raw session/user identifiers are never stored
+        self.assertEqual(saved[cb.digest("a")], first)
 
     def test_output_is_cut_in_the_middle_with_a_hint(self):
         out = cb.clip("x" * 50000, 1000)
