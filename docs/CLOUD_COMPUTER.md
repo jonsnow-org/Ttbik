@@ -54,12 +54,12 @@ For each eligible user/model:
 - Mouse click, typing, key presses, hotkeys and scrolling.
 - Window enumeration and desktop status.
 - Screenshots and accessibility metadata. If the selected runtime accepts images, the screenshot goes to that model's own projector; otherwise bilingual Arabic/English OCR runs inside the same model VM and the model receives OCR text, active-window metadata and its accessibility tree. This prevents a missing projector from blocking desktop operation, without routing the screen to another model.
-- A persistent shell session integrated in the same computer, with interactive stdin, command output polling and reconnection. This is not yet a full terminal PTY/WebSocket implementation; the shell session is recreated after a full VM stop/start while the filesystem persists.
+- A persistent PTY shell session integrated in the same computer: xterm.js renders ANSI terminal output, the browser attaches to the model-scoped Daytona Toolbox WebSocket using a short-lived signed preview credential for port 2280, and input, output replay cursor, and resize all target the same PTY. The Daytona project API key never reaches the browser. A full VM stop/start ends the shell process; the persistent filesystem remains.
 - Browser/desktop use through the signed VNC preview inside the Mini App (with an external-browser fallback).
 
 Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Donor candidates get their native screenshot image only when their own MTMD runtime reports vision capability; otherwise OCR and accessibility metadata are computed in that same candidate VM. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
 
-The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the PTY and task activity now live within the Computer tab.
+The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the PTY, file manager and model-filtered task activity live inside the Computer workspace. The default Nova Mini App exposes this workspace as a first-class tab for accounts whose server-verified plan includes the computer feature.
 
 ## Plan access
 
@@ -89,8 +89,9 @@ The automated test suite checks:
 5. desktop start and signed preview URL;
 6. write/read file round-trip;
 7. manual stop and resume with the same VM ID and file contents;
-8. mouse, keyboard, hotkey, scroll and window operations;
-9. screenshot response and the owner self-test report.
+8. persistent PTY identity per account/model, signed WebSocket ticket, cursor replay, resize and same-session input;
+9. mouse, keyboard, hotkey, scroll and window operations;
+10. screenshot response and the owner self-test report.
 
 The owner self-test calls the actual Daytona provider and exercises the live desktop. CI uses a fake provider and cannot prove that the connected Daytona account can provision a real VM. Before public rollout, run the owner self-test on a Preview deployment with `DAYTONA_API_KEY` configured, verify the VNC session in Telegram and an external browser, and inspect a second test account to confirm its sandbox ID and files are different. Do not enable public rollout until this live test is green.
 
@@ -102,6 +103,8 @@ The bot must acknowledge Telegram updates quickly; the model/agent run is not he
 This is an incremental continuation design, not yet a standalone always-on queue consumer. To remove Vercel invocation lifetime as a long-term dependency, the next architecture milestone is a durable Postgres-backed work queue and an always-on worker process (existing Oracle worker or a separately provisioned worker service). That worker should claim jobs with leases, checkpoint each model/tool step, persist media/file references, retry transient errors, and deliver notifications independently of a Telegram webhook or Vercel request. Do not claim this milestone is deployed until the worker service and queue are actually wired and live-tested.
 
 
-## Remaining terminal milestone
+## Terminal implementation and remaining live gate
 
-The current in-tab terminal is backed by Daytona's persistent shell-session API and supports command execution, interactive stdin, output polling and reconnect. It must not be described as a full PTY terminal yet: true xterm.js rendering, PTY resize, terminal escape-sequence fidelity and a secure WebSocket attach path through a signed preview/proxy remain acceptance work. Daytona's official TypeScript SDK provides `createPty` / `connectPty`; use that API (or its documented stable V0 HTTP endpoints) rather than copying the V2-alpha endpoint examples. Do not expose the Daytona provider API key to the browser.
+The in-tab terminal now uses xterm.js and a real Daytona PTY process. The backend provisions one persistent PTY per verified account/model, retains an output cursor, and mints a short-lived signed preview URL limited to Toolbox port 2280. The browser attaches directly to the WebSocket path on that signed host; it receives binary PTY frames and sends keystrokes without receiving the project API key. PTY resize is forwarded to the Toolbox process resize route.
+
+The official Daytona documentation describes PTY attach as a WebSocket stream with binary output frames, cursor replay, and input sent as text/binary frames. It also identifies port 2280 as the Toolbox interface and signed preview URLs as port-scoped expiring credentials. These code paths are covered by fake-provider regression tests; **they are not proof of a live provider connection**. The Preview acceptance test must still provision a real VM, open xterm, type a command, observe output, resize the terminal, reconnect using the same session, and verify that another model cannot attach to it. Do not mark the computer fully production-ready until this live test passes.

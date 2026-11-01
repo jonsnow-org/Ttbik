@@ -1437,6 +1437,11 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
   );
 }
 
+/** Reuse the same cloud-computer surface inside Nova's default Mini App without a second Tabbar. */
+export function CloudComputerWorkspace({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
+  return <div className="n-tg"><CloudComputerTab lang={lang} model={model} owner={owner} /></div>;
+}
+
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
 const TAB_ICON: Record<Tab, string> = {
   computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
