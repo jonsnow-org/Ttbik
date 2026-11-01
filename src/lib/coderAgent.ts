@@ -82,6 +82,16 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
     obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
 ];
 
+/** The model's own persistent Linux computer (computerBox.ts): shell, files and background jobs in its Studio, free. Four small tools so a small context window pays little. */
+export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
+  tool("computer_run", "Run a bash command on YOUR persistent Linux computer (own home folder, files stay; python3 pip node git curl). Max 90 s: use computer_job for longer work.",
+    obj({ command: s("bash command"), cwd: s("folder inside your home, default ."), timeout: n("seconds, 1-90") }, ["command"])),
+  tool("computer_write", "Write a text file on YOUR computer (relative to your home folder). For big files write in parts with computer_run and `cat >>`.", obj({ path: s("file path"), content: s("file content") }, ["path", "content"])),
+  tool("computer_read", "Read a file (or list a folder) on YOUR computer.", obj({ path: s("file or folder, default .") })),
+  tool("computer_job", "Background jobs on YOUR computer that keep running between steps: action=start{command,name} gives an id; log{id}; stop{id}; list.",
+    obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("for start"), name: s("short label for start"), id: s("job id for log or stop"), tail: n("lines to show, default 60") }, ["action"])),
+];
+
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
   tool("cloud_computer_status", "Inspect the persistent Linux computer assigned to the current user and selected model.", obj({})),
   tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; install packages, run browsers, compilers, servers and background processes as needed.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
@@ -166,7 +176,7 @@ export function renderPlan(items: unknown): string {
 export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
-  computer: "computer (your own Linux computer for this task: clone a repository, run shell commands, install packages, run tests, read and write files, search code; plus your own web browser for real pages; private to this user and this selected model)",
+  computer: "computer (YOUR persistent Linux computer: shell, files that stay between chats, background jobs for long work, install packages, run code and tests; a task workspace to clone and push repositories; plus your own web browser for real pages; private to this user and this selected model)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
   media: "media (look at a picture or a few frames of a video; make a picture, sound or video with the media Studio and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
@@ -177,7 +187,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
     // The persistent desktop (cloud_computer_*) is off in production (zero-cost policy): offering it would only cost the model a slow step per failed call.
-    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
     memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
@@ -700,6 +710,14 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       }
       const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
       return formatResearch(r, 24000);
+    }
+    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job") {
+      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
+      const { boxDo, boxActionFor } = await import("@/lib/computerBox");
+      const mapped = boxActionFor(name, a as Record<string, unknown>);
+      if (!mapped) return "error: computer_job action must be start, log, stop or list";
+      // one computer per user AND model; the Studio is the model's own
+      return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
     }
     if (name === "browser") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the browser";
