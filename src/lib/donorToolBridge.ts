@@ -37,6 +37,7 @@ const BLOCKED_FOR_CANDIDATES = new Set([
   "make_media", "delegate", "schedule_create", "schedule_list", "schedule_delete",
   "memory_note", "memory_save", "memory_search", "memory_forget", "recall", "plan",
   "send_file", "ask_user", "view_image", "view_video",
+  "computer_publish",                       // candidates keep read-only GitHub: nothing they do commits to a repository
 ]);
 const LOAD_TOOLS_DEF = {
   type: "function" as const,

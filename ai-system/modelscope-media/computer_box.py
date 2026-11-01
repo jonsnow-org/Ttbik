@@ -55,6 +55,8 @@ PLAYBOOK = """YOUR COMPUTER - how to work fast
 5. Install into your home (pip install --target ~/pylib, npm in ~/proj). Your files and caches stay between chats.
 6. Pages that need JavaScript: the browser. Plain pages: web_fetch is faster.
 7. Output is cut at 12 KB: send big output to a file and read parts of it.
+8. Change a file with computer_edit and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
+9. When your work is done and tested: computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.
 """
 
 # ---------------------------------------------------------------- pure helpers (unit-tested)
@@ -294,7 +296,7 @@ def over_quota(session: str) -> bool:
     return dir_size(session_home(session)) > QUOTA_BYTES
 
 
-def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT) -> dict:
+def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT) -> dict:
     command = str(command or "").strip()
     if not command:
         return {"ok": False, "error": "empty command"}
@@ -328,7 +330,7 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
             except Exception:                              # noqa: BLE001
                 raw = b""
     out = raw.decode("utf-8", "replace") if raw else ""
-    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else "."}
+    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else "."}
     if timed_out:
         reply["timed_out"] = True
         reply["hint"] = f"stopped after {timeout} s: run long work with computer_job (it keeps running between calls)"
@@ -508,6 +510,113 @@ def job_list(session: str) -> dict:
     return {"ok": True, "jobs": rows}
 
 
+# ---------------------------------------------------------------- writing: edit in place, publish in one commit
+def edit_file(session: str, path: str, old: str = "", new: str = "", replace_all: bool = False, edits: list | None = None) -> dict:
+    """Replace exact text in a file. Only the changed lines travel (the model's output speed is the slowest part of any task). All edits apply or none."""
+    ensure_home(session)
+    pairs = []
+    if isinstance(edits, list) and edits:
+        for item in edits[:40]:
+            if isinstance(item, dict):
+                pairs.append((str(item.get("old", "")), str(item.get("new", "")), bool(item.get("replace_all"))))
+    else:
+        pairs.append((str(old or ""), str(new or ""), bool(replace_all)))
+    if not pairs or any(not o for o, _n, _a in pairs):
+        return {"ok": False, "error": "give `old` (the exact text to replace) and `new`"}
+    try:
+        target = safe_path(session, path)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if target.is_symlink() or not target.is_file():
+        return {"ok": False, "error": "no such file"}
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return {"ok": False, "error": "not a UTF-8 text file"}
+    first_line = 0
+    for index, (o, n, every) in enumerate(pairs, 1):
+        count = text.count(o)
+        if count == 0:
+            return {"ok": False, "error": f"edit {index}: the text to replace was not found (copy it exactly, including spaces); nothing was changed"}
+        if count > 1 and not every:
+            return {"ok": False, "error": f"edit {index}: the text occurs {count} times; add more surrounding lines to make it unique, or set replace_all; nothing was changed"}
+        if not first_line:
+            first_line = text[:text.index(o)].count("\n") + 1
+        text = text.replace(o, n) if every else text.replace(o, n, 1)
+    if len(text.encode("utf-8")) > MAX_WRITE * 4:
+        return {"ok": False, "error": "the file would become too large"}
+    target.write_text(text, encoding="utf-8")
+    if is_root():
+        uid = session_uid(session)
+        try:
+            os.chown(target, uid, uid, follow_symlinks=False)
+        except OSError:
+            pass
+    return {"ok": True, "path": str(target.relative_to(session_home(session))), "edits": len(pairs), "first_line": first_line}
+
+
+# Run INSIDE the session's own account (it can read only what that account can): the files git sees as changed, as text, with binary / huge / linked files reported, not read.
+COLLECT_SCRIPT = r"""
+import base64, json, os, re, subprocess
+MAX_FILE, MAX_TOTAL = 1000000, 2500000
+def git(*a):
+    return subprocess.run(["git", *a], capture_output=True, text=True)
+st = git("status", "--porcelain=v1", "-z", "--untracked-files=all")
+parts = st.stdout.split("\0")
+files, deleted, skipped, total, i = [], [], [], 0, 0
+while i < len(parts):
+    entry = parts[i]; i += 1
+    if len(entry) < 4:
+        continue
+    code, path = entry[:2], entry[3:]
+    if code[0] in "RC":
+        old = parts[i] if i < len(parts) else ""; i += 1
+        if old: deleted.append(old)
+    if "D" in code:
+        deleted.append(path); continue
+    if os.path.islink(path) or not os.path.isfile(path):
+        skipped.append({"path": path, "why": "link or not a file"}); continue
+    size = os.path.getsize(path)
+    if size > MAX_FILE or total + size > MAX_TOTAL:
+        skipped.append({"path": path, "why": "too large for one publish"}); continue
+    data = open(path, "rb").read()
+    if b"\0" in data[:8000]:
+        skipped.append({"path": path, "why": "binary"}); continue
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        skipped.append({"path": path, "why": "not UTF-8"}); continue
+    total += size
+    files.append({"path": path, "content": text})
+remote = git("remote", "get-url", "origin").stdout.strip()
+head = git("rev-parse", "HEAD").stdout.strip()
+print("@@CHANGES@@" + json.dumps({"remote": remote, "base": head, "files": files, "deleted": deleted, "skipped": skipped}))
+"""
+
+
+def collect_changes(session: str, repo: str, folder: str = "") -> dict:
+    """What `computer_publish` sends: the changed files of a checkout made by computer_repo. The GitHub token never comes here; the app commits them."""
+    parsed = re.fullmatch(r"([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})", str(repo or ""))
+    if not parsed:
+        return {"ok": False, "error": "repo must be owner/name"}
+    owner, name = parsed.group(1), parsed.group(2)
+    folder = str(folder or "").strip() or f"repos/{owner}-{name}"
+    try:
+        safe_path(session, folder)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    out = run_command(session, "python3 -c " + shell_quote(COLLECT_SCRIPT), folder, 60, 6_000_000)
+    if not out.get("ok") or out.get("exit_code") != 0:
+        return {"ok": False, "error": "could not read the changes: " + str(out.get("error") or out.get("output") or "")[:300]}
+    try:                                             # stderr is merged into the output: read only what follows the marker
+        data = json.loads(str(out["output"]).split("@@CHANGES@@", 1)[1])
+    except (ValueError, IndexError):
+        return {"ok": False, "error": "could not read the changes (is that folder a checkout from computer_repo?)"}
+    if not re.search(rf"github\.com[/:]{re.escape(owner)}/{re.escape(name)}(\.git)?/?$", str(data.get("remote", "")), re.I):
+        return {"ok": False, "error": f"that folder is not a checkout of {owner}/{name}"}
+    return {"ok": True, "repo": f"{owner}/{name}", "base": data.get("base", ""), "files": data.get("files", []), "deleted": data.get("deleted", []), "skipped": data.get("skipped", [])}
+
+
 # ---------------------------------------------------------------- the two shortcuts that replace dozens of API calls
 GITHUB_URL = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?$")
 
@@ -575,8 +684,9 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
 def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
     """ripgrep when installed, grep otherwise; line-numbered, bounded."""
     g = f"-g {shell_quote(glob)} " if glob else ""
+    inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
     return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
-            f"else grep -rIn --max-count=20 -E {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+            f"else grep -rIn --max-count=20 {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
 def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
@@ -642,6 +752,10 @@ def api_box_do(body: str) -> str:
             out = job_stop(session, job.get("id", ""))
         elif action == "job_list":
             out = job_list(session)
+        elif action == "edit":
+            out = edit_file(session, job.get("path", ""), job.get("old", ""), job.get("new", ""), bool(job.get("replace_all")), job.get("edits"))
+        elif action == "changes":
+            out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
         elif action == "repo":
             out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
         elif action == "search":
@@ -652,7 +766,7 @@ def api_box_do(body: str) -> str:
             out = {"ok": False, "error": "unknown action " + action[:30]}
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "job_start"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start"):
         tips = welcome(session)                            # once per session, never repeated
         if tips:
             out["tips"] = tips

@@ -4,16 +4,17 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "status"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status"]);
 
 /** The tool names a model sees → what the Studio understands. */
 export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs | null {
   if (tool === "computer_run") return { action: "run", command: a.command as string, cwd: a.cwd as string, timeout: a.timeout as number };
   if (tool === "computer_write") return { action: "write", path: a.path as string, content: a.content as string };
   if (tool === "computer_read") return { action: "read", path: (a.path as string) || "." };
+  if (tool === "computer_edit") return { action: "edit", path: a.path as string, old: a.old as string, new: a.new as string, replace_all: Boolean(a.replace_all), edits: Array.isArray(a.edits) ? (a.edits as any[]) : undefined };
   if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string };
   if (tool === "computer_search") return { action: "search", pattern: a.pattern as string, path: (a.path as string) || ".", glob: a.glob as string };
   if (tool === "computer_job") {
@@ -41,6 +42,12 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
   if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);
   if (a.glob !== undefined) out.glob = String(a.glob).slice(0, 100);
+  if (a.old !== undefined) out.old = String(a.old).slice(0, 200_000);
+  if (a.new !== undefined) out.new = String(a.new).slice(0, 200_000);
+  if (a.replace_all) out.replace_all = true;
+  if (Array.isArray(a.edits)) out.edits = a.edits.slice(0, 40).map((e) => ({ old: String(e?.old ?? "").slice(0, 200_000), new: String(e?.new ?? "").slice(0, 200_000), ...(e?.replace_all ? { replace_all: true } : {}) }));
+  if (a.repo !== undefined) out.repo = String(a.repo).slice(0, 200);
+  if (a.dir !== undefined) out.dir = String(a.dir).slice(0, 300);
   return out;
 }
 
@@ -53,6 +60,8 @@ export function renderBoxReply(action: string, r: Record<string, any>): string {
 
 function renderBody(action: string, r: Record<string, any>): string {
   switch (action) {
+    case "edit":
+      return `edited ${r.path}: ${r.edits} change(s), first at line ${r.first_line}`;
     case "repo":
       return r.job ? String(r.message) : `repository ready in ~/${r.path} (${r.seconds}s)\n${r.summary}\nSearch it with computer_search, read files with computer_read.`;
     case "search":
@@ -88,5 +97,20 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
     return renderBoxReply(String(clean.action), reply);
   } catch (error) {
     return "error: " + String((error as Error)?.message || error).slice(0, 240);
+  }
+}
+
+export type BoxChanges = { ok: true; repo: string; base: string; files: { path: string; content: string }[]; deleted: string[]; skipped: { path: string; why: string }[] } | { ok: false; error: string };
+
+/** The changed files of a computer_repo checkout, read inside the model's own account in its Studio. The GitHub token never goes there: the app commits what comes back. */
+export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
+  const base = browserStudioFor(modelId);
+  if (!base) return { ok: false, error: "this model has no computer Studio" };
+  try {
+    const r = await studioCall(base, "box_do", { action: "changes", repo: String(args.repo).slice(0, 200), dir: String(args.dir || "").slice(0, 300), session }, fetchImpl, 110_000);
+    if (!r || r.ok === false) return { ok: false, error: String(r?.error || "the computer did not answer").slice(0, 300) };
+    return { ok: true, repo: String(r.repo), base: String(r.base || ""), files: Array.isArray(r.files) ? r.files : [], deleted: Array.isArray(r.deleted) ? r.deleted.map(String) : [], skipped: Array.isArray(r.skipped) ? r.skipped : [] };
+  } catch (error) {
+    return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
   }
 }
