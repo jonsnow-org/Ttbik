@@ -86,7 +86,7 @@ class Desktop(unittest.TestCase):
         status = desktop._desktop_status("bob:model-x")
         self.assertEqual(status["phase"], "busy")
         self.assertFalse(status["can_start"])
-        self.assertEqual(status["display"], "")
+        self.assertNotIn("display", status)
 
     def test_start_is_refused_without_the_required_memory(self):
         box._mem_available_mb = lambda: 2400
