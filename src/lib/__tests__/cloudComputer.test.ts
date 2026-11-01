@@ -276,7 +276,7 @@ describe("cloud desktop lifecycle and controls", () => {
     const db = computerDb();
     const provider = providerFetch();
     const opened = await cloudComputerOpen(ownerCtx(db, provider.fetchImpl));
-    expect(opened).toMatchObject({ ok: true, state: "started", previewUrl: "https://preview.daytona.test/signed?token=temporary" });
+    expect(opened).toMatchObject({ ok: true, state: "started", previewUrl: "https://6080-signedvnc.preview.daytona.test/" });
     const creation = provider.calls.find((call) => call.url.endsWith("/sandbox") && call.method === "POST")!;
     expect(creation.body).toMatchObject({
       snapshot: "daytona-vm-large",

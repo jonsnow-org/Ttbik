@@ -229,7 +229,7 @@ export async function executeDonorTool(input: {
         file.bytes,
         "image/jpeg",
         "Describe this live computer screen. Identify visible apps, layout, UI elements and controls with approximate normalized coordinates. Return structured JSON. Use Arabic if the user is speaking Arabic; never guess unreadable content.",
-      ).catch((error) => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) })),
+      ).catch((error): Record<string, any> => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) })),
     ]);
     const visualText = visual.ok && visual.description
       ? "\nLocal visual-perception sidecar (private to this candidate's VM):\n" + String(visual.description).slice(0, 10000)

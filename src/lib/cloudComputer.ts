@@ -419,6 +419,7 @@ export async function cloudComputerRefreshPreview(ctx: CloudComputerContext): Pr
   const previewUrl = await readSignedPreview(ctx, sandbox);
   await saveRow(ctx, {
     chat_key: identity.chatKey,
+    chat_id: Number(ctx.chatId),
     model_id: identity.modelId,
     sandbox_id: sandbox.id,
     sandbox_name: identity.sandboxName,
@@ -696,18 +697,20 @@ export async function cloudComputerListFiles(ctx: CloudComputerContext, path = "
   const query = new URLSearchParams({ path: directory, depth: String(maxDepth) });
   const result = await toolboxRequest<any>(ctx, sandbox, "/files?" + query.toString());
   const rows = Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : Array.isArray(result?.files) ? result.files : [];
-  const items: CloudComputerFile[] = rows.slice(0, 500).map((file: any) => {
+  const items: CloudComputerFile[] = rows.slice(0, 500).map((file: any): CloudComputerFile => {
     const name = String(file?.name || String(file?.path || "").split("/").pop() || "");
+    const filePath = String(file?.path || name);
     const baseDirectory = directory.endsWith("/") ? directory.slice(0, -1) : directory;
+    const resolvedPath = filePath.startsWith("/") ? filePath : (baseDirectory + "/" + filePath);
     return {
       name,
-      path: checkedComputerPath(filePath.startsWith("/") ? filePath : (baseDirectory + "/" + filePath)),
+      path: checkedComputerPath(resolvedPath),
       isDir: Boolean(file?.isDir ?? file?.is_dir ?? file?.isDirectory),
       size: Math.max(0, Number(file?.size) || 0),
       modifiedAt: String(file?.modTime || file?.modifiedAt || file?.modifiedTime || file?.mod_time || "") || null,
       mode: String(file?.mode || file?.permissions || "") || null,
     };
-  }).filter((file) => file.name);
+  }).filter((file: CloudComputerFile) => file.name);
   items.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
   return { path: directory, items, truncated: rows.length > 500 };
 }

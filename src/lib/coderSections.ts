@@ -2170,7 +2170,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                     file.bytes,
                     options.format === "jpeg" ? "image/jpeg" : "image/png",
                     "Describe this live computer screen. Identify visual regions, active application, UI elements, controls and approximate normalized coordinates. Return JSON; use Arabic if the user is speaking Arabic. Do not guess unreadable content.",
-                  ).catch((error) => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) }));
+                  ).catch((error): Record<string, any> => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) }));
                   if (visual.ok && visual.description) {
                     out = description + "\nLocal visual-perception sidecar (runs inside this exact account+model VM; no screenshot leaves the VM):\n" + String(visual.description).slice(0, 10000) +
                       "\nUse the visual coordinates together with the accessibility tree. Verify every UI action with a fresh screenshot.";
