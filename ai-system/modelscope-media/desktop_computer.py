@@ -54,6 +54,12 @@ def session_hash(session: str) -> str:
     return hashlib.sha256(str(session).encode("utf-8")).hexdigest()[:24]
 
 
+def any_active() -> bool:
+    """True while a desktop is installing, starting, or occupying this Studio."""
+    with _LOCK:
+        return _PHASE in ("installing", "starting", "running")
+
+
 def valid_key(value: str) -> bool:
     """Only xdotool key names and combinations; never a shell expression."""
     return bool(re.fullmatch(r"[A-Za-z0-9_+-]{1,40}", str(value or "")))
@@ -300,6 +306,8 @@ def _spawn_desktop(session: str) -> None:
             _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
             _SESSION_HASH = ""
             _SESSION_RAW = ""
+            _SESSION_HASH = ""
+            _SESSION_RAW = ""
 
 
 def _start_async(session: str) -> None:
@@ -319,7 +327,7 @@ def _desktop_status(session: str) -> dict:
     available = _available_mb()
     pkgs = _package_status()
     own = _same_session(session)
-    if _PHASE in ("installing", "starting", "running", "failed") and not own:
+    if _PHASE in ("installing", "starting", "running") and not own:
         return {
             "ok": True,
             "phase": "busy",
