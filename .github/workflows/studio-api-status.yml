@@ -1,0 +1,55 @@
+name: "Read the status API of one Studio (read-only)"
+
+# Calls the hidden Gradio API `status` (or box_status / browser_status) of one of our Studios and prints it: phase, errors, precision, memory. Changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio name under novaai2026, e.g. umranz-sd15-image-test"
+        required: true
+        default: "umranz-sd15-image-test"
+      api:
+        description: "status | box_status | browser_status"
+        required: false
+        default: "status"
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Status
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          API: ${{ inputs.api }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          studio, api = os.environ["STUDIO"], os.environ["API"]
+          assert re.fullmatch(r"[a-z0-9-]{5,60}", studio) and api in ("status", "box_status", "browser_status")
+          base = f"https://studio-novaai2026-{studio}.api-inference.modelscope.net/gradio_api"
+          head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          try:
+              body = json.dumps({"data": [""] if api != "status" else []}).encode()
+              event = json.load(urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}", data=body, headers=head), timeout=30))["event_id"]
+              text = urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}/{event}", headers=head), timeout=60).read().decode("utf-8", "ignore")
+              for block in text.split("\n\n"):
+                  if "event: complete" in block:
+                      line = [l for l in block.splitlines() if l.startswith("data:")][0][5:].strip()
+                      first = json.loads(line)[0]
+                      value = first if isinstance(first, dict) else json.loads(first)
+                      keep = {k: v for k, v in value.items() if k not in ("traceback", "model_file_sha256", "steps")} if isinstance(value, dict) else value
+                      print("STATUS", json.dumps(keep, ensure_ascii=False)[:3500])
+                      if isinstance(value, dict) and value.get("traceback"):
+                          print("TRACEBACK", str(value["traceback"])[-1200:])
+                      raise SystemExit(0)
+              print("NO_COMPLETE_EVENT", text[:300])
+          except SystemExit:
+              raise
+          except Exception as exc:
+              print("UNREACHABLE", type(exc).__name__, str(exc)[:200])
+          PY
