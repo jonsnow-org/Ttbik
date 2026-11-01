@@ -14,7 +14,7 @@ It is separate from everything in `deploy/` — its own compose project, image, 
 | Privileges | user 1000, all capabilities dropped, `no-new-privileges` |
 | Mounts | none from the host |
 | Network | own bridge `br-coder-sbx`, no container-to-container traffic, no access to private / link-local / metadata ranges or the host; egress shaped to 20 Mbit (`RUNNER_EGRESS_RATE`) |
-| Lifetime | default 30 min, maximum 30 min in the production zero-cost profile; each command max 5 min; reaped every minute |
+| Lifetime | default 30 min, default 30 min; configurable hard cap 60 min; each command max 5 min; reaped every minute |
 | Count | 1 at once in the production zero-cost profile (`RUNNER_MAX_BOXES`, hard cap 2) |
 
 The runner itself is capped at 0.25 CPU / 256 MB.
