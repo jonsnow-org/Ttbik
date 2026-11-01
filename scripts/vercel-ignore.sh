@@ -18,9 +18,10 @@ else
 fi
 [ -n "$changed_files" ] || exit 1
 
-# Skip only when every changed file is in a deliberately excluded area.
+# Skip only when every changed file is in a deliberately excluded area (none of these is imported by the site: experiments/ = ModelScope Studio apps, e2e/ = tests,
+# coder-sandbox/ = the Oracle runner). Every skipped commit saves a production build of the Hobby plan's 100 deployments per day.
 # athar/web/lib is intentionally not excluded because the Vercel mirror imports it.
-if printf '%s\n' "$changed_files" | grep -qvE '^(athar/(web/(app|components|special|Dockerfile|package(-lock)?\.json|next\.config\.mjs)|tests|contracts|scripts|viewer|[^/]+\.md)|cloudflare/|deploy/oracle/|contracts/|docs/|ai-system/|media-bot/|supabase/|prisma/[^/]+\.sql$|\.github/|training/|scripts/nova-eval/|CLAUDE\.md|AGENTS\.md)'; then
+if printf '%s\n' "$changed_files" | grep -qvE '^(athar/(web/(app|components|special|Dockerfile|package(-lock)?\.json|next\.config\.mjs)|tests|contracts|scripts|viewer|[^/]+\.md)|cloudflare/|deploy/oracle/|contracts/|docs/|ai-system/|experiments/|e2e/|coder-sandbox/|media-bot/|supabase/|prisma/[^/]+\.sql$|\.github/|training/|scripts/nova-eval/|CLAUDE\.md|AGENTS\.md)'; then
   exit 1
 fi
 exit 0
