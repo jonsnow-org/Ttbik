@@ -15,10 +15,12 @@ The Daytona API credential remains stored in the deployment configuration for le
 
 ## Available free computer execution
 
-The active production replacement is a task-scoped execution chain, not a persistent GUI desktop:
+The free task-computer chain in the isolated branch `infra/three-tier-computer-2026-11-02` is being expanded; this branch is not production until separately reviewed and deployed. It is a task-scoped execution chain, not a persistent GUI desktop:
 
-1. **Oracle runner:** one isolated Docker container per task on the existing Oracle Always Free VM. The container is ephemeral and resource-capped, and it refuses new work when Sham is active, host memory is low, or another task box is already running.
-2. **Light JavaScript runner:** an in-process QuickJS/WebAssembly runtime with a per-task file store. It can run limited JavaScript code without shell, npm, network access or host access. It is the automatic fallback when Oracle is unavailable or refuses work.
+1. **Oracle runner (primary):** one isolated Docker container per task on the existing Oracle Always Free VM. It remains the first choice while the authenticated health check, free-memory floor and single-box limit pass.
+2. **ModelScope runner (same-model fallback):** if Oracle cannot accept a new task, the app may use the selected model's own Media Studio computer only. Nova is mapped to Nova media; Sham v2 to its dedicated video Studio; each donor to its own candidate media Studio. It never switches a task to another model's Studio or weights. It checks Studio-wide active jobs and available RAM before starting.
+3. **Light JavaScript runner (last resort):** an in-process QuickJS/WebAssembly runtime with a per-task file store. It can run limited JavaScript code without shell, npm, network access or host access. It is not represented as a Linux computer.
+4. **GitHub Actions (batch lane):** ephemeral runners are suitable for repository clone/build/test/export jobs that can be packaged as inputs and outputs. They are not an interactive shell, persistent computer, or a transparent mid-process failover target. A task must checkpoint files and logs before it can be resubmitted there.
 
 The application does not automatically use Vercel Sandbox, CodeSandbox VMs, GitHub Codespaces, Daytona or E2B. Their VM access is either metered, dependent on finite credit balances, or dependent on an account-specific free quota that has not been verified for this project. An API key in an environment variable is not evidence that usage is free.
 
