@@ -1,5 +1,6 @@
 import { boxActionFor, boxDo, cleanBoxArgs, renderBoxReply } from "@/lib/computerBox";
 import { COMPUTER_PLAYBOOK, toolGroups } from "@/lib/coderAgent";
+const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice(4), "base64").toString("utf8") : x);   // jobs travel as base64 (the gateway filter rejects some plain text)
 import { candidateToolsFor } from "@/lib/donorToolBridge";
 
 describe("the model's own persistent computer", () => {
@@ -55,7 +56,7 @@ describe("the model's own persistent computer", () => {
     const out = await boxDo("minicpmo45", "42:minicpmo45", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
     expect(calls[0].url).toContain("sham-donor-minicpmo45-media");
-    expect(JSON.parse(calls[0].body.data[0])).toEqual({ action: "run", command: "echo hello", session: "42:minicpmo45" });
+    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:minicpmo45" });
     expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
   });
 
@@ -85,7 +86,7 @@ describe("writing fast: edit in place and publish in one commit", () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const studio = jest.fn(async (input: any, init?: any) => {
       const url = String(input);
-      if (url.endsWith("/gradio_api/call/box_do")) { expect(JSON.parse(JSON.parse(String(init.body)).data[0])).toMatchObject({ action: "changes", repo: "o/r", session: "7:coder" }); return new Response(JSON.stringify({ event_id: "e" }), { status: 200 }); }
+      if (url.endsWith("/gradio_api/call/box_do")) { expect(JSON.parse(unb64(JSON.parse(String(init.body)).data[0]))).toMatchObject({ action: "changes", repo: "o/r", session: "7:coder" }); return new Response(JSON.stringify({ event_id: "e" }), { status: 200 }); }
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, repo: "o/r", base: "b".repeat(40), files: [{ path: "src/a.ts", content: "export const a = 1;\n" }, { path: "docs/n.md", content: "# n\n" }], deleted: ["old.ts"], skipped: [{ path: "x.png", why: "binary" }] })]) + "\n\n", { status: 200 });
     }) as any;
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
