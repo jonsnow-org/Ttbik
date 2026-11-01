@@ -598,6 +598,8 @@ if __name__ == "__main__":
     threading.Thread(target=_warm, daemon=True).start()
     if browser_computer is not None:
         threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
+    if computer_box is not None:      # git / ripgrep / jq / unzip / curl installed once, in the background, so the first repository read is fast
+        threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
     with gr.Blocks() as demo:
         gr.Markdown("Nova Media Studio — image / speech / video for Nova's make_media tool.")
         box = gr.Textbox(visible=False)
