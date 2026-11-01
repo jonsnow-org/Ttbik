@@ -5,7 +5,9 @@ describe("the model's own browser", () => {
     const bases = ["qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
     expect(new Set(bases).size).toBe(3);
     expect(bases[0]).toContain("sham-donor-qwen35-9b-media");
-    for (const other of ["sham", "sham_v2", "", undefined, "../x"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
+    expect(browserStudioFor("sham")).toBeNull();
+    expect(browserStudioFor("sham_v2")).toContain("sham-v2-video-server");
+    for (const other of ["", undefined, "../x"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
   });
 
   test("only known actions and bounded fields reach the Studio", () => {
@@ -47,6 +49,6 @@ describe("the model's own browser", () => {
     expect(out).toContain("PAGE TEXT:\nHi");
     expect(calls[0].url).toContain("sham-donor-gemma4-e4b-media");
     expect(JSON.parse(calls[0].body.data[0])).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
-    expect(await browserDo("sham_v2", "1:x", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
+    expect(await browserDo("sham", "1:x", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
   });
 });
