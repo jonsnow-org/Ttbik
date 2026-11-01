@@ -150,7 +150,11 @@ async function submitAndRead(
   });
   if (!stream.ok) throw new Error("HTTP " + stream.status + " while waiting for " + api);
   const body = await sseUntilComplete(stream);
-  if (/\bevent: error\b/.test(body)) throw new Error("The Studio returned an error event for " + api + ".");
+  if (/\bevent: error\b/.test(body)) {
+    const m = /event: error\s*\n\s*data:\s*([^\n]*)/.exec(body);
+    const why = String(m?.[1] || "").replace(/\\n/g, " ").slice(0, 200);
+    throw new Error("The Studio returned an error event for " + api + (why && why !== "null" ? ": " + why : "") + ".");
+  }
   if (!/\bevent: complete\b/.test(body)) throw new Error("The Studio did not complete " + api + " within " + timeoutMs + "ms.");
   return body;
 }
