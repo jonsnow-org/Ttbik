@@ -359,15 +359,24 @@ export async function cloudComputerStatus(ctx: CloudComputerContext): Promise<Js
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
   if (process.env.NODE_ENV !== "test") {
+    let cleanupPending = Boolean(row && !["stopped", "deleted", "archived"].includes(String(row.state || "").toLowerCase()));
+    if (cleanupPending) {
+      try {
+        await cloudComputerStop(ctx);
+        cleanupPending = false;
+      } catch {
+        // Keep cleanupPending visible so the owner can retry stopping the old VM.
+      }
+    }
     return {
       exists: Boolean(row),
-      state: row ? "provider_disabled" : "not_created",
+      state: cleanupPending ? "cleanup_pending" : row ? "stopped" : "not_created",
       previousState: row?.state || null,
-      cleanupPending: Boolean(row && !["stopped", "deleted", "archived"].includes(String(row.state || "").toLowerCase())),
+      cleanupPending,
       provider: "daytona_disabled",
       modelId: identity.modelId,
       persistent: true,
-      detail: "Persistent desktop is unavailable under the zero-cost policy. Existing machines can still be stopped.",
+      detail: "Persistent desktop is disabled by the zero-cost policy; status checks attempt to stop any legacy VM.",
     };
   }
   if (!row) return { exists: false, state: "not_created", modelId: identity.modelId };
