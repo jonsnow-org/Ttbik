@@ -83,6 +83,17 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 ];
 
 /** The model's own persistent Linux computer (computerBox.ts): shell, files and background jobs in its Studio, free. Four small tools so a small context window pays little. */
+/** The working habits that make the computer fast (the Studio also writes this to ~/README.md and sends it with a session's first result). */
+export const COMPUTER_PLAYBOOK = [
+  "How to work fast on your computer:",
+  "- start with computer_read \".\" and ~/NOTES.md (files and notes from earlier chats are still there; keep NOTES.md updated);",
+  "- to read a public GitHub repository use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
+  "- anything over ~60 s (install, build, tests, download, server) goes to computer_job; do other work, then read its log;",
+  "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
+  "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
+  "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
+].join("\n");
+
 export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_run", "Run a bash command on YOUR persistent Linux computer (own home folder, files stay; python3 pip node git curl). Max 90 s: use computer_job for longer work.",
     obj({ command: s("bash command"), cwd: s("folder inside your home, default ."), timeout: n("seconds, 1-90") }, ["command"])),
@@ -90,6 +101,14 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_read", "Read a file (or list a folder) on YOUR computer.", obj({ path: s("file or folder, default .") })),
   tool("computer_job", "Background jobs on YOUR computer that keep running between steps: action=start{command,name} gives an id; log{id}; stop{id}; list.",
     obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("for start"), name: s("short label for start"), id: s("job id for log or stop"), tail: n("lines to show, default 60") }, ["action"])),
+  tool("computer_edit", "Change a file on YOUR computer by replacing exact text (unique, or replace_all). Send ONLY the changed lines, never the whole file. `edits` = several changes in one call, all or none.",
+    obj({ path: s("file"), old: s("exact text to replace"), new: s("replacement"), replace_all: { type: "boolean" }, edits: { type: "array", items: obj({ old: s("exact text"), new: s("replacement") }, ["old", "new"]) } }, ["path"])),
+  tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
+    obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
+  tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
+    obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
+  tool("computer_search", "Search text in files on YOUR computer (ripgrep): matching lines with file:line. path = folder or file, glob like *.ts.",
+    obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
 ];
 
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
@@ -116,6 +135,9 @@ export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
+  ...COMPUTER_BOX_TOOL_DEFS,                               // the same computer tools the `computer` group offers, so the "every tool" mode (CODER_TOOL_GROUPS=off) has them too
+  ...BROWSER_TOOL_DEFS,
+  ...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []),
   tool("view_image", "LOOK at a picture: from a public URL or from a file in the VM. You see it in your next step (a few seconds to a minute on this server). Use it for screenshots, photos, charts, scans. Small text in a picture may be misread: say so when it matters.", obj({ url: s("https URL of the picture"), path: s("or a file path in the VM"), cwd: s("base dir for path") })),
   tool("view_video", "LOOK at a video that is a file in the VM: it takes a few frames spread over the video (ffmpeg in the VM) and you see them in your next step, in order. Each frame costs about as much time as one picture.", obj({ path: s("video file path in the VM"), frames: n("how many frames, default 4, max 6"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "MAKE media using the selected model's own independent generator. image: use that model's assigned photorealistic checkpoint and private ModelScope Studio only; never switch to another model. audio/video are available only when that selected model has its own configured route; otherwise return a clear unavailable result without using Nova or another model. Respect the daily quota. If the tool reports an error, NOTHING was sent: tell the user plainly; never claim generation succeeded.", obj({ kind: s("image | audio | video"), prompt: s("what to make (image: description; audio: the text to speak; video: the scene and its motion)") }, ["kind", "prompt"])),
@@ -508,6 +530,7 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
     case "github_write_files": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
     case "http_request": { const m = String(a.method || "GET").toUpperCase(); return m === "GET" || m === "HEAD" ? { risks: [], summary: "" } : { risks: ["external_write"], summary: `${m} ${String(a.url || "").slice(0, 200)}${a.body ? `\n${String(typeof a.body === "string" ? a.body : JSON.stringify(a.body)).slice(0, 300)}` : ""}` }; }
+    case "computer_publish": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n(from your computer)` };
     case "sandbox_push": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n(from the VM)` };
     case "github_edit_file": return { risks: [...(await pushRisks(gh, a.repo, String(a.branch || ""))), "edit"], summary: `${where}\n${a.message || ""}\n${a.path}` };
     case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
@@ -630,7 +653,8 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const known = Object.keys(GROUP_TEXT);
       const ok = want.filter((g) => known.includes(g) && (g !== "github" || ctx.gh) && (g !== "connectors" || ctx.userId !== undefined));
       if (!ok.length) return `error: no such tool group (${want.join(", ") || "none given"}); groups: ${known.join(", ")}`;
-      return `loaded: ${ok.join(", ")}. Their tools are ready now.${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
+      const playbook = ok.includes("computer") ? `\n${COMPUTER_PLAYBOOK}` : "";
+      return `loaded: ${ok.join(", ")}. Their tools are ready now.${playbook}${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
     }
     if (name === "plan") {
       const text = renderPlan(a.items);
@@ -711,7 +735,21 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
       return formatResearch(r, 24000);
     }
-    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job") {
+    if (name === "computer_publish") {
+      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
+      if (!ctx.gh) return "error: GitHub is not connected in this chat";
+      if (!repoOk(a.repo)) return "error: repo must be owner/name";
+      const branch = String(a.branch || "").trim();
+      if (!branch || !/^[A-Za-z0-9._\/-]{1,200}$/.test(branch)) return "error: give the branch to commit to";
+      const { boxCollect } = await import("@/lib/computerBox");
+      const got = await boxCollect(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, { repo: String(a.repo), dir: a.dir as string | undefined }, ctx.fetchImpl);
+      if (!got.ok) return `error: ${got.error}`;
+      if (!got.files.length && !got.deleted.length) return `nothing to publish: no changed files${got.skipped.length ? ` (skipped: ${got.skipped.map((x) => `${x.path} [${x.why}]`).join(", ")})` : ""}`;
+      const res: any = await writeFiles(ctx.gh, String(a.repo), branch, String(a.message || "update"), [...got.files.map((f) => ({ path: f.path, content: f.content as string | null })), ...got.deleted.map((p) => ({ path: p, content: null }))]);
+      if (res?.error) return `error: ${res.error}`;
+      return clip({ published: `${got.files.length} file(s) changed, ${got.deleted.length} deleted in ONE commit on ${branch}`, ...res, ...(got.skipped.length ? { skipped: got.skipped } : {}) });
+    }
+    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search" || name === "computer_edit") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
@@ -1050,7 +1088,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-  cloud_computer_execute: ["🖥️", "تشغيل أوامر في الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "فهم لقطة شاشة الحاسوب"], cloud_computer_action: ["🖱️", "التحكم الكامل بسطح المكتب"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+  cloud_computer_execute: ["🖥️", "تشغيل أوامر في الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "فهم لقطة شاشة الحاسوب"], cloud_computer_action: ["🖱️", "التحكم الكامل بسطح المكتب"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],

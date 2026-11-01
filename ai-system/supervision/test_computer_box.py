@@ -139,6 +139,160 @@ class Jobs(Box):
         self.assertGreater(cb.group_rss(os.getpgid(os.getpid())), 1024 * 1024)
 
 
+class Shortcuts(Box):
+    def test_only_public_github_addresses_are_accepted(self):
+        self.assertEqual(cb.parse_repo_url("https://github.com/jonsnow-org/Ttbik"), ("jonsnow-org", "Ttbik"))
+        self.assertEqual(cb.parse_repo_url("https://github.com/a/b.git"), ("a", "b"))
+        for bad in ("https://evil.com/a/b", "http://github.com/a/b", "https://github.com/a", "https://github.com/../x", "https://github.com/a/b; rm -rf /", "git@github.com:a/b.git"):
+            self.assertIsNone(cb.parse_repo_url(bad), bad)
+        self.assertFalse(self.run_box(session="u:m", action="repo", url="https://evil.com/a/b")["ok"])
+        self.assertFalse(self.run_box(session="u:m", action="repo", url="https://github.com/a/b", ref="x; rm -rf /")["ok"])
+
+    def test_search_finds_lines_with_file_and_number(self):
+        self.run_box(session="u:m", action="write", path="src/a.ts", content="const alpha = 1;\nconst needle = 2;\n")
+        self.run_box(session="u:m", action="write", path="src/b.py", content="needle = 3\n")
+        found = self.run_box(session="u:m", action="search", pattern="needle", path="src")
+        self.assertTrue(found["ok"])
+        self.assertIn("a.ts", found["matches"])
+        self.assertIn("2", found["matches"])
+        only_ts = self.run_box(session="u:m", action="search", pattern="needle", path="src", glob="*.ts")
+        self.assertNotIn("b.py", only_ts["matches"])
+        self.assertIn("no matches", self.run_box(session="u:m", action="search", pattern="zzzzz", path="src")["matches"])
+        self.assertFalse(self.run_box(session="u:m", action="search", pattern="x", path="../../etc")["ok"])
+
+    def test_the_grep_fallback_honours_the_file_filter_when_ripgrep_is_not_installed(self):
+        import shutil, subprocess
+        work = self.tmp / "g"
+        (work / "src").mkdir(parents=True)
+        (work / "src" / "a.ts").write_text("const needle = 2;\n")
+        (work / "src" / "b.py").write_text("needle = 3\n")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        for tool in ("grep", "head", "bash"):
+            os.symlink(shutil.which(tool), bindir / tool)                      # a PATH without rg: only the fallback can answer
+        out = subprocess.run(["/bin/bash", "-c", cb.search_command("needle", "src", "*.ts")], cwd=work, env={"PATH": str(bindir)}, capture_output=True, text=True).stdout
+        self.assertIn("a.ts", out)
+        self.assertNotIn("b.py", out)
+
+    def test_a_pattern_cannot_inject_a_command(self):
+        marker = self.tmp / "pwned"
+        self.run_box(session="u:m", action="write", path="a.txt", content="hello")
+        self.run_box(session="u:m", action="search", pattern=f"x'; touch {marker}; echo '", path=".")
+        self.assertFalse(marker.exists())
+
+    def test_the_playbook_arrives_once_per_session_and_is_a_file(self):
+        first = self.run_box(session="u:m", action="run", command="echo hi")
+        self.assertIn("computer_repo", first["tips"])
+        second = self.run_box(session="u:m", action="run", command="echo again")
+        self.assertNotIn("tips", second)
+        self.assertIn("NOTES.md", self.run_box(session="u:m", action="read", path="README.md")["text"])
+        self.assertTrue(self.run_box(session="u:m", action="read", path="NOTES.md")["ok"])
+        self.assertIn("tips", self.run_box(session="other:m", action="run", command="echo hi"))        # a new session is welcomed too
+
+    def test_the_summary_command_describes_a_checkout(self):
+        import subprocess
+        repo = self.tmp / "r"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        (repo / "a.py").write_text("print(1)\n")
+        (repo / "b.ts").write_text("export {}\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "first"], cwd=repo, check=True)
+        out = subprocess.run(["bash", "-c", cb.repo_summary_command(str(repo))], capture_output=True, text=True).stdout
+        self.assertIn("files: 2", out)
+        self.assertIn("first", out)
+        self.assertIn("py(1)", out)
+        self.assertIn("a.py", out)
+
+    def test_a_real_public_repository_is_fetched_in_one_call_when_github_is_reachable(self):
+        import subprocess
+        reach = subprocess.run(["git", "ls-remote", "https://github.com/octocat/Hello-World.git", "HEAD"], capture_output=True, text=True, timeout=40)
+        if reach.returncode != 0:
+            self.skipTest("GitHub is not reachable from this machine")
+        out = self.run_box(session="u:m", action="repo", url="https://github.com/octocat/Hello-World")
+        self.assertTrue(out["ok"], out)
+        self.assertIn("README", out["summary"])
+        found = self.run_box(session="u:m", action="search", pattern="Hello", path="repos/octocat-Hello-World")
+        self.assertIn("README", found["matches"])
+
+
+class Writing(Box):
+    def test_edit_sends_only_the_changed_text_and_checks_uniqueness(self):
+        self.run_box(session="u:m", action="write", path="a.py", content="x = 1\ny = 2\nz = 3\n")
+        done = self.run_box(session="u:m", action="edit", path="a.py", old="y = 2", new="y = 20")
+        self.assertTrue(done["ok"])
+        self.assertEqual(done["first_line"], 2)
+        self.assertEqual(self.run_box(session="u:m", action="read", path="a.py")["text"], "x = 1\ny = 20\nz = 3\n")
+        self.run_box(session="u:m", action="write", path="d.txt", content="a\na\n")
+        twice = self.run_box(session="u:m", action="edit", path="d.txt", old="a", new="b")
+        self.assertFalse(twice["ok"])
+        self.assertIn("2 times", twice["error"])
+        self.assertTrue(self.run_box(session="u:m", action="edit", path="d.txt", old="a", new="b", replace_all=True)["ok"])
+        self.assertFalse(self.run_box(session="u:m", action="edit", path="a.py", old="nope", new="x")["ok"])
+
+    def test_several_edits_apply_together_or_not_at_all(self):
+        self.run_box(session="u:m", action="write", path="m.txt", content="one\ntwo\nthree\n")
+        bad = self.run_box(session="u:m", action="edit", path="m.txt", edits=[{"old": "one", "new": "1"}, {"old": "missing", "new": "x"}])
+        self.assertFalse(bad["ok"])
+        self.assertEqual(self.run_box(session="u:m", action="read", path="m.txt")["text"], "one\ntwo\nthree\n")     # the first edit was not kept
+        good = self.run_box(session="u:m", action="edit", path="m.txt", edits=[{"old": "one", "new": "1"}, {"old": "three", "new": "3"}])
+        self.assertEqual(good["edits"], 2)
+        self.assertEqual(self.run_box(session="u:m", action="read", path="m.txt")["text"], "1\ntwo\n3\n")
+
+    def test_an_edit_cannot_reach_outside_the_home(self):
+        self.assertFalse(self.run_box(session="u:m", action="edit", path="../../etc/hostname", old="a", new="b")["ok"])
+        cb.ensure_home("u:m")
+        os.symlink("/etc/hostname", cb.session_home("u:m") / "link.txt")
+        self.assertFalse(self.run_box(session="u:m", action="edit", path="link.txt", old="a", new="b")["ok"])
+
+    def make_checkout(self, session="u:m", repo="acme/widgets"):
+        import subprocess
+        cb.ensure_home(session)
+        folder = cb.session_home(session) / "repos" / repo.replace("/", "-")
+        folder.mkdir(parents=True)
+        run = lambda *a: subprocess.run(a, cwd=folder, check=True, capture_output=True)
+        run("git", "init", "-q")
+        run("git", "remote", "add", "origin", f"https://github.com/{repo}.git")
+        (folder / "keep.py").write_text("print('keep')\n")
+        (folder / "gone.py").write_text("print('gone')\n")
+        run("git", "add", ".")
+        run("git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base")
+        if cb.is_root():
+            subprocess.run(["chown", "-R", f"{cb.session_uid(session)}:{cb.session_uid(session)}", str(cb.session_home(session))], check=True)
+        return folder
+
+    def test_publish_collects_changed_added_and_deleted_files_and_reports_what_it_skips(self):
+        folder = self.make_checkout()
+        self.run_box(session="u:m", action="edit", path="repos/acme-widgets/keep.py", old="keep", new="kept")
+        self.run_box(session="u:m", action="write", path="repos/acme-widgets/new/app.ts", content="export const a = 1;\n")
+        self.run_box(session="u:m", action="run", command="cd repos/acme-widgets && rm gone.py && head -c 3000 /dev/urandom > blob.bin && ln -s /etc/hostname sneaky")
+        got = self.run_box(session="u:m", action="changes", repo="acme/widgets")
+        self.assertTrue(got["ok"], got)
+        paths = {f["path"]: f["content"] for f in got["files"]}
+        self.assertIn("kept", paths["keep.py"])
+        self.assertIn("new/app.ts", paths)
+        self.assertEqual(got["deleted"], ["gone.py"])
+        why = {s["path"]: s["why"] for s in got["skipped"]}
+        self.assertEqual(why["blob.bin"], "binary")
+        self.assertIn("sneaky", why)                                  # a link is never followed, so no file outside the checkout can be published
+        self.assertNotIn("sneaky", paths)
+        self.assertEqual(len(got["base"]), 40)
+
+    def test_publish_refuses_a_folder_that_is_not_that_repository(self):
+        self.make_checkout()
+        wrong = self.run_box(session="u:m", action="changes", repo="evil/other", dir="repos/acme-widgets")
+        self.assertFalse(wrong["ok"])
+        self.assertIn("not a checkout of evil/other", wrong["error"])
+        self.assertFalse(self.run_box(session="u:m", action="changes", repo="acme/widgets", dir="../../etc")["ok"])
+        self.assertFalse(self.run_box(session="u:m", action="changes", repo="not a repo")["ok"])
+
+    def test_nothing_changed_is_reported_as_empty(self):
+        self.make_checkout()
+        got = self.run_box(session="u:m", action="changes", repo="acme/widgets")
+        self.assertTrue(got["ok"])
+        self.assertEqual((got["files"], got["deleted"]), ([], []))
+
+
 class Api(Box):
     def test_bad_requests_are_answered_without_running_anything(self):
         self.assertIn("bad request", cb.api_box_do("nope"))
