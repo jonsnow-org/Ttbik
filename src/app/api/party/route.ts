@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { mediaUser } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
@@ -44,12 +45,12 @@ async function client() {
 }
 
 function rid() {
-  return "room_" + Math.random().toString(36).slice(2, 10);
+  return "room_" + randomBytes(18).toString("hex");
 }
 
 /** GET ?id=room_xxx — room state + recent messages */
 export async function GET(req: NextRequest) {
-  const user = mediaUser(req.nextUrl.searchParams.get("init_data") || "");
+  const user = mediaUser(req.headers.get("x-telegram-init-data") || "");
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const id = (req.nextUrl.searchParams.get("id") || "").trim();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
