@@ -46,6 +46,12 @@ const GLOSSARY: Record<string, string> = {
 };
 // People, looks, clothes, places, weather, things (normalised spelling: ة->ه, أ->ا, ى->ي). Added after a live bot test: «قم بتوليد صورة فتاة حسناء» was refused because «حسناء» was unknown.
 const GLOSSARY_MORE: Record<string, string> = {
+  // actions (a video asks for movement): the Arabic verb as the model's picture / clip prompt needs it
+  ترقص: "dancing", يرقص: "dancing", رقص: "dancing", تمشي: "walking", يمشي: "walking", تجري: "running", يجري: "running", تركض: "running", يركض: "running", تسبح: "swimming", يسبح: "swimming", تطير: "flying", يطير: "flying",
+  تضحك: "laughing", يضحك: "laughing", تبكي: "crying", يبكي: "crying", تاكل: "eating", ياكل: "eating", تشرب: "drinking", يشرب: "drinking", تتكلم: "talking", يتكلم: "talking", تغني: "singing", يغني: "singing", تلعب: "playing", يلعب: "playing",
+  تقفز: "jumping", يقفز: "jumping", تقود: "driving", يقود: "driving", تقرا: "reading", يقرا: "reading", تكتب: "writing", يكتب: "writing", تنظر: "looking", ينظر: "looking", تدور: "spinning", تتحرك: "moving", يتحرك: "moving", تبتسم_: "smiling",
+  تحمل: "holding", يحمل: "holding", تجلس: "sitting", يجلس: "sitting", تقف: "standing", يقف: "standing", تنام: "sleeping", ينام: "sleeping", تسير: "walking", يسير: "walking", تتسلق: "climbing", يتسلق: "climbing", تصلي: "praying", يصلي: "praying",
+  بطيء: "slow motion", بطيئه: "slow motion", سريع: "fast", معا: "together",
   فتاه: "girl", بنت: "girl", صبيه: "girl", امراه: "woman", سيده: "woman", رجل: "man", طفل: "child", طفله: "little girl", ولد: "boy", صبي: "boy", شاب: "young man", شابه: "young woman", عجوز: "old", جده: "grandmother", جد: "grandfather",
   حسناء: "beautiful", حسنا: "beautiful", جميله: "beautiful", جميلات: "beautiful", فاتنه: "stunning", رائعه: "stunning", رائع: "stunning", وسيم: "handsome", قبيح: "ugly", لطيف: "cute", لطيفه: "cute", مبتسمه: "smiling", مبتسم: "smiling", تبتسم: "smiling", سعيد: "happy", حزين: "sad", غاضب: "angry",
   شعر: "hair", طويل: "long", طويله: "long", قصير: "short", قصيره: "short", اشقر: "blond", شقراء: "blond", عيون: "eyes", عينان: "eyes", وجه: "face", ابتسامه: "smile", حجاب: "hijab", عباءه: "abaya", فستان: "dress", قبعه: "hat", نظارات: "glasses", تاج: "crown",
@@ -61,6 +67,7 @@ export function glossaryPrompt(subject: string): string | null {
   const out: string[] = [];
   let known = 0;
   for (const w of words) {
+    if (/^[0-9\u0660-\u0669]+$/.test(w) || /^(ثوان|ثواني|ثانيه|ثانيتين|ثانيتان|دقيقه|دقائق|ثانية|sec|secs|seconds?)$/.test(w)) continue;   // «5 ثوان»: the clip length is not part of the prompt
     const bare = w.replace(/^(ال|و|ب|ل)(?=.{2,})/, "");
     const hit = GLOSSARY[w] || GLOSSARY[bare] || GLOSSARY_MORE[w] || GLOSSARY_MORE[bare];
     if (hit) { out.push(hit); known++; }
