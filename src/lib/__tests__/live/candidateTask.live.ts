@@ -5,6 +5,8 @@ import { drive, handleCoderSections, later, saveState } from "@/lib/coderSection
 import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
 
+// the hand-off to the next leg finds the bot row through prisma in production; this harness has no database for it
+jest.mock("@/lib/prisma", () => ({ prisma: { bot: { findUnique: async () => ({ id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" }) } } }));
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
 jest.setTimeout(3_300_000);
 (process.env as any).NODE_ENV = "production";
