@@ -113,7 +113,7 @@ async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
 
 export async function cloudComputerSnapshot(ctx: CloudComputerContext): Promise<string> {
   await assertEntitlement(ctx);
-  if (ctx.tier === "owner") return (process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT || "daytona-vm-large").trim();
+  if (ctx.tier === "owner") return (process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT || "daytona-vm-medium").trim();
   const sub = await getSubscription(ctx.chatId, dbOf(ctx));
   const plan = (await listPlans(dbOf(ctx))).find((p) => p.id === sub.plan_id);
   const isPro = Number(plan?.sort || 0) >= 2;
@@ -208,13 +208,13 @@ async function startSandbox(ctx: CloudComputerContext, sandbox: SandboxInfo): Pr
 }
 
 async function createSandbox(ctx: CloudComputerContext, name: string, snapshot: string): Promise<SandboxInfo> {
-  // VM snapshots provide a dedicated guest kernel; auto-stop, auto-pause and auto-delete are disabled.
-  // The user can explicitly stop the computer and resume it later without losing its persistent filesystem.
+  // VM snapshots keep their filesystem and memory while paused. Pause after one
+  // idle hour to avoid burning Starter compute credits; never auto-delete user data.
   const payload = {
     name,
     snapshot,
     autoStopInterval: 0,
-    autoPauseInterval: 0,
+    autoPauseInterval: 60,
     autoDeleteInterval: -1,
     ephemeral: false,
     labels: {
@@ -1239,6 +1239,11 @@ export async function cloudComputerSelfTest(ctx: CloudComputerContext): Promise<
     const compressed = await cloudComputerScreenshot(ctx, { compressed: true, format: "jpeg", quality: 80, scale: 0.5 });
     if (!region?.bytes.length || !compressed?.bytes.length) throw new Error("A screenshot mode returned no data.");
     return { regionBytes: region.bytes.length, compressedBytes: compressed.bytes.length };
+  });
+
+  await check("stop the VM after acceptance to prevent idle compute charges", async () => {
+    await cloudComputerStop(ctx);
+    return { state: "stopped", persistentWorkspacePreserved: true };
   });
 
   const passed = results.filter((r) => r.ok).length;

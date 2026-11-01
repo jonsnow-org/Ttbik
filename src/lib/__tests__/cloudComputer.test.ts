@@ -21,6 +21,7 @@ import {
   cloudComputerStop,
   cloudComputerRuntimeTick,
 } from "@/lib/cloudComputer";
+import { generateOrderCode } from "@/lib/utils";
 import type { Db } from "@/lib/coderAuth";
 
 type ComputerDb = Db & { ddl: true; computers: Map<string, any> };
@@ -235,7 +236,6 @@ beforeEach(() => {
   process.env.DAYTONA_API_URL = "https://daytona.test";
   process.env.DAYTONA_TOOLBOX_URL = "https://toolbox.test";
   process.env.DAYTONA_TOOLBOX_V2_URL = "https://toolbox.test";
-  process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT = "daytona-vm-large";
   process.env.CLOUD_COMPUTER_PLUS_SNAPSHOT = "daytona-vm-medium";
   process.env.CLOUD_COMPUTER_PRO_SNAPSHOT = "daytona-vm-large";
 });
@@ -284,16 +284,16 @@ describe("cloud desktop lifecycle and controls", () => {
     expect(creation.authorization).toBe("Bearer daytona-preview-test-secret");
   });
 
-  it("provisions an always-on VM with a non-deleting persistent snapshot and signed desktop URL", async () => {
+  it("provisions a budget-conscious persistent VM with an idle-pause guard and signed desktop URL", async () => {
     const db = computerDb();
     const provider = providerFetch();
     const opened = await cloudComputerOpen(ownerCtx(db, provider.fetchImpl));
     expect(opened).toMatchObject({ ok: true, state: "started", previewUrl: "https://6080-signedvnc.preview.daytona.test/" });
     const creation = provider.calls.find((call) => call.url.endsWith("/sandbox") && call.method === "POST")!;
     expect(creation.body).toMatchObject({
-      snapshot: "daytona-vm-large",
+      snapshot: "daytona-vm-medium",
       autoStopInterval: 0,
-      autoPauseInterval: 0,
+      autoPauseInterval: 60,
       autoDeleteInterval: -1,
       ephemeral: false,
     });
@@ -459,7 +459,17 @@ describe("cloud desktop lifecycle and controls", () => {
     const db = computerDb();
     const provider = providerFetch();
     const result = await cloudComputerSelfTest(ownerCtx(db, provider.fetchImpl));
-    expect(result).toMatchObject({ ok: true, passed: result.total, total: 15 });
+    expect(result).toMatchObject({ ok: true, passed: result.total, total: 16 });
     expect(result.results.every((test) => test.ok)).toBe(true);
+    expect([...provider.sandboxes.values()][0].state).toBe("stopped");
+    expect([...db.computers.values()][0].state).toBe("stopped");
+  });
+});
+
+describe("public order tracking token entropy", () => {
+  it("uses the full UUID for unguessable order-status bearer codes", () => {
+    const codes = Array.from({ length: 128 }, () => generateOrderCode());
+    expect(codes.every((code) => /^ORD-[0-9A-F]{32}$/.test(code))).toBe(true);
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });
