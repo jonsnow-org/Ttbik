@@ -678,6 +678,33 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panelAction } = await import("@/lib/coderPanel");
       return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
     }
+    case "computer_cleanup_all": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const rows = await db.query<{ chat_id: number | string; model_id: string }>(
+        "SELECT chat_id, model_id FROM cloud_computers WHERE state NOT IN ('stopped', 'deleted', 'archived') ORDER BY updated_at LIMIT $1",
+        50,
+      );
+      const { cloudComputerStop } = await import("@/lib/cloudComputer");
+      let stopped = 0;
+      const errors: string[] = [];
+      for (let i = 0; i < rows.length; i += 5) {
+        const batch = await Promise.all(rows.slice(i, i + 5).map(async (row) => {
+          const chatId = Number(row.chat_id);
+          if (!Number.isFinite(chatId) || !row.model_id) return { ok: false, detail: "invalid legacy computer identity" };
+          try {
+            await cloudComputerStop({ chatId, modelId: row.model_id, tier: "owner", db });
+            return { ok: true, modelId: row.model_id };
+          } catch (error) {
+            return { ok: false, modelId: row.model_id, detail: String((error as Error)?.message || error).slice(0, 160) };
+          }
+        }));
+        for (const item of batch) {
+          if (item.ok) stopped++;
+          else errors.push((item.modelId || "unknown") + ": " + (item.detail || "stop failed"));
+        }
+      }
+      return { ok: errors.length === 0, examined: rows.length, stopped, pending: errors.length, errors };
+    }
     case "computer_status":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);
     case "computer_open":
