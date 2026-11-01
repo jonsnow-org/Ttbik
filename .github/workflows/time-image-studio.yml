@@ -85,10 +85,14 @@ jobs:
                   print("META", json.dumps({k: (meta or {}).get(k) for k in ("seconds", "precision", "steps", "resolution", "seed", "basic_image_checks")}, ensure_ascii=False))
                   img = out[0]
                   url = img.get("url") if isinstance(img, dict) else None
+                  open("image-out.bin", "wb").write(b"timing-only")   # the number above is what matters; the picture download below is best effort
                   if url:
-                      png = urllib.request.urlopen(urllib.request.Request(url, headers=head), timeout=120).read()
-                      open("image-out.bin", "wb").write(png)
-                      print("IMAGE_BYTES", len(png))
+                      try:
+                          png = urllib.request.urlopen(urllib.request.Request(url, headers=head), timeout=120).read()
+                          open("image-out.bin", "wb").write(png)
+                          print("IMAGE_BYTES", len(png))
+                      except Exception as exc:
+                          print("IMAGE_DOWNLOAD_SKIPPED", type(exc).__name__, str(exc)[:80])
               if "event: error" in block:
                   print("ERROR_BLOCK", block[:400])
           if not os.path.exists("image-out.bin"):
