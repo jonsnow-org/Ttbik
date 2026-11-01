@@ -1,0 +1,87 @@
+// The model's free headless browser (ai-system/modelscope-media/browser_computer.py): real pages with JavaScript, clicking and typing, without Daytona's paid desktop.
+// It runs inside the model's OWN media Studio, so nothing is shared with another model: Nova uses Nova's media Studio, each candidate its own sham-donor-<id>-media.
+// A session is one user of one model (`session` is derived by the caller from the verified account and the model; the Studio hashes it into a folder name).
+import { candidateMediaStudio } from "@/lib/photoWeightMedia";
+import { novaMediaUrl } from "@/lib/novaMedia";
+
+export type BrowserArgs = {
+  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; screenshot?: boolean;
+};
+
+const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back"]);
+
+/** The browser lives in the media Studio of the model itself; models without such a Studio have no browser (null). */
+export function browserStudioFor(modelId: string | undefined): string | null {
+  if (modelId === "coder") return novaMediaUrl() || null;
+  return candidateMediaStudio(modelId)?.base || null;
+}
+
+function token(): string {
+  return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
+}
+
+/** Exactly the fields the Studio understands, bounded; anything else is dropped. */
+export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null {
+  const action = String(a.action || "").toLowerCase();
+  if (!ACTIONS.has(action)) return null;
+  const out: Record<string, unknown> = { action };
+  if (a.url !== undefined) out.url = String(a.url).slice(0, 2000);
+  if (a.id !== undefined && Number.isFinite(Number(a.id))) out.id = Math.trunc(Number(a.id));
+  if (Number.isFinite(Number(a.x)) && Number.isFinite(Number(a.y)) && a.x !== undefined && a.y !== undefined) { out.x = Math.trunc(Number(a.x)); out.y = Math.trunc(Number(a.y)); }
+  if (a.text !== undefined) out.text = String(a.text).slice(0, 2000);
+  if (a.enter) out.enter = true;
+  if (a.key !== undefined) out.key = String(a.key).slice(0, 30);
+  if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
+  return out;
+}
+
+/** What the model reads: address, title, the page text, then the numbered things it can click or type into. */
+export function renderBrowserReply(r: Record<string, any>): string {
+  if (!r || r.ok === false) return "error: " + String(r?.error || "the browser did not answer").slice(0, 300);
+  return [
+    "URL: " + String(r.url || ""),
+    "TITLE: " + String(r.title || ""),
+    "",
+    "PAGE TEXT:",
+    String(r.text || "(empty)"),
+    "",
+    "CLICKABLE ELEMENTS (use their number with action=click or action=type):",
+    String(r.elements || "(none)"),
+  ].join("\n");
+}
+
+async function readComplete(res: Response): Promise<unknown> {
+  const body = await res.text();
+  for (const block of body.split(/\r?\n\r?\n/)) {
+    if (/event:\s*error/.test(block)) throw new Error("the browser Studio returned an error");
+    if (!/event:\s*complete/.test(block)) continue;
+    const line = block.split(/\r?\n/).find((l) => l.startsWith("data:"));
+    if (!line) continue;
+    const first = JSON.parse(line.slice(5).trim());
+    const value = Array.isArray(first) ? first[0] : first;
+    return typeof value === "string" ? JSON.parse(value) : value;
+  }
+  throw new Error("the browser Studio sent no answer");
+}
+
+export async function browserDo(modelId: string | undefined, session: string, args: BrowserArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
+  const base = browserStudioFor(modelId);
+  if (!base) return "error: this model has no browser Studio";
+  const clean = cleanBrowserArgs(args);
+  if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back";
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token() ? { Authorization: "Bearer " + token() } : {}) };
+  try {
+    const start = await fetchImpl(base + "/gradio_api/call/browser_do", {
+      method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ data: [JSON.stringify({ ...clean, session })] }),
+    });
+    if (!start.ok) return "error: browser Studio HTTP " + start.status;
+    const { event_id } = (await start.json()) as { event_id?: string };
+    if (!event_id) return "error: the browser Studio gave no request id";
+    const done = await fetchImpl(base + "/gradio_api/call/browser_do/" + encodeURIComponent(event_id), { headers, cache: "no-store", signal: AbortSignal.timeout(100_000) });
+    if (!done.ok) return "error: browser Studio HTTP " + done.status;
+    return renderBrowserReply((await readComplete(done)) as Record<string, any>);
+  } catch (error) {
+    return "error: " + String((error as Error)?.message || error).slice(0, 240);
+  }
+}

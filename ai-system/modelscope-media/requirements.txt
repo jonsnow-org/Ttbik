@@ -7,3 +7,4 @@ safetensors
 pillow
 piper-tts
 imageio-ffmpeg
+playwright

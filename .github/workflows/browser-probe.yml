@@ -1,0 +1,50 @@
+name: "Probe a model's own browser Studio (read-only)"
+
+# Asks one media Studio for the state of its free headless browser (browser_status) and, optionally, opens a public page in it and prints what the model would read.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "media Studio name under novaai2026, e.g. sham-donor-qwen35-9b-media or nova-media-server"
+        required: true
+        default: "sham-donor-qwen35-9b-media"
+      open_url:
+        description: "public page to open (empty = status only)"
+        required: false
+        default: "https://example.com"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Status and one page
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          URL: ${{ inputs.open_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          studio = os.environ["STUDIO"]
+          assert re.fullmatch(r"[a-z0-9-]{5,60}", studio)
+          base = f"https://studio-novaai2026-{studio}.api-inference.modelscope.net/gradio_api"
+          head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          def call(api, body, wait=100):
+              req = urllib.request.Request(base + f"/call/{api}", data=json.dumps({"data": [body]}).encode(), headers=head)
+              event = json.load(urllib.request.urlopen(req, timeout=30))["event_id"]
+              text = urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}/{event}", headers=head), timeout=wait).read().decode("utf-8", "ignore")
+              for block in text.split("\n\n"):
+                  if "event: complete" in block:
+                      line = [l for l in block.splitlines() if l.startswith("data:")][0][5:].strip()
+                      first = json.loads(line)[0]
+                      return json.loads(first) if isinstance(first, str) else first
+              return {"raw": text[:400]}
+          print("STATUS", json.dumps(call("browser_status", ""), ensure_ascii=False)[:2500])
+          if os.environ["URL"].strip():
+              out = call("browser_do", json.dumps({"action": "open", "url": os.environ["URL"], "session": "probe"}))
+              print("OPEN", json.dumps({k: (str(v)[:600]) for k, v in out.items() if k != "screenshot_b64"}, ensure_ascii=False))
+          PY

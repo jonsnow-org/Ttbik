@@ -76,6 +76,12 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
 
+/** The model's own free headless browser (browserComputer.ts): real pages with JavaScript, clicking and typing. One tool so a small context window pays for one schema. */
+export const BROWSER_TOOL_DEFS: CoderTool[] = [
+  tool("browser", "Your own web browser (real pages, JavaScript). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list; type{id,text,enter} fills a field; press{key}; scroll{dy}; back. Every answer lists the page text and numbered clickable elements.",
+    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back"] }, url: s("address for open"), id: n("element number from the last answer"), text: s("text to type"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up") }, ["action"])),
+];
+
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
   tool("cloud_computer_status", "Inspect the persistent Linux computer assigned to the current user and selected model.", obj({})),
   tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; install packages, run browsers, compilers, servers and background processes as needed.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
@@ -160,7 +166,7 @@ export function renderPlan(items: unknown): string {
 export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
-  computer: "computer (your own Linux computer for this task: clone a repository, run shell commands, install packages, run tests, read and write files, search code; private to this user and this selected model)",
+  computer: "computer (your own Linux computer for this task: clone a repository, run shell commands, install packages, run tests, read and write files, search code; plus your own web browser for real pages; private to this user and this selected model)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
   media: "media (look at a picture or a few frames of a video; make a picture, sound or video with the media Studio and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
@@ -171,7 +177,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
     // The persistent desktop (cloud_computer_*) is off in production (zero-cost policy): offering it would only cost the model a slow step per failed call.
-    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
     memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
@@ -694,6 +700,12 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       }
       const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
       return formatResearch(r, 24000);
+    }
+    if (name === "browser") {
+      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the browser";
+      const { browserDo } = await import("@/lib/browserComputer");
+      // one browser session per user AND model: the Studio is the model's own, the id keeps one user's pages away from another's
+      return browserDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, a as Record<string, unknown>, ctx.fetchImpl);
     }
     if (name.startsWith("cloud_computer_")) {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model computer context is available";
