@@ -67,7 +67,7 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void } = {},
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string } = {},
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
@@ -90,10 +90,10 @@ export async function novaMakeMedia(
 async function novaMakeMediaOnce(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch },
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string },
   seed = 0,
 ): Promise<MediaReply | null> {
-  const base = novaMediaUrl();
+  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();          // a candidate passes ITS OWN media Studio here (never Nova's)
   if (!base) return null;
   const f = opts.fetchImpl || fetch;
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";

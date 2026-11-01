@@ -657,14 +657,15 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const { detectMediaIntent } = await import("@/lib/coderMediaFast");
   const intent = detectMediaIntent(content);
   if (!intent) return false;
-  if (intent.kind === "video" && selectedModel !== "coder") {
+  const ownVideo = intent.kind === "video" && selectedModel !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(selectedModel) : null;
+  if (intent.kind === "video" && selectedModel !== "coder" && !ownVideo) {
     const why = "لم يتم تجهيز مولّد فيديو مستقل لهذا النموذج بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
     return true;
   }
-  if (intent.kind === "video") {
+  if (intent.kind === "video" && !ownVideo) {
     const nm = await import("@/lib/novaMedia");
     if (!nm.novaMediaEnabled()) {
       const why = "استوديو الفيديو الخاص بنوفا غير مفعّل (NOVA_MEDIA_STUDIO_URL=off).";
@@ -739,7 +740,8 @@ async function fastMedia(
           raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000 });
         } else {
           const nm = await import("@/lib/novaMedia");
-          raw = await nm.novaMakeMedia("video", prompt, { timeoutMs: 300000 });
+          const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
+          raw = await nm.novaMakeMedia("video", prompt, { timeoutMs: 300000, ...(own ? { base: own.base } : {}) });
         }
         const media = (await vetMedia(raw)) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
