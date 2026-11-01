@@ -24,6 +24,9 @@ describe("Sham runtime namespaces are model-specific", () => {
     expect(v1.runId).toBe("sham-42-v1");
     expect(v2.runId).toBe("sham-42-v2");
     expect(v1.runId).not.toBe(v2.runId);
+    expect(v1.modelId).toBe("sham");
+    expect(v2.modelId).toBe("sham_v2");
+    expect(v1.modelId).not.toBe(v2.modelId);
   });
 
   it("refuses to construct runtime context when no model was selected", async () => {

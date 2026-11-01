@@ -41,3 +41,18 @@ test("tier-1 rerun: only after 12 h, once, when nobody fixed it and nobody is wo
   assert.equal(decideRerun(base({ file: "athar-mints.yml" }), NOW).ok, false);              // never money / posting workflows
   assert.equal(decideRerun(base({ file: "channel-post.yml" }), NOW).ok, false);
 });
+
+import { notifyDecision } from "./run.mjs";
+test("mail control: blips are silent, 6h outage mails once, recovery mails once", () => {
+  const t0 = Date.parse("2026-11-01T00:00:00Z");
+  let a = notifyDecision("<!-- status:ok -->", "fail", t0);
+  assert.equal(a.comment, null);
+  let b = notifyDecision("<!-- status:fail -->" + a.marker, "ok", t0 + 3600e3);
+  assert.equal(b.comment, null);                       // blip healed: no mail
+  let c = notifyDecision("<!-- status:fail -->" + a.marker, "fail", t0 + 7 * 3600e3);
+  assert.match(c.comment, /Still failing/);            // long outage: one mail
+  let d = notifyDecision("<!-- status:fail -->" + c.marker, "fail", t0 + 8 * 3600e3);
+  assert.equal(d.comment, null);                       // not repeated
+  assert.match(notifyDecision("<!-- status:fail -->" + c.marker, "ok", t0 + 9 * 3600e3).comment, /Recovered/);
+  assert.equal(notifyDecision("<!-- status:ok -->", "warn", t0).comment, null);   // warnings never mail
+});

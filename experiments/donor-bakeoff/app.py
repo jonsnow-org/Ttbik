@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-10-31-r13"
+APP_REVISION = "donor-bakeoff-2026-11-01-r14"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
@@ -1084,9 +1084,10 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
                     "model": tool_bridge.get("model"),
                     "name": name,
                     "arguments": arguments,
+                    "media_capabilities": get_state().get("media") or {},
                 },
                 headers={"Cache-Control": "no-store"},
-                timeout=(10, 38),
+                timeout=(10, 180 if name == "cloud_computer_screenshot" else 38),
             )
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
@@ -1095,6 +1096,7 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
                 "ok": payload.get("ok") is True,
                 "result": str(payload.get("result") or payload.get("error") or "")[:18000],
                 "approval_required": payload.get("approval_required") is True,
+                "_computer_vision": payload.get("vision") if isinstance(payload.get("vision"), dict) else None,
                 "http_status": response.status_code,
             }
         except Exception as exc:
@@ -1274,6 +1276,7 @@ def infer(
         token_count = 0
         executed_tools = []
         generated_media = []
+        computer_vision_frames = []
         pending_calls = []
         text_tool_mode = False
         choice_item = {}
@@ -1313,6 +1316,22 @@ def infer(
                 generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
                 if isinstance(generated, dict):
                     generated_media.append(generated)
+                computer_vision = tool_result.pop("_computer_vision", None) if isinstance(tool_result, dict) else None
+                if isinstance(computer_vision, dict):
+                    encoded_screen = str(computer_vision.get("b64") or "")
+                    mime_screen = str(computer_vision.get("mimeType") or "image/jpeg").lower()
+                    if (
+                        (get_state().get("media") or {}).get("vision") is True
+                        and mime_screen in {"image/jpeg", "image/png", "image/webp"}
+                        and 100 <= len(encoded_screen) <= 12_000_000
+                        and re.fullmatch(r"[A-Za-z0-9+/=]+", encoded_screen)
+                    ):
+                        computer_vision_frames.append({
+                            "b64": encoded_screen,
+                            "mime": mime_screen,
+                            "width": computer_vision.get("width"),
+                            "height": computer_vision.get("height"),
+                        })
                 executed_tools.append({"name": name, "arguments": arguments, "result": tool_result})
                 assistant_calls.append({
                     "id": call_id,
@@ -1329,6 +1348,25 @@ def infer(
             assistant_content = strip_tool_call_markup(assistant_content)
             messages.append({"role": "assistant", "content": assistant_content or None, "tool_calls": assistant_calls})
             messages.extend(tool_results)
+            # The candidate itself receives the screenshot as a multimodal user turn through
+            # its loaded projector. No other model or shared vision Studio is invoked.
+            # Models without projector support receive OCR + accessibility text in the tool result.
+            for screen in computer_vision_frames:
+                data_url = "data:" + screen["mime"] + ";base64," + screen["b64"]
+                description = (
+                    "The screenshot of your own selected-model cloud computer is attached. "
+                    "Inspect the pixels directly and correlate visible text, layout, dialogs and "
+                    "controls with the accessibility tree returned by cloud_computer_screenshot. "
+                    "Do not assume a control succeeded until you inspect the next screen."
+                )
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": description},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                })
+            computer_vision_frames.clear()
             if use_tools and isinstance(tool_bridge, dict) and isinstance(tool_bridge.get("tools"), list):
                 for item in tool_bridge["tools"]:      # tools loaded by load_tools in this round are shown from the next one
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):

@@ -103,6 +103,20 @@ async function http(url, ms = 20000) {
   catch { return { status: 0, text: "" }; }
 }
 
+// Mail control (owner's order 2026-11-01): a GitHub comment is an e-mail. Only a real outage reaches the owner:
+// status "fail" that has lasted NOTIFY_AFTER_H hours (one comment), then one comment when it recovers. Blips and warnings stay silent.
+export const NOTIFY_AFTER_H = 6;
+export function notifyDecision(prevBody, status, nowMs = Date.now()) {
+  const m = /<!-- since:(\S+) notified:([01]) -->/.exec(prevBody || "");
+  const prevBad = /<!-- status:(warn|fail) -->/.test(prevBody || "");
+  const since = status !== "ok" ? (prevBad && m ? m[1] : new Date(nowMs).toISOString()) : "";
+  const wasNotified = prevBad && m?.[2] === "1";
+  const longEnough = status === "fail" && since && nowMs - Date.parse(since) >= NOTIFY_AFTER_H * 3600e3;
+  const comment = status === "ok" ? (wasNotified ? "Recovered: everything is OK again." : null) : (longEnough && !wasNotified ? `Still failing for ${NOTIFY_AFTER_H}+ hours. See the report above.` : null);
+  const notified = status !== "ok" && (wasNotified || !!comment);
+  return { comment, marker: status === "ok" ? "" : `\n<!-- since:${since} notified:${notified ? 1 : 0} -->\n` };
+}
+
 async function main() {
   const section = process.argv[2], cfg = SECTIONS[section];
   if (!cfg) { console.error(`unknown section: ${section}`); process.exit(2); }
@@ -148,8 +162,8 @@ async function main() {
   const found = await gh(`/repos/${repo}/issues?state=open&labels=${label}&per_page=5`);
   const issue = found.status === 200 ? found.body.find((i) => !i.pull_request) : null;
   if (!issue) { await gh(`/repos/${repo}/issues`, { method: "POST", body: JSON.stringify({ title: `Supervisor report: ${section}`, body, labels }) }); return; }
-  const prev = /<!-- status:(\w+) -->/.exec(issue.body || "")?.[1] || "ok";
-  await gh(`/repos/${repo}/issues/${issue.number}`, { method: "PATCH", body: JSON.stringify({ body, labels }) });
-  if (prev !== status) await gh(`/repos/${repo}/issues/${issue.number}/comments`, { method: "POST", body: JSON.stringify({ body: `Status changed ${prev} -> ${status}. See the report above.` }) });
+  const nd = notifyDecision(issue.body, status);
+  await gh(`/repos/${repo}/issues/${issue.number}`, { method: "PATCH", body: JSON.stringify({ body: body + nd.marker, labels }) });
+  if (nd.comment) await gh(`/repos/${repo}/issues/${issue.number}/comments`, { method: "POST", body: JSON.stringify({ body: nd.comment }) });
 }
 if (process.argv[1] && process.argv[1].endsWith("run.mjs")) main().catch((e) => { console.error(String(e)); process.exit(1); });

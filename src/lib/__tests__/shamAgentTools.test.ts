@@ -17,7 +17,9 @@ describe("the tool list the model is shown", () => {
     expect(block).toContain("- make_media(");
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
-    expect(block.length).toBeLessThan(4200);                               // the new body's prompt window is small
+    expect(block).toContain("- cloud_computer_execute(");
+    expect(block).toContain("- cloud_computer_screenshot(");
+    expect(block.length).toBeLessThan(6500);                               // the new body's prompt window is small
   });
   it("without GitHub there is no GitHub tool, but delegate and the VM stay", () => {
     const names = shamTools(false, false).map((t) => t.function.name);
@@ -25,6 +27,8 @@ describe("the tool list the model is shown", () => {
     expect(names).not.toContain("github_ci");
     expect(names).toContain("delegate");
     expect(names).toContain("sandbox_exec");
+    expect(names).toContain("cloud_computer_execute");
+    expect(names).toContain("cloud_computer_screenshot");
   });
   it("the parallel GitHub batch reader is v2-only", () => {
     const v1 = shamVariant.run("v1", () => shamTools(true, true).map((t) => t.function.name));
@@ -139,13 +143,13 @@ describe("delegate: helper agents inside Sham v2", () => {
     let t = 0;
     const seen: string[] = [];
     const ask: ShamAsk = async (prompt) => { seen.push(prompt); return (/نتيجة الأداة/.test(prompt) ? text("سأقرأ بنفسي.") : text(call("delegate", { tasks: [{ title: "a", task: "اقرأ شيئاً" }] }))) as any; };
-    await shamVariant.run("v2", () => shamAgentRun({ text: "x", ctx: mkCtx(), tools, budgetMs: 21000, now: () => (t += 0), ask, exec: async () => "x" }));
+    await shamVariant.run("v2", () => shamAgentRun({ text: "افحص مستودع GitHub o/example واقرأ ملفاته باستخدام الوكلاء", ctx: mkCtx(), tools, budgetMs: 21000, now: () => (t += 0), ask, exec: async () => "x" }));
     expect(seen[1]).toMatch(/not enough time left to delegate/);
   });
   it("bad arguments: tasks missing is caught by the schema check before anything runs", async () => {
     const seen: string[] = [];
     const ask: ShamAsk = async (prompt) => { seen.push(prompt); return (seen.length === 1 ? text(call("delegate", {})) : text("لم أستطع.")) as any; };
-    const r = await shamVariant.run("v2", () => shamAgentRun({ text: "x", ctx: mkCtx(), tools, budgetMs: 60000, now: () => Date.now(), ask, exec: async () => "x" }));
+    const r = await shamVariant.run("v2", () => shamAgentRun({ text: "افحص مستودع GitHub o/example واقرأ ملفاته باستخدام الوكلاء", ctx: mkCtx(), tools, budgetMs: 60000, now: () => Date.now(), ask, exec: async () => "x" }));
     expect(seen[1]).toMatch(/tasks/);                                      // the model is told which argument is missing
     expect(r.kind).toBe("text");
   });

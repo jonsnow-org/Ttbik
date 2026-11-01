@@ -11,12 +11,13 @@ import {
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "../_nova/OwnerModelsPanel";
+import "@xterm/xterm/css/xterm.css";
 import {
   addToHome, bindBack, bindMain, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
   payInvoice, rawInitData, setBio, startTma, closeApp,
 } from "../_tma/sdk";
 
-type Tab = "tasks" | "terminal" | "schedules" | "connect" | "memory" | "settings";
+type Tab = "tasks" | "computer" | "schedules" | "connect" | "memory" | "settings";
 type Page = "billing" | "panel" | null;
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
@@ -25,7 +26,7 @@ type Pending = { runId: string; nonce: string; reason: string; summary: string; 
 type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 type Accuracy = "fast" | "balanced" | "precise";
-type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
+type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean; computer?: boolean }; settings: { mode: "coder" | "sham"; think: boolean; accuracy?: Accuracy; lang: Lang; tz: string; repo: string; model?: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
 type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "soon"; label?: string; source?: "owner-env" | "user-link" };
@@ -949,90 +950,442 @@ function PanelPage({ lang }: { lang: Lang }) {
   );
 }
 
-// ---------------------------------------------------------------- interactive terminal: live task logs stay inside the Mini App, never sent as chat messages
-function TerminalTab({ lang }: { lang: Lang }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selected, setSelected] = useState("");
-  const [events, setEvents] = useState<Ev[]>([]);
-  const [error, setError] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const cursor = useRef(0);
+function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
   const ar = lang === "ar";
-  const loadTasks = useCallback(async () => {
-    try {
-      const response = await fetch("/api/coder/terminal?limit=40", { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-      const d = await response.json().catch(() => ({})) as { tasks?: Task[]; error?: string };
-      if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
-      setTasks(d.tasks || []);
-      setError("");
-      setSelected((old) => old && (d.tasks || []).some((x) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
-    } catch (e: any) { setError(e?.message || "API error"); }
-  }, []);
-  useEffect(() => { void loadTasks(); const id = setInterval(() => { if (document.visibilityState === "visible") void loadTasks(); }, 4000); return () => clearInterval(id); }, [loadTasks]);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<any>(null);
+  const fitRef = useRef<any>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const sessionRef = useRef("");
+  const cursorRef = useRef("");
+  const reconnectRef = useRef<(() => Promise<void>) | null>(null);
+  const [state, setState] = useState("opening");
+  const [error, setError] = useState("");
+  const [session, setSession] = useState("");
+  const [cwd, setCwd] = useState("/home/daytona");
+  const [connecting, setConnecting] = useState(false);
+
   useEffect(() => {
-    let stopped = false;
-    cursor.current = 0;
-    setEvents([]);
-    if (!selected) return;
-    const pull = async () => {
+    let disposed = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let dataDisposable: any = null;
+    let resizeDisposable: any = null;
+    let terminal: any = null;
+    let fit: any = null;
+    let attachActive = false;
+
+    const attach = async (isReconnect: boolean) => {
+      if (disposed || !terminal || attachActive) return;
+      attachActive = true;
+      setConnecting(true);
+      setError("");
       try {
-        const response = await fetch(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-        const d = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
-        if (stopped) return;
-        if (d.events?.length) {
-          cursor.current = d.events[d.events.length - 1].id;
-          setEvents((old) => [...old, ...d.events].slice(-800));
+        setState("connecting");
+        const opened = await api<any>("computer_terminal_open", { model });
+        const id = String(opened.sessionId || "");
+        if (!id) throw new Error("The computer did not return a PTY session id.");
+        sessionRef.current = id;
+        setSession(id);
+        setCwd(String(opened.cwd || "/home/daytona"));
+        // Fit after the session id is known so the first resize reaches the actual PTY.
+        try { fit?.fit(); } catch { /* the terminal may be in a hidden tab */ }
+
+        // Drain the retained scrollback before attaching. The returned cursor is passed to
+        // Daytona's WebSocket attach endpoint so there is no gap between replay and live output.
+        const previous = await api<any>("computer_terminal_poll", {
+          model, sessionId: id, cursor: cursorRef.current || undefined,
+        });
+        if (disposed) return;
+        if (previous.output) terminal.write(String(previous.output));
+        if (previous.cursor) cursorRef.current = String(previous.cursor);
+
+        const ticket = await api<any>("computer_terminal_ticket", {
+          model, sessionId: id, cursor: cursorRef.current || undefined,
+        });
+        const socketUrl = String(ticket.url || "");
+        if (!/^wss:\/\//i.test(socketUrl)) throw new Error("The computer did not return a secure WebSocket URL.");
+        const socket = new WebSocket(socketUrl);
+        socket.binaryType = "arraybuffer";
+        socketRef.current = socket;
+        socket.onopen = () => {
+          if (disposed) { socket.close(); return; }
+          setState("connected");
+          setError("");
+          terminal.focus();
+        };
+        socket.onmessage = (event) => {
+          if (disposed) return;
+          if (event.data instanceof ArrayBuffer) terminal.write(new Uint8Array(event.data));
+          else if (event.data instanceof Blob) {
+            void event.data.arrayBuffer().then((buffer) => { if (!disposed) terminal.write(new Uint8Array(buffer)); });
+          } else terminal.write(String(event.data));
+        };
+        socket.onerror = () => {
+          if (!disposed) setError(ar ? "انقطع اتصال الطرفية المباشر. أعد الاتصال للاحتفاظ بنفس جلسة shell." : "The live terminal connection failed. Reconnect to the existing shell session.");
+        };
+        socket.onclose = () => {
+          if (!disposed) setState("disconnected");
+          if (socketRef.current === socket) socketRef.current = null;
+        };
+      } catch (e: any) {
+        if (!disposed) {
+          setState("unavailable");
+          setError(String(e?.message || e));
         }
-      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
+      } finally {
+        attachActive = false;
+        if (!disposed) setConnecting(false);
+      }
+      void isReconnect;
     };
-    void pull();
-    const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
-    return () => { stopped = true; clearInterval(id); };
-  }, [selected]);
-  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+
+    const init = async () => {
+      try {
+        const [{ Terminal }, { FitAddon }] = await Promise.all([
+          import("@xterm/xterm"),
+          import("@xterm/addon-fit"),
+        ]);
+        if (disposed || !hostRef.current) return;
+        terminal = new Terminal({
+          cursorBlink: true,
+          convertEol: true,
+          scrollback: 12000,
+          fontSize: 12,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          allowTransparency: false,
+          theme: { background: "#050b10", foreground: "#d1fae5", cursor: "#5eead4", selectionBackground: "#164e63" },
+        });
+        fit = new FitAddon();
+        terminal.loadAddon(fit);
+        terminal.open(hostRef.current);
+        fit.fit();
+        terminalRef.current = terminal;
+        fitRef.current = fit;
+
+        dataDisposable = terminal.onData((data: string) => {
+          const socket = socketRef.current;
+          if (socket?.readyState === WebSocket.OPEN) {
+            try { socket.send(data); } catch (e) { setError(String((e as Error)?.message || e)); }
+          }
+        });
+        resizeDisposable = terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
+          const id = sessionRef.current;
+          if (id) void api("computer_terminal_resize", { model, sessionId: id, cols, rows }).catch((e: any) => {
+            if (!disposed) setError(String(e?.message || e));
+          });
+        });
+        resizeObserver = new ResizeObserver(() => {
+          try { fit.fit(); } catch { /* container is temporarily hidden */ }
+        });
+        resizeObserver.observe(hostRef.current);
+        terminal.writeln(ar ? "حاسوبك السحابي · طرفية PTY مباشرة" : "Cloud computer · live PTY terminal");
+        await attach(false);
+      } catch (e: any) {
+        if (!disposed) {
+          setState("unavailable");
+          setError(String(e?.message || e));
+        }
+      }
+    };
+
+    reconnectRef.current = () => attach(true);
+    void init();
+    return () => {
+      disposed = true;
+      resizeObserver?.disconnect();
+      dataDisposable?.dispose?.();
+      resizeDisposable?.dispose?.();
+      const socket = socketRef.current;
+      socketRef.current = null;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "terminal component closed");
+      terminalRef.current?.dispose?.();
+      terminalRef.current = null;
+      fitRef.current = null;
+      reconnectRef.current = null;
+    };
+  }, [model, ar]);
+
+  const reconnect = async () => {
+    const socket = socketRef.current;
+    socketRef.current = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "manual reconnect");
+    await reconnectRef.current?.();
+  };
+
   return (
-    <div style={{ padding: "12px", color: "#d1fae5" }}>
-      <div style={{ borderRadius: 16, overflow: "hidden", background: "#050b10", border: "1px solid #164e63", boxShadow: "0 8px 28px #02061730" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", background: "#0b1720", borderBottom: "1px solid #164e63" }}>
-          <div><div style={{ fontFamily: "monospace", fontWeight: 800, color: "#5eead4" }}>NOVA / TERMINAL</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
-          <button type="button" onClick={() => { setRefreshing(true); void loadTasks().finally(() => setRefreshing(false)); }} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "7px 10px", color: "#a5f3fc", background: "#082f49", fontSize: 12 }}>{refreshing ? "…" : (ar ? "تحديث" : "Refresh")}</button>
+    <div style={{ padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "ui-monospace,monospace", fontWeight: 800, color: "var(--tgui--text-color)" }}>{ar ? "طرفية الحاسوب" : "Computer terminal"}</div>
+          <Caption>{ar ? "اتصال WebSocket مباشر بجلسة PTY داخل الآلة نفسها" : "Direct WebSocket connection to the PTY inside this same VM"} · {session ? session.slice(-12) : (ar ? "تهيئة..." : "Opening...")}</Caption>
         </div>
-        <div style={{ padding: 10, background: "#071018", borderBottom: "1px solid #164e63" }}>
-          <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>{ar ? "اختر المهمة لعرض سجلاتها" : "Select a job to inspect logs"}</label>
-          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: 10, color: "#d1fae5", background: "#0b1720", border: "1px solid #155e75" }}>
-            {tasks.length === 0 && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
-            {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.status === "running" ? "● " : t.status === "failed" ? "× " : "✓ ") + (t.title || t.run_id).slice(0, 80) + " · " + t.status}</option>)}
-          </select>
-        </div>
-        <div aria-live="polite" style={{ minHeight: 260, maxHeight: "58vh", overflowY: "auto", padding: 12, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.65, whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: "#03070b" }}>
-          <div style={{ color: "#22d3ee" }}># {ar ? "سجل حي — لا تُرسل هذه البيانات إلى محادثة البوت" : "Live logs — these stay in the Mini App"}</div>
-          {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
-          {!selected && <div style={{ color: "#64748b" }}>{ar ? "أرسل طلباً للبوت أو اختر مهمة سابقة." : "Send a bot request or choose a previous task."}</div>}
-          {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : ev.kind === "tool" ? "#fcd34d" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span>{ev.text}</span></div>)}
-          {selected && events.length === 0 && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
-          {selected && tasks.find((x) => x.run_id === selected)?.status === "running" && <div className="coder-pulse" style={{ marginTop: 8, color: "#5eead4" }}>▌ {ar ? "المهمة قيد التشغيل…" : "Job is running…"}</div>}
-        </div>
-        <div style={{ padding: "8px 12px", color: "#64748b", fontSize: 10, background: "#0b1720", borderTop: "1px solid #164e63" }}>Postgres task events · polling 1.2s · {events.length} {ar ? "سجل معروض" : "events shown"}</div>
+        <Button size="s" mode="bezeled" onClick={() => void reconnect()} disabled={connecting}>{connecting ? "…" : (ar ? "إعادة الاتصال" : "Reconnect")}</Button>
       </div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 2px 8px", color: "var(--tgui--hint-color)", fontSize: 11 }}>
+        <span>{cwd}</span><span>{state}</span>
+      </div>
+      <div style={{ border: "1px solid var(--tgui--divider)", borderRadius: 12, overflow: "hidden", background: "#050b10", padding: 8 }}>
+        <div ref={hostRef} role="application" aria-label={ar ? "طرفية الحاسوب السحابية" : "Cloud computer terminal"} style={{ minHeight: 320, height: "min(58vh, 620px)", width: "100%" }} />
+      </div>
+      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8, overflowWrap: "anywhere" }}>{error}</div>}
+      <Caption>{ar ? "تدفق حي ثنائي الاتجاه، يدعم ANSI والبرامج التفاعلية وتغيير حجم الطرفية وإعادة الاتصال دون فتح shell جديد." : "Live bidirectional stream with ANSI, interactive programs, terminal resizing and session-preserving reconnects."}</Caption>
     </div>
   );
 }
 
+function CloudFilesPane({ lang, model }: { lang: Lang; model: string }) {
+  const ar = lang === "ar";
+  const [path, setPath] = useState("/home/daytona");
+  const [items, setItems] = useState<any[]>([]);
+  const [selected, setSelected] = useState("");
+  const [editor, setEditor] = useState("");
+  const [binary, setBinary] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async (dir = path) => {
+    setBusy("list"); setError("");
+    try {
+      const result = await api<any>("computer_files_list", { model, path: dir, depth: 1 });
+      setItems(Array.isArray(result.items) ? result.items : []);
+      setPath(String(result.path || dir));
+      setSelected("");
+      setEditor("");
+      setBinary(false);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  }, [model, path]);
+
+  useEffect(() => { void load("/home/daytona"); }, [model]);
+
+  const openItem = async (item: any) => {
+    if (item.isDir) { await load(item.path); return; }
+    setBusy("read"); setError("");
+    try {
+      const result = await api<any>("computer_files_download", { model, path: item.path });
+      const raw = atob(String(result.base64 || ""));
+      const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+      const hasNul = bytes.subarray(0, Math.min(bytes.length, 8192)).includes(0);
+      setSelected(item.path);
+      setBinary(hasNul);
+      setEditor(hasNul ? "" : new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const saveText = async () => {
+    if (!selected || binary) return;
+    setBusy("save"); setError("");
+    try {
+      await api("computer_files_write_text", { model, path: selected, content: editor });
+      await load(path);
+      setSelected(selected);
+      setEditor(editor);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setBusy("upload"); setError("");
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read the selected file."));
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      const target = path.replace(/\/$/, "") + "/" + file.name.replace(/[\\/]/g, "_");
+      await api("computer_files_upload", { model, path: target, base64 });
+      await load(path);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); if (fileInput.current) fileInput.current.value = ""; }
+  };
+
+  const createFolder = async () => {
+    const name = window.prompt(ar ? "اسم المجلد الجديد" : "New folder name");
+    if (!name) return;
+    const target = path.replace(/\/$/, "") + "/" + name.replace(/[\\/]/g, "_");
+    setBusy("mkdir"); setError("");
+    try { await api("computer_files_mkdir", { model, path: target }); await load(path); }
+    catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const removeItem = async (item: any) => {
+    const ok = window.confirm(ar ? `هل تريد حذف ${item.name}؟` : `Delete ${item.name}?`);
+    if (!ok) return;
+    setBusy("delete"); setError("");
+    try { await api("computer_files_delete", { model, path: item.path, recursive: item.isDir }); await load(path); }
+    catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const downloadSelected = async () => {
+    if (!selected) return;
+    setBusy("download"); setError("");
+    try {
+      const result = await api<any>("computer_files_download", { model, path: selected });
+      const bytes = Uint8Array.from(atob(String(result.base64 || "")), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = selected.split("/").pop() || "download";
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e: any) { setError(String(e?.message || e)); }
+    finally { setBusy(""); }
+  };
+
+  const parent = () => {
+    const p = path.replace(/\/$/, "").split("/");
+    p.pop();
+    return load(p.join("/") || "/");
+  };
+
+  return (
+    <div style={{ padding: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div style={{ flex: 1, minWidth: 150, fontFamily: "ui-monospace,monospace", fontSize: 12, overflowWrap: "anywhere" }}>{path}</div>
+        <Button size="s" mode="bezeled" disabled={!!busy || path === "/"} onClick={() => void parent()}>{ar ? "للأعلى" : "Up"}</Button>
+        <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void load()}>{ar ? "تحديث" : "Refresh"}</Button>
+        <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void createFolder()}>{ar ? "مجلد جديد" : "New folder"}</Button>
+        <Button size="s" disabled={!!busy} onClick={() => fileInput.current?.click()}>{ar ? "رفع ملف" : "Upload"}</Button>
+        <input ref={fileInput} type="file" hidden onChange={(e) => void upload(e.target.files?.[0])} />
+      </div>
+      <div style={{ marginTop: 10, border: "1px solid var(--tgui--divider)", borderRadius: 10, overflow: "hidden" }}>
+        {busy === "list" ? <Loading /> : items.length ? items.map((item) => (
+          <div key={item.path} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderBottom: "1px solid var(--tgui--divider)" }}>
+            <button type="button" onClick={() => void openItem(item)} style={{ flex: 1, minWidth: 0, textAlign: "start", border: 0, background: "transparent", color: "var(--tgui--text-color)", overflowWrap: "anywhere" }}>
+              {item.isDir ? "📁" : "📄"} {item.name}
+              <span style={{ display: "block", color: "var(--tgui--hint-color)", fontSize: 10 }}>{item.isDir ? (ar ? "مجلد" : "Folder") : `${item.size} bytes`}</span>
+            </button>
+            <Button size="s" mode="plain" disabled={!!busy} onClick={() => void removeItem(item)}>{ar ? "حذف" : "Delete"}</Button>
+          </div>
+        )) : <div style={{ padding: 16, color: "var(--tgui--hint-color)", textAlign: "center" }}>{ar ? "المجلد فارغ" : "This folder is empty"}</div>}
+      </div>
+      {selected && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <Caption style={{ flex: 1, minWidth: 140 }}>{selected}</Caption>
+            <Button size="s" mode="bezeled" disabled={!!busy} onClick={() => void downloadSelected()}>{ar ? "تنزيل" : "Download"}</Button>
+            {!binary && <Button size="s" disabled={!!busy} onClick={() => void saveText()}>{busy === "save" ? "…" : (ar ? "حفظ التعديلات" : "Save changes")}</Button>}
+          </div>
+          {binary
+            ? <div style={{ padding: 14, background: "var(--tgui--secondary-bg-color)", borderRadius: 10 }}>{ar ? "ملف ثنائي. استخدم تنزيل للحصول عليه." : "Binary file. Use Download to retrieve it."}</div>
+            : <textarea value={editor} onChange={(e) => setEditor(e.target.value)} spellCheck={false} rows={12} style={{ boxSizing: "border-box", width: "100%", resize: "vertical", borderRadius: 10, padding: 10, border: "1px solid var(--tgui--divider)", background: "var(--tgui--secondary-bg-color)", color: "var(--tgui--text-color)", fontFamily: "ui-monospace,monospace", fontSize: 12 }} />}
+        </div>
+      )}
+      {error && <div style={{ color: "var(--tgui--destructive-text-color)", paddingTop: 8, overflowWrap: "anywhere" }}>{error}</div>}
+      <Caption>{ar ? "هذا مدير ملفات داخل مساحة الحاسوب نفسها. الحد الأقصى لرفع/تنزيل الملف عبر الواجهة 8 ميغابايت؛ الملفات الأكبر تُدار من الطرفية." : "This file manager accesses the same VM filesystem as the desktop and terminal. Browser transfers are capped at 8 MB per file; larger files can be handled from the terminal."}</Caption>
+    </div>
+  );
+}
+
+function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
+  const ar = lang === "ar";
+  const [section, setSection] = useState<"desktop" | "terminal" | "files">("desktop");
+  const [status, setStatus] = useState<any>(null);
+  const [preview, setPreview] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [test, setTest] = useState<any>(null);
+  const load = useCallback(async () => {
+    try { setStatus(await api<any>("computer_status", { model })); setError(""); }
+    catch (e: any) { setError(String(e?.message || e)); }
+  }, [model]);
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 12000);
+    return () => clearInterval(id);
+  }, [load]);
+  const act = async (kind: string, op: string) => {
+    setBusy(kind); setError("");
+    try {
+      const d = await api<any>(op, { model });
+      if (d.previewUrl) setPreview(d.previewUrl);
+      if (op === "computer_stop") setPreview("");
+      if (op === "computer_self_test") setTest(d);
+      if (op === "computer_open" || op === "computer_stop") await load();
+      haptic(d.ok === false ? "warning" : "success");
+    } catch (e: any) { setError(String(e?.message || e)); haptic("error"); }
+    finally { setBusy(""); }
+  };
+  const running = ["started", "running"].includes(String(status?.state || "").toLowerCase());
+  return (
+    <List>
+      <Section>
+        <div style={{ display: "flex", gap: 6, padding: "4px 8px", flexWrap: "wrap" }}>
+          {(["desktop", "terminal", "files"] as const).map((id) => (
+            <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
+              style={{ borderRadius: 10, padding: "8px 12px", border: "1px solid var(--tgui--divider)", background: section === id ? "var(--tgui--secondary-bg-color)" : "transparent", color: "var(--tgui--text-color)", fontWeight: section === id ? 700 : 500 }}>
+              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : (ar ? "الملفات" : "Files")}
+            </button>
+          ))}
+        </div>
+      </Section>
+      {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
+      {section === "files" && <Section header={ar ? "ملفات الحاسوب" : "Computer files"}><CloudFilesPane lang={lang} model={model} /></Section>}
+      {section === "desktop" && <>
+      <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
+        footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
+        <Cell multiline subtitle={(ar ? "النموذج: " : "Model: ") + model + " · " + (status?.snapshot || (ar ? "لم يُنشأ بعد" : "Not created yet"))}>
+          {ar ? "مساحة عمل مستقلة" : "Isolated workspace"}
+        </Cell>
+        <Cell after={running ? "● " + (ar ? "يعمل" : "Running") : (status?.state || (ar ? "غير منشأ" : "Not created"))}>
+          {ar ? "حالة الحاسوب" : "Computer state"}
+        </Cell>
+        {status?.resources && <Cell subtitle={status.resources.memoryGiB + " GB RAM · " + status.resources.diskGiB + " GB disk"} after={status.resources.vcpu + " vCPU"}>{ar ? "الموارد" : "Resources"}</Cell>}
+        <div style={{ padding: "8px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <Button size="m" loading={busy === "open"} disabled={!!busy} onClick={() => void act("open", "computer_open")}>{ar ? (running ? "فتح الحاسوب" : "تشغيل الحاسوب") : (running ? "Open computer" : "Start computer")}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "refresh"} disabled={!!busy || !status?.exists} onClick={() => void act("refresh", "computer_refresh")}>{ar ? "تحديث الاتصال" : "Refresh connection"}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "stop"} disabled={!!busy || !status?.exists || !running} onClick={() => void act("stop", "computer_stop")}>{ar ? "إيقاف مع حفظ الملفات" : "Stop and keep files"}</Button>
+          {owner && <Button size="m" mode="bezeled" loading={busy === "test"} disabled={!!busy} onClick={() => void act("test", "computer_self_test")}>{ar ? "اختبار الحاسوب الكامل" : "Full computer test"}</Button>}
+        </div>
+        {preview && (
+          <div style={{ padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <Caption>{ar ? "سطح المكتب المباشر · رابط مؤقت" : "Live desktop · temporary signed link"}</Caption>
+              <Button size="s" mode="plain" onClick={() => openExternal(preview)}>{ar ? "فتح خارج التطبيق" : "Open externally"}</Button>
+            </div>
+            <div style={{ width: "100%", height: "min(68vh, 620px)", minHeight: 320, overflow: "hidden", borderRadius: 12, border: "1px solid var(--tgui--divider)" }}>
+              <iframe title="Private cloud computer" src={preview} allow="clipboard-read; clipboard-write; fullscreen" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", border: 0, background: "#111827" }} />
+            </div>
+          </div>
+        )}
+        {error && <Cell multiline before="⚠️">{error}</Cell>}
+      </Section>
+      {test && (
+        <Section header={ar ? ("نتيجة الاختبار: " + test.passed + "/" + test.total) : ("Test result: " + test.passed + "/" + test.total)}>
+          {(test.results || []).map((r: any) => <Cell key={r.test} multiline after={r.ok ? "✅" : "❌"} subtitle={r.detail}>{r.test}</Cell>)}
+        </Section>
+      )}
+      </>}
+    </List>
+  );
+}
+
+/** Reuse the same cloud-computer surface inside Nova's default Mini App without a second Tabbar. */
+export function CloudComputerWorkspace({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
+  return <div className="n-tg"><CloudComputerTab lang={lang} model={model} owner={owner} /></div>;
+}
+
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
 const TAB_ICON: Record<Tab, string> = {
+  computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
   tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
-  terminal: "M4 17l6-5-6-5M12 19h8",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   connect: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   memory: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm6 0a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
 const TAB_KEY: Partial<Record<Tab, keyof Str>> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
-const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { tasks: { ar: "المحادثة", en: "Chat" }, terminal: { ar: "الطرفية", en: "Terminal" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
-const TABS: Tab[] = ["tasks", "terminal", "schedules", "connect", "memory", "settings"];
+const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { computer: { ar: "حاسـوبي", en: "Computer" }, tasks: { ar: "المحادثة", en: "Chat" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const TABS: Tab[] = ["tasks", "computer", "schedules", "connect", "memory", "settings"];
 function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "panel") return { tab: "settings", page: "panel" };
+  if (want === "terminal") return { tab: "computer", page: null };
   if (want === "plans" || want === "billing") return { tab: "settings", page: "billing" };
   if (want === "connectors" || want === "connect") return { tab: "connect", page: null };
   return { tab: (TABS as string[]).includes(want) ? (want as Tab) : "tasks", page: null };
@@ -1099,7 +1452,7 @@ export default function NativeApp() {
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
           : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
-          : tab === "terminal" ? (me.features?.terminal ? <TerminalTab lang={lang} /> : <ThreadsTab t={t} me={me} lang={lang} />)
+          : tab === "computer" ? (me.features?.computer ? <CloudComputerTab lang={lang} model={me.settings.model || "coder"} owner={me.tier === "owner"} /> : <ThreadsTab t={t} me={me} lang={lang} />)
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
@@ -1107,7 +1460,7 @@ export default function NativeApp() {
       </main>
       {!page && (
         <Tabbar style={{ paddingBottom: "var(--safe-bottom)" }}>
-          {TABS.filter((id) => id !== "terminal" || me?.features?.terminal).map((id) => (
+          {TABS.filter((id) => id !== "computer" || me?.features?.computer).map((id) => (
             <Tabbar.Item key={id} text={TAB_KEY[id] ? (t[TAB_KEY[id]!] as string) : TAB_LABEL[id][lang]} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={TAB_ICON[id]} /></svg>
             </Tabbar.Item>

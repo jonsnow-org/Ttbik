@@ -1,5 +1,7 @@
 export function generateOrderCode(): string {
-  const rand = crypto.randomUUID().split("-")[0].toUpperCase();
+  // Keep the full UUID (122 bits of randomness) because this code is a bearer
+  // secret for the public order-status endpoint and approved delivery content.
+  const rand = crypto.randomUUID().replace(/-/g, "").toUpperCase();
   return `ORD-${rand}`;
 }
 
