@@ -65,7 +65,7 @@ describe("what it changes", () => {
   });
   it("Sham v2: the overflow Studio goes first", () => {
     _resetPoolForTests();
-    const P = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net", O = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+    const P = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net", O = "https://studio-novaai2026-sham-v2-overflow-server.api-inference.modelscope.net";
     process.env.SHAM_V2_OVERFLOW_URL = O; _verifyForTests(O, true);
     expect(orderV2([P])).toEqual([P, O]);                                  // idle, switch off: the primary
     _setPressureForTests(true);

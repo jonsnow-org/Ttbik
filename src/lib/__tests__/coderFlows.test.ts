@@ -498,14 +498,14 @@ describe("research fast path for GitHub requests", () => {
     for (let i = 0; i < 100 && !sent.some((s) => /التقرير: مشروع a\/tg-llm/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 250));
     expect(sent.some((s) => /التقرير: مشروع a\/tg-llm/.test(s.text))).toBe(true);
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
-    expect(chat).toHaveLength(2);                                                          // one query-draft call, one report call
+    expect(chat.length).toBeGreaterThanOrEqual(2);                                         // one query-draft call, then the report: written in parallel sections and joined by the model
     expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
     const searched = calls.filter((c) => /bing|brave|duckduckgo|wikipedia/.test(c.url)).map((c) => decodeURIComponent(c.url));
     expect(searched.some((u) => /telegram bot message queue retry/.test(u))).toBe(true);   // the drafted queries went to the search engines
     expect(searched.some((u) => /اذهب وابحث/.test(u) && u.length > 400)).toBe(false);      // not the whole command sentence as a query
     expect(calls.some((c) => c.url.includes("api.github.com/search/repositories"))).toBe(true);
     expect(calls.some((c) => c.url.includes("/repos/a/tg-llm/contents/README.md"))).toBe(true);
-    const report = JSON.stringify(chat[1].body);
+    const report = JSON.stringify(chat.find((c) => /GitHub repository search/.test(JSON.stringify(c.body)))?.body);
     expect(report).toMatch(/GitHub repository search/);
     expect(report).toMatch(/a\/tg-llm ★321/);
     expect(report).toMatch(/retries sendMessage with backoff/);

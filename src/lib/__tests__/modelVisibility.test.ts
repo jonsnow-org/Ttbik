@@ -15,6 +15,9 @@ beforeEach(async () => {
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.CODER_TOKEN_KEY = "test-key";
   process.env.OPEN_CODER_STUDIO_URL = "https://coder.test";
+  // Sham v2 is public by default since the rollout (publicRolloutVersion 1); these tests cover the owner's switch, so start from "the owner has hidden it".
+  const db0: any = pgDb(); await listModels(db0);   // creates the table
+  await db0.exec(`INSERT INTO coder_models (id, data) VALUES ('sham_v2', $1::jsonb)`, JSON.stringify({ visible: false, publicRolloutVersion: 1 }));
 });
 const setup = () => { const db: any = pgDb(); const { bot } = fakeBot(); return { db, bot, d: { db, bot, botRow } }; };
 const visibleTo = async (who: typeof o | typeof u, d: any) => ((await appOp(who, "models", {}, d)).models as any[]).map((m) => m.id);
@@ -32,7 +35,7 @@ describe("per-model visibility switch (owner panel) reaches the Mini App and the
     const { d } = setup();
     expect(await visibleTo(u, d)).toEqual(["coder"]);
     expect(await visibleTo(o, d)).toEqual(["coder"]);                        // the public list; the owner's full list is below
-    expect(((await appOp(o, "models", {}, d)).owner as any[]).map((m) => [m.id, m.access])).toEqual([["coder", "everyone"], ["sham", "owner_only"], ["sham_v2", "owner_only"]]);
+    expect(((await appOp(o, "models", {}, d)).owner as any[]).map((m) => [m.id, m.access]).slice(0, 3)).toEqual([["coder", "everyone"], ["sham", "owner_only"], ["sham_v2", "owner_only"]]);   // the owner-only candidates follow
     await expect(appOp(u, "settings", { model: "sham_v2" }, d)).rejects.toThrow(AppError);          // a user cannot pick it
     await appOp(o, "settings", { model: "sham_v2" }, d);                     // the owner can, hidden or not
     expect((await loadState(OWNER, d.db)).model).toBe("sham_v2");

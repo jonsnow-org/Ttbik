@@ -5,7 +5,7 @@ import { _resetPoolForTests, _verifyForTests, tracked, orderV2 } from "@/lib/sha
 
 const realFetch = global.fetch;
 const NOVA = [1, 2, 3, 4, 5].map((i) => `https://studio-novaai2026-coder-inference-server${i === 1 ? "" : i}.api-inference.modelscope.net`);
-const OVER = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+const OVER = "https://studio-novaai2026-sham-v2-overflow-server.api-inference.modelscope.net";
 afterEach(() => { global.fetch = realFetch; for (const k of ["OPEN_CODER_STUDIO_URL", "OPEN_CODER_STUDIO_URLS", "SHAM_V2_URL", "SHAM_V2_OVERFLOW_URL"]) delete process.env[k]; });
 
 function studios(status: Record<string, Record<string, unknown> | "down" | "503">, hits: string[]) {

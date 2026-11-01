@@ -213,7 +213,11 @@ export async function saveChatTurn(chatId: number | string, question: string, an
     // Do not write to chatKey(chatId), which is a shared legacy stream.
     return;
   }
-  if (!id) return;
+  if (!id) {
+    // "save" off and no open conversation: no turn is stored and no chat appears, but "remember" still learns the facts about the user
+    if (mem?.save === false) await saveTurn(chatId, question, answer, db, undefined, mem, modelMemoryKey(chatId, variant));
+    return;
+  }
   await saveTurn(chatId, question, answer, db, scopeKey(chatId, variant, id), mem, modelMemoryKey(chatId, variant));
   if (mem?.save !== false && question.trim() && answer.trim()) await touch(chatId, variant, id, question, answer, db).catch(() => null);
 }

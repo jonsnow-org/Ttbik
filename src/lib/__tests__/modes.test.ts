@@ -255,9 +255,9 @@ describe("Sham's agent uses the same profile", () => {
     await shamVariant.run(variant, () => shamAgentRun({ text, ctx, tools: shamToolDefs(false, false), budgetMs: 20000, mode, ask: async (p, n) => { prompts.push(p); maxNews.push(n); return { type: "text", text: "تمام" } as any; }, maxSteps: 1 }));
     return { prompts, maxNews };
   }
-  it("a greeting with thinking on: the note is the fast one, and the prompt has no tool block", async () => {
+  it("a greeting with thinking on: Sham v2 answers it on the direct chat path (the plain text, no tool block, no thought)", async () => {
     const r = await run("مرحبا", { accuracy: "precise", think: true });
-    expect(r.prompts[0]).toContain("المستخدم يفضّل جواباً سريعاً");
+    expect(r.prompts[0]).toBe("مرحبا");
     expect(r.prompts[0]).not.toContain("الأدوات المتاحة");
   });
   it("only a greeting drops the tool block; agent work and code keep it", async () => {
@@ -278,8 +278,8 @@ describe("Sham's agent uses the same profile", () => {
       await shamVariant.run("v2", () => shamModeCtx.run({ accuracy: "balanced", think }, () => shamAgentRun({ text, ctx, tools: shamToolDefs(false, false), budgetMs: 20000, maxSteps: 1, mode: shamModeCtx.getStore() })));
     }
     const heads = seen.filter((s) => s.startsWith("[[sham"));
-    expect(heads[0]).toMatch(/^\[\[sham temp=0\.70\]\]/);                       // greeting: fast sampling, no think=
-    expect(heads[1]).toMatch(/^\[\[sham temp=0\.60 think=400\]\]/);             // code with the switch on: a 250-token thought
+    expect(heads).toHaveLength(1);                                             // the greeting is a direct chat call: no tool-call header at all, so no thought
+    expect(heads[0]).toMatch(/^\[\[sham temp=0\.60 think=400\]\]/);             // code with the switch on: a short thought
   });
 });
 

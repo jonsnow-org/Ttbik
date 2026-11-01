@@ -130,13 +130,13 @@ describe("the Sham v2 Studio exposes native chat and structured agent APIs", () 
     expect(app).toMatch(/SHAM_MAX_SEQ_LEN/);
     expect(chat).toMatch(/def qwen3_chat_messages\(/);
     expect(chat).not.toContain("QWEN3_SYSTEM");
-    expect(model).toMatch(/class AdapterLinear\\(/);
-    expect(model).toMatch(/def enable_adapters\\(/);
-    expect(model).toMatch(/def resize_max_seq_len\\(/);
+    expect(model).toMatch(/class AdapterLinear\(/);
+    expect(model).toMatch(/def enable_adapters\(/);
+    expect(model).toMatch(/def resize_max_seq_len\(/);
     expect(train).toMatch(/SHAM_V2_ADAPTER_RANK/);
-    expect(train).toMatch(/name\\.endswith\\("\\.adapter_up"\\)/);
+    expect(train).toMatch(/name\.endswith\("\.adapter_up"\)/);
     expect(train).toContain("media_batch = batch_examples");
-    expect(train).toMatch(/def identity_grounding_pairs\\(/);
+    expect(train).toMatch(/def identity_grounding_pairs\(/);
     expect(agentSource).toContain("shamGenerateChat(chatMessages");
     expect(agentSource).not.toContain("لا تكرر السؤال");
     expect(agentSource).not.toContain("isQuestionEcho");
