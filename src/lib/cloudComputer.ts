@@ -698,10 +698,10 @@ export async function cloudComputerListFiles(ctx: CloudComputerContext, path = "
   const rows = Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : Array.isArray(result?.files) ? result.files : [];
   const items: CloudComputerFile[] = rows.slice(0, 500).map((file: any) => {
     const name = String(file?.name || String(file?.path || "").split("/").pop() || "");
-    const filePath = String(file?.path || (directory.replace(/\\/$/, "") + "/" + name));
+    const baseDirectory = directory.endsWith("/") ? directory.slice(0, -1) : directory;
     return {
       name,
-      path: checkedComputerPath(filePath.startsWith("/") ? filePath : (directory.replace(/\\/$/, "") + "/" + filePath)),
+      path: checkedComputerPath(filePath.startsWith("/") ? filePath : (baseDirectory + "/" + filePath)),
       isDir: Boolean(file?.isDir ?? file?.is_dir ?? file?.isDirectory),
       size: Math.max(0, Number(file?.size) || 0),
       modifiedAt: String(file?.modTime || file?.modifiedAt || file?.modifiedTime || file?.mod_time || "") || null,
