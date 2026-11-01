@@ -588,6 +588,10 @@ try:
     import browser_computer
 except Exception:                                                             # noqa: BLE001  (the media Studio works without the browser)
     browser_computer = None
+try:
+    import computer_box
+except Exception:                                                             # noqa: BLE001  (the media Studio works without the computer)
+    computer_box = None
 
 if __name__ == "__main__":
     import gradio as gr
@@ -604,4 +608,7 @@ if __name__ == "__main__":
         if browser_computer is not None:      # this model's own free headless browser (see browser_computer.py)
             gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
             gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
+        if computer_box is not None:          # this model's own free persistent Linux computer: shell, files, background jobs (see computer_box.py)
+            gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
+            gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

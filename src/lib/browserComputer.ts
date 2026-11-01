@@ -16,7 +16,7 @@ export function browserStudioFor(modelId: string | undefined): string | null {
   return candidateMediaStudio(modelId)?.base || null;
 }
 
-function token(): string {
+export function studioToken(): string {
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
 
@@ -55,7 +55,7 @@ export function renderBrowserReply(r: Record<string, any>): string {
   return parts.join("\n");
 }
 
-async function readComplete(res: Response): Promise<unknown> {
+export async function readComplete(res: Response): Promise<unknown> {
   const body = await res.text();
   for (const block of body.split(/\r?\n\r?\n/)) {
     if (/event:\s*error/.test(block)) throw new Error("the browser Studio returned an error");
@@ -74,7 +74,7 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
   if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token() ? { Authorization: "Bearer " + token() } : {}) };
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
   try {
     const start = await fetchImpl(base + "/gradio_api/call/browser_do", {
       method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
@@ -89,4 +89,16 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   } catch (error) {
     return "error: " + String((error as Error)?.message || error).slice(0, 240);
   }
+}
+
+/** One call of a Studio's hidden Gradio API (`/gradio_api/call/<api>`): start, then read the complete event. Shared by the browser and the computer box. */
+export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [JSON.stringify(payload)] }) });
+  if (!start.ok) throw new Error("Studio HTTP " + start.status);
+  const { event_id } = (await start.json()) as { event_id?: string };
+  if (!event_id) throw new Error("the Studio gave no request id");
+  const done = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(readMs) });
+  if (!done.ok) throw new Error("Studio HTTP " + done.status);
+  return (await readComplete(done)) as Record<string, any>;
 }
