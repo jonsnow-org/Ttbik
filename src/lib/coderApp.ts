@@ -141,7 +141,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
         settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
-        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: await terminalAllowed(chatId, db) },
+        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
@@ -677,6 +677,33 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { panelAction } = await import("@/lib/coderPanel");
       return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
+    }
+    case "computer_cleanup_all": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const rows = await db.query<{ chat_id: number | string; model_id: string }>(
+        "SELECT chat_id, model_id FROM cloud_computers WHERE state NOT IN ('stopped', 'deleted', 'archived') ORDER BY updated_at LIMIT $1",
+        50,
+      );
+      const { cloudComputerStop } = await import("@/lib/cloudComputer");
+      let stopped = 0;
+      const errors: string[] = [];
+      for (let i = 0; i < rows.length; i += 5) {
+        const batch = await Promise.all(rows.slice(i, i + 5).map(async (row) => {
+          const chatId = Number(row.chat_id);
+          if (!Number.isFinite(chatId) || !row.model_id) return { ok: false, detail: "invalid legacy computer identity" };
+          try {
+            await cloudComputerStop({ chatId, modelId: row.model_id, tier: "owner", db });
+            return { ok: true, modelId: row.model_id };
+          } catch (error) {
+            return { ok: false, modelId: row.model_id, detail: String((error as Error)?.message || error).slice(0, 160) };
+          }
+        }));
+        for (const item of batch) {
+          if (item.ok) stopped++;
+          else errors.push((item.modelId || "unknown") + ": " + (item.detail || "stop failed"));
+        }
+      }
+      return { ok: errors.length === 0, examined: rows.length, stopped, pending: errors.length, errors };
     }
     case "computer_status":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);

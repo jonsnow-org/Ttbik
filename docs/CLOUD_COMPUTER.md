@@ -1,110 +1,84 @@
 # Ttbik Cloud Computer
 
-## Purpose
+## Current production state — zero-cost policy
 
-The cloud computer is a persistent Linux VM, not a terminal tab or a per-task shell. It gives the user a real graphical desktop, browser, file system, process environment and a shell. The existing Terminal tab remains the task/event log viewer.
+The persistent graphical desktop feature (VNC, browser, PTY, file manager) was originally implemented on Daytona. Daytona is a metered provider with finite promotional credits; it is not a permanent free compute resource. Under the current zero-cost policy:
 
-## Isolation model
+- The production application does not provision or resume Daytona machines.
+- The computer feature is hidden from the production Mini App, so users are not offered a desktop that the app cannot safely provide for free.
+- computer_open, desktop actions, terminal-in-desktop and file operations are blocked in production before any provider call.
+- computer_status reports that the Daytona desktop provider is disabled. For an existing row that is still marked started, the status check attempts a stop operation; it reports cleanup_pending if the stop cannot be confirmed.
+- The explicit computer_stop action remains available so an owner can release a previously created VM. A stopped Daytona VM may retain its filesystem and storage; stopping compute does not necessarily remove all provider storage charges.
+- The one-minute production heartbeat still runs the legacy in-app usage meter for rows already marked started. That meter is not a guarantee that provider compute has stopped. The owner maintenance panel checks and attempts to stop the selected account/model's legacy VM, and its owner-only Stop all legacy desktops action enumerates up to 50 active database rows per request and calls the stop API in batches of five. The action reports stopped and pending counts; run it again if more than 50 rows existed or any stop remains pending. Do not infer that all old VMs have been shut down until the action succeeds and the provider account confirms there are no running machines. Stopped disks/snapshots may still have storage charges, so review the provider dashboard before deciding whether to delete old machines.
 
-- One persistent Daytona Linux VM per verified Telegram account and selected model.
-- The VM identity is derived on the server from the salted account key and the canonical model ID. The client never supplies a sandbox ID, provider name or another account's locator.
-- Nova, Sham v1, Sham v2 and each donor candidate map to different model IDs and therefore different VM names and database rows.
-- Provider names are deterministic hashes; the database stores the user's own opaque machine mapping.
-- Daytona Linux VM sandboxes provide a dedicated VM/kernel, filesystem and network stack. Do not replace them with a shared Linux container for this feature.
-- No application environment secrets or provider credentials are copied into the guest VM.
-- Provider API credentials stay server-side. The desktop is exposed through a signed preview URL with a 15-minute lifetime.
+The Daytona API credential remains stored in the deployment configuration for legacy compatibility and the safe stop path; it is not used to create or resume a desktop in production.
 
-## Provider and VM profile
+## Available free computer execution
 
-Provider: Daytona v0 API / default Linux VM snapshots.
+The active production replacement is a task-scoped execution chain, not a persistent GUI desktop:
 
-| Access | Default snapshot | vCPU | RAM | Disk |
-|---|---|---:|---:|---:|
-| Owner | daytona-vm-large | 4 | 8 GiB | 10 GiB |
-| Plus | daytona-vm-medium | 2 | 4 GiB | 8 GiB |
-| Pro | daytona-vm-large | 4 | 8 GiB | 10 GiB |
+1. **Oracle runner:** one isolated Docker container per task on the existing Oracle Always Free VM. The container is ephemeral and resource-capped, and it refuses new work when Sham is active, host memory is low, or another task box is already running.
+2. **Light JavaScript runner:** an in-process QuickJS/WebAssembly runtime with a per-task file store. It can run limited JavaScript code without shell, npm, network access or host access. It is the automatic fallback when Oracle is unavailable or refuses work.
 
-The profile can be overridden by these server-only settings:
-- `DAYTONA_API_KEY`
-- `DAYTONA_API_URL` (defaults to `https://app.daytona.io/api`)
-- `DAYTONA_TOOLBOX_URL` (defaults to `https://proxy.app.daytona.io/toolbox`)
-- `CLOUD_COMPUTER_OWNER_SNAPSHOT`
-- `CLOUD_COMPUTER_PLUS_SNAPSHOT`
-- `CLOUD_COMPUTER_PRO_SNAPSHOT`
+The application does not automatically use Vercel Sandbox, CodeSandbox VMs, GitHub Codespaces, Daytona or E2B. Their VM access is either metered, dependent on finite credit balances, or dependent on an account-specific free quota that has not been verified for this project. An API key in an environment variable is not evidence that usage is free.
 
-Use Daytona's default `daytona-vm-*` snapshots for now. Its VNC and Computer Use stack is available in the default images; custom snapshots require the VNC/desktop packages to be installed and validated before use.
+### Oracle runner limits
 
-## Lifecycle and persistence
+The production profile is intentionally conservative:
 
-The VM is configured with:
-- `autoStopInterval: 0`
-- `autoPauseInterval: 0`
-- `autoDeleteInterval: -1`
-- `ephemeral: false`
+| Resource | Production default |
+|---|---:|
+| Container CPU | 1 core |
+| Container memory | 1 GiB, no swap |
+| PIDs | 128 |
+| /work tmpfs | 512 MiB |
+| /tmp tmpfs | 128 MiB |
+| Concurrent boxes | 1 |
+| Task lifetime | 30 minutes maximum |
+| Host free-memory floor | 1.8 GiB (hard minimum 1.2 GiB) |
 
-It therefore stays running until explicitly stopped. Manual stop must retain the same sandbox ID and persistent filesystem; the next open starts that same VM. Do not set auto-delete to zero: Daytona interprets zero as delete immediately after stop.
+The container has a read-only root filesystem, a dedicated bridge with inter-container traffic disabled, no host mounts, dropped Linux capabilities and no-new-privileges. Expired containers are reaped. New boxes are refused while the SHAM_ON flag is present, the host free-memory floor is breached, or the active-box limit is reached.
 
-A persistent always-on VM incurs provider compute charges while it is running. The UI offers an explicit **Stop and keep files** action. A stopped VM retains its disk; it does not consume running VM CPU while stopped.
+The runner endpoint is exposed by the existing Oracle Caddy route at /coder-sbx/*. The application authenticates with x-runner-key; when CODER_SANDBOX_ORACLE_SECRET is not explicitly set, both sides derive the same key from the existing bot token. The secret is never sent to the browser or the guest container.
 
-## Features exposed
+## Important distinction: task runner vs persistent desktop
 
-For each eligible user/model:
-- Unrestricted shell commands inside the VM, subject only to transport/time limits and the user's paid-plan entitlement.
-- Read and write files in the guest.
-- Mouse click, typing, key presses, hotkeys and scrolling.
-- Window enumeration and desktop status.
-- Screenshots and accessibility metadata. If the selected runtime accepts images, the screenshot goes to that model's own projector; otherwise bilingual Arabic/English OCR runs inside the same model VM and the model receives OCR text, active-window metadata and its accessibility tree. This prevents a missing projector from blocking desktop operation, without routing the screen to another model.
-- A persistent PTY shell session integrated in the same computer: xterm.js renders ANSI terminal output, the browser attaches to the model-scoped Daytona Toolbox WebSocket using a short-lived signed preview credential for port 2280, and input, output replay cursor, and resize all target the same PTY. The Daytona project API key never reaches the browser. A full VM stop/start ends the shell process; the persistent filesystem remains.
-- Browser/desktop use through the signed VNC preview inside the Mini App (with an external-browser fallback).
+Oracle's current runner gives the agent a temporary isolated Linux task container. It does not provide a user-facing VNC desktop, a persistent graphical browser session, or a persistent per-account filesystem after the task ends. The Light runner is even more limited.
 
-Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Donor candidates get their native screenshot image only when their own MTMD runtime reports vision capability; otherwise OCR and accessibility metadata are computed in that same candidate VM. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
+We will not call either of these a complete replacement for the old graphical desktop. A genuine free desktop alternative would require a separately provisioned Oracle desktop environment with a GUI/VNC service, model/account-specific filesystem isolation, resource arbitration with Sham and the media services, and independent security tests. The current Oracle VM's spare memory is limited, so adding a second desktop workload without live capacity measurements could destabilize Sham or the bots.
 
-The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the Computer workspace now focuses on the desktop, PTY terminal and file manager. Model-filtered task activity remains in the Nova Chats screen, avoiding a second task-log viewer. The default Nova Mini App exposes the workspace as a first-class tab for accounts whose server-verified plan includes the computer feature.
+## Historical Daytona architecture (not active for new production use)
 
-## Plan access
+The former implementation used one Daytona Linux VM per verified Telegram account and canonical model ID. Identity was derived on the server from the salted account key and model ID. The browser never supplied a sandbox ID or provider locator. It used short-lived signed previews for VNC/Toolbox, with provider credentials remaining server-side.
 
-- The owner is allowed.
-- Other accounts need an active paid coder subscription (Plus/Pro or another active paid plan).
-- The Free plan does not receive the Computer tab or machine provisioning.
-- Existing `sandbox_minutes` usage limits apply to model-driven shell and control requests. The guest operating system itself has no command-name allowlist. Provider runtime charges are separate from the application's tool-time meter.
+That design had per-model isolation, a persistent disk, a graphical desktop, an interactive PTY and file manager. It also incurred provider compute charges while running, with storage potentially charged while stopped. Those capabilities remain documented for historical context only; they are not an active free production feature.
 
-## API operations
+## API behavior
 
-The authenticated Mini App API uses Telegram-signed initData and provides:
-- `computer_status`
-- `computer_open`
-- `computer_refresh`
-- `computer_stop`
-- `computer_self_test` (owner only)
+The authenticated Mini App API still recognizes:
+- computer_status
+- computer_open
+- computer_refresh
+- computer_stop
+- computer_cleanup_all (owner-only legacy cleanup sweep; up to 50 active rows per request)
+- computer_self_test (owner only)
 
-The model tool layer uses the same internal cloud-computer service. It does not accept a client-supplied sandbox ID.
+In production, status/stop are kept for legacy resource cleanup; provisioning and interactive operations are disabled by the zero-cost policy. The model tool layer uses server-derived account/model identity and never accepts a client-supplied sandbox ID.
 
-## Acceptance and rollout gates
+## Acceptance gates before restoring a persistent desktop
 
-The automated test suite checks:
-1. deterministic, distinct identities across accounts and model IDs;
-2. persistent mapping per identity;
-3. VM provision and snapshot/lifecycle flags;
-4. unrestricted shell dispatch (no application command allowlist);
-5. desktop start and signed preview URL;
-6. write/read file round-trip;
-7. manual stop and resume with the same VM ID and file contents;
-8. persistent PTY identity per account/model, signed WebSocket ticket, cursor replay, resize and same-session input;
-9. mouse, keyboard, hotkey, scroll and window operations;
-10. screenshot response and the owner self-test report.
+Do not turn on a graphical desktop until all of these conditions are met:
 
-The owner self-test calls the actual Daytona provider and exercises the live desktop. CI uses a fake provider and cannot prove that the connected Daytona account can provision a real VM. Before public rollout, run the owner self-test on a Preview deployment with `DAYTONA_API_KEY` configured, verify the VNC session in Telegram and an external browser, and inspect a second test account to confirm its sandbox ID and files are different. Do not enable public rollout until this live test is green.
+1. A genuinely zero-cost Oracle compute allocation is proven from the actual OCI tenancy, not assumed from the free-tier label.
+2. A dedicated desktop process (VNC/noVNC or equivalent), browser and PTY are deployed on that Oracle VM.
+3. One isolated workspace is provisioned per account and model; no filesystem or process is shared between models or users.
+4. Capacity tests demonstrate adequate free RAM/CPU while Sham, media engine and bots are active.
+5. Host firewall, reverse proxy, short-lived session credentials and guest egress controls are tested.
+6. Stop/start persistence, recovery after runner restart, concurrent users, quota exhaustion and memory-pressure refusal are tested.
+7. The owner verifies the real VNC session from Telegram and an external browser on the live Oracle host.
 
+A CI fake provider is not proof that an Oracle GUI desktop exists or that Daytona/Oracle credits are available. Until those gates pass, the supported free workflow is Oracle task containers plus the Light JavaScript fallback.
 
-## Background tasks and Telegram delivery
+## Background task execution
 
-The bot must acknowledge Telegram updates quickly; the model/agent run is not held open by the webhook. The current implementation uses a persisted run/task state, task event log, a 30-second execution leg, a signed continuation endpoint, and the Oracle one-minute sweeper to resume orphaned runs. The user can send a new message while a task runs; it enters the run inbox and is consumed on the next step. Progress and final reports are sent as Telegram messages, while Mini App tasks keep their output in the activity stream.
-
-This is an incremental continuation design, not yet a standalone always-on queue consumer. To remove Vercel invocation lifetime as a long-term dependency, the next architecture milestone is a durable Postgres-backed work queue and an always-on worker process (existing Oracle worker or a separately provisioned worker service). That worker should claim jobs with leases, checkpoint each model/tool step, persist media/file references, retry transient errors, and deliver notifications independently of a Telegram webhook or Vercel request. Do not claim this milestone is deployed until the worker service and queue are actually wired and live-tested.
-
-
-## Terminal implementation and remaining live gate
-
-The in-tab terminal now uses xterm.js and a real Daytona PTY process. The backend provisions one persistent PTY per verified account/model, retains an output cursor, and mints a short-lived signed preview URL limited to Toolbox port 2280. The browser attaches directly to the WebSocket path on that signed host; it receives binary PTY frames and sends keystrokes without receiving the project API key. PTY resize is forwarded to the Toolbox process resize route.
-
-The official Daytona documentation describes PTY attach as a WebSocket stream with binary output frames, cursor replay, and input sent as text/binary frames. It also identifies port 2280 as the Toolbox interface and signed preview URLs as port-scoped expiring credentials. These code paths are covered by fake-provider regression tests; **they are not proof of a live provider connection**. The Preview acceptance test must still provision a real VM, open xterm, type a command, observe output, resize the terminal, reconnect using the same session, and verify that another model cannot attach to it. Do not mark the computer fully production-ready until this live test passes.
+The coder agent already uses persisted task/run state, event logs, short execution legs, a signed continuation endpoint and the Oracle one-minute sweeper to resume orphaned tasks. This remains separate from the computer workspace. It is not a queue-based persistent GUI session, and it does not make the task runner's temporary filesystem permanent.

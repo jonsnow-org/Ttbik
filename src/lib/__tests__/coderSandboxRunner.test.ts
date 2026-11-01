@@ -90,12 +90,12 @@ const ctx = { chatKey: "chat-1", runId: "run-1" };
 
 describe("runner backends (oracle / codesandbox / codespaces)", () => {
   it("chain order: oracle first, then vercel, codesandbox, codespaces, daytona, e2b — only configured ones", () => {
-    expect(backendOrder("auto")).toEqual(["vercel"]); // nothing configured -> the old default
+    expect(backendOrder("auto")).toEqual([]); // no automatic paid fallback
     process.env.VERCEL = "1";
     process.env.CODER_SANDBOX_ORACLE_URL = "https://o.example";
     process.env.CODER_SANDBOX_ORACLE_SECRET = "oracle-secret";
     process.env.DAYTONA_API_KEY = "d";
-    expect(backendOrder("auto")).toEqual(["oracle", "vercel", "daytona"]);
+    expect(backendOrder("auto")).toEqual(["oracle"]);
     process.env.CSB_API_KEY = "csb-key";
     process.env.CODER_CSB_TEMPLATE = "tmpl1";
     process.env.CODER_CSB_RUNNER_SECRET = "csb-runner";
@@ -103,10 +103,10 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     process.env.CODER_CODESPACES_REPO = "me/box";
     process.env.CODER_CODESPACES_RUNNER_SECRET = "cs-runner";
     process.env.E2B_API_KEY = "e";
-    expect(backendOrder("auto")).toEqual(["oracle", "vercel", "codesandbox", "codespaces", "daytona", "e2b"]);
+    expect(backendOrder("auto")).toEqual(["oracle"]);
     // a half-configured backend stays off
     delete process.env.CODER_SANDBOX_ORACLE_SECRET;
-    expect(backendOrder("auto")[0]).toBe("vercel");
+    expect(backendOrder("auto")).toEqual([]);
   });
 
   it("oracle: runs a command, writes and reads a file, reuses the box, stops it", async () => {

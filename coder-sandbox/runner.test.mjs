@@ -12,15 +12,15 @@ const SECRET = "s".repeat(32);
 test("limits: every docker box is capped and isolated", () => {
   const cfg = config({ RUNNER_SECRET: SECRET });
   const a = dockerRunArgs(cfg, "coder-abc-1", 123).join(" ");
-  for (const want of ["--cpus 1", "--memory 2048m", "--memory-swap 2048m", "--pids-limit 256", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges", "--network coder-sbx-net", "--user 1000:1000", "/work:rw,exec,nosuid,size=1024m", "/tmp:rw,exec,nosuid,size=256m", "coder-sandbox.expires=123", "--restart no"]) {
+  for (const want of ["--cpus 1", "--memory 1024m", "--memory-swap 1024m", "--pids-limit 128", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges", "--network coder-sbx-net", "--user 1000:1000", "/work:rw,exec,nosuid,size=512m", "/tmp:rw,exec,nosuid,size=128m", "coder-sandbox.expires=123", "--restart no"]) {
     assert.ok(a.includes(want), want);
   }
   assert.ok(!/(^|\s)(-v|--volume|--mount|--privileged)(\s|$)/.test(a), "no host mounts / privileged");
   // limits cannot be raised past the hard caps by env
   const big = config({ RUNNER_SECRET: SECRET, RUNNER_MEMORY_MB: "99999", RUNNER_CPUS: "16", RUNNER_MAX_BOXES: "50" });
-  assert.equal(big.memoryMb, 3072);
+  assert.equal(big.memoryMb, 2048);
   assert.equal(big.cpus, "2");
-  assert.equal(big.maxBoxes, 6);
+  assert.equal(big.maxBoxes, 2);
 });
 
 test("yields to Sham, to memory pressure and to capacity", () => {
@@ -28,9 +28,10 @@ test("yields to Sham, to memory pressure and to capacity", () => {
   assert.equal(refusal(cfg, { shamOn: true, freeMb: 9000, active: 0 }), "sham-busy");
   assert.equal(refusal(cfg, { shamOn: false, freeMb: 1000, active: 0 }), "low-memory");
   assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 2 }), "capacity");
-  assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 1 }), null);
-  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "0" }).minFreeMb, 0, "explicit 0 turns the memory check off");
-  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "abc" }).minFreeMb, 3000);
+  assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 1 }), "capacity");
+  assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 0 }), null);
+  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "0" }).minFreeMb, 1200, "memory guard cannot be disabled below its safe floor");
+  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "abc" }).minFreeMb, 1800);
   assert.equal(freeMemMb("MemTotal: 1 kB\nMemAvailable:    4096000 kB\n"), 4000);
 });
 

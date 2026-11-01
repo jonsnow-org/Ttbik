@@ -101,11 +101,14 @@ async function ensureTable(db: Db): Promise<void> {
 }
 async function assertIdentity(ctx: CloudComputerContext): Promise<void> {
   if (!Number.isFinite(Number(ctx.chatId)) || !String(ctx.chatId).trim()) throw new Error("A verified account is required.");
-  token();
 }
 
 async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
   await assertIdentity(ctx);
+  // Production must not provision or resume a metered desktop provider.
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Persistent desktop is disabled by the zero-cost policy. Use the Oracle task runner for shell tasks.");
+  }
   if (ctx.tier !== "owner" && !(await terminalAllowed(ctx.chatId, dbOf(ctx)))) {
     throw new Error("الحاسوب السحابي متاح في الخطط المدفوعة فقط. يمكنك الترقية من قسم الاشتراك.");
   }
@@ -295,6 +298,9 @@ async function chargeCompute(_ctx: CloudComputerContext, _elapsedMs: number): Pr
 }
 
 async function requireComputeAllowance(ctx: CloudComputerContext): Promise<void> {
+  // Central gate for every create/resume/terminal/file/desktop operation.
+  // Keep the owner on the same zero-cost provider policy as every other account.
+  await assertEntitlement(ctx);
   if (ctx.tier === "owner") return;
   const result = await checkLimit(ctx.chatId, "sandbox_minutes", 0, dbOf(ctx));
   if (!result.ok) throw new Error("انتهى رصيد وقت الحاسوب في خطتك الحالية. أوقف الحاسوب لحفظ ملفاته أو رقِّ خطتك.");
@@ -355,6 +361,27 @@ export async function cloudComputerStatus(ctx: CloudComputerContext): Promise<Js
   await assertIdentity(ctx);
   const identity = cloudComputerIdentity(ctx.chatId, ctx.modelId);
   const row = await readRow(ctx, identity.chatKey);
+  if (process.env.NODE_ENV !== "test") {
+    let cleanupPending = Boolean(row && !["stopped", "deleted", "archived"].includes(String(row.state || "").toLowerCase()));
+    if (cleanupPending) {
+      try {
+        await cloudComputerStop(ctx);
+        cleanupPending = false;
+      } catch {
+        // Keep cleanupPending visible so the owner can retry stopping the old VM.
+      }
+    }
+    return {
+      exists: Boolean(row),
+      state: cleanupPending ? "cleanup_pending" : row ? "stopped" : "not_created",
+      previousState: row?.state || null,
+      cleanupPending,
+      provider: "daytona_disabled",
+      modelId: identity.modelId,
+      persistent: true,
+      detail: "Persistent desktop is disabled by the zero-cost policy; status checks attempt to stop any legacy VM.",
+    };
+  }
   if (!row) return { exists: false, state: "not_created", modelId: identity.modelId };
   const sandbox = await getSandbox(ctx, row.sandbox_id);
   if (!sandbox) return { exists: false, state: "not_found", modelId: identity.modelId };
