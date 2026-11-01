@@ -20,6 +20,15 @@ beforeEach(() => {
 });
 
 describe("mini app api", () => {
+  it("allows only the owner to run the legacy desktop cleanup sweep", async () => {
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    const ctx = { db, bot, botRow };
+    const result = await appOp({ chatId: OWNER, tier: "owner" }, "computer_cleanup_all", {}, ctx);
+    expect(result).toEqual({ ok: true, examined: 0, stopped: 0, pending: 0, errors: [] });
+    await expect(appOp({ chatId: USER, tier: "user" }, "computer_cleanup_all", {}, ctx)).rejects.toMatchObject({ status: 403 });
+  });
+
   it("me: tier, settings, connections (never a token), policy categories with tier defaults", async () => {
     const db = fakeDb();
     const { bot } = fakeBot();
