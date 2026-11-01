@@ -1,0 +1,59 @@
+name: "Push the current app code of one of our image Studios and restart it"
+
+# The per-Studio deploy workflows skip a Studio that is already "ready", so a code change never reached it (CyberRealistic kept the 2026-10-30 app.py on 2026-11-01).
+# This pushes experiments/<dir>/app.py + requirements.txt to the Studio repository and asks ModelScope to deploy it. Only the four image Studios are allowed.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "cyberrealistic-final-test | epicrealism-image-test | umranz-sd15-image-test | gemma4-realistic-vision-v6-test"
+        required: true
+        default: "cyberrealistic-final-test"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-studio-app-${{ inputs.studio }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push and deploy
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          MS: https://www.modelscope.cn
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          case "$STUDIO" in
+            cyberrealistic-final-test) DIR=cyberrealistic-test ;;
+            epicrealism-image-test) DIR=epicrealism-image-test ;;
+            umranz-sd15-image-test) DIR=umranz-image-test ;;
+            gemma4-realistic-vision-v6-test) DIR=gemma4-realistic-vision-v6-test ;;
+            *) echo "::error::studio not allowed"; exit 1 ;;
+          esac
+          git config --global user.name "image Studio CI"
+          git config --global user.email "ci@image.local"
+          git clone --quiet "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" repo 2>&1 | sed "s/${T}/***/g"
+          cp "experiments/${DIR}/app.py" "experiments/${DIR}/requirements.txt" repo/
+          cd repo
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then echo "Studio repository already holds this code"; else
+            git commit -q -m "app code from ${GITHUB_SHA::8}"
+            git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
+          fi
+          code=$(curl -sS --connect-timeout 8 --max-time 60 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/${STUDIO}/deploy")
+          echo "deploy HTTP $code"
+          [[ "$code" =~ ^2[0-9][0-9]$ ]] || { cat deploy.json; exit 1; }
+          for i in $(seq 1 90); do
+            s=$(curl -sS --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/${STUDIO}" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")')
+            echo "$(date -u +%H:%M:%S) $s ($i/90)"
+            case "$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')" in running|ready) break ;; *error*|*fail*) exit 1 ;; esac
+            sleep 20
+          done
