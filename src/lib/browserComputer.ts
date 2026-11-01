@@ -105,7 +105,7 @@ async function studioCallPlain(base: string, api: string, wire: string, headers:
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
   // The Studio gateway's request filter answers 403 to some command text (`echo a; echo b`): the computer / browser jobs travel as base64 (the Studio decodes "b64:"). An older Studio answers "bad request": send it plain then.
-  const encode = api === "box_do" || api === "browser_do";
+  const encode = api === "box_do" || api === "browser_do" || api === "desktop_do";
   let wire = encode ? "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64") : JSON.stringify(payload);
   const submit = () => fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [wire] }) });
   // the Studio gateway answers 403/429/502-504 now and then even when the Studio is healthy: ask again a few times before giving up
