@@ -43,6 +43,17 @@ The container has a read-only root filesystem, a dedicated bridge with inter-con
 
 The runner endpoint is exposed by the existing Oracle Caddy route at /coder-sbx/*. The application authenticates with x-runner-key; when CODER_SANDBOX_ORACLE_SECRET is not explicitly set, both sides derive the same key from the existing bot token. The secret is never sent to the browser or the guest container.
 
+### ModelScope computer admission controls
+
+The branch version of `ai-system/modelscope-media/computer_box.py` introduces:
+- persistent collision-free Unix UID allocation under an OS file lock; only a SHA-256 session digest and assigned UID are stored;
+- a Studio-wide execution slot (default one active command/job across all users of that Studio), not merely four jobs per account;
+- a default 2 GiB MemAvailable floor before new work is accepted;
+- a default 1.5 GiB process-group memory kill threshold, leaving more headroom for the model and media engine;
+- explicit capacity data in `status`, so the app fails closed if the Studio cannot report memory or capacity.
+
+These limits are per Studio. They do not combine RAM from separate Studios, and no model is moved to another model's worker. The values can be adjusted with `COMPUTER_MAX_GLOBAL_JOBS`, `COMPUTER_MIN_AVAILABLE_MB` and `COMPUTER_MEMORY_KILL_MB`, but raising them requires live load testing.
+
 ## Important distinction: task runner vs persistent desktop
 
 Oracle's current runner gives the agent a temporary isolated Linux task container. It does not provide a user-facing VNC desktop, a persistent graphical browser session, or a persistent per-account filesystem after the task ends. The Light runner is even more limited.
