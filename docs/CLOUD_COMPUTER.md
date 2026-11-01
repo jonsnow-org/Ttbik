@@ -56,7 +56,7 @@ These limits are per Studio. They do not combine RAM from separate Studios, and 
 
 ## Important distinction: task runner vs persistent desktop
 
-Oracle's current runner gives the agent a temporary isolated Linux task container. It does not provide a user-facing VNC desktop, a persistent graphical browser session, or a persistent per-account filesystem after the task ends. The Light runner is even more limited.
+Oracle's current runner gives the agent a temporary isolated Linux task container. It does not provide a user-facing VNC desktop, a persistent graphical browser session, or a persistent per-account filesystem after the task ends. The ModelScope fallback has a persistent per-task workspace inside that model's Studio, but it shares the Studio's CPU/RAM with the model and is capacity-gated. GitHub Actions is an ephemeral batch worker, not a desktop. The Light runner is even more limited.
 
 We will not call either of these a complete replacement for the old graphical desktop. A genuine free desktop alternative would require a separately provisioned Oracle desktop environment with a GUI/VNC service, model/account-specific filesystem isolation, resource arbitration with Sham and the media services, and independent security tests. The current Oracle VM's spare memory is limited, so adding a second desktop workload without live capacity measurements could destabilize Sham or the bots.
 
