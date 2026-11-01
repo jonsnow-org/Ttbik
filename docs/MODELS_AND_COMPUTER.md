@@ -43,3 +43,13 @@ calls); anything over about 60 s is a `computer_job`; run independent work in pa
 - Candidates: `donor-bakeoff-modelscope.yml` (deploy + the full test set, with seconds per test), `redeploy-studio.yml` when ModelScope keeps the old container.
 - Nova: `nova-task-live.yml` (a whole task with a per-event timeline), `nova-live-probe.yml` (one request through a Studio).
 - Images: `time-image-studio.yml` (one image, timed), `read-image-checkpoints.yml` (the checkpoint hash each Studio reports).
+
+## Review of the "native unified multimodal models in 8 GB" report (2026-11-01) - what applies to us
+The report assumes **8 GB of VRAM (a GPU)**. Our Studios are **CPU only with 8 GB of RAM**, so most of its numbers do not transfer. Checked against the Hub and our own measurements:
+- **Qwen 3.5 Omni** (an official native audio/video model): not found on the Hub; the "Qwen3.5 ... Omni" repositories are community fine-tunes of the text/vision Qwen3.5-9B. Nothing to adopt.
+- **SmolOmni-MLA (256M/500M)**: exists (Tinman-Lab) but is tagged research / proof of concept and English only, so it cannot serve Arabic users.
+- **MiniCPM-o 4.5 GGUF**: real (`openbmb/MiniCPM-o-4_5-gguf`, our candidate). Its native speech output needs OpenBMB's `llama.cpp-omni`, documented for CUDA / Metal and about 8-9 GB for the full duplex setup; CPU-only operation is not confirmed. Our llama-cpp-python runner takes audio **in**, not out, so speech output stays in the candidate's own media Studio.
+- **Janus-Pro (unified image generation)**: 384 px autoregressive images; on 2 CPUs this is slower than our Stable Diffusion path (about 114 s for 512x768 in bf16) and weaker for Arabic prompts. Not adopted.
+- **MLA (multi-head latent attention)** is an architecture of the model, not a switch: our models (GQA / hybrid) do not have it.
+- **What does apply:** KV-cache compression and a longer context. Measured on a live candidate Studio: the runner process peaks at about **7.4 GB of the 8 GB** (`VmHWM 7786084 kB`, no swap) with a 2048-4096 token context, so the context cannot simply be raised. The runner's pinned server already supports `flash_attn` and `type_k` / `type_v`; quantising the KV cache to q8_0 (half the KV memory) is the lever to test next, together with a larger `context_tokens`, in the next runner revision (it changes `app.py`, so it must be deployed to the three candidate Studios in one go).
+- The "SWE-Bench 80.2 %" and "93.6 % OCR" figures for Janus-Pro / MiniCPM in the report are not backed by anything we could find and were not used.
