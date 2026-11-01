@@ -976,7 +976,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));
-    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 240000 : 120000 });
+    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 300000 : 420000 });
     await cardStepDone(bot, chatId, card, Boolean(reply.type === intent.kind && reply.b64));
     if (reply.type === intent.kind && reply.b64) {
       await cardPhase(bot, chatId, card, "send", "جاري الإرسال");
