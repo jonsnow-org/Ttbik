@@ -177,6 +177,7 @@ export async function POST(req: NextRequest) {
       if (data) room = mapRoom(data);
     }
     if (!room) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (!Array.isArray(room.members) || !room.members.some((member: any) => String(member.id) === uid)) return NextResponse.json({ error: "room membership required" }, { status: 403 });
 
     const isHost = String(room.host_id) === uid;
     if (room.host_only && !isHost) {
@@ -205,6 +206,14 @@ export async function POST(req: NextRequest) {
 
   if (action === "chat" || action === "react") {
     const id = String(body.room_id || "");
+    let room = g.__parties![id];
+    const db = await client();
+    if (!room && db) {
+      const { data } = await db.from("party_rooms").select("id,host_id,members").eq("id", id).maybeSingle();
+      if (data) room = { id: String(data.id), host_id: String(data.host_id), members: Array.isArray(data.members) ? data.members : [] };
+    }
+    if (!room) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (!Array.isArray(room.members) || !room.members.some((member: any) => String(member.id) === user.id)) return NextResponse.json({ error: "room membership required" }, { status: 403 });
     const msg = {
       id: Date.now(),
       user_id: user.id,
@@ -217,7 +226,6 @@ export async function POST(req: NextRequest) {
     g.__partyMsgs![id].push(msg);
     g.__partyMsgs![id] = g.__partyMsgs![id].slice(-80);
 
-    const db = await client();
     if (db) {
       await db.from("party_messages").insert({
         room_id: id,
