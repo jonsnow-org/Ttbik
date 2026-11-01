@@ -143,11 +143,6 @@ export function setSandboxBackends(b: Backend[] | null): void {
   backendsOverride = b;
   cooling.clear();
 }
-function backends(): Backend[] {
-  if (backendsOverride) return backendsOverride;
-  if (driverOverride) return [{ id: "vercel", driver: driverOverride }];
-  return backendOrder().map((id) => ({ id, driver: driverFor(id) }));
-}
 // a backend that said "quota / capacity" is skipped for a while (per server instance)
 const cooling = new Map<string, number>();
 const COOL_MS = () => Math.max(60000, Number(process.env.CODER_SANDBOX_COOLDOWN_MS || 3600000));
@@ -193,6 +188,11 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
     home: "/",
     async exec(cmd, args, opts) {
       const command = [cmd, ...args].map(shellQuote).join(" ");
+      const tailPath = command.match(/tail -c \\d+ ([^'\\s]+(?:\\/[^'\\s]+)*)/)?.[1];
+      if (tailPath) {
+        const result = await call({ action: "read", path: tailPath });
+        return { exitCode: result?.ok ? 0 : 1, stdout: String(result?.text || ""), stderr: String(result?.error || "") };
+      }
       if (opts.detached) {
         const id = command.match(/\/tmp\/coder-cmd\/([a-f0-9]{8})\.out/)?.[1] || "";
         const result = await call({ action: "job_start", command, name: id ? "task-" + id : "sandbox-task" });
@@ -222,8 +222,10 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
       // The ModelScope workspace belongs to a Studio; it is not a separately billed VM.
     },
     async stop() {
-      for (const id of taskJobs.values()) {
-        await call({ action: "job_stop", id }).catch(() => null);
+      const listing = await call({ action: "job_list" }).catch(() => null);
+      const jobs = Array.isArray(listing?.jobs) ? listing.jobs : [];
+      for (const job of jobs) {
+        if (job?.running && typeof job.id === "string") await call({ action: "job_stop", id: job.id }).catch(() => null);
       }
       taskJobs.clear();
     },
