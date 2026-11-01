@@ -1,0 +1,40 @@
+name: "Show what code a Studio repository holds (read-only)"
+
+# Clones one private Studio repository and prints its last commits and a few lines of app.py, to tell whether the code we pushed is what the Studio holds.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "Studio name under novaai2026"
+        required: true
+        default: "cyberrealistic-final-test"
+      grep:
+        description: "text to look for in app.py"
+        required: false
+        default: "gr.Slider"
+
+permissions:
+  contents: read
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Clone and show
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+          PATTERN: ${{ inputs.grep }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T"
+          [[ "$STUDIO" =~ ^[a-z0-9-]{5,60}$ ]] || { echo "bad studio name"; exit 1; }
+          git clone --quiet "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" repo 2>&1 | sed "s/${T}/***/g"
+          cd repo
+          echo "BRANCHES: $(git branch -a | tr '\n' ' ')"
+          echo "HEAD: $(git rev-parse --abbrev-ref HEAD)"
+          git log -4 --format='COMMIT %h %ad %s' --date=iso
+          ls -la | head -20
+          grep -n -- "$PATTERN" app.py | head -10 || true
+          grep -c "_fast_cpu" app.py || true
