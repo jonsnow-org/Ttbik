@@ -188,7 +188,9 @@ function modelScopeDriver(ctx: SbxCtx): SbxDriver {
     home: "/",
     async exec(cmd, args, opts) {
       const command = [cmd, ...args].map(shellQuote).join(" ");
-      const tailPath = command.match(/tail -c \\d+ ([^'\\s]+(?:\\/[^'\\s]+)*)/)?.[1];
+      const tailMarker = "/tmp/coder-cmd/";
+      const tailIndex = command.indexOf(tailMarker);
+      const tailPath = tailIndex >= 0 ? command.slice(tailIndex).split(" ")[0] : "";
       if (tailPath) {
         const result = await call({ action: "read", path: tailPath });
         return { exitCode: result?.ok ? 0 : 1, stdout: String(result?.text || ""), stderr: String(result?.error || "") };
