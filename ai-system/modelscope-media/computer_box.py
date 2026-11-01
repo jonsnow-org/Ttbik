@@ -50,6 +50,7 @@ _LOCK = threading.RLock()
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
+_ACTIVE_DESKTOPS: set[str] = set()  # a graphical desktop reserves the Studio's single execution slot
 STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
 
 
@@ -361,19 +362,46 @@ def _mem_available_mb() -> int | None:
     return None
 
 
-def _global_counts_locked() -> tuple[int, int]:
+def _global_counts_locked() -> tuple[int, int, int]:
     active_jobs = 0
     for jobs in _JOBS.values():
         for job in jobs.values():
             _refresh(job)
             if job.get("exit_code") is None:
                 active_jobs += 1
-    return active_jobs, len(_ACTIVE_COMMANDS)
+    return active_jobs, len(_ACTIVE_COMMANDS), len(_ACTIVE_DESKTOPS)
+
+
+def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
+    """Reserve this Studio's single execution slot for one private graphical desktop."""
+    ensure_home(session)
+    key = digest(session)[:24]
+    required = max(MIN_AVAILABLE_MB, min(6000, int(min_available_mb)))
+    with _LOCK:
+        if key in _ACTIVE_DESKTOPS:
+            return {"ok": True, "already_reserved": True, "available_mb": _mem_available_mb()}
+        active_jobs, active_commands, active_desktops = _global_counts_locked()
+        active = active_jobs + active_commands + active_desktops
+        if active >= MAX_GLOBAL_JOBS:
+            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot)"}
+        available = _mem_available_mb()
+        if available is None:
+            return {"ok": False, "error": "the Studio could not report available memory; graphical desktop start was refused"}
+        if available < required:
+            return {"ok": False, "error": f"only {available} MB of Studio memory is available; the graphical desktop requires {required} MB"}
+        _ACTIVE_DESKTOPS.add(key)
+        return {"ok": True, "available_mb": available, "reserved": True}
+
+
+def release_desktop(session: str) -> None:
+    key = digest(session)[:24]
+    with _LOCK:
+        _ACTIVE_DESKTOPS.discard(key)
 
 
 def _capacity_reason_locked() -> str:
-    active_jobs, active_commands = _global_counts_locked()
-    active = active_jobs + active_commands
+    active_jobs, active_commands, active_desktops = _global_counts_locked()
+    active = active_jobs + active_commands + active_desktops
     if active >= MAX_GLOBAL_JOBS:
         return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot); retry after the active task finishes"
     available = _mem_available_mb()
@@ -818,9 +846,9 @@ def status(session: str = "") -> dict:
         disk = {}
     tools = {name: bool(shutil.which(name)) for name in ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")}
     with _LOCK:
-        active_jobs, active_commands = _global_counts_locked()
+        active_jobs, active_commands, active_desktops = _global_counts_locked()
         available_mb = _mem_available_mb()
-        can_accept = (active_jobs + active_commands < MAX_GLOBAL_JOBS
+        can_accept = (active_jobs + active_commands + active_desktops < MAX_GLOBAL_JOBS
                       and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
@@ -828,7 +856,7 @@ def status(session: str = "") -> dict:
                         "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": round(MEMORY_KILL / 1024 ** 3, 2),
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
-                          "available_mb": available_mb},
+                          "active_desktops": active_desktops, "available_mb": available_mb},
              "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked")}
     if session:
         home = session_home(session)
