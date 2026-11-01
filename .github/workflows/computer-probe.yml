@@ -29,10 +29,18 @@ jobs:
           assert re.fullmatch(r"[a-z0-9-]{5,60}", studio)
           base = f"https://studio-novaai2026-{studio}.api-inference.modelscope.net/gradio_api"
           head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          import urllib.error
+          def retry(f, tries=6):
+              # the Studio gateway answers 403/429/5xx now and then (also from inside a healthy Studio): wait and ask again
+              for i in range(tries):
+                  try: return f()
+                  except urllib.error.HTTPError as e:
+                      if e.code not in (403, 429, 500, 502, 503, 504) or i == tries - 1: raise
+                      time.sleep(6 * (i + 1))
           def call(api, body, wait=130):
-              req = urllib.request.Request(base + f"/call/{api}", data=json.dumps({"data": [body]}).encode(), headers=head)
-              event = json.load(urllib.request.urlopen(req, timeout=30))["event_id"]
-              text = urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}/{event}", headers=head), timeout=wait).read().decode("utf-8", "ignore")
+              req = lambda: urllib.request.Request(base + f"/call/{api}", data=json.dumps({"data": [body]}).encode(), headers=head)
+              event = retry(lambda: json.load(urllib.request.urlopen(req(), timeout=30)))["event_id"]
+              text = retry(lambda: urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}/{event}", headers=head), timeout=wait).read().decode("utf-8", "ignore"))
               for block in text.split("\n\n"):
                   if "event: complete" in block:
                       line = [l for l in block.splitlines() if l.startswith("data:")][0][5:].strip()

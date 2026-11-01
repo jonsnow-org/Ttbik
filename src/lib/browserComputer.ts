@@ -94,7 +94,13 @@ export async function browserDo(modelId: string | undefined, session: string, ar
 /** One call of a Studio's hidden Gradio API (`/gradio_api/call/<api>`): start, then read the complete event. Shared by the browser and the computer box. */
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
-  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [JSON.stringify(payload)] }) });
+  const submit = () => fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [JSON.stringify(payload)] }) });
+  // the Studio gateway answers 403/429/502-504 now and then even when the Studio is healthy: ask again a few times before giving up
+  let start = await submit();
+  for (let i = 0; !start.ok && [403, 429, 502, 503, 504].includes(start.status) && i < 3; i++) {
+    await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : 1500 * (i + 1)));
+    start = await submit();
+  }
   if (!start.ok) throw new Error("Studio HTTP " + start.status);
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no request id");
