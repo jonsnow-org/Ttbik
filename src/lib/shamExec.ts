@@ -318,6 +318,22 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     }
     const H0 = await host();
     const computerCtx = { chatId: ctx.chatId, modelId: ctx.modelId, owner: ctx.owner, db: ctx.db };
+    // Sham's computer is the free one inside its OWN Studio when it has one (Sham v2: sham-v2-video-server): shell, files, jobs, browser. The old paid desktop is only the fallback.
+    if (name === "cloud_computer_status" || name === "cloud_computer_execute" || name === "cloud_computer_write_file" || name === "cloud_computer_read_file") {
+      const { browserStudioFor } = await import("@/lib/browserComputer");
+      if (browserStudioFor(ctx.modelId)) {
+        const { boxRaw } = await import("@/lib/computerBox");
+        const session = `${ctx.chatId}:${ctx.modelId}`;
+        if (name === "cloud_computer_status") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "status" })));
+        if (name === "cloud_computer_execute") {
+          const r = await boxRaw(ctx.modelId, session, { action: "run", command: String(a.command || ""), cwd: typeof a.cwd === "string" ? a.cwd : undefined, timeout: Math.max(1, Math.min(90, Number(a.timeout_seconds) || 60)) });
+          return clip([r.output, r.hint, r.error].filter(Boolean).join("\n") || JSON.stringify(r), 12000);
+        }
+        if (name === "cloud_computer_write_file") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "write", path: String(a.path || ""), content: String(a.content || "") })));
+        const r = await boxRaw(ctx.modelId, session, { action: "read", path: String(a.path || "") });
+        return r.ok === false ? "error: " + String(r.error || "file not found") : clip(String(r.text ?? JSON.stringify(r)), 12000);
+      }
+    }
     if (name === "cloud_computer_status") return clip(await H0.computer.status(computerCtx));
     if (name === "cloud_computer_execute") {
       const result = await H0.computer.execute(computerCtx, String(a.command || ""), typeof a.cwd === "string" ? a.cwd : undefined, Math.max(1000, Math.min(300000, (Number(a.timeout_seconds) || 120) * 1000)));
