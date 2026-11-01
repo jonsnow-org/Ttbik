@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { cloudDesktopEnabled } from "@/lib/cloudDesktopPolicy";
 import { coderChatKey, resolveConnections, tierFor, type Db } from "@/lib/coderAuth";
 import { GITHUB_TOOLS, CONNECTOR_TOOLS, githubClient, guardCall, runTool, toolGroups } from "@/lib/coderAgent";
 import { connectedIds, connectorById, isReadOnlyCall, siteBase } from "@/lib/coderConnectors";
@@ -41,7 +42,7 @@ const LOAD_TOOLS_DEF = {
   type: "function" as const,
   function: {
     name: "load_tools",
-    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (your one persistent private Linux desktop: terminal, files, programs, screenshots and accessibility controls), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
+    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (your own private Linux computer for the task: shell, files, git, tests, search), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
     parameters: {
       type: "object",
       properties: { groups: { type: "array", items: { type: "string", enum: [...CANDIDATE_GROUPS] }, minItems: 1, maxItems: 4 } },
@@ -59,8 +60,9 @@ export function candidateToolsFor(groups: readonly string[], hasGithub: boolean,
     if (!(CANDIDATE_GROUPS as readonly string[]).includes(g)) continue;
     for (const t of all[g] || []) {
       if (BLOCKED_FOR_CANDIDATES.has(t.function.name)) continue;
-      // Candidate models must use their single persistent cloud computer. Do not expose the older per-task sandbox as a second machine.
-      if (g === "computer" && t.function.name.startsWith("sandbox_")) continue;
+      // With the persistent desktop on (tests only) a candidate has ONE computer, so the per-task sandbox is hidden; in production the desktop is off
+      // (zero-cost policy) and the task-scoped sandbox IS the candidate's computer.
+      if (g === "computer" && cloudDesktopEnabled() && t.function.name.startsWith("sandbox_")) continue;
       out.set(t.function.name, { type: "function", function: { ...t.function, description: String(t.function.description || "").slice(0, 170) } });
     }
   }

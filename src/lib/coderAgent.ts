@@ -3,6 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
+import { cloudDesktopEnabled } from "@/lib/cloudDesktopPolicy";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
@@ -159,7 +160,7 @@ export function renderPlan(items: unknown): string {
 export type ToolGroup = "github" | "computer" | "web" | "media" | "memory" | "schedule" | "connectors";
 const GROUP_TEXT: Record<ToolGroup, string> = {
   github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
-  computer: "computer (your own persistent Linux desktop, browser, files and full shell for this user and this selected model; run programs, install packages, inspect screenshots, click and type; the same computer is reused across tasks)",
+  computer: "computer (your own Linux computer for this task: clone a repository, run shell commands, install packages, run tests, read and write files, search code; private to this user and this selected model)",
   web: "web (web search, read a page, deep research, call any public HTTP API)",
   media: "media (look at a picture or a few frames of a video; make a picture, sound or video with the media Studio and send it)",
   memory: "memory (notes for this task, long-term memory about this user)",
@@ -169,7 +170,8 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: [...CLOUD_COMPUTER_TOOL_DEFS, ...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
+    // The persistent desktop (cloud_computer_*) is off in production (zero-cost policy): offering it would only cost the model a slow step per failed call.
+    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
     memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),

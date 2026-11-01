@@ -40,3 +40,18 @@ describe("candidate media Studios", () => {
     for (const other of ["coder", "sham_v2", "sham", "", undefined, "../x"]) expect(candidateMediaStudio(other as string | undefined)).toBeNull();
   });
 });
+
+describe("computer tools under the zero-cost policy (production)", () => {
+  const withEnv = (value: string, fn: () => void) => {
+    const original = process.env.NODE_ENV;
+    (process.env as Record<string, string>).NODE_ENV = value;
+    try { fn(); } finally { (process.env as Record<string, string | undefined>).NODE_ENV = original; }
+  };
+  test("a candidate's computer is the task Linux box: sandbox_* tools, no failing cloud_computer_* tools", () => {
+    withEnv("production", () => {
+      const all = names(["computer"]);
+      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
+      expect(all.some((n) => n.startsWith("cloud_computer_"))).toBe(false);
+    });
+  });
+});
