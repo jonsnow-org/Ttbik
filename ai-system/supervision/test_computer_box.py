@@ -31,6 +31,7 @@ class Box(unittest.TestCase):
 class Capacity(Box):
     def test_only_one_execution_can_run_across_the_whole_studio(self):
         old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
         cb.MAX_GLOBAL_JOBS = 1
         cb._JOBS.clear()
         cb._ACTIVE_COMMANDS.clear()
@@ -48,6 +49,7 @@ class Capacity(Box):
             self.assertTrue(stopped.get("ok"), stopped)
         finally:
             cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
             cb._JOBS.clear()
             cb._ACTIVE_COMMANDS.clear()
 
