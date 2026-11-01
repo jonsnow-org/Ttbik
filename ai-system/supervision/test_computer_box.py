@@ -35,6 +35,7 @@ class Capacity(Box):
         cb.MAX_GLOBAL_JOBS = 1
         cb._JOBS.clear()
         cb._ACTIVE_COMMANDS.clear()
+        cb._ACTIVE_DESKTOPS.clear()
         cb._mem_available_mb = lambda: 8192
         try:
             first = cb.job_start("user-a:model-x", "sleep 20", "first")
@@ -52,6 +53,42 @@ class Capacity(Box):
             cb._mem_available_mb = old_mem_probe
             cb._JOBS.clear()
             cb._ACTIVE_COMMANDS.clear()
+            cb._ACTIVE_DESKTOPS.clear()
+
+    def test_graphical_desktop_reserves_the_same_single_execution_slot(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
+        cb.MAX_GLOBAL_JOBS = 1
+        cb._JOBS.clear()
+        cb._ACTIVE_COMMANDS.clear()
+        cb._ACTIVE_DESKTOPS.clear()
+        cb._mem_available_mb = lambda: 8192
+        try:
+            first = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertTrue(first.get("ok"), first)
+            self.assertEqual(first.get("reserved"), True)
+            second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
+            self.assertFalse(second.get("ok"))
+            self.assertIn("Studio is busy", second.get("error", ""))
+            blocked = cb.run_command("third:model-x", "echo should-not-run")
+            self.assertFalse(blocked.get("ok"))
+            self.assertIn("Studio is busy", blocked.get("error", ""))
+            cb.release_desktop("owner:model-x")
+            self.assertFalse(cb._ACTIVE_DESKTOPS)
+            cb._mem_available_mb = lambda: 2048
+            too_low = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertFalse(too_low.get("ok"))
+            self.assertIn("requires at least 3072 MB", too_low.get("error", ""))
+            cb._mem_available_mb = lambda: None
+            unknown = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertFalse(unknown.get("ok"))
+            self.assertIn("could not report available memory", unknown.get("error", ""))
+        finally:
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
+            cb._JOBS.clear()
+            cb._ACTIVE_COMMANDS.clear()
+            cb._ACTIVE_DESKTOPS.clear()
 
 
 class Paths(Box):
