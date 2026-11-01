@@ -101,11 +101,14 @@ async function ensureTable(db: Db): Promise<void> {
 }
 async function assertIdentity(ctx: CloudComputerContext): Promise<void> {
   if (!Number.isFinite(Number(ctx.chatId)) || !String(ctx.chatId).trim()) throw new Error("A verified account is required.");
-  token();
 }
 
 async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
   await assertIdentity(ctx);
+  // Production must not provision or resume a metered desktop provider.
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Persistent desktop is disabled by the zero-cost policy. Use the Oracle task runner for shell tasks.");
+  }
   if (ctx.tier !== "owner" && !(await terminalAllowed(ctx.chatId, dbOf(ctx)))) {
     throw new Error("الحاسوب السحابي متاح في الخطط المدفوعة فقط. يمكنك الترقية من قسم الاشتراك.");
   }
