@@ -59,7 +59,7 @@ For each eligible user/model:
 
 Nova and donor candidates receive the shared computer tool group through the coder agent bridge. Donor candidates get their native screenshot image only when their own MTMD runtime reports vision capability; otherwise OCR and accessibility metadata are computed in that same candidate VM. Sham receives the equivalent tools through `ShamHost`, and Sham screenshot interpretation uses the selected Sham Studio's `understand_media` endpoint. No cross-model computer or media fallback is allowed.
 
-The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the PTY, file manager and model-filtered task activity live inside the Computer workspace. The default Nova Mini App exposes this workspace as a first-class tab for accounts whose server-verified plan includes the computer feature.
+The existing task-scoped sandbox remains available only to legacy/disposable task tools. The old standalone Terminal tab is removed; the Computer workspace now focuses on the desktop, PTY terminal and file manager. Model-filtered task activity remains in the Nova Chats screen, avoiding a second task-log viewer. The default Nova Mini App exposes the workspace as a first-class tab for accounts whose server-verified plan includes the computer feature.
 
 ## Plan access
 

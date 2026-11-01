@@ -950,76 +950,6 @@ function PanelPage({ lang }: { lang: Lang }) {
   );
 }
 
-// ---------------------------------------------------------------- interactive terminal: live task logs stay inside the Mini App, never sent as chat messages
-function TerminalTab({ lang, model }: { lang: Lang; model: string }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selected, setSelected] = useState("");
-  const [events, setEvents] = useState<Ev[]>([]);
-  const [error, setError] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const cursor = useRef(0);
-  const ar = lang === "ar";
-  const loadTasks = useCallback(async () => {
-    try {
-      const response = await fetch("/api/coder/terminal?limit=40&model=" + encodeURIComponent(model), { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-      const d = await response.json().catch(() => ({})) as { tasks?: Task[]; error?: string };
-      if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
-      setTasks(d.tasks || []);
-      setError("");
-      setSelected((old) => old && (d.tasks || []).some((x) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
-    } catch (e: any) { setError(e?.message || "API error"); }
-  }, [model]);
-  useEffect(() => { void loadTasks(); const id = setInterval(() => { if (document.visibilityState === "visible") void loadTasks(); }, 4000); return () => clearInterval(id); }, [loadTasks]);
-  useEffect(() => {
-    let stopped = false;
-    cursor.current = 0;
-    setEvents([]);
-    if (!selected) return;
-    const pull = async () => {
-      try {
-        const response = await fetch(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}&model=${encodeURIComponent(model)}`, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-        const d = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
-        if (stopped) return;
-        if (d.events?.length) {
-          cursor.current = d.events[d.events.length - 1].id;
-          setEvents((old) => [...old, ...d.events].slice(-800));
-        }
-      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
-    };
-    void pull();
-    const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
-    return () => { stopped = true; clearInterval(id); };
-  }, [selected, model]);
-  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
-  return (
-    <div style={{ padding: "12px", color: "#d1fae5" }}>
-      <div style={{ borderRadius: 16, overflow: "hidden", background: "#050b10", border: "1px solid #164e63", boxShadow: "0 8px 28px #02061730" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", background: "#0b1720", borderBottom: "1px solid #164e63" }}>
-          <div><div style={{ fontFamily: "monospace", fontWeight: 800, color: "#5eead4" }}>{model.toUpperCase()} / TASK ACTIVITY</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
-          <button type="button" onClick={() => { setRefreshing(true); void loadTasks().finally(() => setRefreshing(false)); }} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "7px 10px", color: "#a5f3fc", background: "#082f49", fontSize: 12 }}>{refreshing ? "…" : (ar ? "تحديث" : "Refresh")}</button>
-        </div>
-        <div style={{ padding: 10, background: "#071018", borderBottom: "1px solid #164e63" }}>
-          <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>{ar ? "اختر المهمة لعرض سجلاتها" : "Select a job to inspect logs"}</label>
-          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: 10, color: "#d1fae5", background: "#0b1720", border: "1px solid #155e75" }}>
-            {tasks.length === 0 && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
-            {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.status === "running" ? "● " : t.status === "failed" ? "× " : "✓ ") + (t.title || t.run_id).slice(0, 80) + " · " + t.status}</option>)}
-          </select>
-        </div>
-        <div aria-live="polite" style={{ minHeight: 260, maxHeight: "58vh", overflowY: "auto", padding: 12, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.65, whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: "#03070b" }}>
-          <div style={{ color: "#22d3ee" }}># {ar ? "سجل حي — لا تُرسل هذه البيانات إلى محادثة البوت" : "Live logs — these stay in the Mini App"}</div>
-          {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
-          {!selected && <div style={{ color: "#64748b" }}>{ar ? "أرسل طلباً للبوت أو اختر مهمة سابقة." : "Send a bot request or choose a previous task."}</div>}
-          {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : ev.kind === "tool" ? "#fcd34d" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span>{ev.text}</span></div>)}
-          {selected && events.length === 0 && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
-          {selected && tasks.find((x) => x.run_id === selected)?.status === "running" && <div className="coder-pulse" style={{ marginTop: 8, color: "#5eead4" }}>▌ {ar ? "المهمة قيد التشغيل…" : "Job is running…"}</div>}
-        </div>
-        <div style={{ padding: "8px 12px", color: "#64748b", fontSize: 10, background: "#0b1720", borderTop: "1px solid #164e63" }}>Postgres task events · polling 1.2s · {events.length} {ar ? "سجل معروض" : "events shown"}</div>
-      </div>
-    </div>
-  );
-}
-
 function CloudTerminalPane({ lang, model }: { lang: Lang; model: string }) {
   const ar = lang === "ar";
   const hostRef = useRef<HTMLDivElement>(null);
@@ -1355,7 +1285,7 @@ function CloudFilesPane({ lang, model }: { lang: Lang; model: string }) {
 
 function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; owner: boolean }) {
   const ar = lang === "ar";
-  const [section, setSection] = useState<"desktop" | "terminal" | "files" | "activity">("desktop");
+  const [section, setSection] = useState<"desktop" | "terminal" | "files">("desktop");
   const [status, setStatus] = useState<any>(null);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState("");
@@ -1387,17 +1317,16 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
     <List>
       <Section>
         <div style={{ display: "flex", gap: 6, padding: "4px 8px", flexWrap: "wrap" }}>
-          {(["desktop", "terminal", "files", "activity"] as const).map((id) => (
+          {(["desktop", "terminal", "files"] as const).map((id) => (
             <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
               style={{ borderRadius: 10, padding: "8px 12px", border: "1px solid var(--tgui--divider)", background: section === id ? "var(--tgui--secondary-bg-color)" : "transparent", color: "var(--tgui--text-color)", fontWeight: section === id ? 700 : 500 }}>
-              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : id === "files" ? (ar ? "الملفات" : "Files") : (ar ? "النشاط" : "Activity")}
+              {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : (ar ? "الملفات" : "Files")}
             </button>
           ))}
         </div>
       </Section>
       {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
       {section === "files" && <Section header={ar ? "ملفات الحاسوب" : "Computer files"}><CloudFilesPane lang={lang} model={model} /></Section>}
-      {section === "activity" && <Section header={ar ? "نشاط هذا النموذج" : "Activity for this model"}><TerminalTab lang={lang} model={model} /></Section>}
       {section === "desktop" && <>
       <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
         footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
