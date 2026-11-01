@@ -5,10 +5,10 @@ import { candidateMediaStudio } from "@/lib/photoWeightMedia";
 import { novaMediaUrl } from "@/lib/novaMedia";
 
 export type BrowserArgs = {
-  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; screenshot?: boolean;
+  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
 };
 
-const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back"]);
+const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
 
 /** The browser lives in the media Studio of the model itself; models without such a Studio have no browser (null). */
 export function browserStudioFor(modelId: string | undefined): string | null {
@@ -32,14 +32,15 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.enter) out.enter = true;
   if (a.key !== undefined) out.key = String(a.key).slice(0, 30);
   if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
+  if (a.seconds !== undefined && Number.isFinite(Number(a.seconds))) out.seconds = Math.max(1, Math.min(20, Math.trunc(Number(a.seconds))));
   return out;
 }
 
 /** What the model reads: address, title, the page text, then the numbered things it can click or type into. */
 export function renderBrowserReply(r: Record<string, any>): string {
   if (!r || r.ok === false) return "error: " + String(r?.error || "the browser did not answer").slice(0, 300);
-  return [
-    "URL: " + String(r.url || ""),
+  const parts = [
+    "URL: " + String(r.url || "") + (r.resumed ? "   (your earlier session was restored: same cookies, same page)" : ""),
     "TITLE: " + String(r.title || ""),
     "",
     "PAGE TEXT:",
@@ -47,7 +48,11 @@ export function renderBrowserReply(r: Record<string, any>): string {
     "",
     "CLICKABLE ELEMENTS (use their number with action=click or action=type):",
     String(r.elements || "(none)"),
-  ].join("\n");
+  ];
+  // drawn areas (canvas / video / svg / iframes) have no text: tell the model where they are so it can click by x,y or ask for the outline
+  if (r.visual) parts.push("", "DRAWN AREAS WITHOUT READABLE TEXT (click them with x,y, or call action=aria for the page outline):", String(r.visual));
+  if (r.outline) parts.push("", "PAGE OUTLINE (roles and names):", String(r.outline));
+  return parts.join("\n");
 }
 
 async function readComplete(res: Response): Promise<unknown> {
@@ -68,7 +73,7 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   const base = browserStudioFor(modelId);
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
-  if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back";
+  if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(token() ? { Authorization: "Bearer " + token() } : {}) };
   try {
     const start = await fetchImpl(base + "/gradio_api/call/browser_do", {
