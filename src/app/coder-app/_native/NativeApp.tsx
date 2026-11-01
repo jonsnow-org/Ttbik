@@ -1291,6 +1291,7 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [test, setTest] = useState<any>(null);
+  const [cleanupResult, setCleanupResult] = useState<any>(null);
   const load = useCallback(async () => {
     try { setStatus(await api<any>("computer_status", { model })); setError(""); }
     catch (e: any) { setError(String(e?.message || e)); }
@@ -1307,7 +1308,8 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
       if (d.previewUrl) setPreview(d.previewUrl);
       if (op === "computer_stop") setPreview("");
       if (op === "computer_self_test") setTest(d);
-      if (op === "computer_open" || op === "computer_stop") await load();
+      if (op === "computer_cleanup_all") setCleanupResult(d);
+      if (op === "computer_open" || op === "computer_stop" || op === "computer_cleanup_all") await load();
       haptic(d.ok === false ? "warning" : "success");
     } catch (e: any) { setError(String(e?.message || e)); haptic("error"); }
     finally { setBusy(""); }
@@ -1343,6 +1345,7 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
           <Button size="m" loading={busy === "open"} disabled={!!busy || providerDisabled} onClick={() => void act("open", "computer_open")}>{ar ? (running ? "فتح الحاسوب" : "تشغيل الحاسوب") : (running ? "Open computer" : "Start computer")}</Button>
           <Button size="m" mode="bezeled" loading={busy === "refresh"} disabled={!!busy || providerDisabled || !status?.exists} onClick={() => void act("refresh", "computer_refresh")}>{ar ? "تحديث الاتصال" : "Refresh connection"}</Button>
           <Button size="m" mode="bezeled" loading={busy === "stop"} disabled={!!busy || !status?.exists || (!running && !status?.cleanupPending)} onClick={() => void act("stop", "computer_stop")}>{ar ? "إيقاف مع حفظ الملفات" : "Stop and keep files"}</Button>
+          {owner && providerDisabled && <Button size="m" mode="bezeled" loading={busy === "cleanup"} disabled={!!busy} onClick={() => void act("cleanup", "computer_cleanup_all")}>{ar ? "إيقاف كل الحواسيب القديمة" : "Stop all legacy desktops"}</Button>}
           {owner && !providerDisabled && <Button size="m" mode="bezeled" loading={busy === "test"} disabled={!!busy} onClick={() => void act("test", "computer_self_test")}>{ar ? "اختبار الحاسوب الكامل" : "Full computer test"}</Button>}
         </div>
         {preview && (
@@ -1356,6 +1359,9 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
             </div>
           </div>
         )}
+        {cleanupResult && <Cell multiline before={cleanupResult.ok ? "✅" : "⚠️"}>{ar
+          ? ("فحص " + cleanupResult.examined + " جهاز قديم · أُوقف " + cleanupResult.stopped + " · يتطلب متابعة " + cleanupResult.pending)
+          : ("Checked " + cleanupResult.examined + " legacy machines · stopped " + cleanupResult.stopped + " · pending " + cleanupResult.pending)}</Cell>}
         {error && <Cell multiline before="⚠️">{error}</Cell>}
       </Section>
       {test && (
