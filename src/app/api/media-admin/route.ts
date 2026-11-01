@@ -6,13 +6,6 @@ export const dynamic = "force-dynamic";
 
 const OWNER = (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID || "420066855").trim();
 
-// These admin actions are only ever called from the mini-app, a public web
-// page whose whole client bundle -- including any hardcoded secret or a
-// client-supplied "owner_id" field -- is visible to every visitor and
-// callable directly over the internet, with no Telegram involved at all.
-// Real authorization here is a Telegram-signed `init_data` string (see
-// verifyTelegramOwner) that only Telegram can produce for a real logged-in
-// user, not a shared secret or a value the client claims about itself.
 function ownerOk(body?: any): boolean {
   const botToken = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
   const initData = String(body?.init_data || "");
@@ -27,8 +20,13 @@ async function sb() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-/** GET — public settings + admin stats */
-export async function GET(req: NextRequest) {
+/**
+ * GET — only the settings required by the public mini-app.
+ * Operational bot_settings rows and aggregate admin analytics are never
+ * returned from this public endpoint. Admin metrics are fetched through
+ * /api/media-stats, which verifies Telegram initData.
+ */
+export async function GET(_req: NextRequest) {
   const db = await sb();
   const settings: Record<string, unknown> = {
     force_sub_channels: [],
@@ -36,46 +34,17 @@ export async function GET(req: NextRequest) {
     daily_limit_share: 20,
     features: { party: true, clone: true, feed: true },
   };
-  let stats = {
-    posts: 0, hidden: 0, clones: 0, publishers: 0, views: 0, likes: 0,
-    users: 0, online_15m: 0, active_24h: 0, new_24h: 0, users_ready: false,
-  };
 
   if (db) {
-    const { data: rows } = await db.from("bot_settings").select("key,value");
-    for (const r of rows || []) {
-      settings[r.key] = r.value;
-    }
-    const { data: feed } = await db.from("media_feed").select("id,clones,views,likes,sharer_id,hidden");
-    if (feed) {
-      stats.posts = feed.filter((x: any) => !x.hidden).length;
-      stats.hidden = feed.filter((x: any) => x.hidden).length;
-      stats.clones = feed.reduce((a: number, b: any) => a + Number(b.clones || 0), 0);
-      stats.views = feed.reduce((a: number, b: any) => a + Number(b.views || 0), 0);
-      stats.likes = feed.reduce((a: number, b: any) => a + Number(b.likes || 0), 0);
-      stats.publishers = new Set(feed.map((x: any) => x.sharer_id)).size;
+    const publicKeys = ["force_sub_channels", "daily_limit_free", "daily_limit_share", "features"];
+    const { data: rows } = await db.from("bot_settings").select("key,value").in("key", publicKeys);
+    for (const row of rows || []) {
+      if (publicKeys.includes(String(row.key))) settings[row.key] = row.value;
     }
   }
 
-  // Real mini-app user counts (table: supabase/migration_mini_app_users.sql).
-  if (db) {
-    try {
-      const { data: mu, error } = await db.from("mini_app_users").select("id,first_seen,last_seen").limit(100000);
-      if (!error && mu) {
-        const now = Date.now();
-        const age = (v: string | null) => (v ? now - new Date(v).getTime() : Infinity);
-        stats.users_ready = true;
-        stats.users = mu.length;
-        stats.online_15m = mu.filter((r: any) => age(r.last_seen) < 15 * 60000).length;
-        stats.active_24h = mu.filter((r: any) => age(r.last_seen) < 86400000).length;
-        stats.new_24h = mu.filter((r: any) => age(r.first_seen) < 86400000).length;
-      }
-    } catch {
-      /* table missing -> users_ready stays false, the panel says so */
-    }
-  }
-
-  return NextResponse.json({ settings, stats });
+  // No admin stats here. The owner dashboard loads verified metrics separately.
+  return NextResponse.json({ settings, stats: {} }, { headers: { "cache-control": "no-store" } });
 }
 
 /** POST — admin actions: hide, unhide, broadcast, set_force_sub, set_limits */
@@ -99,9 +68,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "set_force_sub") {
-    const channels = Array.isArray(body.channels)
-      ? body.channels.map(String).slice(0, 2)
-      : [];
+    const channels = Array.isArray(body.channels) ? body.channels.map(String).slice(0, 2) : [];
     if (db) {
       const w = await write("force sub save", db.from("bot_settings").upsert({ key: "force_sub_channels", value: channels, updated_at: new Date().toISOString() }));
       if (!w.ok) return NextResponse.json({ ok: false, error: w.error }, { status: 500 });
@@ -110,8 +77,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "set_limits") {
-    const free = Number(body.daily_limit_free ?? 8);
-    const share = Number(body.daily_limit_share ?? 20);
+    const free = Math.max(0, Math.min(1000, Math.floor(Number(body.daily_limit_free ?? 8))));
+    const share = Math.max(0, Math.min(1000, Math.floor(Number(body.daily_limit_share ?? 20))));
+    if (!Number.isFinite(free) || !Number.isFinite(share)) return NextResponse.json({ ok: false, error: "invalid limits" }, { status: 400 });
     if (db) {
       const w = await write("limits save", db.from("bot_settings").upsert([
         { key: "daily_limit_free", value: free, updated_at: new Date().toISOString() },
@@ -122,14 +90,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, daily_limit_free: free, daily_limit_share: share });
   }
 
-  // Is everything the media layer needs really in the database, and what failed recently?
   if (action === "selftest") {
     if (!db) return NextResponse.json({ ok: false, error: "database not configured" });
     const checks = await selfTest(db);
     return NextResponse.json({ ok: checks.every((c) => c.ok), checks, errors: recentErrors().slice(0, 12) });
   }
 
-  // Rebuild the view and like counters from the logs of who really viewed / liked (repairs any counter that drifted).
   if (action === "recount") {
     if (!db) return NextResponse.json({ ok: false, error: "database not configured" });
     const [views, likes, feed] = await Promise.all([
@@ -139,16 +105,18 @@ export async function POST(req: NextRequest) {
     ]);
     if (views.error || likes.error || feed.error) return NextResponse.json({ ok: false, error: (views.error || likes.error || feed.error)?.message });
     const v = new Map<string, number>(), l = new Map<string, number>();
-    for (const r of views.data || []) v.set(String(r.post_id), (v.get(String(r.post_id)) || 0) + Number((r as any).times || 1));
-    for (const r of likes.data || []) l.set(String(r.post_id), (l.get(String(r.post_id)) || 0) + 1);
+    for (const row of views.data || []) v.set(String(row.post_id), (v.get(String(row.post_id)) || 0) + Number((row as any).times || 1));
+    for (const row of likes.data || []) l.set(String(row.post_id), (l.get(String(row.post_id)) || 0) + 1);
     let fixed = 0;
-    for (const p of feed.data || []) {
-      const nv = v.get(String(p.id)) ?? 0, nl = l.get(String(p.id)) ?? 0;
-      // never lower a counter that has views from before the log existed
+    for (const post of feed.data || []) {
+      const nv = v.get(String(post.id)) ?? 0, nl = l.get(String(post.id)) ?? 0;
       const patch: Record<string, number> = {};
-      if (nv > Number(p.views || 0)) patch.views = nv;
-      if (nl !== Number(p.likes || 0)) patch.likes = nl;
-      if (Object.keys(patch).length) { const w = await write("recount", db.from("media_feed").update(patch).eq("id", p.id)); if (w.ok) fixed++; }
+      if (nv > Number(post.views || 0)) patch.views = nv;
+      if (nl !== Number(post.likes || 0)) patch.likes = nl;
+      if (Object.keys(patch).length) {
+        const w = await write("recount", db.from("media_feed").update(patch).eq("id", post.id));
+        if (w.ok) fixed++;
+      }
     }
     return NextResponse.json({ ok: true, fixed });
   }
@@ -157,32 +125,15 @@ export async function POST(req: NextRequest) {
     const text = String(body.text || "").trim();
     if (!text) return NextResponse.json({ error: "text required" }, { status: 400 });
     const token = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
-    if (!token) {
-      return NextResponse.json({
-        ok: false,
-        error: "BOT_TOKEN not set on Vercel — add it to enable broadcast from TMA",
-        preview: text.slice(0, 200),
-      });
-    }
-    // Send to owner first as preview delivery; full fanout needs user list from bot store
-    const ownerId = OWNER;
+    if (!token) return NextResponse.json({ ok: false, error: "BOT_TOKEN not set on Vercel", preview: text.slice(0, 200) });
     try {
       const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          chat_id: ownerId,
-          text: `📢 إذاعة (معاينة للمالك):\n\n${text}`,
-          parse_mode: "HTML",
-        }),
+        body: JSON.stringify({ chat_id: OWNER, text: `📢 إذاعة (معاينة للمالك):\n\n${text}`, parse_mode: "HTML" }),
       });
       const j = await r.json();
-      return NextResponse.json({
-        ok: !!j.ok,
-        sent_to_owner: !!j.ok,
-        note: "الإذاعة الكاملة لجميع المستخدمين تتم من لوحة البوت على Render (قائمة known_users). تم إرسال معاينة للمالك.",
-        telegram: j,
-      });
+      return NextResponse.json({ ok: !!j.ok, sent_to_owner: !!j.ok, note: "الإذاعة الكاملة لجميع المستخدمين تتم من لوحة البوت على Render (قائمة known_users). تم إرسال معاينة للمالك.", telegram: j });
     } catch (e) {
       return NextResponse.json({ error: String(e) }, { status: 500 });
     }
