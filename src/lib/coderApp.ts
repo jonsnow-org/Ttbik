@@ -705,6 +705,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       }
       return { ok: errors.length === 0, examined: rows.length, stopped, pending: errors.length, errors };
     }
+    case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const model = String(body.model || "coder");
+      const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
+      const { boxRaw } = await import("@/lib/computerBox");
+      return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
+    }
     case "computer_status":
       return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);
     case "computer_open":

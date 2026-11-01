@@ -100,6 +100,19 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
   }
 }
 
+/** The raw reply of one computer action (for the Mini App's terminal / files screens): the same Studio, the same private session as the model's own, never a token. */
+export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
+  const base = browserStudioFor(modelId);
+  if (!base) return { ok: false, error: "this model has no computer Studio" };
+  const clean = cleanBoxArgs(args);
+  if (!clean) return { ok: false, error: "unknown computer action" };
+  try {
+    return await studioCall(base, "box_do", { ...clean, session }, fetchImpl, 110_000);
+  } catch (error) {
+    return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
+  }
+}
+
 export type BoxChanges = { ok: true; repo: string; base: string; files: { path: string; content: string }[]; deleted: string[]; skipped: { path: string; why: string }[] } | { ok: false; error: string };
 
 /** The changed files of a computer_repo checkout, read inside the model's own account in its Studio. The GitHub token never goes there: the app commits what comes back. */
