@@ -1,5 +1,5 @@
 import { boxActionFor, boxDo, cleanBoxArgs, renderBoxReply } from "@/lib/computerBox";
-import { toolGroups } from "@/lib/coderAgent";
+import { COMPUTER_PLAYBOOK, toolGroups } from "@/lib/coderAgent";
 import { candidateToolsFor } from "@/lib/donorToolBridge";
 
 describe("the model's own persistent computer", () => {
@@ -9,6 +9,8 @@ describe("the model's own persistent computer", () => {
     expect(boxActionFor("computer_read", {})).toMatchObject({ action: "read", path: "." });
     expect(boxActionFor("computer_job", { action: "start", command: "sleep 1" })).toMatchObject({ action: "job_start" });
     expect(boxActionFor("computer_job", { action: "format" })).toBeNull();
+    expect(boxActionFor("computer_repo", { url: "https://github.com/a/b", ref: "main" })).toEqual({ action: "repo", url: "https://github.com/a/b", ref: "main" });
+    expect(boxActionFor("computer_search", { pattern: "needle", glob: "*.ts" })).toMatchObject({ action: "search", pattern: "needle", path: ".", glob: "*.ts" });
     expect(boxActionFor("sandbox_exec", {})).toBeNull();
   });
 
@@ -30,6 +32,17 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("run", { ok: false, error: "disk full" })).toBe("error: disk full");
   });
 
+  test("the playbook rides with the first result and a repository answer says what to do next", () => {
+    const first = renderBoxReply("run", { ok: true, exit_code: 0, seconds: 0.1, cwd: ".", output: "hi", tips: "YOUR COMPUTER - how to work fast\n1. Start every task..." });
+    expect(first).toContain("how to work fast");
+    expect(renderBoxReply("run", { ok: true, exit_code: 0, seconds: 0.1, cwd: ".", output: "hi" })).not.toContain("how to work fast");
+    const repo = renderBoxReply("repo", { ok: true, path: "repos/a-b", seconds: 4.2, summary: "files: 120  size: 3M\ntop level:\nsrc" });
+    expect(repo).toContain("repository ready in ~/repos/a-b");
+    expect(repo).toContain("computer_search");
+    expect(renderBoxReply("repo", { ok: true, path: "repos/a-b", job: "abc12345", message: "still downloading; read progress with computer_job" })).toContain("still downloading");
+    expect(renderBoxReply("search", { ok: true, matches: "src/a.ts:2:const needle = 2;" })).toContain("src/a.ts:2");
+  });
+
   test("a command goes to the model's own Studio with the user+model session", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const calls: { url: string; body?: any }[] = [];
@@ -48,7 +61,9 @@ describe("the model's own persistent computer", () => {
 
   test("the computer group carries the four tools for Nova and the candidates, with short descriptions that keep the 90 s rule", () => {
     const names = (toolGroups(false, false).computer || []).map((t) => t.function.name);
-    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "browser"]) expect(names).toContain(name);
+    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]) expect(names).toContain(name);
+    expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
+    expect(COMPUTER_PLAYBOOK).toContain("computer_job");
     const seen = candidateToolsFor(["computer"], false, false).find((t) => t.function.name === "computer_run")!;
     expect(seen.function.description).toContain("90 s");
     expect(seen.function.description).toContain("computer_job");

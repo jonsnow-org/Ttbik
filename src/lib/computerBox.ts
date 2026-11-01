@@ -4,16 +4,18 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "status"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "status"]);
 
 /** The tool names a model sees → what the Studio understands. */
 export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs | null {
   if (tool === "computer_run") return { action: "run", command: a.command as string, cwd: a.cwd as string, timeout: a.timeout as number };
   if (tool === "computer_write") return { action: "write", path: a.path as string, content: a.content as string };
   if (tool === "computer_read") return { action: "read", path: (a.path as string) || "." };
+  if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string };
+  if (tool === "computer_search") return { action: "search", pattern: a.pattern as string, path: (a.path as string) || ".", glob: a.glob as string };
   if (tool === "computer_job") {
     const sub = String(a.action || "").toLowerCase();
     if (!["start", "log", "stop", "list"].includes(sub)) return null;
@@ -35,13 +37,26 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
   if (a.name !== undefined) out.name = String(a.name).slice(0, 60);
   if (a.tail !== undefined && Number.isFinite(Number(a.tail))) out.tail = Math.max(1, Math.min(400, Math.trunc(Number(a.tail))));
+  if (a.url !== undefined) out.url = String(a.url).slice(0, 300);
+  if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
+  if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);
+  if (a.glob !== undefined) out.glob = String(a.glob).slice(0, 100);
   return out;
 }
 
 /** What the model reads back. */
 export function renderBoxReply(action: string, r: Record<string, any>): string {
-  if (!r || r.ok === false) return "error: " + String(r?.error || "the computer did not answer").slice(0, 400);
+  if (!r || r.ok === false) return "error: " + String(r?.error || "the computer did not answer").slice(0, 400) + (r?.output ? "\n" + String(r.output).slice(0, 500) : "");
+  const tips = r.tips ? `\n\n${String(r.tips).slice(0, 1500)}` : "";      // the playbook, once per session (first result only)
+  return renderBody(action, r) + tips;
+}
+
+function renderBody(action: string, r: Record<string, any>): string {
   switch (action) {
+    case "repo":
+      return r.job ? String(r.message) : `repository ready in ~/${r.path} (${r.seconds}s)\n${r.summary}\nSearch it with computer_search, read files with computer_read.`;
+    case "search":
+      return String(r.matches || "(no matches)");
     case "run":
       return [`exit ${r.exit_code}${r.timed_out ? " (stopped: too long)" : ""} · ${r.seconds}s · in ${r.cwd}`, String(r.output || "(no output)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
     case "write":

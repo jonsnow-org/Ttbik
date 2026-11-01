@@ -83,6 +83,15 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 ];
 
 /** The model's own persistent Linux computer (computerBox.ts): shell, files and background jobs in its Studio, free. Four small tools so a small context window pays little. */
+/** The working habits that make the computer fast (the Studio also writes this to ~/README.md and sends it with a session's first result). */
+export const COMPUTER_PLAYBOOK = [
+  "How to work fast on your computer:",
+  "- start with computer_read \".\" and ~/NOTES.md (files and notes from earlier chats are still there; keep NOTES.md updated);",
+  "- to read a public GitHub repository use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
+  "- anything over ~60 s (install, build, tests, download, server) goes to computer_job; do other work, then read its log;",
+  "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch.",
+].join("\n");
+
 export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_run", "Run a bash command on YOUR persistent Linux computer (own home folder, files stay; python3 pip node git curl). Max 90 s: use computer_job for longer work.",
     obj({ command: s("bash command"), cwd: s("folder inside your home, default ."), timeout: n("seconds, 1-90") }, ["command"])),
@@ -90,6 +99,10 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_read", "Read a file (or list a folder) on YOUR computer.", obj({ path: s("file or folder, default .") })),
   tool("computer_job", "Background jobs on YOUR computer that keep running between steps: action=start{command,name} gives an id; log{id}; stop{id}; list.",
     obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("for start"), name: s("short label for start"), id: s("job id for log or stop"), tail: n("lines to show, default 60") }, ["action"])),
+  tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
+    obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
+  tool("computer_search", "Search text in files on YOUR computer (ripgrep): matching lines with file:line. path = folder or file, glob like *.ts.",
+    obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
 ];
 
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
@@ -630,7 +643,8 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const known = Object.keys(GROUP_TEXT);
       const ok = want.filter((g) => known.includes(g) && (g !== "github" || ctx.gh) && (g !== "connectors" || ctx.userId !== undefined));
       if (!ok.length) return `error: no such tool group (${want.join(", ") || "none given"}); groups: ${known.join(", ")}`;
-      return `loaded: ${ok.join(", ")}. Their tools are ready now.${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
+      const playbook = ok.includes("computer") ? `\n${COMPUTER_PLAYBOOK}` : "";
+      return `loaded: ${ok.join(", ")}. Their tools are ready now.${playbook}${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
     }
     if (name === "plan") {
       const text = renderPlan(a.items);
@@ -711,7 +725,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
       return formatResearch(r, 24000);
     }
-    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job") {
+    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);

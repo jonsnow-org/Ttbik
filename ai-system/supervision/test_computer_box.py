@@ -139,6 +139,69 @@ class Jobs(Box):
         self.assertGreater(cb.group_rss(os.getpgid(os.getpid())), 1024 * 1024)
 
 
+class Shortcuts(Box):
+    def test_only_public_github_addresses_are_accepted(self):
+        self.assertEqual(cb.parse_repo_url("https://github.com/jonsnow-org/Ttbik"), ("jonsnow-org", "Ttbik"))
+        self.assertEqual(cb.parse_repo_url("https://github.com/a/b.git"), ("a", "b"))
+        for bad in ("https://evil.com/a/b", "http://github.com/a/b", "https://github.com/a", "https://github.com/../x", "https://github.com/a/b; rm -rf /", "git@github.com:a/b.git"):
+            self.assertIsNone(cb.parse_repo_url(bad), bad)
+        self.assertFalse(self.run_box(session="u:m", action="repo", url="https://evil.com/a/b")["ok"])
+        self.assertFalse(self.run_box(session="u:m", action="repo", url="https://github.com/a/b", ref="x; rm -rf /")["ok"])
+
+    def test_search_finds_lines_with_file_and_number(self):
+        self.run_box(session="u:m", action="write", path="src/a.ts", content="const alpha = 1;\nconst needle = 2;\n")
+        self.run_box(session="u:m", action="write", path="src/b.py", content="needle = 3\n")
+        found = self.run_box(session="u:m", action="search", pattern="needle", path="src")
+        self.assertTrue(found["ok"])
+        self.assertIn("a.ts", found["matches"])
+        self.assertIn("2", found["matches"])
+        only_ts = self.run_box(session="u:m", action="search", pattern="needle", path="src", glob="*.ts")
+        self.assertNotIn("b.py", only_ts["matches"])
+        self.assertIn("no matches", self.run_box(session="u:m", action="search", pattern="zzzzz", path="src")["matches"])
+        self.assertFalse(self.run_box(session="u:m", action="search", pattern="x", path="../../etc")["ok"])
+
+    def test_a_pattern_cannot_inject_a_command(self):
+        marker = self.tmp / "pwned"
+        self.run_box(session="u:m", action="write", path="a.txt", content="hello")
+        self.run_box(session="u:m", action="search", pattern=f"x'; touch {marker}; echo '", path=".")
+        self.assertFalse(marker.exists())
+
+    def test_the_playbook_arrives_once_per_session_and_is_a_file(self):
+        first = self.run_box(session="u:m", action="run", command="echo hi")
+        self.assertIn("computer_repo", first["tips"])
+        second = self.run_box(session="u:m", action="run", command="echo again")
+        self.assertNotIn("tips", second)
+        self.assertIn("NOTES.md", self.run_box(session="u:m", action="read", path="README.md")["text"])
+        self.assertTrue(self.run_box(session="u:m", action="read", path="NOTES.md")["ok"])
+        self.assertIn("tips", self.run_box(session="other:m", action="run", command="echo hi"))        # a new session is welcomed too
+
+    def test_the_summary_command_describes_a_checkout(self):
+        import subprocess
+        repo = self.tmp / "r"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        (repo / "a.py").write_text("print(1)\n")
+        (repo / "b.ts").write_text("export {}\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "first"], cwd=repo, check=True)
+        out = subprocess.run(["bash", "-c", cb.repo_summary_command(str(repo))], capture_output=True, text=True).stdout
+        self.assertIn("files: 2", out)
+        self.assertIn("first", out)
+        self.assertIn("py(1)", out)
+        self.assertIn("a.py", out)
+
+    def test_a_real_public_repository_is_fetched_in_one_call_when_github_is_reachable(self):
+        import subprocess
+        reach = subprocess.run(["git", "ls-remote", "https://github.com/octocat/Hello-World.git", "HEAD"], capture_output=True, text=True, timeout=40)
+        if reach.returncode != 0:
+            self.skipTest("GitHub is not reachable from this machine")
+        out = self.run_box(session="u:m", action="repo", url="https://github.com/octocat/Hello-World")
+        self.assertTrue(out["ok"], out)
+        self.assertIn("README", out["summary"])
+        found = self.run_box(session="u:m", action="search", pattern="Hello", path="repos/octocat-Hello-World")
+        self.assertIn("README", found["matches"])
+
+
 class Api(Box):
     def test_bad_requests_are_answered_without_running_anything(self):
         self.assertIn("bad request", cb.api_box_do("nope"))

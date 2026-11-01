@@ -44,8 +44,18 @@ UID_SPAN = 40000
 _LOCK = threading.RLock()
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
-STATE: dict = {"egress": "not checked"}
+STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
 
+
+PLAYBOOK = """YOUR COMPUTER - how to work fast
+1. Start every task with computer_read "." and ~/NOTES.md: your files and notes from earlier chats are still here. Keep NOTES.md up to date (plan, findings, next step).
+2. To read a GitHub repository: ONE computer_repo call, then computer_search / computer_read / rg. Do not make dozens of GitHub API calls.
+3. Anything longer than about 60 s (install, build, test suite, download, server): computer_job action=start, do other work, then action=log. Poll rarely.
+4. Independent work in parallel: start a job, then browse or write code while it runs.
+5. Install into your home (pip install --target ~/pylib, npm in ~/proj). Your files and caches stay between chats.
+6. Pages that need JavaScript: the browser. Plain pages: web_fetch is faster.
+7. Output is cut at 12 KB: send big output to a file and read parts of it.
+"""
 
 # ---------------------------------------------------------------- pure helpers (unit-tested)
 def digest(session: str) -> str:
@@ -159,9 +169,30 @@ def _child_setup(uid: int, drop: bool, cpu_seconds: int):
     return setup
 
 
+def welcome(session: str) -> str:
+    """The first call of a session gets the playbook once (and README.md/NOTES.md exist from then on); later calls get nothing extra."""
+    home = session_home(session)
+    marker = home / ".welcomed"
+    if marker.exists():
+        return ""
+    try:
+        (home / "README.md").write_text(PLAYBOOK, encoding="utf-8")
+        notes = home / "NOTES.md"
+        if not notes.exists():
+            notes.write_text("# Notes\n(plan, findings, next step - read this first in every new chat)\n", encoding="utf-8")
+        marker.write_text("1", encoding="utf-8")
+        if is_root():
+            uid = session_uid(session)
+            for item in (home / "README.md", notes, marker):
+                os.chown(item, uid, uid)
+    except OSError:
+        return ""
+    return PLAYBOOK
+
+
 def ensure_home(session: str) -> Path:
     home = session_home(session)
-    for sub in ("", ".tmp", ".jobs"):
+    for sub in ("", ".tmp", ".jobs", "repos"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     if is_root():
         uid = session_uid(session)
@@ -314,6 +345,29 @@ def _kill_group(pid: int) -> None:
         time.sleep(0.4)
 
 
+# ---------------------------------------------------------------- the toolchain (installed once, in the background, when we are root)
+WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl"}
+
+
+def ensure_toolchain() -> str:
+    missing = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
+    if not missing:
+        STATE["toolchain"] = "ready"
+        return "ready"
+    if not is_root():
+        STATE["toolchain"] = "missing without root: " + ", ".join(missing)
+        return STATE["toolchain"]
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    try:
+        subprocess.run(["apt-get", "update"], capture_output=True, text=True, timeout=300, env=env)
+        r = subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", *missing], capture_output=True, text=True, timeout=600, env=env)
+        left = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
+        STATE["toolchain"] = "ready" if not left else f"missing after apt ({', '.join(left)}): rc={r.returncode}"
+    except Exception as exc:  # noqa: BLE001
+        STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:120]}"
+    return STATE["toolchain"]
+
+
 # ---------------------------------------------------------------- files
 def write_file(session: str, path: str, content: str) -> dict:
     data = str(content or "")
@@ -454,6 +508,90 @@ def job_list(session: str) -> dict:
     return {"ok": True, "jobs": rows}
 
 
+# ---------------------------------------------------------------- the two shortcuts that replace dozens of API calls
+GITHUB_URL = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?$")
+
+
+def parse_repo_url(url: str) -> tuple[str, str] | None:
+    m = GITHUB_URL.match(str(url or "").strip())
+    if not m or m.group(1) in (".", "..") or m.group(2) in (".", ".."):
+        return None
+    return m.group(1), m.group(2)
+
+
+def shell_quote(value: str) -> str:
+    import shlex
+    return shlex.quote(str(value))
+
+
+def repo_summary_command(folder: str) -> str:
+    """One shell snippet that describes a checkout: size, files, languages, top level."""
+    return (
+        f"cd {shell_quote(folder)} && echo \"commit: $(git log -1 --format='%h %s' 2>/dev/null | cut -c1-100)\" && "
+        "echo \"files: $(git ls-files 2>/dev/null | wc -l)  size: $(du -sh . 2>/dev/null | cut -f1)\" && "
+        "echo \"languages: $(git ls-files 2>/dev/null | sed -n 's/.*\\.\\([A-Za-z0-9]\\{1,6\\}\\)$/\\1/p' | sort | uniq -c | sort -rn | head -6 | awk '{printf \"%s(%s) \", $2, $1}')\" && "
+        "echo 'top level:' && ls -1 | head -40"
+    )
+
+
+def repo_fetch(session: str, url: str, ref: str = "") -> dict:
+    """Public GitHub repository -> ~/repos/<owner>-<name> in ONE call (shallow clone; tarball when git is blocked). Private repositories are not fetched here:
+    no GitHub token is ever put in this computer."""
+    parsed = parse_repo_url(url)
+    if not parsed:
+        return {"ok": False, "error": "give a public https://github.com/<owner>/<repo> address"}
+    owner, name = parsed
+    ref = str(ref or "").strip()
+    if ref and not re.fullmatch(r"[A-Za-z0-9_./-]{1,100}", ref):
+        return {"ok": False, "error": "bad branch or tag name"}
+    folder = f"repos/{owner}-{name}"
+    clone_url = f"https://github.com/{owner}/{name}.git"
+    branch = f"--branch {shell_quote(ref)} " if ref else ""
+    tar_ref = ref or "HEAD"
+    script = (
+        f"set -e; mkdir -p repos; "
+        f"if [ -d {shell_quote(folder)}/.git ]; then cd {shell_quote(folder)} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
+        f"else rm -rf {shell_quote(folder)}; "
+        f"git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {shell_quote(folder)} "
+        f"|| {{ rm -rf {shell_quote(folder)}; mkdir -p {shell_quote(folder)}; "
+        f"curl -fsSL --max-time 70 {shell_quote(f'https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}')} | tar xz -C {shell_quote(folder)} --strip-components=1; }}; fi; "
+        f"{repo_summary_command(folder)}"
+    )
+    started = job_start(session, script, f"repo {owner}/{name}")
+    if not started.get("ok"):
+        return started
+    job_id = started["id"]
+    deadline = time.time() + 80
+    while time.time() < deadline:
+        log = job_log(session, job_id, 60)
+        if log.get("ok") and not log.get("running"):
+            if log.get("exit_code") == 0:
+                return {"ok": True, "path": folder, "summary": log["output"], "seconds": log["seconds"]}
+            return {"ok": False, "error": "could not fetch the repository (is GitHub reachable from this Studio, and is the repository public?)", "output": log["output"][-600:]}
+        time.sleep(1.5)
+    return {"ok": True, "path": folder, "job": job_id, "summary": "", "message": "still downloading; read progress with computer_job action=log id=" + job_id + ", then search it"}
+
+
+def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
+    """ripgrep when installed, grep otherwise; line-numbered, bounded."""
+    g = f"-g {shell_quote(glob)} " if glob else ""
+    return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
+            f"else grep -rIn --max-count=20 -E {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+
+
+def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
+    if not str(pattern or "").strip():
+        return {"ok": False, "error": "give a pattern"}
+    try:
+        safe_path(session, path)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 40)
+    if not out.get("ok"):
+        return out
+    return {"ok": True, "matches": out["output"] or "(no matches)", "seconds": out["seconds"]}
+
+
 # ---------------------------------------------------------------- status and the API entry points
 def status(session: str = "") -> dict:
     ROOT.mkdir(parents=True, exist_ok=True)
@@ -466,7 +604,7 @@ def status(session: str = "") -> dict:
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
              "limits": {"command_seconds": MAX_TIMEOUT, "jobs": MAX_JOBS, "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": MEMORY_KILL // 1024 ** 3},
-             "egress": STATE["egress"]}
+             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked")}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(dir_size(home) / 1024 ** 2, 1) if home.exists() else 0
@@ -504,10 +642,18 @@ def api_box_do(body: str) -> str:
             out = job_stop(session, job.get("id", ""))
         elif action == "job_list":
             out = job_list(session)
+        elif action == "repo":
+            out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+        elif action == "search":
+            out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
         elif action == "status":
             out = status(session)
         else:
             out = {"ok": False, "error": "unknown action " + action[:30]}
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+    if out.get("ok") and action in ("run", "repo", "read", "write", "job_start"):
+        tips = welcome(session)                            # once per session, never repeated
+        if tips:
+            out["tips"] = tips
     return json.dumps(out, ensure_ascii=False)
