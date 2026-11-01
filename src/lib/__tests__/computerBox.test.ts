@@ -57,7 +57,7 @@ describe("the model's own persistent computer", () => {
     expect(out).toContain("hello");
     expect(calls[0].url).toContain("sham-donor-minicpmo45-media");
     expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:minicpmo45" });
-    expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
+    expect(await boxDo("sham", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
   });
 
   test("the computer group carries the four tools for Nova and the candidates, with short descriptions that keep the 90 s rule", () => {

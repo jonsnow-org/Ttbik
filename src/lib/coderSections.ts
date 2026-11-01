@@ -689,12 +689,28 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 }
 
 
-async function englishMediaPrompt(subject: string, original: string): Promise<string | null> {
-  // Keep prompt preparation local to this request: do not send a selected model's media prompt through Nova.
-  void original;
+async function englishMediaPrompt(subject: string, original: string, modelId = "coder"): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
   if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
-  return mf.glossaryPrompt(subject);
+  const known = mf.glossaryPrompt(subject);
+  if (known) return known;
+  // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
+  // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
+  if (modelId !== "coder") return null;
+  const messages: CoderMessage[] = [
+    { role: "system", content: "You turn a user's request for a picture or a video into ONE short English prompt for an image or video model: max 25 words, describe only what is shown (subject, appearance, action, colours, setting, style); ignore requested durations and sizes. Output the prompt only, no quotes, no explanation." },
+    { role: "user", content: original.slice(0, 300) },
+  ];
+  try {
+    const o = await coderChat(messages, { maxTokens: 60, temperature: 0.2, waitS: 15, timeoutMs: 30000, fresh: true, tag: "media-prompt" });
+    let r: CoderReply | null | undefined = o?.reply;
+    for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
+    }
+    if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
+    return r?.type === "done" ? mf.cleanEnglishPrompt(r.text || "") : null;
+  } catch { return null; }
 }
 
 
@@ -725,7 +741,7 @@ async function fastMedia(
       const rbm = realBot(bot) as never;
       const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
       if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
-      const prompt = await englishMediaPrompt(intent.subject, content);
+      const prompt = await englishMediaPrompt(intent.subject, content, modelId);
       if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) {
         say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
@@ -957,12 +973,6 @@ export async function startDonorTestTelegramTask(
   const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
   if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار النموذج.");
   if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
-  // «قم بتوليد صورة …»: a clear picture request goes straight to THIS candidate's own image Studio (one card, one picture), not through the slow chat model first
-  // (owner's MiniCPM test 2026-11-01: 8 minutes without an answer, then «HTTP 429» from the chat Studio).
-  if (surface === "telegram" && !media && !st.run) {
-    const handled = await mediaFastLane(bot, { id: botId } as BotRow, chatId, { ...st, model: id } as ChatState, text, db).catch(() => false);
-    if (handled) return { runId: "fast-media", queued: false };
-  }
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
     const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;

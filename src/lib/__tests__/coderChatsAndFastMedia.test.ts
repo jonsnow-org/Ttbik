@@ -43,11 +43,7 @@ describe("which requests take the fast media lane", () => {
     for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "كيف أرسم", "مرحبا", "حلل الصورة", "/start", "make a python script", "ارسم لي موقع", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
   });
   it("the English prompt: the glossary never guesses an unknown Arabic word; a model answer must be English", () => {
-    expect(glossaryPrompt("فرس ابيض")).toBe("a white horse");
-    expect(glossaryPrompt("فتاه حسناء")).toBe("a beautiful girl");                 // live bot test 2026-11-01: «قم بتوليد صورة فتاة حسناء» was refused
-    expect(glossaryPrompt("امراه جميله تبتسم")).toBe("a beautiful smiling woman");
-    expect(glossaryPrompt("رجل وسيم")).toBe("a handsome man");
-    expect(glossaryPrompt("فتاه ترقص 5 ثوان")).toBe("a girl dancing");               // live bot test: «قم بتوليد فديو فتاة ترقص 5 ثوان» was refused
+    expect(glossaryPrompt("فرس ابيض")).toBe("white horse");
     expect(glossaryPrompt("كلمةمجهولة")).toBeNull();
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
@@ -103,6 +99,14 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect((await listTasks(FREE, { limit: 5 }, db()))[0].status).toBe("failed");
   });
 
+  it("a request whose Arabic words no list knows: the MODEL (Nova's own coder Studio) writes the English prompt, code does not guess", async () => {
+    const urls = net({ type: "image", b64: b64(await png("gradient", 256)) }, "a beautiful girl, soft light");
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("قم بتوليد صورة فتاة حسناء"), db());
+    expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
+    expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /a beautiful girl/.test(u))).toBe(true);   // the picture Studio got the model's own English prompt
+  });
   it("the 4th picture of the day gets the quota message and nothing is generated", async () => {
     const urls = net({ type: "image", b64: b64(await png("gradient", 256)) });
     const { bot, api, sent } = fakeBot();
