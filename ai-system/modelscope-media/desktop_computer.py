@@ -509,6 +509,8 @@ def api_desktop_do(body: str) -> str:
         action = str(job.get("action") or "").lower()
         if not session or len(session) > 240:
             return json.dumps({"ok": False, "error": "a valid session is required"})
+        if action not in {"status", "start", "stop", "frame", "launch", "click", "move", "type", "key", "scroll"}:
+            return json.dumps({"ok": False, "error": "unknown desktop action"})
         if action == "status":
             return json.dumps(_desktop_status(session), ensure_ascii=False)
         if action == "start":
