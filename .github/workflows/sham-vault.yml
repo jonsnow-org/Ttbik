@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install kaggle modelscope
+      - run: pip install kaggle six modelscope
 
       - name: Back up
         env:

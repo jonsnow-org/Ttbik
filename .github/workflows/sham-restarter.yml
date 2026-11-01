@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: pip install kaggle requests
+      - run: pip install kaggle six requests
       - name: Optional delay (requested by a notebook at the end of its session)
         env:
           DELAY: ${{ github.event.inputs.delay || '0' }}

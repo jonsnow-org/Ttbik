@@ -130,7 +130,7 @@ def prepare(studio) -> str:
         f"|| git clone -q --depth 1 --branch {BRANCH} {REPO} Ttbik) && "
         # the notebooks' code writes under /kaggle/working: give this Studio user that folder (sudo is available there), else fall back to HOME
         "(sudo -n mkdir -p /kaggle/working /kaggle/input && sudo -n chown -R $(id -u):$(id -g) /kaggle 2>/dev/null || true) && "
-        "python -m pip install -q --disable-pip-version-check tokenizers numpy requests kaggle datasets pillow soundfile imageio-ffmpeg "
+        "python -m pip install -q --disable-pip-version-check tokenizers numpy requests kaggle six datasets pillow soundfile imageio-ffmpeg "
         "beautifulsoup4 av 2>&1 | tail -2; "
         # a --measure run that never exited (HF threads) must not be mistaken for the factory: end any such leftover
         "pkill -f 'media_factory.py --measure' 2>/dev/null; "
