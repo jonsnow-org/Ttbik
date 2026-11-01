@@ -26,3 +26,5 @@ Supervisors are **GitHub Actions bots**: they run on GitHub's schedule whether o
 1. Write/adjust `docs/agents/<section>.md` (mission, territory, frozen, owner-only switches, health checks, allowed actions, escalation, report fields).
 2. Add the section to `SECTIONS` in `scripts/supervisors/run.mjs` (pages, workflows with a max age in hours, error-issue keywords) and to the matrix in `.github/workflows/section-supervisors.yml`; extend `scripts/supervisors/run.test.mjs`.
 3. Add the section to the table above.
+
+Working on both branches (production + `main`) without collisions: see `docs/BRANCH_FLOW.md`.
