@@ -1057,6 +1057,14 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
 
 
+def _bridge_read_timeout(name: str) -> int:
+    """How long the Studio waits for the app server to finish one tool. The route allows 180 s: a clone, an install or a test run on the task computer
+    (and a screenshot, a deep research) legitimately take minutes, and a 38 s cut-off turned each of them into a 'bridge request failed' step."""
+    if name.startswith(("sandbox_", "cloud_computer_")) or name in {"deep_research", "web_research", "github_repo_audit"}:
+        return 175
+    return 60
+
+
 def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -> dict:
     """Execute local public read-only tools or relay linked-account tools through the scoped app bridge."""
     if not isinstance(arguments, dict):
@@ -1087,7 +1095,7 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
                     "media_capabilities": get_state().get("media") or {},
                 },
                 headers={"Cache-Control": "no-store"},
-                timeout=(10, 180 if name == "cloud_computer_screenshot" else 38),
+                timeout=(10, _bridge_read_timeout(name)),
             )
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
@@ -1222,6 +1230,32 @@ def _execute_tool(name: str, arguments: dict, tool_bridge: dict | None = None) -
     return {"ok": False, "error": f"Tool is not allowlisted: {name}"}
 
 
+READ_ONLY_PREFIXES = ("github_read", "github_list", "github_get", "github_search", "github_repo_scan", "web_", "fetch_page", "sandbox_read_file", "sandbox_search")
+
+
+def _is_read_only_call(name: str) -> bool:
+    return name.startswith(READ_ONLY_PREFIXES)
+
+
+def _run_reads_in_parallel(calls: list, tool_bridge: dict | None) -> dict:
+    """{index: result} for the read-only calls of one step when there are two or more of them; empty otherwise (the caller runs the rest in order)."""
+    indexes = [i for i, c in enumerate(calls) if isinstance(c, dict) and _is_read_only_call(str(c.get("name") or ""))]
+    if len(indexes) < 2:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(i: int):
+        call = calls[i]
+        arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+        return i, _execute_tool(str(call.get("name") or ""), arguments, tool_bridge)
+
+    out = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(indexes))) as pool:
+        for i, result in pool.map(one, indexes[:4]):
+            out[i] = result
+    return out
+
+
 def infer(
     prompt: str,
     max_tokens: int = MAX_OUTPUT,
@@ -1308,11 +1342,13 @@ def infer(
                 break
             assistant_calls = []
             tool_results = []
-            for call in calls:
+            # Independent read-only calls of one step run side by side (three file reads take as long as the slowest, not the sum).
+            prefetched = _run_reads_in_parallel(calls, tool_bridge)
+            for call_index, call in enumerate(calls):
                 name = str(call.get("name") or "")
                 arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
                 call_id = "call_" + uuid.uuid4().hex[:16]
-                tool_result = _execute_tool(name, arguments, tool_bridge)
+                tool_result = prefetched.get(call_index) or _execute_tool(name, arguments, tool_bridge)
                 generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
                 if isinstance(generated, dict):
                     generated_media.append(generated)

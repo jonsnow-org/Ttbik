@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { cloudDesktopEnabled } from "@/lib/cloudDesktopPolicy";
 import { coderChatKey, prismaDb, tierFor, type Db } from "@/lib/coderAuth";
 import { addUsage, checkLimit, getSubscription, listPlans, terminalAllowed } from "@/lib/coderPlans";
 
@@ -106,7 +107,7 @@ async function assertIdentity(ctx: CloudComputerContext): Promise<void> {
 async function assertEntitlement(ctx: CloudComputerContext): Promise<void> {
   await assertIdentity(ctx);
   // Production must not provision or resume a metered desktop provider.
-  if (process.env.NODE_ENV !== "test") {
+  if (!cloudDesktopEnabled()) {
     throw new Error("Persistent desktop is disabled by the zero-cost policy. Use the Oracle task runner for shell tasks.");
   }
   if (ctx.tier !== "owner" && !(await terminalAllowed(ctx.chatId, dbOf(ctx)))) {
