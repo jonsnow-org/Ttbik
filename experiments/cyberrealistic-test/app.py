@@ -34,7 +34,7 @@ _STATE = {
     "phase": "starting",
     "model_repo": MODEL_REPO,
     "model": "CyberRealistic FINAL FP16",
-            "precision": "bfloat16 autocast" if used_fast else "float32",
+    "precision": "float32",
     "checkpoint": CHECKPOINT_REL,
     "checkpoint_sha256": None,
     "creator_sha256_verified": False,
@@ -75,6 +75,7 @@ def _fast_cpu() -> bool:
 
 
 FAST = _fast_cpu()
+_STATE["precision"] = "bfloat16 autocast" if FAST else "float32"
 
 
 def _set_state(**values) -> None:
@@ -294,6 +295,7 @@ def generate_image(
             "seed": seed,
             "resolution": f"{width}x{height}",
             "device": "CPU only",
+            "precision": "bfloat16 autocast" if used_fast else "float32",
             "seconds": elapsed,
             "basic_image_checks": stats,
             "saved_file": str(output_path),
