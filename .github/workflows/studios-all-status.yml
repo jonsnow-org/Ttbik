@@ -13,13 +13,18 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           python3 - <<'PY'
-          import json, os, urllib.request, urllib.error
+          import json, os, time, urllib.request, urllib.error
           from concurrent.futures import ThreadPoolExecutor
           names = ["cyberrealistic-final-test","epicrealism-image-test","gemma4-realistic-vision-v6-test","realistic-vision-v6-test","umranz-sd15-image-test",
                    "nova-media-server","sham-donor-qwen35-9b-media","sham-donor-gemma4-e4b-media","sham-donor-minicpmo45-media",
                    "sham-v1-server","sham-v2-server","sham-v2-overflow-server","sham-v2-video-server","nova-inference-server"]
           head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
           def one(n):
+              for i in range(4):                      # the gateway answers 429 when asked too fast: wait and ask again
+                  r = one_try(n)
+                  if "HTTP 429" not in r[1] or i == 3: return r
+                  time.sleep(6 * (i + 1))
+          def one_try(n):
               base = f"https://studio-novaai2026-{n}.api-inference.modelscope.net/gradio_api/call/status"
               try:
                   r = urllib.request.urlopen(urllib.request.Request(base, data=b'{"data": []}', headers=head, method="POST"), timeout=40)
@@ -36,6 +41,6 @@ jobs:
                   return n, f"HTTP {e.code}"
               except Exception as e:
                   return n, "UNREACHABLE " + type(e).__name__ + " " + str(e)[:80]
-          with ThreadPoolExecutor(8) as ex:
+          with ThreadPoolExecutor(3) as ex:
               for n, s in ex.map(one, names): print(f"{n:40s} {s}")
           PY
