@@ -59,6 +59,8 @@ jobs:
       - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
       - run: npm ci
       - run: npm run build
+      - name: Test Cloudflare gate failover with simulated origin outages
+        run: node cloudflare/site-gate/selftest.mjs
 
   lint:
     # runs in parallel with build; errors fail it, warnings (React-Compiler rules, <a>/<img> advice) do not: see eslint.config.mjs
