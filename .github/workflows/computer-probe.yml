@@ -60,7 +60,10 @@ jobs:
               except Exception as exc:
                   print(label, "ERROR", type(exc).__name__, str(exc)[:160])
           show("BOX_STATUS", lambda: box(action="status"))
-          show("WHO_ID", lambda: box(action="run", command="id; echo HOME=$HOME"))
+          show("ID_ONLY", lambda: box(action="run", command="id"))
+          show("ECHO_HOME", lambda: box(action="run", command="echo HOME=$HOME"))
+          show("ID_THEN_LS", lambda: box(action="run", command="id; ls"))
+          show("TWO_ECHOS", lambda: box(action="run", command="echo hello; echo world"))
           show("WHO_PY", lambda: box(action="run", command="python3 -V; pip --version"))
           show("WHO_NODE_GIT", lambda: box(action="run", command="node -v; git --version"))
           show("SECRETS_IN_ENV", lambda: box(action="run", command="env | grep -c -i -E 'token|secret|key' || true"))
