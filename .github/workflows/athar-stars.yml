@@ -18,8 +18,17 @@ jobs:
       - name: expire, close and refund Athar Stars orders
         run: |
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
-          code=$(curl -sS -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/athar-stars")
-          echo "HTTP ${code}"; cat body.json; echo
-          [ "${code}" -lt 500 ]
+          # The gateway sometimes answers 530 (origin unreachable) for a minute: retry, then try the Vercel standby. The sweep is idempotent.
+          VERCEL_BASE=$(jq -r '.vercelUrl // empty' deploy/hosting/site.json)
+          code=000
+          for base in "${SITE_BASE}" "${SITE_BASE}" "${VERCEL_BASE}"; do
+            [ -n "${base}" ] || continue
+            code=$(curl -sS -m 60 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${base}/api/cron/athar-stars" || echo 000)
+            echo "HTTP ${code} (${base})"
+            [ "${code}" -lt 500 ] && [ "${code}" != "000" ] && break
+            sleep 20
+          done
+          cat body.json 2>/dev/null | head -c 400; echo
+          [ "${code}" -lt 500 ] && [ "${code}" != "000" ]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
