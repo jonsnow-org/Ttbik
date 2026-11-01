@@ -325,12 +325,12 @@ _CV_BASE_FILES = ["model_index.json", "scheduler/scheduler_config.json", "featur
 
 
 def cv_profile(cpus: int | None = None) -> dict:
-    """Frame size / frame count that a CPU can finish in about a minute or two: 512px x 16 frames with 6+ cores, 384px x 8 frames with fewer. CPU_VIDEO_SIDE / CPU_VIDEO_FRAMES override."""
+    """Frame size / frame count that a CPU can finish in about a minute or two: 512px x 16 frames with 6+ cores, 256px x 16 frames with fewer (16 frames is the length the motion model was trained on; 8 frames came out as a near-still clip). The clip is upscaled to out_side at encode time. CPU_VIDEO_SIDE / CPU_VIDEO_FRAMES override."""
     import os as _os
     n = int(cpus or _os.cpu_count() or 2)
-    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or (512 if n >= 6 else 384))
-    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or (16 if n >= 6 else 8))
-    return {"side": max(256, min(512, side // 8 * 8)), "max_frames": max(8, min(16, frames)), "threads": max(1, n), "fps": 8}
+    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or (512 if n >= 6 else 256))
+    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 16)
+    return {"side": max(256, min(512, side // 8 * 8)), "max_frames": max(8, min(16, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
 
 
 def cv_dtype():
@@ -444,8 +444,8 @@ def cv_release():
     gc.collect()
 
 
-def cv_encode_mp4(frames, fps: int = 8) -> bytes:
-    """H.264 MP4 of the generated frames (ffmpeg from imageio-ffmpeg or PATH)."""
+def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
+    """H.264 MP4 of the generated frames (ffmpeg from imageio-ffmpeg or PATH): lanczos upscale to out_side, then motion-compensated interpolation to double the frame rate (smooth motion; skipped if ffmpeg cannot do it)."""
     import shutil as _sh
     import subprocess as _sp
     import tempfile as _tf
@@ -460,8 +460,18 @@ def cv_encode_mp4(frames, fps: int = 8) -> bytes:
         for i, f in enumerate(frames):
             f.save(f"{d}/f{i:03d}.png")
         out = f"{d}/out.mp4"
-        _sp.run([exe, "-y", "-v", "error", "-framerate", str(fps), "-i", f"{d}/f%03d.png", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
-                check=True, timeout=120)
+        scale = f"scale={int(out_side)}:{int(out_side)}:flags=lanczos," if out_side and out_side != frames[0].size[0] else ""
+        tail = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
+        last = None
+        for vf in (f"{scale}minterpolate=fps={fps * 2}:mi_mode=mci:mc_mode=aobmc:vsbmc=1", scale.rstrip(",")):
+            cmd = [exe, "-y", "-v", "error", "-framerate", str(fps), "-i", f"{d}/f%03d.png"] + (["-vf", vf] if vf else []) + tail
+            try:
+                _sp.run(cmd, check=True, timeout=120)
+                break
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+        else:
+            raise RuntimeError(f"native-video-unavailable: ffmpeg encode failed: {last}")
         with open(out, "rb") as fh:
             return fh.read()
 
@@ -491,7 +501,7 @@ def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_name
         video = pipe.decode_latents(latents, decode_chunk_size=1)
         pil_frames = pipe.video_processor.postprocess_video(video=video, output_type="pil")[0]
     del video, latents
-    data = cv_encode_mp4(pil_frames, prof["fps"])
+    data = cv_encode_mp4(pil_frames, prof["fps"], prof.get("out_side", 0))
     if not keep:
         del pipe
         cv_release()
@@ -654,6 +664,6 @@ if __name__ == "__main__":
         if computer_box is not None:          # this model's own free persistent Linux computer: shell, files, background jobs (see computer_box.py)
             gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
             gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
-        if desktop_computer is not None:
+        if desktop_computer is not None:       # graphical desktop: Xvfb/Openbox over the authenticated Gradio API
             gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
