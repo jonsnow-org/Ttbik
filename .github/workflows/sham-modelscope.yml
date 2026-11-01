@@ -36,7 +36,7 @@ jobs:
           cache: pip
 
       - run: |
-          pip install kaggle modelscope
+          pip install kaggle six modelscope
           pip install --index-url https://download.pytorch.org/whl/cpu torch   # reads the image / audio tokenizer files (decoder-refined one is adopted only if its ids are identical)
           pip install numpy pillow tokenizers
 

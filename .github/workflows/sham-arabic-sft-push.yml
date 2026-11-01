@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --upgrade kaggle
+      - run: pip install --upgrade kaggle six
       - name: Push and start the kernel
         env:
           KAGGLE_USERNAME: jonsnowjonsnow

@@ -48,7 +48,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install Kaggle CLI
-        run: pip install --upgrade kaggle
+        run: pip install --upgrade kaggle six
 
       - name: Try to pull an existing kernel first (preserves its real GPU/internet/secrets settings if it exists)
         id: pull

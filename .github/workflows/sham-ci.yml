@@ -34,7 +34,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install tokenizers numpy pillow requests beautifulsoup4 soundfile datasets ipython kaggle
+          pip install tokenizers numpy pillow requests beautifulsoup4 soundfile datasets ipython kaggle six
 
       - name: Fetch the base branch
         run: git fetch --no-tags origin "${{ github.base_ref || github.event.repository.default_branch }}:refs/remotes/origin/${{ github.base_ref || github.event.repository.default_branch }}"
