@@ -735,9 +735,18 @@ def api_box_status(_unused: str = "") -> str:
     return json.dumps(status(), ensure_ascii=False)
 
 
+def unwrap_body(body: str) -> str:
+    """The Studio gateway has a request filter that answers 403 to some command text (a live probe: `echo hello; echo world`): the app sends the job as `b64:<base64 of the JSON>`."""
+    text = str(body or "")
+    if text.startswith("b64:"):
+        import base64
+        return base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+    return text
+
+
 def api_box_do(body: str) -> str:
     try:
-        job = json.loads(body or "{}")
+        job = json.loads(unwrap_body(body) or "{}")
         if not isinstance(job, dict):
             raise ValueError("not an object")
     except ValueError:

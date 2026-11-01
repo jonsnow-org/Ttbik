@@ -307,5 +307,13 @@ class Api(Box):
         self.assertEqual(status["limits"]["command_seconds"], cb.MAX_TIMEOUT)
 
 
+
+class WireTests(unittest.TestCase):
+    def test_b64_job_is_decoded_and_plain_still_works(self):
+        import base64
+        job = json.dumps({"action": "run", "command": "echo hello; echo world", "session": "t"})
+        self.assertEqual(json.loads(cb.unwrap_body("b64:" + base64.b64encode(job.encode()).decode()))["command"], "echo hello; echo world")
+        self.assertEqual(cb.unwrap_body(job), job)
+
 if __name__ == "__main__":
     unittest.main()

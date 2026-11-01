@@ -92,9 +92,21 @@ export async function browserDo(modelId: string | undefined, session: string, ar
 }
 
 /** One call of a Studio's hidden Gradio API (`/gradio_api/call/<api>`): start, then read the complete event. Shared by the browser and the computer box. */
+async function studioCallPlain(base: string, api: string, wire: string, headers: Record<string, string>, fetchImpl: typeof fetch, readMs: number): Promise<Record<string, any>> {
+  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [wire] }) });
+  if (!start.ok) throw new Error("Studio HTTP " + start.status);
+  const { event_id } = (await start.json()) as { event_id?: string };
+  if (!event_id) throw new Error("the Studio gave no request id");
+  const done = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(readMs) });
+  if (!done.ok) throw new Error("Studio HTTP " + done.status);
+  return (await readComplete(done)) as Record<string, any>;
+}
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
-  const submit = () => fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [JSON.stringify(payload)] }) });
+  // The Studio gateway's request filter answers 403 to some command text (`echo a; echo b`): the computer / browser jobs travel as base64 (the Studio decodes "b64:"). An older Studio answers "bad request": send it plain then.
+  const encode = api === "box_do" || api === "browser_do";
+  let wire = encode ? "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64") : JSON.stringify(payload);
+  const submit = () => fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [wire] }) });
   // the Studio gateway answers 403/429/502-504 now and then even when the Studio is healthy: ask again a few times before giving up
   let start = await submit();
   for (let i = 0; !start.ok && [403, 429, 502, 503, 504].includes(start.status) && i < 3; i++) {
@@ -106,5 +118,10 @@ export async function studioCall(base: string, api: string, payload: Record<stri
   if (!event_id) throw new Error("the Studio gave no request id");
   const done = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(readMs) });
   if (!done.ok) throw new Error("Studio HTTP " + done.status);
-  return (await readComplete(done)) as Record<string, any>;
+  const reply = (await readComplete(done)) as Record<string, any>;
+  if (encode && wire.startsWith("b64:") && reply && reply.ok === false && reply.error === "bad request") {
+    wire = JSON.stringify(payload);                      // an older Studio that does not decode b64 yet
+    return studioCallPlain(base, api, wire, headers, fetchImpl, readMs);
+  }
+  return reply;
 }

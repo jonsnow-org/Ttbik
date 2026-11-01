@@ -498,7 +498,10 @@ def api_browser_status(_unused: str = "") -> str:
 
 def api_browser_do(body: str) -> str:
     try:
-        job = json.loads(body or "{}")
+        text = str(body or "")
+        if text.startswith("b64:"):                        # see computer_box.unwrap_body: the gateway's request filter rejects some plain text
+            text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+        job = json.loads(text or "{}")
     except ValueError:
         return json.dumps({"ok": False, "error": "bad request"})
     if STATE["phase"] != "ready":
