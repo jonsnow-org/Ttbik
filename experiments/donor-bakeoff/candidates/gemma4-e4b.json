@@ -27,7 +27,7 @@
     "studio_api": "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net",
     "expected_checkpoint_sha256": "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
     "resolution": "512 × 512",
-    "steps": 25,
+    "steps": 24,
     "cfg": 5.5
   },
   "media_generation": {

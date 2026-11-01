@@ -27,7 +27,7 @@
     "studio_api": "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
     "expected_checkpoint_sha256": "28e09ca1ce1f0682deda6df1039beaded321db379eea9c7cd850f15ea37ca0ed",
     "resolution": "512 × 768",
-    "steps": 30,
+    "steps": 24,
     "cfg": 6.5
   },
   "media_generation": {

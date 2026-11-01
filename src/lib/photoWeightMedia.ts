@@ -24,7 +24,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     modelRepo: "novaai2026/epicrealism-image-test-models", endpointEnv: "NOVA_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "657a6b9cf3594b1c30f1b7bc35418e07caaaa0ca668fbefb13bbecc5391181e0",
-    resolution: "512 × 768", steps: 30, cfg: 7, negative: COMMON_NEGATIVE,
+    resolution: "512 × 768", steps: 24, cfg: 7, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Previously successful weight; a separate Gemma-owned copy lives in its own repo/Studio.
   "qwen35-9b": { modelId: "qwen35-9b", displayName: "Qwen3.5-9B", sourceModel: "cyberdelia/CyberRealistic",
@@ -38,21 +38,21 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     modelRepo: "novaai2026/gemma4-realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 512", steps: 24, cfg: 5.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Third candidate; Umranz generated a real photographic sample (2026-10-31, seed 42) on its own Studio.
   minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
     modelRepo: "novaai2026/umranz-sd15-test-models", endpointEnv: "MINICPMO45_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-umranz-sd15-image-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "28e09ca1ce1f0682deda6df1039beaded321db379eea9c7cd850f15ea37ca0ed",
-    resolution: "512 × 768", steps: 30, cfg: 6.5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 768", steps: 24, cfg: 6.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
   // Existing Sham v2 route is preserved on its original successful Studio; Gemma uses a private clone.
   sham_v2: { modelId: "sham_v2", displayName: "Sham v2", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
     modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 512", steps: 24, cfg: 5.5, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
 };;;
 
