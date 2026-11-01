@@ -34,4 +34,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           FROZEN_CHECK: ${{ steps.frozen.outcome == 'success' && 'ok' || 'fail' }}

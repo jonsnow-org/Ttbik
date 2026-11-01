@@ -25,7 +25,7 @@ export const SECTIONS = {
   "telegram-bots": {
     site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
-    errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i,
+    errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i, botsHealth: true,
   },
   "site-content": {
     site: [["home", "/", "vercel", ok200], ["news", "/news", "vercel", ok200], ["articles", "/articles", "vercel", ok200], ["prices", "/prices", "vercel", ok200],
@@ -87,6 +87,16 @@ export function evaluate(d, now = Date.now()) {
     else if (last.conclusion !== "success" && Date.parse(last.updated_at) > Date.parse(good.updated_at)) add(`Workflow: ${name}`, "warn", `latest run ${last.conclusion}: ${last.html_url} (last success ${Math.round(age)}h ago)`);
     else add(`Workflow: ${name}`, "ok", `last success ${Math.round(age)}h ago`);
   }
+  if (d.bots) {
+    if (d.bots.error) add("Bots: live webhook check", "warn", `could not read /api/ops/bots-health (${d.bots.error})`);
+    else {
+      const bad = (d.bots.bots || []).filter((b) => b.active && (!b.tokenValid || !b.webhookOk));
+      const stuck = (d.bots.bots || []).filter((b) => b.active && b.tokenValid && b.webhookOk && (b.pending > 100 || (b.lastError && b.lastErrorAgoMin != null && b.lastErrorAgoMin < 180)));
+      const nm = (b) => `@${b.username || b.template}${!b.tokenValid ? " (token invalid)" : !b.webhookOk ? " (webhook not set)" : b.pending > 100 ? ` (${b.pending} pending)` : ` (${b.lastError})`}`;
+      add("Bots: live webhook check", bad.length ? "fail" : stuck.length ? "warn" : "ok",
+        bad.length ? `${bad.length} of ${d.bots.checked} broken: ${bad.slice(0, 8).map(nm).join(", ")}` : stuck.length ? `${stuck.length} with recent delivery problems: ${stuck.slice(0, 8).map(nm).join(", ")}` : `${d.bots.checked} bots checked, all webhooks fine`);
+    }
+  }
   if (d.frozen) add("Coin facts frozen check", d.frozen === "ok" ? "ok" : "fail", d.frozen === "ok" ? "address, master, owner and salt unchanged" : "scripts/znbt-frozen-check.mjs FAILED - something frozen changed");
   const errs = d.errors || [];
   add("Open auto-error issues (this section)", errs.length ? "warn" : "ok", errs.length ? errs.join(" | ") : "none");
@@ -130,6 +140,12 @@ async function main() {
   const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
   for (const [label, path, b, pred, info] of cfg.site) { const r = await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info }); }
   for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, error: `HTTP ${r.status}` }); }
+  if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
+    try {
+      const r = await fetch(`${base.vercel}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
+      data.bots = r.status === 200 ? await r.json() : { error: `HTTP ${r.status}` };
+    } catch (e) { data.bots = { error: "no answer" }; }
+  }
   const er = await gh(`/repos/${repo}/issues?state=open&labels=auto-error&per_page=50`);
   if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
   const acted = [], skipped = [];
