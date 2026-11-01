@@ -68,7 +68,8 @@ jobs:
                   sev = json.load(urllib.request.urlopen(sreq, timeout=30))["event_id"]
                   sbody = urllib.request.urlopen(urllib.request.Request(base + f"/call/status/{sev}", headers=head), timeout=60).read().decode("utf-8", "ignore")
                   m = re.search(r"data: (.*)", sbody)
-                  st = json.loads(json.loads(m.group(1))[0]) if m else {}
+                  first = json.loads(m.group(1))[0] if m else {}
+                  st = first if isinstance(first, dict) else json.loads(first)
                   print("STUDIO_STATE", json.dumps({k: st.get(k) for k in ("phase", "error", "precision", "load_seconds", "last_generation_error")}, ensure_ascii=False), flush=True)
               except Exception as exc:
                   print("STATUS_UNREADABLE", type(exc).__name__, str(exc)[:100], flush=True)
