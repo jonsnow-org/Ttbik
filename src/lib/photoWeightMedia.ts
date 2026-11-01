@@ -38,7 +38,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     modelRepo: "novaai2026/gemma4-realistic-vision-v6-test-models", endpointEnv: "GEMMA4_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-gemma4-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 24, cfg: 5.5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,   // the Realistic Vision Studio's slider has a minimum of 25 (live check 2026-11-01: «Value 24 is less than minimum value 25»)
     validationStatus: "previously_passed" },
   // Third candidate; Umranz generated a real photographic sample (2026-10-31, seed 42) on its own Studio.
   minicpmo45: { modelId: "minicpmo45", displayName: "MiniCPM-o 4.5", sourceModel: "Umranz/SD1.5-Uncensored-Photoreal",
@@ -52,7 +52,7 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
     defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
     expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 24, cfg: 5.5, negative: COMMON_NEGATIVE,
+    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,   // the Realistic Vision Studio's slider has a minimum of 25 (live check 2026-11-01: «Value 24 is less than minimum value 25»)
     validationStatus: "previously_passed" },
 };;;
 
