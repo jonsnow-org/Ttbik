@@ -71,7 +71,7 @@ function providerFetch() {
   const files = new Map<string, Buffer>();
   const directories = new Set<string>(["/home/daytona"]);
   const processes = new Map<string, { id: string; state: string; cwd: string; terminal: { cols: number; rows: number }; logs: Array<{ data: string; cursor: string }> }>();
-  const calls: Array<{ url: string; method: string; body: any }> = [];
+  const calls: Array<{ url: string; method: string; body: any; authorization?: string | null }> = [];
   let seq = 0;
   let desktopReady = false;
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -79,7 +79,8 @@ function providerFetch() {
     const method = String(init.method || "GET").toUpperCase();
     const bodyText = typeof init.body === "string" ? init.body : "";
     const body = bodyText ? JSON.parse(bodyText) : {};
-    calls.push({ url: url.toString(), method, body });
+    const authorization = new Headers(init.headers).get("authorization");
+    calls.push({ url: url.toString(), method, body, authorization });
 
     if (url.origin === "https://daytona.test") {
       if (url.pathname === "/sandbox" && method === "POST") {
@@ -230,6 +231,7 @@ beforeEach(() => {
   process.env.SUPER_ADMIN_TELEGRAM_ID = String(OWNER);
   process.env.CODER_STATE_SALT = "cloud-computer-test-salt";
   process.env.DAYTONA_API_KEY = "daytona-test-secret";
+  delete process.env.DAYTONA_API_KEY1;
   process.env.DAYTONA_API_URL = "https://daytona.test";
   process.env.DAYTONA_TOOLBOX_URL = "https://toolbox.test";
   process.env.DAYTONA_TOOLBOX_V2_URL = "https://toolbox.test";
@@ -239,6 +241,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.DAYTONA_API_KEY1;
   delete process.env.DAYTONA_TOOLBOX_V2_URL;
   delete process.env.CLOUD_COMPUTER_OWNER_SNAPSHOT;
   delete process.env.CLOUD_COMPUTER_PLUS_SNAPSHOT;
@@ -272,6 +275,15 @@ describe("cloud computer identity and isolation", () => {
 });
 
 describe("cloud desktop lifecycle and controls", () => {
+  it("prefers the branch-scoped DAYTONA_API_KEY1 secret while retaining the legacy fallback", async () => {
+    process.env.DAYTONA_API_KEY1 = "daytona-preview-test-secret";
+    const db = computerDb();
+    const provider = providerFetch();
+    await cloudComputerOpen(ownerCtx(db, provider.fetchImpl));
+    const creation = provider.calls.find((call) => call.url.endsWith("/sandbox") && call.method === "POST")!;
+    expect(creation.authorization).toBe("Bearer daytona-preview-test-secret");
+  });
+
   it("provisions an always-on VM with a non-deleting persistent snapshot and signed desktop URL", async () => {
     const db = computerDb();
     const provider = providerFetch();
