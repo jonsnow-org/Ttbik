@@ -78,7 +78,7 @@ class Capacity(Box):
             cb._mem_available_mb = lambda: 2048
             too_low = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
             self.assertFalse(too_low.get("ok"))
-            self.assertIn("requires at least 3072 MB", too_low.get("error", ""))
+            self.assertIn("requires 3072 MB", too_low.get("error", ""))
             cb._mem_available_mb = lambda: None
             unknown = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
             self.assertFalse(unknown.get("ok"))
