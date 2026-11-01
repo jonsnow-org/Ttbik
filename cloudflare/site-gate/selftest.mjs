@@ -58,6 +58,13 @@ assert.equal(hdr(0).get("x-gate-failover"), "1");
 reset(); script.oracle = () => new Response("bad gateway", { status: 502 });
 r = await get("/x"); assert.equal(await r.text(), "vercel ok");
 
+// Cloudflare's own «Error 1016 Origin DNS error» (HTTP 530) and the other 520-530 pages are "the primary is down": the standby answers (owner saw 1016 inside the Mini App)
+for (const code of [520, 522, 523, 530]) {
+  reset(); script.oracle = () => new Response("error code: 1016", { status: code });
+  r = await get("/coder-app"); assert.equal(await r.text(), "vercel ok", "status " + code + " falls back to the standby");
+}
+reset(); script.oracle = () => new Response("error code: 1016", { status: 530 }); await get("/x"); r = await get("/y"); assert.equal(calls.filter((c) => c.url.startsWith("https://89-168-89-15")).length, 1, "the primary is skipped for a while after a 530");
+
 reset(); script.oracle = () => new Response("boom", { status: 500 });
 r = await get("/x"); assert.equal(r.status, 500); assert.equal(calls.length, 1, "an application error is not retried elsewhere");
 
