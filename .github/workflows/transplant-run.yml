@@ -26,7 +26,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install transformers tokenizers kaggle numpy requests pillow datasets soundfile beautifulsoup4 imageio-ffmpeg av accelerate
+          pip install transformers tokenizers kaggle six numpy requests pillow datasets soundfile beautifulsoup4 imageio-ffmpeg av accelerate
       - name: Transplant and measure
         env:
           KAGGLE_USERNAME: jonsnowjonsnow

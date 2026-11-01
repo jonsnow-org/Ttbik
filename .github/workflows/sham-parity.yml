@@ -28,7 +28,7 @@ jobs:
       - run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle datasets soundfile imageio-ffmpeg av
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle six datasets soundfile imageio-ffmpeg av
       - name: Parity
         env:
           KAGGLE_USERNAME: jonsnowjonsnow

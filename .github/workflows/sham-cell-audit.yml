@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: pip install kaggle ipython
+      - run: pip install kaggle six ipython
       - name: Audit
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
