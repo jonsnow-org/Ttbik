@@ -792,7 +792,10 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         meter = (s) => addUsage(ctx.userId!, "sandbox_minutes", s, ctx.db);
       }
       const t0 = Date.now();
-      const sbx = await runSandboxTool(name, a, { chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken, owner: ctx.tier === "owner", db: ctx.db });
+      const sbx = await runSandboxTool(name, a, {
+        chatKey: ctx.chatKey, runId: ctx.runId, modelId: ctx.modelId, userId: ctx.userId,
+        githubToken: ctx.githubToken, owner: ctx.tier === "owner", db: ctx.db, fetchImpl: ctx.fetchImpl,
+      });
       if (meter) await meter(Math.ceil((Date.now() - t0) / 1000));
       if (sbx !== null) return sbx;
     }
