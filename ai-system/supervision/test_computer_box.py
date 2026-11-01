@@ -157,14 +157,22 @@ class Jobs(Box):
         self.run_box(session="a:m", action="job_stop", id=job_id)
 
     def test_too_many_jobs_are_refused(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
+        cb.MAX_GLOBAL_JOBS = cb.MAX_JOBS
+        cb._mem_available_mb = lambda: 8192
         ids = []
         try:
             for _ in range(cb.MAX_JOBS):
-                ids.append(self.run_box(session="u:m", action="job_start", command="sleep 20")["id"])
+                result = self.run_box(session="u:m", action="job_start", command="sleep 20")
+                self.assertTrue(result.get("ok"), result)
+                ids.append(result["id"])
             self.assertFalse(self.run_box(session="u:m", action="job_start", command="sleep 20")["ok"])
         finally:
             for job_id in ids:
                 self.run_box(session="u:m", action="job_stop", id=job_id)
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
 
     def test_memory_is_measured_per_process_group(self):
         self.assertGreater(cb.group_rss(os.getpgid(os.getpid())), 1024 * 1024)
