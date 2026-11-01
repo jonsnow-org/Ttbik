@@ -90,7 +90,7 @@ Do not turn on a graphical desktop until all of these conditions are met:
 6. Stop/start persistence, recovery after runner restart, concurrent users, quota exhaustion and memory-pressure refusal are tested.
 7. The owner verifies the real VNC session from Telegram and an external browser on the live Oracle host.
 
-A CI fake provider is not proof that an Oracle GUI desktop exists or that Daytona/Oracle credits are available. Until those gates pass, the supported free workflow is Oracle task containers plus the Light JavaScript fallback.
+A CI fake provider is not proof that an Oracle GUI desktop exists or that an Oracle task endpoint is healthy. A passing ModelScope mock test is not proof that the live Studio code has been deployed. The current branch must pass CI, the code-only Studio deployment must complete for the selected Studios, and live `status` / `run` probes must pass before this chain is described as active. Production remains untouched until a separate deployment decision.
 
 ## Background task execution
 
