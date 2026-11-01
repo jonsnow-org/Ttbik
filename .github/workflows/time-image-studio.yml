@@ -50,11 +50,20 @@ jobs:
               data = [prompt, neg, "512 × 768", steps, 7.0, 7]
           else:
               data = [prompt, neg, "512 × 512", steps, 5.5, 7]
-          t0 = time.time()
-          req = urllib.request.Request(base + "/call/image", data=json.dumps({"data": data}).encode(), headers=head)
-          event = json.load(urllib.request.urlopen(req, timeout=60))["event_id"]
-          res = urllib.request.Request(base + f"/call/image/{event}", headers=head)
-          body = urllib.request.urlopen(res, timeout=1900).read().decode("utf-8", "ignore")
+          # a freshly restarted Studio is still loading its model (checkpoint hash + load): retry for up to ~30 minutes while it answers "not ready"
+          for attempt in range(40):
+              t0 = time.time()
+              try:
+                  req = urllib.request.Request(base + "/call/image", data=json.dumps({"data": data}).encode(), headers=head)
+                  event = json.load(urllib.request.urlopen(req, timeout=60))["event_id"]
+                  res = urllib.request.Request(base + f"/call/image/{event}", headers=head)
+                  body = urllib.request.urlopen(res, timeout=1900).read().decode("utf-8", "ignore")
+              except Exception as exc:
+                  body = "event: error\ndata: " + type(exc).__name__ + " " + str(exc)[:120]
+              if "event: complete" in body or attempt == 39:
+                  break
+              print("NOT_READY_YET attempt", attempt + 1, body[:160].replace("\n", " "), flush=True)
+              time.sleep(45)
           secs = round(time.time() - t0)
           print("TOTAL_SECONDS", secs)
           for block in body.split("\n\n"):
@@ -72,6 +81,8 @@ jobs:
                       print("IMAGE_BYTES", len(png))
               if "event: error" in block:
                   print("ERROR_BLOCK", block[:400])
+          if not os.path.exists("image-out.bin"):
+              raise SystemExit(1)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
