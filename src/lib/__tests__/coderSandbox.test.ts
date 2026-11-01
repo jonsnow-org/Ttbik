@@ -175,18 +175,18 @@ describe("sandbox", () => {
       } else if (payload?.action === "job_start") {
         result = { ok: true, id: "job12345", message: "running" };
       } else if (payload?.action === "read" && String(payload.path).endsWith(".exit")) {
-        result = { ok: true, kind: "file", text: "0\\n" };
+        result = { ok: true, kind: "file", text: "0\n" };
       } else if (payload?.action === "read" && String(payload.path).endsWith(".out")) {
         result = { ok: true, kind: "file", text: "ModelScope task output" };
       }
-      return new Response("event: complete\\ndata: " + JSON.stringify([JSON.stringify(result)]) + "\\n\\n", { status: 200 });
+      return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify(result)]) + "\n\n", { status: 200 });
     }) as any;
     try {
       const out = await runSandboxTool("sandbox_exec", { command: "echo model-scope" }, {
         chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "minicpmo45", userId: "42", fetchImpl,
       });
       expect(out).toContain("new sandbox (model-owned ModelScope Linux workspace");
-      expect(out).toContain("exit code 0\\nModelScope task output");
+      expect(out).toContain("exit code 0\nModelScope task output");
       expect(calls.length).toBeGreaterThanOrEqual(4);
       expect(calls.every((c) => c.url.includes("sham-donor-minicpmo45-media"))).toBe(true);
       expect(calls.every((c) => c.payload.session.startsWith("task:"))).toBe(true);
