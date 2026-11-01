@@ -298,6 +298,9 @@ async function chargeCompute(_ctx: CloudComputerContext, _elapsedMs: number): Pr
 }
 
 async function requireComputeAllowance(ctx: CloudComputerContext): Promise<void> {
+  // Central gate for every create/resume/terminal/file/desktop operation.
+  // Keep the owner on the same zero-cost provider policy as every other account.
+  await assertEntitlement(ctx);
   if (ctx.tier === "owner") return;
   const result = await checkLimit(ctx.chatId, "sandbox_minutes", 0, dbOf(ctx));
   if (!result.ok) throw new Error("انتهى رصيد وقت الحاسوب في خطتك الحالية. أوقف الحاسوب لحفظ ملفاته أو رقِّ خطتك.");
