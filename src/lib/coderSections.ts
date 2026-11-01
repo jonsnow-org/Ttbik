@@ -957,12 +957,6 @@ export async function startDonorTestTelegramTask(
   const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
   if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار النموذج.");
   if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
-  // «قم بتوليد صورة …»: a clear picture request goes straight to THIS candidate's own image Studio (one card, one picture), not through the slow chat model first
-  // (owner's MiniCPM test 2026-11-01: 8 minutes without an answer, then «HTTP 429» from the chat Studio).
-  if (surface === "telegram" && !media && !st.run) {
-    const handled = await mediaFastLane(bot, { id: botId } as BotRow, chatId, { ...st, model: id } as ChatState, text, db).catch(() => false);
-    if (handled) return { runId: "fast-media", queued: false };
-  }
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
     const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;

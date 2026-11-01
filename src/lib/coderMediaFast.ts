@@ -44,43 +44,23 @@ const GLOSSARY: Record<string, string> = {
   بحر: "sea", شاطئ: "beach", جبل: "mountain", غروب: "sunset", شروق: "sunrise", صحراء: "desert", غابه: "forest", نهر: "river", سماء: "sky", قمر: "moon", شمس: "sun", نجوم: "stars", ورده: "flower", زهره: "flower", شجره: "tree", مدينه: "city", بيت: "house", قلعه: "castle", سياره: "car", طائره: "airplane", سفينه: "ship", قارب: "boat", رجل: "man", امراه: "woman", طفل: "child", فتاه: "girl", ولد: "boy", روبوت: "robot", تنين: "dragon", فضاء: "space", مطر: "rain", ثلج: "snow", نار: "fire", كتاب: "book", قهوه: "coffee", طعام: "food",
   في: "in", على: "on", و: "and", مع: "with", جميل: "beautiful", كبير: "big", صغير: "small", قديم: "old", ليلا: "at night", نهارا: "in daylight",
 };
-// People, looks, clothes, places, weather, things (normalised spelling: ة->ه, أ->ا, ى->ي). Added after a live bot test: «قم بتوليد صورة فتاة حسناء» was refused because «حسناء» was unknown.
-const GLOSSARY_MORE: Record<string, string> = {
-  // actions (a video asks for movement): the Arabic verb as the model's picture / clip prompt needs it
-  ترقص: "dancing", يرقص: "dancing", رقص: "dancing", تمشي: "walking", يمشي: "walking", تجري: "running", يجري: "running", تركض: "running", يركض: "running", تسبح: "swimming", يسبح: "swimming", تطير: "flying", يطير: "flying",
-  تضحك: "laughing", يضحك: "laughing", تبكي: "crying", يبكي: "crying", تاكل: "eating", ياكل: "eating", تشرب: "drinking", يشرب: "drinking", تتكلم: "talking", يتكلم: "talking", تغني: "singing", يغني: "singing", تلعب: "playing", يلعب: "playing",
-  تقفز: "jumping", يقفز: "jumping", تقود: "driving", يقود: "driving", تقرا: "reading", يقرا: "reading", تكتب: "writing", يكتب: "writing", تنظر: "looking", ينظر: "looking", تدور: "spinning", تتحرك: "moving", يتحرك: "moving", تبتسم_: "smiling",
-  تحمل: "holding", يحمل: "holding", تجلس: "sitting", يجلس: "sitting", تقف: "standing", يقف: "standing", تنام: "sleeping", ينام: "sleeping", تسير: "walking", يسير: "walking", تتسلق: "climbing", يتسلق: "climbing", تصلي: "praying", يصلي: "praying",
-  بطيء: "slow motion", بطيئه: "slow motion", سريع: "fast", معا: "together",
-  فتاه: "girl", بنت: "girl", صبيه: "girl", امراه: "woman", سيده: "woman", رجل: "man", طفل: "child", طفله: "little girl", ولد: "boy", صبي: "boy", شاب: "young man", شابه: "young woman", عجوز: "old", جده: "grandmother", جد: "grandfather",
-  حسناء: "beautiful", حسنا: "beautiful", جميله: "beautiful", جميلات: "beautiful", فاتنه: "stunning", رائعه: "stunning", رائع: "stunning", وسيم: "handsome", قبيح: "ugly", لطيف: "cute", لطيفه: "cute", مبتسمه: "smiling", مبتسم: "smiling", تبتسم: "smiling", سعيد: "happy", حزين: "sad", غاضب: "angry",
-  شعر: "hair", طويل: "long", طويله: "long", قصير: "short", قصيره: "short", اشقر: "blond", شقراء: "blond", عيون: "eyes", عينان: "eyes", وجه: "face", ابتسامه: "smile", حجاب: "hijab", عباءه: "abaya", فستان: "dress", قبعه: "hat", نظارات: "glasses", تاج: "crown",
-  ملكه: "queen", ملك: "king", اميره: "princess", امير: "prince", محارب: "warrior", فارس: "knight", جندي: "soldier", ساحر: "wizard", ساحره: "witch", رائد: "astronaut", طبيب: "doctor", مزارع: "farmer", صياد: "fisherman", بحار: "sailor",
-  بني: "brown", رمادي: "gray", برتقالي: "orange", بنفسجي: "purple", فضي: "silver", ذهبي: "golden", ذهبيه: "golden", وردي: "pink", وردي_: "pink",
-  مدينه: "city", قريه: "village", شارع: "street", حديقه: "garden", بحيره: "lake", قصر: "castle", مسجد: "mosque", برج: "tower", جسر: "bridge", سوق: "market", مطر: "rain", ثلج: "snow", ضباب: "fog", غيوم: "clouds", عاصفه: "storm", ربيع: "spring", صيف: "summer", خريف: "autumn", شتاء: "winter",
-  سياره: "car", طائره: "airplane", قطار: "train", دراجه: "bicycle", سفينه: "ship", قارب: "boat", طعام: "food", قهوه: "coffee", كتاب: "book", طاوله: "table", كرسي: "chair", باب: "door", نافذه: "window", شجره: "tree", اشجار: "trees", عشب: "grass", نار: "fire", ماء: "water", نهر_: "river",
-  حصان_: "horse", غزال: "deer", ثعلب: "fox", بومه: "owl", حمامه: "dove", فراشه: "butterfly", تنين: "dragon", روبوت: "robot", ديناصور: "dinosaur", بقره: "cow", خروف: "sheep", ديك: "rooster", حيوان: "animal",
-  جميلا: "beautiful", ساحر_: "magical", سحري: "magical", واقعي: "realistic", واقعيه: "realistic", قريب: "close-up", ليل: "night", صباح: "morning", مساء: "evening", تحت: "under", فوق: "above", امام: "in front of", بجانب: "next to", داخل: "inside", حول: "around",
-};
 export function glossaryPrompt(subject: string): string | null {
   const words = norm(subject).split(" ").filter(Boolean);
   const out: string[] = [];
   let known = 0;
   for (const w of words) {
-    if (/^[0-9\u0660-\u0669]+$/.test(w) || /^(ثوان|ثواني|ثانيه|ثانيتين|ثانيتان|دقيقه|دقائق|ثانية|sec|secs|seconds?)$/.test(w)) continue;   // «5 ثوان»: the clip length is not part of the prompt
     const bare = w.replace(/^(ال|و|ب|ل)(?=.{2,})/, "");
-    const hit = GLOSSARY[w] || GLOSSARY[bare] || GLOSSARY_MORE[w] || GLOSSARY_MORE[bare];
+    const hit = GLOSSARY[w] || GLOSSARY[bare];
     if (hit) { out.push(hit); known++; }
     else if (/^[\x00-\x7f]+$/.test(w)) out.push(w);
     else return null;                                                  // an unknown Arabic word: do not guess
   }
   if (!known && !out.length) return null;
   // adjectives of the Arabic phrase follow the noun ("horse white"): put colours / adjectives first
-  const adj = new Set(["white", "black", "red", "blue", "green", "yellow", "golden", "pink", "beautiful", "big", "small", "old", "stunning", "handsome", "cute", "smiling", "happy", "sad", "angry", "long", "short", "blond", "brown", "gray", "orange", "purple", "silver", "magical", "realistic", "ugly"]);
+  const adj = new Set(["white", "black", "red", "blue", "green", "yellow", "golden", "pink", "beautiful", "big", "small", "old"]);
   const a = out.filter((w) => adj.has(w));
   const rest = out.filter((w) => !adj.has(w));
-  const joined = [...a, ...rest].join(" ").trim();
-  const phrase = !joined || /^(a|an|the|in|on|at|under|above|two|three)\b/.test(joined) ? joined : (/^[aeiou]/.test(joined) ? "an " : "a ") + joined;
+  const phrase = [...a, ...rest].join(" ").replace(/\b(horse|lion|cat|dog|bird|eagle|fish|camel|elephant|wolf|tiger|bear|rabbit|butterfly|robot|dragon|car|house|castle|ship|boat)\b/, "a $1").replace(/^(a )?((white|black|red|blue|green|yellow|golden|pink|beautiful|big|small|old) )+a /, (m) => m.replace(/ a $/, " ").replace(/^a /, "a "));
   return phrase.trim() || null;
 }
 
