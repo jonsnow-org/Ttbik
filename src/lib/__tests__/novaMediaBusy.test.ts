@@ -3,7 +3,7 @@
 import { handleCoderSections } from "@/lib/coderSections";
 import { novaMediaUrl, novaMakeMedia, readMediaSse, DEFAULT_NOVA_MEDIA_URL } from "@/lib/novaMedia";
 import { fakeBot } from "./coderFakes";
-import { b64, png } from "./mediaFixtures";
+import { b64, png, photoStudioFake } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
@@ -19,7 +19,11 @@ beforeEach(async () => {
 
 function net(mediaAnswers: object[]) {
   let i = 0;
-  (global as any).fetch = jest.fn(async (url: string) => {
+  // pictures come from the selected model's own image Studio (makePhotoMedia); no pictures given = that Studio is not answering
+  const pics = mediaAnswers.filter((a: any) => a.type === "image" && a.b64 !== "x").map((a: any) => Buffer.from(a.b64, "base64"));
+  const studio = pics.length ? photoStudioFake("coder", pics) : null;
+  (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+    const ph = studio?.(url, init); if (ph) return ph;
     if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
     if (url.startsWith("https://media.test")) return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "m" })) : new Response(sse(mediaAnswers[Math.min(i++, mediaAnswers.length - 1)]));
     if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }));
@@ -32,7 +36,7 @@ const say = (text: string) => ({ message: { chat: { id: OWNER }, from: { id: OWN
 describe("Nova media Studio SSE streaming", () => {
   it("returns the first complete media result while the Studio stream remains open", async () => {
     const encoder = new TextEncoder();
-    const line = `data: ["{\"type\":\"audio\",\"b64\":\"QUJD\"}"]\n`;
+    const line = `data: [${JSON.stringify(JSON.stringify({ type: "audio", b64: "QUJD" }))}]\n`;
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -53,8 +57,8 @@ describe("Nova media Studio SSE streaming", () => {
 });
 
 describe("Nova media Studio busy / off", () => {
-  it("busy twice, then the picture: one message while waiting, the picture sent, the card gone, no excuse text", async () => {
-    net([{ type: "busy" }, { type: "busy" }, { type: "image", b64: b64(await png("gradient", 256)) }]);
+  it("the picture: one message while waiting, the picture sent, the card gone, no excuse text", async () => {
+    net([{ type: "image", b64: b64(await png("gradient", 256)) }]);
     const { bot, api, sent } = fakeBot();
     (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
     const d: any = pgDb();
@@ -68,7 +72,7 @@ describe("Nova media Studio busy / off", () => {
     expect(sent.some((s) => /غير متصل|not connected|غير متاح/.test(s.text))).toBe(false);
     expect(sent).toHaveLength(0);                                         // the card was removed; the picture is the reply
   });
-  it("busy for good: a precise reason written INTO the one message (never the model's excuse)", async () => {
+  it("Studio not answering: a precise reason written INTO the one message (never the model's excuse)", async () => {
     net([{ type: "busy" }]);
     const { bot, sent } = fakeBot();
     const d: any = pgDb();
@@ -77,7 +81,7 @@ describe("Nova media Studio busy / off", () => {
     for (let i = 0; i < 100 && !sent.some((s) => /تعذّر إنشاء الصورة/.test(s.text)); i++) await wait(50);
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toMatch(/تعذّر إنشاء الصورة/);
-    expect(sent[0].text).toMatch(/مشغول/);
+    expect(sent[0].text).toMatch(/image Studio/);                                // the precise reason (which Studio, why), not a model excuse
   }, 30000);
   it("a legacy stored media=false is ignored: the request is still taken by the fast lane (a card, then the picture), never refused", async () => {
     net([{ type: "image", b64: "x" }]);
