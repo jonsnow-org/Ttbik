@@ -40,7 +40,7 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: pip install modal kaggle
+      - run: pip install modal kaggle six
 
       - name: Run the session on Modal
         env:
