@@ -200,3 +200,32 @@ class InferenceTimeout(unittest.TestCase):
         self.assertEqual(f(1), 60)
         self.assertGreater(f(768), 240)
         self.assertLessEqual(f(100000), 900)
+
+
+class ComputerAndToolSpeed(unittest.TestCase):
+    def test_slow_computer_tools_get_the_long_bridge_timeout(self):
+        timeout = load("_bridge_read_timeout")["_bridge_read_timeout"]
+        for name in ("sandbox_clone", "sandbox_exec", "sandbox_wait", "cloud_computer_screenshot", "deep_research"):
+            self.assertEqual(timeout(name), 175, name)
+        self.assertEqual(timeout("github_read_file"), 60)
+        self.assertLess(175, 180)                                  # the app-server route allows 180 s
+
+    def test_independent_reads_run_side_by_side_and_keep_their_order(self):
+        import time
+        calls_made = []
+
+        def fake_execute(name, arguments, bridge):
+            calls_made.append(name)
+            time.sleep(0.2)
+            return {"ok": True, "name": name}
+
+        scope = load("_is_read_only_call", "_run_reads_in_parallel",
+                     READ_ONLY_PREFIXES=("github_read", "github_list", "web_", "fetch_page", "sandbox_read_file", "sandbox_search"),
+                     _execute_tool=fake_execute)
+        calls = [{"name": "github_read_file"}, {"name": "sandbox_exec"}, {"name": "fetch_page"}, {"name": "github_list_commits"}]
+        started = time.monotonic()
+        out = scope["_run_reads_in_parallel"](calls, None)
+        self.assertLess(time.monotonic() - started, 0.55)          # three 0.2 s reads in parallel, not 0.6 s in a row
+        self.assertEqual(sorted(out), [0, 2, 3])                   # the write-capable call is left to the ordered loop
+        self.assertEqual(out[2]["name"], "fetch_page")
+        self.assertEqual(scope["_run_reads_in_parallel"]([{"name": "github_read_file"}], None), {})   # one read: nothing to parallelise
