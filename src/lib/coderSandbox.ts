@@ -379,7 +379,7 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
     const home = sb.home || HOME;
     const label = backend === "modelscope" ? "model-owned ModelScope Linux workspace (capacity-gated)" :
       backend === "vercel" ? "Vercel Linux microVM" : backend === "daytona" ? "Daytona Linux sandbox" : backend === "e2b" ? "E2B Linux microVM"
-      : backend === "oracle" ? "capped Oracle Linux container" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
+      : backend === "oracle" ? "capped Linux container on Oracle" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
     const note = fresh ? `[new sandbox (${label}): node + python3 + git, home ${home}, auto-stops after ${timeoutMin()} min]\n` : "";
     switch (name) {
       case "sandbox_clone": {
