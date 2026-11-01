@@ -1313,11 +1313,12 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
     finally { setBusy(""); }
   };
   const running = ["started", "running"].includes(String(status?.state || "").toLowerCase());
+  const providerDisabled = status?.provider === "daytona_disabled";
   return (
     <List>
       <Section>
         <div style={{ display: "flex", gap: 6, padding: "4px 8px", flexWrap: "wrap" }}>
-          {(["desktop", "terminal", "files"] as const).map((id) => (
+          {(["desktop", "terminal", "files"] as const).filter((id) => !providerDisabled || id === "desktop").map((id) => (
             <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
               style={{ borderRadius: 10, padding: "8px 12px", border: "1px solid var(--tgui--divider)", background: section === id ? "var(--tgui--secondary-bg-color)" : "transparent", color: "var(--tgui--text-color)", fontWeight: section === id ? 700 : 500 }}>
               {id === "desktop" ? (ar ? "سطح المكتب" : "Desktop") : id === "terminal" ? (ar ? "الطرفية" : "Terminal") : (ar ? "الملفات" : "Files")}
@@ -1325,23 +1326,24 @@ function CloudComputerTab({ lang, model, owner }: { lang: Lang; model: string; o
           ))}
         </div>
       </Section>
-      {section === "terminal" && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
-      {section === "files" && <Section header={ar ? "ملفات الحاسوب" : "Computer files"}><CloudFilesPane lang={lang} model={model} /></Section>}
+      {section === "terminal" && !providerDisabled && <Section><CloudTerminalPane lang={lang} model={model} /></Section>}
+      {section === "files" && !providerDisabled && <Section header={ar ? "ملفات الحاسوب" : "Computer files"}><CloudFilesPane lang={lang} model={model} /></Section>}
       {section === "desktop" && <>
       <Section header={ar ? "حاسوبك السحابي الخاص" : "Your private cloud computer"}
-        footer={ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume."}>
+        footer={providerDisabled ? (ar ? "أُوقف تشغيل الحاسوب الرسومي في الإنتاج لأن مزوّده السابق كان مدفوعاً. هذه اللوحة مخصصة لإيقاف أي آلة قديمة فقط." : "The graphical desktop is disabled in production because its former provider was metered. This panel is retained only to stop legacy machines.") : (ar ? "آلة Linux افتراضية مستقلة لهذا الحساب ولهذا النموذج فقط. تبقى ملفاتك وبرامجك بعد إيقاف الحاسوب وإعادة تشغيله." : "A dedicated Linux virtual machine for this account and this model only. Files and installed packages persist after stop and resume.")}>
         <Cell multiline subtitle={(ar ? "النموذج: " : "Model: ") + model + " · " + (status?.snapshot || (ar ? "لم يُنشأ بعد" : "Not created yet"))}>
           {ar ? "مساحة عمل مستقلة" : "Isolated workspace"}
         </Cell>
         <Cell after={running ? "● " + (ar ? "يعمل" : "Running") : (status?.state || (ar ? "غير منشأ" : "Not created"))}>
           {ar ? "حالة الحاسوب" : "Computer state"}
         </Cell>
+        {providerDisabled && <Cell multiline before="ℹ️">{ar ? "سياسة الاستخدام المجاني: لا يتم إنشاء أو إعادة تشغيل أجهزة Daytona. يفحص التطبيق الجهاز القديم ويحاول إيقافه؛ إن تعذر ذلك ستظهر حالة التنظيف المعلّق." : "Zero-cost policy: Daytona machines are not created or resumed. The app checks for an old machine and attempts to stop it; failed stops remain marked as cleanup pending."}</Cell>}
         {status?.resources && <Cell subtitle={status.resources.memoryGiB + " GB RAM · " + status.resources.diskGiB + " GB disk"} after={status.resources.vcpu + " vCPU"}>{ar ? "الموارد" : "Resources"}</Cell>}
         <div style={{ padding: "8px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <Button size="m" loading={busy === "open"} disabled={!!busy} onClick={() => void act("open", "computer_open")}>{ar ? (running ? "فتح الحاسوب" : "تشغيل الحاسوب") : (running ? "Open computer" : "Start computer")}</Button>
-          <Button size="m" mode="bezeled" loading={busy === "refresh"} disabled={!!busy || !status?.exists} onClick={() => void act("refresh", "computer_refresh")}>{ar ? "تحديث الاتصال" : "Refresh connection"}</Button>
-          <Button size="m" mode="bezeled" loading={busy === "stop"} disabled={!!busy || !status?.exists || !running} onClick={() => void act("stop", "computer_stop")}>{ar ? "إيقاف مع حفظ الملفات" : "Stop and keep files"}</Button>
-          {owner && <Button size="m" mode="bezeled" loading={busy === "test"} disabled={!!busy} onClick={() => void act("test", "computer_self_test")}>{ar ? "اختبار الحاسوب الكامل" : "Full computer test"}</Button>}
+          <Button size="m" loading={busy === "open"} disabled={!!busy || providerDisabled} onClick={() => void act("open", "computer_open")}>{ar ? (running ? "فتح الحاسوب" : "تشغيل الحاسوب") : (running ? "Open computer" : "Start computer")}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "refresh"} disabled={!!busy || providerDisabled || !status?.exists} onClick={() => void act("refresh", "computer_refresh")}>{ar ? "تحديث الاتصال" : "Refresh connection"}</Button>
+          <Button size="m" mode="bezeled" loading={busy === "stop"} disabled={!!busy || !status?.exists || (!running && !status?.cleanupPending)} onClick={() => void act("stop", "computer_stop")}>{ar ? "إيقاف مع حفظ الملفات" : "Stop and keep files"}</Button>
+          {owner && !providerDisabled && <Button size="m" mode="bezeled" loading={busy === "test"} disabled={!!busy} onClick={() => void act("test", "computer_self_test")}>{ar ? "اختبار الحاسوب الكامل" : "Full computer test"}</Button>}
         </div>
         {preview && (
           <div style={{ padding: 12 }}>
