@@ -712,7 +712,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
-    case "browser": {                    // the desktop view of the model's computer: its own headless browser, with a screenshot (owner only)
+    case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const model = String(body.model || "coder");
+      const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
+      const { desktopDo } = await import("@/lib/desktopComputer");
+      return await desktopDo(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
+    }
+    case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const model = String(body.model || "coder");
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
