@@ -78,8 +78,8 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 
 /** The model's own free headless browser (browserComputer.ts): real pages with JavaScript, clicking and typing. One tool so a small context window pays for one schema. */
 export const BROWSER_TOOL_DEFS: CoderTool[] = [
-  tool("browser", "Your own web browser (real pages, JavaScript). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list; type{id,text,enter} fills a field; press{key}; scroll{dy}; back. Every answer lists the page text and numbered clickable elements.",
-    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back"] }, url: s("address for open"), id: n("element number from the last answer"), text: s("text to type"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up") }, ["action"])),
+  tool("browser", "Your own web browser (real pages, JavaScript; it keeps your cookies and logins between calls, even after you were away). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list (or click{x,y} for a drawn area); type{id,text,enter} fills a field; press{key}; scroll{dy}; back; wait{text,seconds} waits for a single-page app to show some text, then reads the page; aria gives the page outline (roles and names) when the numbered list is not enough. Every answer lists the page text and numbered clickable elements.",
+    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
 ];
 
 export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [

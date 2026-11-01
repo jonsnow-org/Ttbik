@@ -3,10 +3,12 @@
 Runs inside the model's OWN media Studio (free 2 vCPU / 8 GB CPU): nothing is shared with another model, nothing is paid, nothing leaves the account.
 The app server calls it through the Studio's Gradio API (`browser_do`, `browser_status`); a session is one user of one model (the app derives the id).
 
-How it gets a browser on a Studio where we are not root (the first thing the probe reports):
-  1. Playwright's own Chromium, installed into the persistent folder (/mnt/workspace) when it is writable;
-  2. if it cannot start for missing system libraries: the .deb files are fetched with an unprivileged `apt-get` (private state/cache folders) and unpacked into a
-     local prefix that is put on LD_LIBRARY_PATH. No root, no installs on the host.
+How it gets a browser on a Studio (measured on a real ModelScope Studio, 2026-11-01: we are root, apt works through the Aliyun mirror, but Playwright's own
+download host did not answer in 900 s - the Studio is in China):
+  1. Chromium is downloaded from a mirror first (PLAYWRIGHT_DOWNLOAD_HOST, then npmmirror), then from Playwright's own host, into the persistent folder (/mnt/workspace);
+  2. if it cannot start for missing system libraries: when we are root they are installed with `apt-get install`; otherwise the .deb files are fetched with an
+     unprivileged `apt-get` and unpacked into a local prefix on LD_LIBRARY_PATH.
+One Chromium process serves every session (one BrowserContext each); idle sessions are saved to disk and closed.
 The result of every step is kept in `status()` so a failing Studio explains itself.
 """
 from __future__ import annotations
@@ -31,7 +33,8 @@ VIEWPORT = {"width": 1024, "height": 700}
 MAX_TEXT = 6000
 MAX_ELEMENTS = 40
 IDLE_SECONDS = 600
-MAX_SESSIONS = 2
+MAX_SESSIONS = 6                 # contexts of ONE shared Chromium cost ~25 MB each (a process per session cost ~500 MB), so several fit in 8 GB
+ARIA_LIMIT = 5000
 
 # Debian/Ubuntu packages Chromium needs; fetched (not installed) only when it fails to start for a missing library.
 CHROMIUM_LIBS = [
@@ -90,23 +93,64 @@ def clip_text(text: str, limit: int = MAX_TEXT) -> str:
     return text if len(text) <= limit else text[:limit] + "\n…(cut; scroll or ask for more)"
 
 
-# JavaScript run in the page: number the interactive elements and return them with their centre point.
+def format_visual(areas: list[dict], frames: int = 0) -> str:
+    """Drawn areas (canvas / video / svg / iframe) hold no readable text: say where they are, so the model can click by x,y or ask for the outline."""
+    lines = [f'{a.get("kind", "area")} at x={a.get("x")} y={a.get("y")} size {a.get("w")}x{a.get("h")}' for a in areas[:8]]
+    if frames:
+        lines.append(f"{frames} iframe(s) on the page: their content is not in the text above")
+    return "\n".join(lines)
+
+
+def meta_file(session: str) -> Path:
+    return session_dir(session) / "meta.json"
+
+
+def state_file(session: str) -> Path:
+    return session_dir(session) / "state.json"
+
+
+def save_meta(session: str, url: str) -> None:
+    """Remember where the session was, so a hibernated session comes back to the same page."""
+    folder = session_dir(session)
+    folder.mkdir(parents=True, exist_ok=True)
+    meta_file(session).write_text(json.dumps({"url": str(url)[:2000], "saved": int(time.time())}), encoding="utf-8")
+
+
+def load_meta(session: str) -> dict:
+    try:
+        value = json.loads(meta_file(session).read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+# JavaScript run in the page: number the interactive elements (also inside open shadow roots) and list the drawn areas that have no text to read.
 INDEX_JS = """
 () => {
-  const sel = 'a[href],button,input,textarea,select,[role=button],[role=link],[role=tab],[onclick]';
-  const out = []; let id = 1;
-  for (const el of document.querySelectorAll(sel)) {
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight * 3) continue;
-    const st = getComputedStyle(el); if (st.visibility === 'hidden' || st.display === 'none') continue;
-    el.setAttribute('data-bid', String(id));
-    const tag = el.tagName.toLowerCase();
-    const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? 'input:' + (el.type || 'text') : tag);
-    const label = el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || el.alt || '';
-    out.push({ id: id++, role, label, href: tag === 'a' ? el.href : '', x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
-    if (id > 60) break;
-  }
-  return out;
+  const sel = 'a[href],button,input,textarea,select,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=switch],[onclick],[contenteditable=true]';
+  const out = []; const visual = []; let id = 1; let frames = 0; let shadows = 0;
+  const walk = (root) => {
+    for (const el of root.querySelectorAll(sel)) {
+      if (id > 60) break;
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight * 3) continue;
+      const st = getComputedStyle(el); if (st.visibility === 'hidden' || st.display === 'none') continue;
+      el.setAttribute('data-bid', String(id));
+      const tag = el.tagName.toLowerCase();
+      const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? 'input:' + (el.type || 'text') : tag);
+      const label = el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || el.alt || '';
+      out.push({ id: id++, role, label, href: tag === 'a' ? el.href : '', x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
+    }
+    for (const el of root.querySelectorAll('canvas,video,svg,iframe,embed,object')) {
+      const r = el.getBoundingClientRect();
+      if (el.tagName.toLowerCase() === 'iframe') frames++;
+      if (r.width < 120 || r.height < 80 || r.bottom < 0 || r.top > innerHeight * 2 || visual.length >= 8) continue;
+      visual.push({ kind: el.tagName.toLowerCase(), x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+    }
+    for (const host of root.querySelectorAll('*')) if (host.shadowRoot) { shadows++; walk(host.shadowRoot); }
+  };
+  walk(document);
+  return { items: out, visual, frames, shadows };
 }
 """
 
@@ -161,6 +205,60 @@ def _launch_test() -> tuple[bool, str]:
     return "LAUNCH_OK" in out, out
 
 
+def _probe_sandbox() -> None:
+    """Record (never rely on) whether Bubblewrap works here: it needs unprivileged user namespaces, which many container hosts forbid. Chromium keeps its own flags either way."""
+    exe = shutil.which("bwrap")
+    if not exe:
+        _note("bwrap: not installed (Chromium runs with --no-sandbox inside the Studio container)")
+        return
+    code, out = _run([exe, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "true"], 20)
+    _note("bwrap: " + ("works (user namespaces allowed)" if code == 0 else "present but refused: " + out[-120:]))
+
+
+DOWNLOAD_HOSTS = ["https://cdn.npmmirror.com/binaries/playwright", ""]         # "" = Playwright's own host
+PER_HOST_SECONDS = 420
+
+
+def have_chromium() -> bool:
+    return any((STORE / "pw").glob("chromium-*/chrome-linux*/chrome")) or any((STORE / "pw").glob("chromium_headless_shell-*/*/headless_shell"))
+
+
+def download_chromium() -> bool:
+    """`playwright install chromium` through each download host in turn; a host that does not answer costs PER_HOST_SECONDS, not 15 minutes."""
+    chosen = os.environ.get("PLAYWRIGHT_DOWNLOAD_HOST", "").strip()
+    hosts = ([chosen] if chosen else []) + list(DOWNLOAD_HOSTS)          # an explicit choice first, then the mirror, then Playwright's own host
+    seen: set[str] = set()
+    for host in hosts:
+        if host in seen:
+            continue
+        seen.add(host)
+        env_host = {"PLAYWRIGHT_DOWNLOAD_HOST": host} if host else {}
+        os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
+        os.environ.update(env_host)
+        code, out = _run(["python3", "-m", "playwright", "install", "chromium"], PER_HOST_SECONDS)
+        _note(f"chromium download via {host or 'playwright host'} rc={code} {out[-100:]}")
+        if code == 0 and have_chromium():
+            return True
+    os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
+    return have_chromium()
+
+
+def install_libs_as_root() -> bool:
+    """We are root inside the Studio container: install the libraries Chromium needs the normal way."""
+    if not (hasattr(os, "geteuid") and os.geteuid() == 0):
+        return False
+    code, out = _run(["apt-get", "install", "-y", "--no-install-recommends", *CHROMIUM_LIBS], 600)
+    _note(f"apt-get install libs rc={code} {out[-100:]}")
+    if code != 0:                                    # one missing package name must not block the rest
+        ok = 0
+        for pkg in CHROMIUM_LIBS:
+            c, _ = _run(["apt-get", "install", "-y", "--no-install-recommends", pkg], 180)
+            ok += 1 if c == 0 else 0
+        _note(f"apt-get install one by one: {ok}/{len(CHROMIUM_LIBS)}")
+        return ok > 0
+    return True
+
+
 def bootstrap() -> bool:
     with _LOCK:
         if STATE["phase"] in ("ready", "installing"):
@@ -169,15 +267,20 @@ def bootstrap() -> bool:
     try:
         STORE.mkdir(parents=True, exist_ok=True)
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(STORE / "pw")
-        code, out = _run(["python3", "-m", "playwright", "install", "chromium"], 900)
-        _note(f"playwright install chromium rc={code} {out[-160:]}")
+        if not have_chromium():
+            download_chromium()
+        else:
+            _note("chromium already in the persistent folder")
         ok, out = _launch_test()
         if not ok:
             _note("first launch failed: " + out[-300:])
-            if fetch_libs_without_root():
-                os.environ["LD_LIBRARY_PATH"] = _env_with_libs().get("LD_LIBRARY_PATH", "")
-                ok, out = _launch_test()
-                _note(("second launch ok" if ok else "second launch failed: " + out[-300:]))
+            if have_chromium():
+                fixed = install_libs_as_root() or fetch_libs_without_root()
+                if fixed:
+                    os.environ["LD_LIBRARY_PATH"] = _env_with_libs().get("LD_LIBRARY_PATH", "")
+                    ok, out = _launch_test()
+                    _note(("second launch ok" if ok else "second launch failed: " + out[-300:]))
+        _probe_sandbox()
         with _LOCK:
             STATE["phase"] = "ready" if ok else "unavailable"
             STATE["error"] = "" if ok else out[-300:]
@@ -192,10 +295,16 @@ def bootstrap() -> bool:
 
 # ---------------------------------------------------------------- the worker (Playwright's sync API is bound to one thread)
 class _Worker(threading.Thread):
+    """ONE Chromium process for the whole Studio; every user+model session is a separate BrowserContext (own cookies, storage, history) inside it.
+    A session that is idle is hibernated: its cookies / localStorage and the page address are written to /mnt/workspace and the context is closed (0 MB while away);
+    the next call restores it in a fresh context and goes back to the same page."""
+
     def __init__(self) -> None:
         super().__init__(daemon=True, name="browser-worker")
         self.jobs: "queue.Queue[tuple[dict, queue.Queue]]" = queue.Queue()
         self.pages: dict[str, tuple] = {}              # session -> (context, page, last_used)
+        self.browser = None
+        self.resumed: set[str] = set()
 
     def run(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -212,15 +321,39 @@ class _Worker(threading.Thread):
                     reply.put({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}"})
                 self._reap()
 
+    def _browser(self, p):
+        if self.browser is not None:
+            try:
+                if self.browser.is_connected():
+                    return self.browser
+            except Exception:  # noqa: BLE001
+                pass
+            self.pages.clear()                          # the browser died: its contexts are gone, sessions restore from disk on the next call
+        self.browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"])
+        return self.browser
+
+    def _save(self, session: str, ctx, page) -> None:
+        try:
+            ctx.storage_state(path=str(state_file(session)))
+            save_meta(session, page.url)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _hibernate(self, session: str) -> None:
+        got = self.pages.pop(session, None)
+        if not got:
+            return
+        self._save(session, got[0], got[1])
+        try:
+            got[0].close()
+        except Exception:  # noqa: BLE001
+            pass
+
     def _reap(self) -> None:
         now = time.time()
-        for sid, (ctx, _page, used) in list(self.pages.items()):
+        for sid, (_ctx, _page, used) in list(self.pages.items()):
             if now - used > IDLE_SECONDS:
-                try:
-                    ctx.close()
-                except Exception:  # noqa: BLE001
-                    pass
-                self.pages.pop(sid, None)
+                self._hibernate(sid)
 
     def _page(self, p, session: str):
         got = self.pages.get(session)
@@ -228,19 +361,24 @@ class _Worker(threading.Thread):
             self.pages[session] = (got[0], got[1], time.time())
             return got[1]
         if len(self.pages) >= MAX_SESSIONS:
-            oldest = min(self.pages, key=lambda s: self.pages[s][2])
-            try:
-                self.pages[oldest][0].close()
-            except Exception:  # noqa: BLE001
-                pass
-            self.pages.pop(oldest, None)
-        folder = session_dir(session)
-        folder.mkdir(parents=True, exist_ok=True)
-        ctx = p.chromium.launch_persistent_context(str(folder), headless=True, viewport=VIEWPORT, args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"])
+            self._hibernate(min(self.pages, key=lambda s: self.pages[s][2]))
+        browser = self._browser(p)
+        state = state_file(session)
+        options: dict = {"viewport": VIEWPORT}
+        if state.exists():
+            options["storage_state"] = str(state)
+        ctx = browser.new_context(**options)
         ctx.route("**/*", _guard_route)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page = ctx.new_page()
         page.set_default_timeout(25000)
         self.pages[session] = (ctx, page, time.time())
+        last = load_meta(session).get("url")
+        if last and state.exists():
+            try:
+                page.goto(safe_url(last), wait_until="domcontentloaded", timeout=20000)
+                self.resumed.add(session)
+            except Exception:  # noqa: BLE001
+                pass
         return page
 
     def _snapshot(self, page, shot: bool) -> dict:
@@ -248,19 +386,26 @@ class _Worker(threading.Thread):
             page.wait_for_load_state("domcontentloaded", timeout=8000)
         except Exception:  # noqa: BLE001
             pass
-        items = page.evaluate(INDEX_JS)
+        found = page.evaluate(INDEX_JS)
+        items = found.get("items", []) if isinstance(found, dict) else found
         out = {
             "ok": True, "url": page.url, "title": page.title()[:160],
             "text": clip_text(page.inner_text("body", timeout=5000)),
             "elements": format_elements(items),
         }
+        if isinstance(found, dict):
+            visual = format_visual(found.get("visual", []), int(found.get("frames", 0) or 0))
+            if visual:
+                out["visual"] = visual
         if shot:
             out["screenshot_b64"] = base64.b64encode(page.screenshot(type="jpeg", quality=55)).decode()
         return out
 
     def _do(self, p, job: dict) -> dict:
         action = str(job.get("action") or "")
-        page = self._page(p, str(job.get("session") or "default"))
+        session = str(job.get("session") or "default")
+        page = self._page(p, session)
+        mutating = True
         if action == "open":
             page.goto(safe_url(job.get("url", "")), wait_until="domcontentloaded", timeout=30000)
         elif action == "click":
@@ -281,11 +426,36 @@ class _Worker(threading.Thread):
         elif action == "scroll":
             page.mouse.wheel(0, max(-4000, min(4000, int(job.get("dy", 600)))))
             page.wait_for_timeout(300)
+            mutating = False
         elif action == "back":
             page.go_back(wait_until="domcontentloaded", timeout=15000)
+        elif action == "wait":
+            # single-page apps render after the load event: wait until some text shows up (or a time passes), then read the page
+            wanted = str(job.get("text", ""))[:200]
+            seconds = max(1, min(20, int(job.get("seconds", 8) or 8)))
+            if wanted:
+                page.get_by_text(wanted).first.wait_for(timeout=seconds * 1000)
+            else:
+                page.wait_for_timeout(seconds * 1000)
+            mutating = False
+        elif action == "aria":
+            # the page as the browser's accessibility outline (roles + names), for pages whose numbered list is not enough
+            snapshot = clip_text(page.locator("body").aria_snapshot(timeout=8000), ARIA_LIMIT)
+            reply = self._snapshot(page, False)
+            reply["outline"] = snapshot
+            return reply
         elif action not in ("look", ""):
             return {"ok": False, "error": "unknown action " + action[:30]}
-        return self._snapshot(page, bool(job.get("screenshot")))
+        else:
+            mutating = False
+        reply = self._snapshot(page, bool(job.get("screenshot")))
+        if session in self.resumed:
+            self.resumed.discard(session)
+            reply["resumed"] = True
+        if mutating:
+            ctx = self.pages[session][0]
+            self._save(session, ctx, page)
+        return reply
 
 
 def _guard_route(route) -> None:
