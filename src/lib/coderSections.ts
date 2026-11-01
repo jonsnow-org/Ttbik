@@ -727,7 +727,7 @@ async function fastMedia(
       const prompt = await englishMediaPrompt(intent.subject, content);
       if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) {
-        say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف صورة موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
+        say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
         result = "no prompt";
       } else {
         await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);

@@ -105,6 +105,15 @@ function parseSseData(raw: string): unknown {
   throw new Error("لم يصل محتوى صالح من استوديو النموذج.");
 }
 
+/** ModelScope answers 429 «Request limit exceeded» (and now and then 502/503/504) when a Studio is asked too fast. That is waiting, not failing: ask again with a growing pause. */
+async function postWithBackoff(make: () => Promise<Response>): Promise<Response> {
+  let response = await make();
+  for (let i = 0; !response.ok && [429, 502, 503, 504].includes(response.status) && i < 4; i++) {
+    await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : [2000, 5000, 10000, 20000][i]));
+    response = await make();
+  }
+  return response;
+}
 async function callGradio(
   config: (typeof DONOR_TESTS)[number],
   apiName: string,
@@ -115,13 +124,13 @@ async function callGradio(
   const token = tokenOf();
   if (!token) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
   const base = apiOf(config);
-  const start = await fetchImpl(base + "/gradio_api/call/" + apiName, {
+  const start = await postWithBackoff(() => fetchImpl(base + "/gradio_api/call/" + apiName, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ data }),
     cache: "no-store",
     signal: AbortSignal.timeout(20_000),
-  });
+  }));
   if (!start.ok) {
     const detail = (await start.text().catch(() => "")).slice(0, 300);
     throw new Error("استديو " + config.name.ar + ": HTTP " + start.status + (detail ? " · " + detail : ""));
@@ -155,7 +164,7 @@ function shapeChatResult(raw: unknown): DonorChatResult {
   const result = asObject(raw);
   if (result.error) throw new Error(String(result.error).slice(0, 700));
   return {
-    text: String(result.text || ""),
+    text: String(result.text || "").replace(/<\|?(?:turn|end_of_turn|im_end|eos|end)\|?>|<\|?(?:start_of_turn|im_start)\|?>/gi, "").trimEnd(),   // a chat-template end marker (Gemma «<turn|>») must never reach the user
     tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
     executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
     generated_media: Array.isArray(result.generated_media) ? result.generated_media.filter((item: any) => item && item.kind === "image" && typeof item.b64 === "string").map((item: any) => ({ ...item, metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {} })) : [],
@@ -247,13 +256,13 @@ async function callGradioDirect(
 ): Promise<unknown> {
   const token = tokenOf();
   if (!token) throw new Error("رمز ModelScope غير مضبوط على الخادم.");
-  const response = await fetchImpl(apiOf(config) + "/gradio_api/run/" + apiName, {
+  const response = await postWithBackoff(() => fetchImpl(apiOf(config) + "/gradio_api/run/" + apiName, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ data }),
     cache: "no-store",
     signal: AbortSignal.timeout(timeoutMs),
-  });
+  }));
   if (!response.ok) {
     const detail = (await response.text().catch(() => "")).slice(0, 300);
     throw new Error("استديو " + config.name.ar + ": HTTP " + response.status + (detail ? " · " + detail : ""));
