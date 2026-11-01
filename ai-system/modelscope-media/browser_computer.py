@@ -247,6 +247,8 @@ def install_libs_as_root() -> bool:
     """We are root inside the Studio container: install the libraries Chromium needs the normal way."""
     if not (hasattr(os, "geteuid") and os.geteuid() == 0):
         return False
+    uc, uo = _run(["apt-get", "update"], 240)                  # the image's package lists are stale: without this every install 404s (live probe: rc=100, 404 Not Found)
+    _note(f"apt-get update rc={uc} {uo[-80:]}")
     code, out = _run(["apt-get", "install", "-y", "--no-install-recommends", *CHROMIUM_LIBS], 600)
     _note(f"apt-get install libs rc={code} {out[-100:]}")
     if code != 0:                                    # one missing package name must not block the rest
@@ -272,8 +274,15 @@ def bootstrap() -> bool:
         else:
             _note("chromium already in the persistent folder")
         ok, out = _launch_test()
+        if not ok and re.search(r"playwright install|Executable doesn't exist", out):
+            # a Chromium of another revision is in the persistent folder (the playwright package changed): fetch the one this package wants
+            _note("playwright wants another chromium revision: downloading it")
+            for old in list((STORE / "pw").glob("chromium*")):
+                shutil.rmtree(old, ignore_errors=True)
+            download_chromium()
+            ok, out = _launch_test()
         if not ok:
-            _note("first launch failed: " + out[-300:])
+            _note("first launch failed: " + re.sub(r"[╔╗╚╝║═]+", " ", out)[:300])
             if have_chromium():
                 fixed = install_libs_as_root() or fetch_libs_without_root()
                 if fixed:
