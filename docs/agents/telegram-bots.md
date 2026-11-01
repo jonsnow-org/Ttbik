@@ -20,7 +20,7 @@ Shared: Stars payments `src/lib/starsPayment.ts` (+ per-bot ledgers), crypto dep
 5. Rate limits and anti-abuse code stay; never weaken contact-sharing guards or moderation.
 
 ## Health checks
-1. `https://ttbik.vercel.app/api/ops/bots-health` is secret-gated: do **not** call it. Use the public pages (`/bots`, `/match-app/<id>` renders its gate), the `error-triage` issues (`auto-error` label), and the bots' own tests.
+1. `https://ttbik.vercel.app/api/ops/bots-health` is secret-gated (ops key or `Authorization: Bearer $CRON_SECRET`). The GitHub supervisor `telegram-bots` calls it every run (check "Bots: live webhook check": broken token/webhook = fail, recent delivery errors or 100+ pending = warn). Humans/AI sessions: read the supervisor issue, do not call it by hand.
 2. `npx tsc --noEmit -p .` and the bot jest suites (run all `src/lib/__tests__` via the official config — notebook §Testing).
 3. Read the code paths of the last changed bot for the "gate before money / text-only admin path" class of bug; look for `.catch(() => null)` swallowing payment/invoice errors.
 4. Mini App: render with Playwright at phone width (Telegram WebApp stubbed), check Back-button confirm, payment buttons, loading states.
