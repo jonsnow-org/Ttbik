@@ -12,6 +12,8 @@ import os
 import re
 import threading
 import time
+import faulthandler, sys
+faulthandler.enable(file=sys.stderr, all_threads=True)   # a native crash prints its stack in the Studio log instead of vanishing
 import traceback
 from pathlib import Path
 
@@ -50,14 +52,18 @@ def _fast_ok(pipe) -> bool:
     """One tiny bf16 generation at load time: the fast path stays on only if it gives a real picture (no NaN / blank); otherwise the proven fp32 path is used."""
     if not FAST:
         return False
+    print("FAST_CHECK start", flush=True)
     try:
         import torch as _t
         import numpy as _np
         with _t.inference_mode(), _t.autocast("cpu", dtype=_t.bfloat16):
             img = pipe("a red apple on a wooden table, photo", num_inference_steps=3, width=256, height=256,
                        generator=_t.Generator(device="cpu").manual_seed(1)).images[0]
-        return float(_np.asarray(img.convert("RGB"), dtype=_np.float32).std()) > 5.0
-    except Exception:
+        ok = float(_np.asarray(img.convert("RGB"), dtype=_np.float32).std()) > 5.0
+        print("FAST_CHECK done ok=", ok, flush=True)
+        return ok
+    except Exception as exc:
+        print("FAST_CHECK failed:", type(exc).__name__, str(exc)[:200], flush=True)
         return False
 
 
