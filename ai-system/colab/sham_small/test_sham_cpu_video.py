@@ -48,7 +48,7 @@ class Profile(unittest.TestCase):
                 os.environ.pop(k, None)
             big, small = cpu_video.cv_profile(8), cpu_video.cv_profile(2)
         self.assertEqual((big["side"], big["max_frames"]), (512, 16))
-        self.assertEqual((small["side"], small["max_frames"]), (384, 8))
+        self.assertEqual((small["side"], small["max_frames"]), (256, 16))
         self.assertTrue(all(p["side"] % 8 == 0 and 8 <= p["max_frames"] <= 16 for p in (big, small)))
 
     def test_overrides_are_clamped(self):
