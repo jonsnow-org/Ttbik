@@ -23,6 +23,7 @@ import {
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
 
+const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
 const CloudComputerWorkspace = dynamic(
   () => import("../_native/NativeApp").then((module) => module.CloudComputerWorkspace),
   { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> },
@@ -716,12 +717,7 @@ function Chats({ c }: { c: Ctx }) {
           ))}
         </div>
       )}
-      {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
-      {me.features?.terminal && (           /* the terminal is the owner's and the paid plans' only: hidden for the free plan (the API refuses it too) */
-        <div style={{ margin: "0 0 16px", minHeight: 180 }}>
-          <TerminalScreen lang={lang} model={me?.settings.model || "coder"} compact />
-        </div>
-      )}
+      {/* the shell, files and jobs live in the Computer tab (a real terminal on the model's own computer); the task log is a section there too */}
       {note && (
         <div className="n-note" role="status">
           {t.newChatStarted}
@@ -919,11 +915,6 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
           {live(k.status) && <div className="n-wrap"><button type="button" className="n-btn n-ghost" onClick={async () => { haptic("warning"); await api("stop", { runId: k.run_id, slot: "" }); void load(); }}>⏹ {t.stop}</button></div>}
         </div>
       ))}
-      {/* Terminal for this conversation — logs stay in Mini App only */}
-      {(() => {
-        const active = d.tasks.find((k) => live(k.status));
-        return active ? <div style={{ margin: "12px 0" }}><TerminalScreen lang={c.lang} model="coder" fixedRunId={active.run_id} compact /></div> : null;
-      })()}
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</button>
         <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{t.continueHint}</p>
@@ -1270,7 +1261,7 @@ export default function NovaApp() {
           : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
           : tab === "computer" ? (ctx.me.features?.computer
-            ? <CloudComputerWorkspace lang={lang} model={ctx.me.settings.model || "coder"} owner={ctx.owner} />
+            ? <FreeComputer lang={lang} defaultModel={ctx.me.settings.model || "coder"} logs={<TerminalScreen lang={lang} model="all" />} />
             : <div className="n-page"><Fail t={t} msg={lang === "ar" ? "الحاسوب السحابي غير متاح لهذه الخطة." : "Cloud computer is not available on this plan."} retry={() => go("home")} /></div>)
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} reloadModels={reloadModels} />}
