@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-01-r14"
+APP_REVISION = "donor-bakeoff-2026-11-01-r15"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
@@ -384,6 +384,9 @@ def _write_server_config(model_path: str, mmproj_path: str) -> None:
             "use_mmap": True,
             "use_mlock": False,
             "kv_unified": True,
+            # r15 speed: flash attention + an 8-bit KV cache (ggml type 8 = q8_0): about half the memory traffic per token on a 2-thread CPU and ~0.5 GB less RAM at 4k context
+            # (MiniCPM ran at 0.41 token/s with 7.2 of 8 GB resident). DONOR_KV_Q8=0 turns it off if a Studio refuses to start with it.
+            **({"flash_attn": True, "type_k": 8, "type_v": 8} if os.environ.get("DONOR_KV_Q8", "1") != "0" else {}),
             "max_output_tokens": MAX_OUTPUT,
             "mtmd": {
                 "mmproj_path": mmproj_path,
