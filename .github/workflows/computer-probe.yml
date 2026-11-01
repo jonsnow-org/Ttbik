@@ -52,25 +52,36 @@ jobs:
           def box(**job):
               job["session"] = "probe"
               return call("box_do", json.dumps(job))
-          show = lambda label, value: print(label, json.dumps(value, ensure_ascii=False)[:1600])
-          show("BOX_STATUS", box(action="status"))
+          def show(label, value):
+              # value may be a function so that one failing step (gateway answer, WAF) is printed and the rest still runs
+              try:
+                  if callable(value): value = value()
+                  print(label, json.dumps(value, ensure_ascii=False)[:1600])
+              except Exception as exc:
+                  print(label, "ERROR", type(exc).__name__, str(exc)[:160])
+          show("BOX_STATUS", lambda: box(action="status"))
           show("WHO_ID", lambda: box(action="run", command="id; echo HOME=$HOME"))
           show("WHO_PY", lambda: box(action="run", command="python3 -V; pip --version"))
           show("WHO_NODE_GIT", lambda: box(action="run", command="node -v; git --version"))
-          show("WRITE", box(action="write", path="notes/hello.txt", content="hello from the probe"))
-          show("READ", box(action="read", path="notes/hello.txt"))
-          show("OTHER_FOLDER", box(action="run", command="ls /mnt/workspace/computer | head -5; cat /proc/1/environ 2>&1 | head -c 80"))
+          show("SECRETS_IN_ENV", lambda: box(action="run", command="env | grep -c -i -E 'token|secret|key' || true"))
+          show("WRITE", lambda: box(action="write", path="notes/hello.txt", content="hello from the probe"))
+          show("READ", lambda: box(action="read", path="notes/hello.txt"))
+          show("OTHER_FOLDER", lambda: box(action="run", command="ls /mnt/workspace/computer | head -5; cat /proc/1/environ 2>&1 | head -c 80"))
           show("PIP_DEFAULT", lambda: box(action="run", timeout=70, command="mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd requests 2>&1 | tail -2); ls ~/pd"))
           show("PIP_ALIYUN", lambda: box(action="run", timeout=70, command="rm -rf ~/pd && mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com requests 2>&1 | tail -2); ls ~/pd"))
           show("PIP_PYPI", lambda: box(action="run", timeout=70, command="rm -rf ~/pd && mkdir -p ~/pd && time (timeout 60 pip download --no-deps -q -d ~/pd -i https://pypi.org/simple requests 2>&1 | tail -2); ls ~/pd"))
-          started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")
-          show("JOB_START", started)
+          started = {}
+          try:
+              started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")
+          except Exception as exc:
+              started = {"error": str(exc)[:120]}
+          show("JOB_START", lambda: started)
           time.sleep(5)
-          show("JOB_LOG", box(action="job_log", id=started.get("id", "")))
+          show("JOB_LOG", lambda: box(action="job_log", id=started.get("id", "")))
           # what a Studio in China can reach: GitHub (git, tarball, raw, api), npm and PyPI mirrors, the public web
-          show("NET", box(action="run", timeout=90, command="for u in https://github.com https://codeload.github.com/octocat/Hello-World/tar.gz/HEAD https://raw.githubusercontent.com/octocat/Hello-World/master/README https://api.github.com/zen https://registry.npmjs.org/left-pad https://pypi.org/simple/requests/ https://example.com; do printf '%s ' \"$u\"; curl -sS -m 10 -o /dev/null -w '%{http_code} %{time_total}s\\n' \"$u\" 2>&1 | tail -1; done"))
-          show("GIT_CLONE", box(action="repo", url="https://github.com/octocat/Hello-World"))
-          show("SEARCH", box(action="search", pattern="Hello", path="repos/octocat-Hello-World"))
-          show("EDIT", box(action="edit", path="notes/hello.txt", old="hello", new="HELLO"))
-          show("BROWSER", call("browser_status", ""))
+          show("NET", lambda: box(action="run", timeout=90, command="for u in https://github.com https://codeload.github.com/octocat/Hello-World/tar.gz/HEAD https://raw.githubusercontent.com/octocat/Hello-World/master/README https://api.github.com/zen https://registry.npmjs.org/left-pad https://pypi.org/simple/requests/ https://example.com; do printf '%s ' \"$u\"; curl -sS -m 10 -o /dev/null -w '%{http_code} %{time_total}s\\n' \"$u\" 2>&1 | tail -1; done"))
+          show("GIT_CLONE", lambda: box(action="repo", url="https://github.com/octocat/Hello-World"))
+          show("SEARCH", lambda: box(action="search", pattern="Hello", path="repos/octocat-Hello-World"))
+          show("EDIT", lambda: box(action="edit", path="notes/hello.txt", old="hello", new="HELLO"))
+          show("BROWSER", lambda: call("browser_status", ""))
           PY
