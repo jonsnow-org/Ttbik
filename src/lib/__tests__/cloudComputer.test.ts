@@ -281,13 +281,14 @@ describe("cloud desktop lifecycle and controls", () => {
     const ctx = ownerCtx(db, provider.fetchImpl);
     const opened = await cloudComputerOpen(ctx);
     expect(opened.ok).toBe(true);
+    const sandboxId = [...db.computers.values()][0].sandbox_id;
     const prior = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = "production";
       await expect(cloudComputerOpen(ctx)).rejects.toThrow(/zero-cost policy/);
       const status = await cloudComputerStatus(ctx);
       expect(status).toMatchObject({ state: "stopped", cleanupPending: false, provider: "daytona_disabled" });
-      expect(provider.calls.some((call) => call.url.endsWith("/sandbox/" + opened.sandboxId + "/stop") && call.method === "POST")).toBe(true);
+      expect(provider.calls.some((call) => call.url.endsWith("/sandbox/" + sandboxId + "/stop") && call.method === "POST")).toBe(true);
       expect([...db.computers.values()][0].state).toBe("stopped");
     } finally {
       if (prior === undefined) delete process.env.NODE_ENV;
