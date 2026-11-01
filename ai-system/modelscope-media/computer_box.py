@@ -361,10 +361,10 @@ def ensure_toolchain() -> str:
         return STATE["toolchain"]
     env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
     try:
-        subprocess.run(["apt-get", "update"], capture_output=True, text=True, timeout=300, env=env)
+        u = subprocess.run(["apt-get", "update"], capture_output=True, text=True, timeout=300, env=env)
         r = subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", *missing], capture_output=True, text=True, timeout=600, env=env)
         left = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
-        STATE["toolchain"] = "ready" if not left else f"missing after apt ({', '.join(left)}): rc={r.returncode}"
+        STATE["toolchain"] = "ready" if not left else f"missing after apt ({', '.join(left)}): update rc={u.returncode}, install rc={r.returncode}: " + " | ".join(((r.stderr or u.stderr or "").strip().splitlines() or [""])[-2:])[:240]
     except Exception as exc:  # noqa: BLE001
         STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:120]}"
     return STATE["toolchain"]
@@ -707,7 +707,8 @@ def status(session: str = "") -> dict:
     ROOT.mkdir(parents=True, exist_ok=True)
     try:
         usage = shutil.disk_usage(ROOT)
-        disk = {"free_gb": round(usage.free / 1024 ** 3, 1), "total_gb": round(usage.total / 1024 ** 3, 1)}
+        unbounded = usage.total > 1 << 50          # a network disk that reports an absurd size (e.g. 16 EiB): its real room is unknown, only our own per-session quota counts
+        disk = {"free_gb": None if unbounded else round(usage.free / 1024 ** 3, 1), "total_gb": None if unbounded else round(usage.total / 1024 ** 3, 1), "note": "filesystem reports no real limit" if unbounded else ""}
     except OSError:
         disk = {}
     tools = {name: bool(shutil.which(name)) for name in ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")}
