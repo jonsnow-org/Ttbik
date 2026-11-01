@@ -50,7 +50,7 @@ describe("computer tools under the zero-cost policy (production)", () => {
   test("a candidate's computer is the task Linux box: sandbox_* tools, no failing cloud_computer_* tools", () => {
     withEnv("production", () => {
       const all = names(["computer"]);
-      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
+      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search", "browser"]));
       expect(all.some((n) => n.startsWith("cloud_computer_"))).toBe(false);
     });
   });

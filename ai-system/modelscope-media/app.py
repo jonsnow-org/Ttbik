@@ -584,9 +584,16 @@ def _warm() -> None:
             time.sleep(120)
 
 
+try:
+    import browser_computer
+except Exception:                                                             # noqa: BLE001  (the media Studio works without the browser)
+    browser_computer = None
+
 if __name__ == "__main__":
     import gradio as gr
     threading.Thread(target=_warm, daemon=True).start()
+    if browser_computer is not None:
+        threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
     with gr.Blocks() as demo:
         gr.Markdown("Nova Media Studio — image / speech / video for Nova's make_media tool.")
         box = gr.Textbox(visible=False)
@@ -594,4 +601,7 @@ if __name__ == "__main__":
         for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video)):
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
         gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
+        if browser_computer is not None:      # this model's own free headless browser (see browser_computer.py)
+            gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
+            gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
