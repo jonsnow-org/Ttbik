@@ -1,0 +1,59 @@
+name: "Probe a model's own computer and browser Studio"
+
+# Uses the model's own free computer for real: status, who the commands run as, what tools exist, a file write and read, a background job, a command that must be refused
+# (another session's folder), and the browser state. Everything happens in a throw-away session called "probe" of that Studio only.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "media Studio name under novaai2026, e.g. sham-donor-qwen35-9b-media or nova-media-server"
+        required: true
+        default: "sham-donor-qwen35-9b-media"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Computer and browser
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, time, urllib.request
+          studio = os.environ["STUDIO"]
+          assert re.fullmatch(r"[a-z0-9-]{5,60}", studio)
+          base = f"https://studio-novaai2026-{studio}.api-inference.modelscope.net/gradio_api"
+          head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
+          def call(api, body, wait=130):
+              req = urllib.request.Request(base + f"/call/{api}", data=json.dumps({"data": [body]}).encode(), headers=head)
+              event = json.load(urllib.request.urlopen(req, timeout=30))["event_id"]
+              text = urllib.request.urlopen(urllib.request.Request(base + f"/call/{api}/{event}", headers=head), timeout=wait).read().decode("utf-8", "ignore")
+              for block in text.split("\n\n"):
+                  if "event: complete" in block:
+                      line = [l for l in block.splitlines() if l.startswith("data:")][0][5:].strip()
+                      first = json.loads(line)[0]
+                      return json.loads(first) if isinstance(first, str) else first
+                  if "event: error" in block:
+                      return {"ok": False, "error": "studio error", "raw": block[:300]}
+              return {"raw": text[:300]}
+          def box(**job):
+              job["session"] = "probe"
+              return call("box_do", json.dumps(job))
+          show = lambda label, value: print(label, json.dumps(value, ensure_ascii=False)[:1600])
+          show("BOX_STATUS", box(action="status"))
+          show("WHO", box(action="run", command="id; echo HOME=$HOME; python3 -V; pip --version; node -v; git --version; env | grep -c -i -E 'token|secret|key' || true"))
+          show("WRITE", box(action="write", path="notes/hello.txt", content="hello from the probe"))
+          show("READ", box(action="read", path="notes/hello.txt"))
+          show("OTHER_FOLDER", box(action="run", command="ls /mnt/workspace/computer | head -5; cat /proc/1/environ 2>&1 | head -c 80"))
+          show("PIP", box(action="run", command="python3 -m pip install --quiet --target ~/pylib requests 2>&1 | tail -2; ls ~/pylib | head -3", timeout=90))
+          started = box(action="job_start", command="for i in 1 2 3; do echo tick$i; sleep 1; done", name="probe")
+          show("JOB_START", started)
+          time.sleep(5)
+          show("JOB_LOG", box(action="job_log", id=started.get("id", "")))
+          show("BROWSER", call("browser_status", ""))
+          PY
