@@ -38,15 +38,20 @@ afterEach(() => {
 });
 
 describe("sandbox failover chain", () => {
-  it("auto order = configured VM backends; unknown ids ignored", () => {
+  it("zero-cost mode selects Oracle only and never auto-falls back to metered VMs", () => {
     const save = { ...process.env };
     process.env.VERCEL = "1";
     process.env.DAYTONA_API_KEY = "d";
-    delete process.env.E2B_API_KEY;
-    expect(backendOrder("auto")).toEqual(["vercel", "daytona"]);
     process.env.E2B_API_KEY = "e";
-    expect(backendOrder("auto")).toEqual(["vercel", "daytona", "e2b"]);
-    expect(backendOrder("e2b,nope,vercel")).toEqual(["e2b", "vercel"]);
+    process.env.CSB_API_KEY = "csb";
+    expect(backendOrder("auto")).toEqual([]);
+    process.env.CODER_SANDBOX_ORACLE_URL = "https://oracle.example/coder-sbx";
+    process.env.CODER_SANDBOX_ORACLE_SECRET = "oracle-secret";
+    expect(backendOrder("auto")).toEqual(["oracle"]);
+    expect(backendOrder("e2b,nope,vercel,daytona,codesandbox")).toEqual([]);
+    expect(backendOrder("oracle,daytona")).toEqual(["oracle"]);
+    delete process.env.CODER_SANDBOX_ORACLE_SECRET;
+    expect(backendOrder("auto")).toEqual([]);
     process.env = save;
   });
   it("quota on the primary -> backup 1; then sticks to it for the task; health shows the cooling", async () => {
