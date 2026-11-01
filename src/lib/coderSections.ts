@@ -1088,7 +1088,15 @@ async function followDonorJob(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   const legEnd = Date.now() + DONOR_LEG_MS(surface);
   const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  const typing = bot && surface === "telegram" ? setInterval(() => { void bot.api.sendChatAction(chatId, "typing").catch(() => null); }, 4_000) : null;
+  // «يكتب…» only while THIS candidate is still the chat's selected model: after the owner switches to another model (owner's report 2026-11-01: still «typing» for Qwen after
+  // switching to old Sham) the old job keeps working quietly and its answer still arrives, but the chat no longer claims the bot is typing.
+  let stillSelected = true;
+  const typing = bot && surface === "telegram" ? setInterval(() => {
+    void (async () => {
+      try { const cur = await loadState(chatId, db); stillSelected = (cur.model === id) || (cur.donorTestModel === id && cur.model === "coder"); } catch { /* keep the last answer */ }
+      if (stillSelected) await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    })();
+  }, 4_000) : null;
   try {
     let pollFailures = 0;
     let result: Awaited<ReturnType<typeof donorJobPoll>> | null = null;
