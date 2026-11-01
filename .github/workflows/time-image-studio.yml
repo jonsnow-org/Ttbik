@@ -63,6 +63,15 @@ jobs:
               if "event: complete" in body or attempt == 39:
                   break
               print("NOT_READY_YET attempt", attempt + 1, body[:160].replace("\n", " "), flush=True)
+              try:   # what is the Studio doing? (phase = downloading | verifying | loading | ready | error)
+                  sreq = urllib.request.Request(base + "/call/status", data=json.dumps({"data": []}).encode(), headers=head)
+                  sev = json.load(urllib.request.urlopen(sreq, timeout=30))["event_id"]
+                  sbody = urllib.request.urlopen(urllib.request.Request(base + f"/call/status/{sev}", headers=head), timeout=60).read().decode("utf-8", "ignore")
+                  m = re.search(r"data: (.*)", sbody)
+                  st = json.loads(json.loads(m.group(1))[0]) if m else {}
+                  print("STUDIO_STATE", json.dumps({k: st.get(k) for k in ("phase", "error", "precision", "load_seconds", "last_generation_error")}, ensure_ascii=False), flush=True)
+              except Exception as exc:
+                  print("STATUS_UNREADABLE", type(exc).__name__, str(exc)[:100], flush=True)
               time.sleep(45)
           secs = round(time.time() - t0)
           print("TOTAL_SECONDS", secs)
