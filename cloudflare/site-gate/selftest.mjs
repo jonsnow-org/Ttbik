@@ -31,6 +31,23 @@ assert.equal(await r.text(), "oracle ok"); assert.equal(r.headers.get("x-gate-or
 assert.equal(calls[0].url, P + "/hello?x=1");
 assert.equal(hdr(0).get("x-forwarded-host"), "gate.test"); assert.equal(hdr(0).get("x-gate-served"), "oracle"); assert.equal(hdr(0).get("x-gate-failover"), null);
 
+// Vercel is the standby: its outage must not affect requests while Oracle is healthy.
+reset();
+script.vercel = () => { throw new TypeError("vercel unavailable"); };
+r = await get("/during-vercel-outage");
+assert.equal(await r.text(), "oracle ok");
+assert.equal(r.headers.get("x-gate-origin"), "oracle");
+assert.equal(calls.length, 1, "a healthy primary must not contact the failed standby");
+assert.ok(calls[0].url.startsWith(P));
+
+// If both origins are down, return an explicit upstream error rather than a false success.
+reset();
+script.oracle = () => { throw new TypeError("oracle unavailable"); };
+script.vercel = () => { throw new TypeError("vercel unavailable"); };
+r = await get("/both-origins-down");
+assert.equal(r.status, 502);
+assert.equal(calls.length, 2);
+
 reset(); script.oracle = () => { throw new TypeError("refused"); };
 r = await get("/a"); assert.equal(await r.text(), "vercel ok"); assert.equal(r.headers.get("x-gate-origin"), "vercel");
 assert.equal(hdr(1).get("x-gate-failover"), "1", "the standby is told it is serving because Oracle is down");

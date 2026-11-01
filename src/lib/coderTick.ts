@@ -8,10 +8,13 @@ import { prismaDb, type Db } from "@/lib/coderAuth";
 import { later, resumeOrphan, selfUrl } from "@/lib/coderSections";
 import { claimOrphanTasks } from "@/lib/coderTasks";
 import { prisma } from "@/lib/prisma";
+import { cloudComputerRuntimeTick } from "@/lib/cloudComputer";
 
 let lastQuiet = 0;                                       // quiet-time work at most every 5 minutes per server, however often the tick comes
 
 export async function runCoderTick(db: Db = prismaDb, now = new Date()): Promise<{ due: number; sent: number; failed: string[] }> {
+  // Meter and enforce persistent cloud computer uptime on the same one-minute Oracle heartbeat.
+  await cloudComputerRuntimeTick(db, now, 20).catch((error) => console.warn("[cloud-computer-meter]", String((error as Error)?.message || error).slice(0, 180)));
   const claimed = await claimDue(db, now).catch(() => []);
   const sent = claimed.length ? await fanOut(claimed, selfUrl()) : [];
   // runs whose server was replaced or killed mid-leg: pick them up here (every minute) instead of waiting for the user to write again

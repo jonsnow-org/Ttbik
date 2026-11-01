@@ -209,6 +209,16 @@ async function shamCall(api: string, payload0: Record<string, unknown>, timeoutM
   return last;
 }
 
+/** Read a screenshot (or another image) through the selected Sham Studio's own vision stack. */
+export async function shamUnderstandImage(b64: string, question = "صف ما يظهر على سطح المكتب، وحدد النافذة النشطة وما يمكن فعله تالياً.", timeoutMs = 90000): Promise<string> {
+  const body = await shamCall("understand_media", { kind: "image", b64, question, teach: "", num_frames: 1 }, timeoutMs);
+  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+  if (!reply) return "error: selected Sham Studio could not understand the computer screenshot. No other model was used.";
+  if (reply.type === "text" && String(reply.text || "").trim()) return String(reply.text).trim();
+  if (reply.type === "error" || reply.type === "notice") return `error: ${String(reply.text || reply.reason || "Sham vision did not return an answer").slice(0, 300)}`;
+  return "error: selected Sham Studio returned no readable screenshot description.";
+}
+
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
   const reply = body ? await vetShamReply(parseShamReply(body)) : null;

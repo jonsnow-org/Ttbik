@@ -1,7 +1,7 @@
 name: "Donor bake-off: three isolated ModelScope Studios"
 on:
   push:
-    branches: [realistic-vision-v6-isolated-test]
+    branches: [realistic-vision-v6-isolated-test, feat/cloud-computer-owner-mvp-20261031]
     paths:
       - "experiments/donor-bakeoff/**"
       - ".github/workflows/donor-bakeoff-modelscope.yml"

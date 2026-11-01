@@ -3,7 +3,7 @@ import { prismaDb } from "@/lib/coderAuth";
 import { executeDonorTool } from "@/lib/donorToolBridge";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 35;
+export const maxDuration = 180;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null) as Record<string, any> | null;
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       model: body.model,
       name: body.name,
       arguments: args,
+      mediaCapabilities: body.media_capabilities && typeof body.media_capabilities === "object" ? body.media_capabilities : {},
     }, prismaDb);
     return NextResponse.json(result, { status: result.ok ? 200 : 403, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

@@ -28,8 +28,10 @@ describe("mini app api", () => {
     expect(me.connections.github).toEqual({ linked: true, login: undefined, source: "owner-env" });
     expect(JSON.stringify(me)).not.toContain('"gh"');
     expect(me.prefs.categories.find((c: any) => c.id === "settings").tierDefault).toBe("run");
+    expect(me.features.computer).toBe(true);
     const u = await appOp({ chatId: USER, tier: "user" }, "me", {}, { db, bot, botRow });
     expect(u.connections.github.linked).toBe(false);
+    expect(u.features.computer).toBe(false); // the free plan has no cloud desktop
     expect(u.prefs.categories.filter((c: any) => c.id !== "edit" && c.id !== "merge").every((c: any) => c.tierDefault === "ask")).toBe(true);   // edit and merge are opt-in: they ask only when the user says so
   });
 

@@ -7,6 +7,7 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The previous screens stay reachable: ?ui=native (telegram-ui lists) and ?ui=classic.
 import "./nova.css";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot, List, Spinner, Switch, Input } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
@@ -22,7 +23,12 @@ import {
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
 
-type Tab = "home" | "chats" | "auto" | "settings";
+const CloudComputerWorkspace = dynamic(
+  () => import("../_native/NativeApp").then((module) => module.CloudComputerWorkspace),
+  { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> },
+);
+
+type Tab = "home" | "chats" | "computer" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
 type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
@@ -32,12 +38,17 @@ type Billing = { usage: PubUsage; plans: PubPlan[] };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
-const TABS: Tab[] = ["home", "chats", "auto", "settings"];
+const TABS: Tab[] = ["home", "chats", "computer", "auto", "settings"];
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
-const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const NAV_LABEL: Record<Tab, { ar: string; en: string }> = {
+  home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" },
+  computer: { ar: "الحاسوب", en: "Computer" }, auto: { ar: "المهام", en: "Schedules" },
+  settings: { ar: "الإعدادات", en: "Settings" },
+};
 const NAV_ICON: Record<Tab, string> = {
   home: "M3 10.5 12 3l9 7.5M5.5 9v11h4.5v-6h4v6h4.5V9",
   chats: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
+  computer: "M3 4h18v13H3z M8 21h8 M12 17v4",
   auto: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
@@ -48,7 +59,8 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "connectors" || want === "connect") return { tab: "home", page: { k: "connect" } };
   if (want === "memory") return { tab: "settings", page: { k: "memory" } };
   if (want === "tasks" || want === "chats") return { tab: "chats", page: null };
-  if (want === "terminal") return { tab: "chats", page: null }; // terminal now lives inside Chats
+  if (want === "terminal") return { tab: "computer", page: null };
+  if (want === "computer") return { tab: "computer", page: null };
   if (want === "schedules" || want === "auto") return { tab: "auto", page: null };
   if (want === "settings") return { tab: "settings", page: null };
   return { tab: "home", page: null };
@@ -620,6 +632,7 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
         )}
         <Head lang={lang} title={n.highlights} />
         <Card>
+          {me.features?.computer && <Row icon="💻" title={lang === "ar" ? "الحاسوب السحابي" : "Cloud computer"} sub={lang === "ar" ? "سطح مكتب Linux وطرفية وملفات مستقلة لهذا النموذج" : "A private Linux desktop, terminal and files for this model"} onClick={() => go("computer")} />}
           <Row icon="💬" title={n.h_ask} sub={n.h_askSub} onClick={() => closeApp()} />
           {gh.linked
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
@@ -641,15 +654,6 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
           <div>{connError}</div>
           <button type="button" className="mt-2 font-semibold underline" onClick={() => { setConnError(""); open({ k: "connect" }); }}>{lang === "ar" ? "فتح إعدادات الموصلات" : "Open connector settings"}</button>
         </div>}
-        <Head lang={lang} title={n.can} />
-        <Card>
-          <Row icon="🐙" title={n.c_gh} sub={n.c_ghSub} onClick={() => open({ k: "connect" })} />
-          <Row icon="🧪" title={n.c_box} sub={n.c_boxSub} />
-          <Row icon="🌐" title={n.c_web} sub={n.c_webSub} />
-          <Row icon="🧠" title={n.c_mem} sub={n.c_memSub} onClick={() => open({ k: "memory" })} />
-          <Row icon="⏰" title={n.c_sched} sub={n.c_schedSub} onClick={() => go("auto")} />
-          <Row icon="🔌" title={n.c_mcp} sub={n.c_mcpSub} onClick={() => open({ k: "connect" })} />
-        </Card>
       </div>
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
     </>
@@ -1265,12 +1269,15 @@ export default function NovaApp() {
           )
           : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
+          : tab === "computer" ? (ctx.me.features?.computer
+            ? <CloudComputerWorkspace lang={lang} model={ctx.me.settings.model || "coder"} owner={ctx.owner} />
+            : <div className="n-page"><Fail t={t} msg={lang === "ar" ? "الحاسوب السحابي غير متاح لهذه الخطة." : "Cloud computer is not available on this plan."} retry={() => go("home")} /></div>)
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} reloadModels={reloadModels} />}
       </main>
       {!page && ctx && (
         <nav className="n-nav" aria-label="Nova">
-          {TABS.map((id) => (
+          {TABS.filter((id) => id !== "computer" || ctx.me.features?.computer).map((id) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => go(id)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={tab === id ? 2.4 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={NAV_ICON[id]} /></svg>
               {NAV_KEY[id] ? n[NAV_KEY[id]!] : NAV_LABEL[id][lang]}

@@ -41,7 +41,7 @@ const LOAD_TOOLS_DEF = {
   type: "function" as const,
   function: {
     name: "load_tools",
-    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (a private Linux VM: clone, run commands and tests, edit files), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
+    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (your one persistent private Linux desktop: terminal, files, programs, screenshots and accessibility controls), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
     parameters: {
       type: "object",
       properties: { groups: { type: "array", items: { type: "string", enum: [...CANDIDATE_GROUPS] }, minItems: 1, maxItems: 4 } },
@@ -59,6 +59,8 @@ export function candidateToolsFor(groups: readonly string[], hasGithub: boolean,
     if (!(CANDIDATE_GROUPS as readonly string[]).includes(g)) continue;
     for (const t of all[g] || []) {
       if (BLOCKED_FOR_CANDIDATES.has(t.function.name)) continue;
+      // Candidate models must use their single persistent cloud computer. Do not expose the older per-task sandbox as a second machine.
+      if (g === "computer" && t.function.name.startsWith("sandbox_")) continue;
       out.set(t.function.name, { type: "function", function: { ...t.function, description: String(t.function.description || "").slice(0, 170) } });
     }
   }
@@ -124,7 +126,8 @@ export async function executeDonorTool(input: {
   model: string;
   name: string;
   arguments: Record<string, unknown>;
-}, db: Db, fetchImpl: typeof fetch = globalThis.fetch): Promise<{ ok: boolean; result: string; approval_required?: boolean }> {
+  mediaCapabilities?: { vision?: boolean; audio?: boolean; video?: boolean };
+}, db: Db, fetchImpl: typeof fetch = globalThis.fetch): Promise<{ ok: boolean; result: string; approval_required?: boolean; vision?: { mimeType: string; b64: string; width?: number | null; height?: number | null } }> {
   const ticket = verifyDonorToolTicket(input.ticket);
   if (!ticket || ticket.model !== input.model || !isCandidate(input.model)) {
     return { ok: false, result: "DENIED: invalid, expired, or cross-model tool ticket." };
@@ -177,6 +180,67 @@ export async function executeDonorTool(input: {
     }
   }
 
+  if (input.name === "cloud_computer_screenshot") {
+    const computer = await import("@/lib/cloudComputer");
+    const computerCtx = { chatId: ticket.chatId, modelId: input.model, tier: "owner" as const, db, fetchImpl };
+    const shotArgs = input.arguments || {};
+    const region = shotArgs.region && typeof shotArgs.region === "object"
+      ? {
+          x: Math.max(0, Math.floor(Number((shotArgs.region as Record<string, unknown>).x) || 0)),
+          y: Math.max(0, Math.floor(Number((shotArgs.region as Record<string, unknown>).y) || 0)),
+          width: Math.max(1, Math.min(4096, Math.floor(Number((shotArgs.region as Record<string, unknown>).width) || 1))),
+          height: Math.max(1, Math.min(4096, Math.floor(Number((shotArgs.region as Record<string, unknown>).height) || 1))),
+        }
+      : undefined;
+    const [file, windowsResult, treeResult] = await Promise.all([
+      computer.cloudComputerScreenshot(computerCtx, {
+        ...(region ? { region } : {}),
+        compressed: true,
+        format: "jpeg",
+        quality: Math.max(45, Math.min(90, Number(shotArgs.quality) || 78)),
+        scale: Math.max(0.35, Math.min(1, Number(shotArgs.scale) || 0.82)),
+      }),
+      computer.cloudComputerAction(computerCtx, "windows").catch((error) => ({ error: String((error as Error)?.message || error).slice(0, 180) })),
+      computer.cloudComputerAction(computerCtx, "accessibility_tree", { scope: "all", max_depth: 8 }).catch((error) => ({ error: String((error as Error)?.message || error).slice(0, 180) })),
+    ]);
+    if (!file?.bytes?.length) return { ok: false, result: "The selected model's own computer returned an empty screenshot." };
+    const windows = JSON.stringify(windowsResult).slice(0, 4500);
+    const accessibility = JSON.stringify(treeResult).slice(0, 9000);
+    const visionReady = input.mediaCapabilities?.vision === true;
+    const baseDescription =
+      "Computer screen captured from this model's own persistent VM. Active windows: " + windows +
+      "\nAccessibility tree (UI elements, roles, labels and state): " + accessibility;
+    if (visionReady) {
+      return {
+        ok: true,
+        result: baseDescription + "\nThe screenshot image is attached directly to the next inference turn of this same model, using its own loaded multimodal projector. Inspect the visual layout and correlate it with the accessibility tree.",
+        vision: {
+          mimeType: "image/jpeg",
+          b64: file.bytes.toString("base64"),
+        },
+      };
+    }
+    const [ocr, visual] = await Promise.all([
+      computer.cloudComputerOcrScreenshot(computerCtx, file.bytes, "image/jpeg").catch((error) =>
+        "OCR fallback had a problem in this model's own computer: " + String((error as Error)?.message || error).slice(0, 300)
+      ),
+      computer.cloudComputerVisionDescribeScreenshot(
+        computerCtx,
+        file.bytes,
+        "image/jpeg",
+        "Describe this live computer screen. Identify visible apps, layout, UI elements and controls with approximate normalized coordinates. Return structured JSON. Use Arabic if the user is speaking Arabic; never guess unreadable content.",
+      ).catch((error): Record<string, any> => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) })),
+    ]);
+    const visualText = visual.ok && visual.description
+      ? "\nLocal visual-perception sidecar (private to this candidate's VM):\n" + String(visual.description).slice(0, 10000)
+      : "\nPrivate visual-perception sidecar is " + String(visual.state || "starting") + (visual.detail ? ": " + String(visual.detail).slice(0, 220) : "") + ". Use OCR and accessibility metadata and do not infer unseen details.";
+    return {
+      ok: true,
+      result: baseDescription + "\nVisible screen text (Arabic + English OCR in this same isolated computer):\n" + ocr + visualText +
+        "\nUse visual coordinates together with the accessibility tree; verify actions with a fresh screenshot.",
+    };
+  }
+
   const guard = await guardCall(call, gh, "owner");
   if (guard.confirm) {
     return { ok: false, approval_required: true, result: "APPROVAL_REQUIRED: " + guard.reason + ". No change was made." };
@@ -186,7 +250,8 @@ export async function executeDonorTool(input: {
     addNote: (_text: string) => undefined,
     fetchImpl,
     runId: "candidate-" + input.model + "-" + ticket.chatId + "-" + ticket.nonce,
-    chatKey: coderChatKey(ticket.chatId + ":" + input.model),   // the candidate's own computer / scope, never Nova's
+    chatKey: coderChatKey(ticket.chatId + ":" + input.model),   // candidate-private computer scope
+    modelId: input.model,
     githubToken: connections.github?.token || null,
     userId: ticket.chatId,
     db,
