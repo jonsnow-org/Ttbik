@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mediaUser } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,8 @@ function rid() {
 
 /** GET ?id=room_xxx — room state + recent messages */
 export async function GET(req: NextRequest) {
+  const user = mediaUser(req.nextUrl.searchParams.get("init_data") || "");
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const id = (req.nextUrl.searchParams.get("id") || "").trim();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
@@ -55,6 +58,8 @@ export async function GET(req: NextRequest) {
   if (db) {
     const { data: room } = await db.from("party_rooms").select("*").eq("id", id).maybeSingle();
     if (room) {
+      const members = Array.isArray((room as any).members) ? (room as any).members : [];
+      if (!members.some((member: any) => String(member.id) === user.id)) return NextResponse.json({ error: "room membership required" }, { status: 403 });
       const { data: msgs } = await db
         .from("party_messages")
         .select("id,user_id,user_name,body,kind,created_at")
@@ -71,6 +76,7 @@ export async function GET(req: NextRequest) {
 
   const mem = g.__parties![id];
   if (!mem) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!Array.isArray(mem.members) || !mem.members.some((member: any) => String(member.id) === user.id)) return NextResponse.json({ error: "room membership required" }, { status: 403 });
   return NextResponse.json({
     room: mem,
     messages: (g.__partyMsgs![id] || []).slice(-40),
@@ -82,14 +88,16 @@ export async function GET(req: NextRequest) {
 /** POST — create room or action */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
+  const user = mediaUser(String(body.init_data || ""));
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const action = String(body.action || "create");
 
   if (action === "create") {
     const id = rid();
     const room = {
       id,
-      host_id: String(body.host_id || "0"),
-      host_name: String(body.host_name || "مضيف").slice(0, 40),
+      host_id: user.id,
+      host_name: user.name,
       media_id: String(body.media_id || ""),
       media_title: String(body.media_title || "فيديو").slice(0, 120),
       media_url: String(body.media_url || ""),
@@ -100,8 +108,8 @@ export async function POST(req: NextRequest) {
       host_only: body.host_only !== false,
       members: [
         {
-          id: String(body.host_id || "0"),
-          name: String(body.host_name || "مضيف").slice(0, 40),
+          id: user.id,
+          name: user.name,
         },
       ],
       created_at: Math.floor(Date.now() / 1000),
@@ -134,8 +142,8 @@ export async function POST(req: NextRequest) {
 
   if (action === "join") {
     const id = String(body.room_id || "");
-    const uid = String(body.user_id || "0");
-    const uname = String(body.user_name || "ضيف").slice(0, 40);
+    const uid = user.id;
+    const uname = user.name;
     let room = g.__parties![id];
     const db = await client();
     if (!room && db) {
@@ -161,7 +169,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "sync") {
     const id = String(body.room_id || "");
-    const uid = String(body.user_id || "");
+    const uid = user.id;
     let room = g.__parties![id];
     const db = await client();
     if (!room && db) {
@@ -199,8 +207,8 @@ export async function POST(req: NextRequest) {
     const id = String(body.room_id || "");
     const msg = {
       id: Date.now(),
-      user_id: String(body.user_id || "0"),
-      user_name: String(body.user_name || "مستخدم").slice(0, 40),
+      user_id: user.id,
+      user_name: user.name,
       body: String(body.body || "").slice(0, 200),
       kind: action === "react" ? "react" : "chat",
       created_at: Math.floor(Date.now() / 1000),
