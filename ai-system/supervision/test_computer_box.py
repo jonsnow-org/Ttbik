@@ -55,7 +55,7 @@ class Capacity(Box):
             cb._ACTIVE_COMMANDS.clear()
             cb._ACTIVE_DESKTOPS.clear()
 
-    def test_graphical_desktop_reserves_the_same_single_execution_slot(self):
+    def test_graphical_desktop_coexists_with_the_model_terminal_but_not_a_second_gui(self):
         old_limit = cb.MAX_GLOBAL_JOBS
         old_mem_probe = cb._mem_available_mb
         cb.MAX_GLOBAL_JOBS = 1
@@ -67,12 +67,25 @@ class Capacity(Box):
             first = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
             self.assertTrue(first.get("ok"), first)
             self.assertEqual(first.get("reserved"), True)
+
+            # The selected model must still run shell commands while the owner
+            # is viewing the graphical desktop; both use the same session home.
+            command = cb.run_command("owner:model-x", "printf 'model-terminal-ok'")
+            self.assertTrue(command.get("ok"), command)
+            self.assertEqual(command.get("exit_code"), 0)
+            self.assertEqual(command.get("output"), "model-terminal-ok")
+
             second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
             self.assertFalse(second.get("ok"))
-            self.assertIn("Studio is busy", second.get("error", ""))
-            blocked = cb.run_command("third:model-x", "echo should-not-run")
-            self.assertFalse(blocked.get("ok"))
-            self.assertIn("Studio is busy", blocked.get("error", ""))
+            self.assertIn("already has a graphical desktop", second.get("error", ""))
+
+            # One real background task is also admitted while the GUI exists.
+            job = cb.job_start("owner:model-x", "echo background-ok", "background")
+            self.assertTrue(job.get("ok"), job)
+            log = cb.job_log("owner:model-x", job["id"])
+            self.assertTrue(log.get("ok"), log)
+            self.assertIn("background-ok", log.get("output", ""))
+
             cb.release_desktop("owner:model-x")
             self.assertFalse(cb._ACTIVE_DESKTOPS)
             cb._mem_available_mb = lambda: 2048
