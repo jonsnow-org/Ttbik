@@ -47,6 +47,7 @@ _LAST_USED = 0.0
 _PROCESSES: list[subprocess.Popen] = []
 _ENV: dict[str, str] = {}
 _UID: int | None = None
+_NETWORK_MODE = "not checked"
 _INSTALL_THREAD: threading.Thread | None = None
 _CANCEL_INSTALL = False
 
@@ -213,13 +214,60 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
     return env
 
 
+def _network_isolation(uid: int, session: str) -> tuple[str, str]:
+    """Use the host UID firewall when available; otherwise probe a real, unprivileged network namespace.
+
+    A desktop must never start with unverified host-network access. In namespace
+    mode, every GUI process (including xterm) gets its own empty network
+    namespace; Unix X11 sockets remain usable. Internet browsing is disabled
+    in that mode and remains available only through a separately protected
+    browser route.
+    """
+    egress = box.install_egress_rules()
+    if not egress.startswith(("not available", "partly blocked")):
+        return "host-firewall", ""
+
+    unshare = shutil.which("unshare")
+    if not unshare:
+        return "", "The Studio cannot apply iptables and has no unshare command for an isolated network namespace."
+    command = [
+        unshare, "--user", "--map-root-user", "--net", "--",
+        "/bin/sh", "-c",
+        'test "$(readlink /proc/self/ns/net)" != "$(readlink /proc/1/ns/net)"',
+    ]
+    try:
+        probe = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=12,
+            env=box.clean_env(session),
+            preexec_fn=box._child_setup(uid, box.is_root(), 10),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return "", f"The Studio cannot create an unprivileged isolated network namespace: {type(exc).__name__}: {str(exc)[:160]}"
+    if probe.returncode != 0:
+        detail = (probe.stderr or probe.stdout or "unshare did not create a separate network namespace").strip().splitlines()
+        return "", "The Studio cannot isolate desktop network access without root: " + (detail[-1][:180] if detail else "namespace probe failed")
+    return "network-namespace", ""
+
+
+def _command_with_network_isolation(command: list[str], env: dict[str, str]) -> list[str]:
+    if env.get("DESKTOP_NETWORK_MODE") != "network-namespace":
+        return command
+    unshare = shutil.which("unshare")
+    if not unshare:
+        raise RuntimeError("The unshare command disappeared after the network isolation probe.")
+    return [unshare, "--user", "--map-root-user", "--net", "--", *command]
+
+
 def _spawn(command: list[str], env: dict[str, str], label: str, timeout_cpu: int = 7200) -> subprocess.Popen:
     log_dir = Path(env["HOME"]) / ".desktop"
     log_dir.mkdir(parents=True, exist_ok=True)
     log = (log_dir / (re.sub(r"[^a-z0-9_-]", "-", label.lower())[:24] + ".log")).open("ab")
     try:
         proc = subprocess.Popen(
-            command,
+            _command_with_network_isolation(command, env),
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=log,
@@ -288,7 +336,7 @@ def _release_reservation(session: str) -> None:
 
 
 def _spawn_desktop(session: str) -> None:
-    global _PHASE, _ERROR, _DISPLAY, _AUTH_FILE, _PROCESSES, _ENV, _UID, _LAST_USED, _SESSION_HASH, _SESSION_RAW
+    global _PHASE, _ERROR, _DISPLAY, _AUTH_FILE, _PROCESSES, _ENV, _UID, _NETWORK_MODE, _LAST_USED, _SESSION_HASH, _SESSION_RAW
     processes: list[subprocess.Popen] = []
     auth: Path | None = None
 
@@ -314,11 +362,10 @@ def _spawn_desktop(session: str) -> None:
         env = _child_env(session, display, auth)
         env["DESKTOP_UID"] = str(uid)
 
-        # Never launch a network-capable desktop unless the Studio could apply
-        # the UID-scoped private-network / metadata firewall rules.
-        egress = box.install_egress_rules()
-        if egress.startswith("not available") or egress.startswith("partly blocked"):
-            raise RuntimeError("The Studio could not confirm its private-network egress firewall: " + egress)
+        network_mode, network_error = _network_isolation(uid, session)
+        if not network_mode:
+            raise RuntimeError(network_error or "The Studio could not isolate desktop network access.")
+        env["DESKTOP_NETWORK_MODE"] = network_mode
 
         xvfb = _spawn(
             ["Xvfb", display, "-screen", "0", f"{WIDTH}x{HEIGHT}x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
@@ -360,6 +407,7 @@ def _spawn_desktop(session: str) -> None:
                 _AUTH_FILE = str(auth)
                 _ENV = env
                 _UID = uid
+                _NETWORK_MODE = network_mode
                 _PHASE = "running"
                 _ERROR = ""
                 _LAST_USED = time.time()
@@ -377,6 +425,7 @@ def _spawn_desktop(session: str) -> None:
                 _AUTH_FILE = ""
                 _ENV = {}
                 _UID = None
+                _NETWORK_MODE = "not available"
                 _PHASE = "failed"
                 _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
                 _SESSION_HASH = ""
@@ -420,6 +469,14 @@ def _desktop_status(session: str) -> dict:
         "phase": _PHASE,
         "error": _ERROR,
         "display": _DISPLAY if own else "",
+        "network_mode": _NETWORK_MODE if own else "not available",
+        "network_restrictions": (
+            "Desktop apps have no network access; use the protected browser route for web pages."
+            if own and _NETWORK_MODE == "network-namespace"
+            else "Desktop apps are protected by the Studio UID-scoped firewall."
+            if own and _NETWORK_MODE == "host-firewall"
+            else "Network isolation has not been verified."
+        ),
         "available_mb": available,
         "minimum_available_mb": MIN_AVAILABLE_MB,
         "can_start": can_start,
@@ -490,7 +547,7 @@ def _screenshot() -> dict:
 
 
 def _stop(session: str, failed: bool = False) -> dict:
-    global _PHASE, _ERROR, _PROCESSES, _DISPLAY, _AUTH_FILE, _ENV, _UID, _LAST_USED, _SESSION_HASH, _SESSION_RAW, _CANCEL_INSTALL
+    global _PHASE, _ERROR, _PROCESSES, _DISPLAY, _AUTH_FILE, _ENV, _UID, _NETWORK_MODE, _LAST_USED, _SESSION_HASH, _SESSION_RAW, _CANCEL_INSTALL
     with _LOCK:
         if not _same_session(session):
             return {"ok": True, "phase": "stopped"}
@@ -506,6 +563,7 @@ def _stop(session: str, failed: bool = False) -> dict:
         _AUTH_FILE = ""
         _ENV = {}
         _UID = None
+        _NETWORK_MODE = "not checked"
         _LAST_USED = 0.0
         _SESSION_HASH = ""
         _SESSION_RAW = ""
@@ -569,6 +627,8 @@ def api_desktop_do(body: str) -> str:
         _touch()
         if action == "launch":
             app = str(job.get("app") or "")
+            if app == "browser" and _ENV.get("DESKTOP_NETWORK_MODE") == "network-namespace":
+                raise RuntimeError("This desktop is running in a network-isolated namespace because the Studio has no root firewall. Its local terminal and files work normally; internet browsing is disabled here.");
             if app == "terminal":
                 cmd = ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", "104x30+12+12", "-title", "Model Computer"]
             elif app == "files":
