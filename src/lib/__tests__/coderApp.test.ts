@@ -25,7 +25,7 @@ describe("mini app api", () => {
     const { bot } = fakeBot();
     const ctx = { db, bot, botRow };
     for (const op of ["computer_cleanup_all", "computer_status", "computer_open", "computer_stop", "computer_terminal_open"]) {
-      await expect(appOp({ chatId: OWNER, tier: "owner" }, op, {}, ctx)).rejects.toMatchObject({ status: 400 });
+      await expect(appOp({ chatId: OWNER, tier: "owner" }, op, {}, ctx)).rejects.toMatchObject({ status: 404 });
       await expect(appOp({ chatId: USER, tier: "user" }, op, {}, ctx)).rejects.toMatchObject({ status: 400 });
     }
   });
