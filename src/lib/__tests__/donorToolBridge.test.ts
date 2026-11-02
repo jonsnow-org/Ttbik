@@ -5,7 +5,7 @@ const names = (groups: readonly string[], gh = true, conn = true) => candidateTo
 describe("candidate tool groups", () => {
   test("the four groups give a candidate GitHub, one persistent computer, the web and linked services", () => {
     const all = names(CANDIDATE_GROUPS);
-    expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "cloud_computer_execute", "cloud_computer_screenshot", "cloud_computer_action", "web_search", "fetch_page", "connector_api"]));
+    expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "computer_run", "computer_read", "browser", "web_search", "fetch_page", "connector_api"]));
     expect(all.some((name) => name.startsWith("sandbox_"))).toBe(false);
   });
 
@@ -47,10 +47,10 @@ describe("computer tools under the zero-cost policy (production)", () => {
     (process.env as Record<string, string>).NODE_ENV = value;
     try { fn(); } finally { (process.env as Record<string, string | undefined>).NODE_ENV = original; }
   };
-  test("a candidate's computer is the task Linux box: sandbox_* tools, no failing cloud_computer_* tools", () => {
+  test("each candidate receives its own persistent ModelScope computer plus checkpointable task tools", () => {
     withEnv("production", () => {
       const all = names(["computer"]);
-      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search", "browser"]));
+      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search", "computer_run", "computer_read", "browser"]));
       expect(all.some((n) => n.startsWith("cloud_computer_"))).toBe(false);
     });
   });
