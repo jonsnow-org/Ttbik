@@ -20,6 +20,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -127,28 +128,66 @@ def _display_number() -> int:
     raise RuntimeError("No free X display number is available in this Studio.")
 
 
+def _remove_xauthority(auth: Path | None) -> None:
+    """Remove only this desktop's ephemeral Xauthority directory and lock files."""
+    if auth is None:
+        return
+    try:
+        parent = auth.parent.resolve()
+        tmp_root = Path("/tmp").resolve()
+        if parent.parent == tmp_root and parent.name.startswith("sham-desktop-xauth-"):
+            shutil.rmtree(parent, ignore_errors=True)
+        else:
+            auth.unlink(missing_ok=True)
+            for suffix in ("-c", "-l", "-n"):
+                Path(str(auth) + suffix).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _write_xauthority(session: str, number: int) -> tuple[Path, str]:
-    home = box.ensure_home(session)
-    runtime = home / ".desktop"
-    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+    """Create the short-lived X11 cookie on local /tmp, not the persistent Studio volume.
+
+    xauth uses lock files beside its authority database. The persistent computer
+    home may be backed by a mounted volume with slow or stale lock semantics;
+    putting this ephemeral file on /tmp avoids that failure mode and lets every
+    start attempt receive a clean, private lock namespace.
+    """
     uid = box.session_uid(session)
-    if box.is_root():
-        os.chown(runtime, uid, uid)
-        os.chmod(runtime, 0o700)
+    runtime = Path(tempfile.mkdtemp(prefix="sham-desktop-xauth-", dir="/tmp"))
     auth = runtime / "Xauthority"
-    cookie = secrets.token_hex(16)
-    result = subprocess.run(
-        ["xauth", "-f", str(auth), "add", f":{number}", "MIT-MAGIC-COOKIE-1", cookie],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("Could not create a private X11 authentication cookie.")
-    if box.is_root():
-        os.chown(auth, uid, uid)
-    os.chmod(auth, 0o600)
-    return auth, str(runtime)
+    try:
+        os.chmod(runtime, 0o700)
+        if box.is_root():
+            os.chown(runtime, uid, uid)
+        cookie = secrets.token_hex(16)
+        env = box.clean_env(session)
+        env["HOME"] = str(runtime)
+        env["TMPDIR"] = str(runtime)
+        try:
+            result = subprocess.run(
+                ["xauth", "-b", "-f", str(auth), "add", f":{number}", "MIT-MAGIC-COOKIE-1", cookie],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+                preexec_fn=box._child_setup(uid, box.is_root(), 30),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("xauth timed out after 30 seconds while creating the private X11 cookie on local /tmp.") from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "xauth returned no diagnostic").strip()
+            detail = detail.replace(cookie, "[redacted]").splitlines()[-1][:160]
+            raise RuntimeError(f"xauth failed with exit code {result.returncode}: {detail}")
+        if not auth.is_file() or auth.stat().st_size < 1:
+            raise RuntimeError("xauth completed without creating a usable Xauthority file.")
+        if box.is_root():
+            os.chown(auth, uid, uid)
+        os.chmod(auth, 0o600)
+        return auth, str(runtime)
+    except Exception:
+        shutil.rmtree(runtime, ignore_errors=True)
+        raise
 
 
 def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
@@ -259,8 +298,7 @@ def _spawn_desktop(session: str) -> None:
 
     def cleanup_cancelled() -> None:
         _kill_processes(processes)
-        if auth is not None:
-            auth.unlink(missing_ok=True)
+        _remove_xauthority(auth)
         _release_reservation(session)
 
     try:
@@ -473,7 +511,7 @@ def _stop(session: str, failed: bool = False) -> dict:
         _SESSION_RAW = ""
     _kill_processes(processes)
     if auth:
-        Path(auth).unlink(missing_ok=True)
+        _remove_xauthority(Path(auth))
     if display:
         try:
             number = int(display.lstrip(":"))

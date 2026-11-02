@@ -50,7 +50,7 @@ _LOCK = threading.RLock()
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
-_ACTIVE_DESKTOPS: set[str] = set()  # a graphical desktop reserves the Studio's single execution slot
+_ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
 STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
 
 
@@ -373,7 +373,13 @@ def _global_counts_locked() -> tuple[int, int, int]:
 
 
 def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
-    """Reserve this Studio's single execution slot for one private graphical desktop."""
+    """Reserve one private GUI per Studio without blocking its model-owned shell tools.
+
+    A desktop is a long-lived base process, not a queued computer task. It may
+    coexist with one model command/job; each new task still passes the global
+    single-task admission check and a fresh memory check. A second GUI is never
+    admitted on the same Studio.
+    """
     ensure_home(session)
     key = digest(session)[:24]
     required = max(MIN_AVAILABLE_MB, min(6000, int(min_available_mb)))
@@ -381,9 +387,11 @@ def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
         if key in _ACTIVE_DESKTOPS:
             return {"ok": True, "already_reserved": True, "available_mb": _mem_available_mb()}
         active_jobs, active_commands, active_desktops = _global_counts_locked()
-        active = active_jobs + active_commands + active_desktops
+        if active_desktops:
+            return {"ok": False, "error": "this model's Studio already has a graphical desktop session"}
+        active = active_jobs + active_commands
         if active >= MAX_GLOBAL_JOBS:
-            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot)"}
+            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} shell-task slot)"}
         available = _mem_available_mb()
         if available is None:
             return {"ok": False, "error": "the Studio could not report available memory; graphical desktop start was refused"}
@@ -399,11 +407,19 @@ def release_desktop(session: str) -> None:
         _ACTIVE_DESKTOPS.discard(key)
 
 
-def _capacity_reason_locked() -> str:
+def _capacity_reason_locked(session: str) -> str:
     active_jobs, active_commands, active_desktops = _global_counts_locked()
-    active = active_jobs + active_commands + active_desktops
+    # The desktop is assigned to one user/model session. Only that exact
+    # session may use the shell while the display is open; another user cannot
+    # borrow the newly available shell slot.
+    desktop_key = digest(session)[:24]
+    if active_desktops and desktop_key not in _ACTIVE_DESKTOPS:
+        return "this model's Studio is occupied by another user's graphical desktop session"
+    # The long-lived display is not a shell task. Keep the one-task limit for
+    # commands/jobs and check current free memory on each admission.
+    active = active_jobs + active_commands
     if active >= MAX_GLOBAL_JOBS:
-        return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot); retry after the active task finishes"
+        return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} shell-task slot); retry after the active task finishes"
     available = _mem_available_mb()
     if available is None:
         return "the Studio could not report available memory; refusing a new task rather than risk the model process"
@@ -433,7 +449,7 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     started = time.time()
     reservation = f"{digest(session)[:12]}:{threading.get_ident()}:{time.monotonic_ns()}"
     with _LOCK:
-        reason = _capacity_reason_locked()
+        reason = _capacity_reason_locked(session)
         if reason:
             return {"ok": False, "error": reason}
         _ACTIVE_COMMANDS.add(reservation)
@@ -573,7 +589,7 @@ def job_start(session: str, command: str, name: str = "") -> dict:
             _refresh(job)
         if sum(1 for j in jobs.values() if j.get("exit_code") is None) >= MAX_JOBS:
             return {"ok": False, "error": f"{MAX_JOBS} jobs are already running in this session; stop one first (computer_job action=stop)"}
-        reason = _capacity_reason_locked()
+        reason = _capacity_reason_locked(session)
         if reason:
             return {"ok": False, "error": reason}
         job_id = hashlib.sha256(f"{time.time()}{command}".encode()).hexdigest()[:8]
@@ -848,7 +864,10 @@ def status(session: str = "") -> dict:
     with _LOCK:
         active_jobs, active_commands, active_desktops = _global_counts_locked()
         available_mb = _mem_available_mb()
-        can_accept = (active_jobs + active_commands + active_desktops < MAX_GLOBAL_JOBS
+        desktop_owned = bool(session and digest(session)[:24] in _ACTIVE_DESKTOPS)
+        desktop_available = not active_desktops or desktop_owned
+        can_accept = (desktop_available
+                      and active_jobs + active_commands < MAX_GLOBAL_JOBS
                       and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
@@ -865,8 +884,15 @@ def status(session: str = "") -> dict:
     return reply
 
 
-def api_box_status(_unused: str = "") -> str:
-    return json.dumps(status(), ensure_ascii=False)
+def api_box_status(body: str = "") -> str:
+    session = ""
+    try:
+        payload = json.loads(unwrap_body(body) or "{}")
+        if isinstance(payload, dict):
+            session = str(payload.get("session") or "").strip()
+    except (TypeError, ValueError):
+        session = ""
+    return json.dumps(status(session), ensure_ascii=False)
 
 
 def unwrap_body(body: str) -> str:

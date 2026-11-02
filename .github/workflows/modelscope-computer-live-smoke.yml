@@ -1,0 +1,53 @@
+name: Live model-owned computer smoke tests
+
+# Exercise the existing running ModelScope Studios before merge. This checks the
+# real per-model Bash/files/jobs route (not a mock); the deployment workflows
+# run the additional graphical/X11 test after they deploy the new desktop code.
+on:
+  push:
+    branches:
+      - fix/graphical-desktop-xauthority-local-tmp
+    paths:
+      - scripts/ops/modelscope_computer_smoke.py
+      - ai-system/modelscope-media/computer_box.py
+      - ai-system/modelscope-media/desktop_computer.py
+      - .github/workflows/modelscope-computer-live-smoke.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modelscope-computer-live-smoke
+  cancel-in-progress: false
+
+jobs:
+  live-computer:
+    name: ${{ matrix.model.id }} · real Studio terminal
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        model:
+          - id: coder
+            repo: nova-media-server
+          - id: sham_v2
+            repo: sham-v2-video-server
+          - id: qwen35-9b
+            repo: sham-donor-qwen35-9b-media
+          - id: gemma4-e4b
+            repo: sham-donor-gemma4-e4b-media
+          - id: minicpmo45
+            repo: sham-donor-minicpmo45-media
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Check the selected model's real persistent computer
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          API: https://studio-novaai2026-${{ matrix.model.repo }}.api-inference.modelscope.net
+          MODEL_ID: ${{ matrix.model.id }}
+        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id "$MODEL_ID" --no-gui

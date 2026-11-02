@@ -25,11 +25,9 @@ function safeEqual(a: string, b: string): boolean {
 
 
 // ------------------------------------------------------------------ tool groups for the candidate models
-// Every candidate gets the standard assistant tool set (GitHub, a private computer, the web, linked services) through the SAME shared executor Nova's loop
-// uses (the terminal / connectors layer is common platform), but loads it in groups so a 2K-4K window is not spent on schemas it does not need:
-// the model sees `load_tools` first and asks for a group. What a candidate must NOT get from here, because it would reach into another model:
-//   make_media (each candidate makes media only through its OWN generate_* tool in its OWN Studio), delegate (sub-agents of Nova's engine),
-//   schedule_* (a scheduled run is executed by Nova's loop), memory_* / recall / plan (Nova's long-term memory), send_file / ask_user / view_* (need Nova's chat loop).
+// Each candidate receives GitHub, its OWN persistent computer, web and linked services through the shared app executor.
+// The selected model id is passed to the computer router, which resolves only that model's dedicated ModelScope Studio.
+// The temporary sandbox_* task-worker tools are intentionally not offered to candidates: normal work uses their own persistent computer.
 export const CANDIDATE_GROUPS = ["github", "computer", "web", "connectors"] as const;
 export type CandidateGroup = (typeof CANDIDATE_GROUPS)[number];
 const BLOCKED_FOR_CANDIDATES = new Set([
@@ -42,7 +40,7 @@ const LOAD_TOOLS_DEF = {
   type: "function" as const,
   function: {
     name: "load_tools",
-    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (your own private Linux computer for the task: shell, files, git, tests, search), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
+    description: "Adds tool groups to this conversation: github (repositories: files, branches, commits, pull requests, issues, CI), computer (your own persistent Linux terminal, files, jobs and browser in this candidate's own Studio), web (search, read pages, deep research, HTTP APIs), connectors (services the user linked). Loaded tools are ready from your next step.",
     parameters: {
       type: "object",
       properties: { groups: { type: "array", items: { type: "string", enum: [...CANDIDATE_GROUPS] }, minItems: 1, maxItems: 4 } },
