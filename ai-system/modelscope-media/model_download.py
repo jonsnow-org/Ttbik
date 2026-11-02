@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 
 def _clean_error(exc: BaseException, token: str) -> str:
@@ -75,10 +76,31 @@ def _git_lfs_snapshot(
     from modelscope.hub.repository import Repository
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not (target / ".git").is_dir():
-        # Only clear this dedicated fallback cache, never the Studio source or a
-        # different model repository.
-        shutil.rmtree(target)
+    expected_host = (urlparse(endpoint).hostname or "").lower()
+    expected_repo = f"models/{repo_id}".lower()
+    if target.exists():
+        git_dir = target / ".git"
+        if not git_dir.is_dir():
+            # Only clear this model-specific download folder, never the Studio
+            # source tree or another model's cache.
+            shutil.rmtree(target)
+        else:
+            remote = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=str(target),
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=15,
+            ).stdout.strip()
+            parsed = urlparse(remote)
+            remote_host = (parsed.hostname or "").lower()
+            remote_path = parsed.path.lstrip("/").lower().removesuffix(".git")
+            if remote_host != expected_host or expected_repo not in remote_path:
+                # A partial clone from a different official endpoint must not be
+                # reused for this retry.
+                shutil.rmtree(target)
     Repository(
         model_dir=str(target),
         clone_from=f"models/{repo_id}",
