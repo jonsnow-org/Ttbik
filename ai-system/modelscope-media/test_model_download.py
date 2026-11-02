@@ -15,9 +15,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 def fake_modelscope(snapshot_download):
     package = types.ModuleType("modelscope")
+    package.__path__ = []
     package.snapshot_download = snapshot_download
     hub = types.ModuleType("modelscope.hub")
+    hub.__path__ = []
     repository_module = types.ModuleType("modelscope.hub.repository")
+    package.hub = hub
+    hub.repository = repository_module
 
     class Repository:
         calls = []
