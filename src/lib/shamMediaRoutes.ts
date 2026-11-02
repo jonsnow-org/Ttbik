@@ -38,7 +38,7 @@ export async function generateShamMediaThroughRoute(
       prompt,
       timeoutMs,
       backend,
-      { scenes: opts.scenes, narration: opts.narration },
+      { scenes: opts.scenes, narration: opts.narration, bypassQuality: opts.bypassContentHeuristics },
     ));
     if (reply && (reply.type === "image" || reply.type === "audio" || reply.type === "video") && reply.b64) {
       return { ...reply, route };

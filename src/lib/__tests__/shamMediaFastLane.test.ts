@@ -28,13 +28,13 @@ describe("Sham media fast lane", () => {
       ? new Response(JSON.stringify({ event_id: "e1" }), { status: 200 })
       : new Response("event: complete\ndata: " + JSON.stringify(JSON.stringify({ type: "text", text: "white horse" })) + "\n\n", { status: 200 }));
   });
-  it("'قم بتوليد صورة فرس ابيض' -> the media route with an ENGLISH prompt; the picture is sent without a caption", async () => {
+  it("'قم بتوليد صورة فرس ابيض' -> raw Arabic subject reaches the media route without translation", async () => {
     routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
     const { bot: b, calls } = bot();
     expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "قم بتوليد صورة فرس ابيض"))).toBe(true);
     expect(routeCalls[0][0]).toBe("image");
-    expect(routeCalls[0][1]).toBe("white horse");
+    expect(routeCalls[0][1]).toBe("فرس ابيض");
     expect(routeCalls[0][2]).toMatchObject({ bypassContentHeuristics: true });
     const photo = calls.find((c) => c.m === "sendPhoto")!;
     expect(photo).toBeTruthy();
@@ -55,7 +55,7 @@ describe("Sham media fast lane", () => {
     const { bot: b, calls } = bot();
     expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "حصان أبيض"))).toBe(true);
     expect(routeCalls[0][0]).toBe("image");
-    expect(routeCalls[0][1]).toBe("white horse");
+    expect(routeCalls[0][1]).toBe("حصان أبيض");
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
   });
 

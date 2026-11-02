@@ -982,11 +982,13 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   try {
     await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
     // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
-    let prompt: string | null = null;
-    {
+    // Raw owner test sends the exact user subject to the selected model own media weights.
+    // It skips translation, glossary lookup and prompt rewriting so the raw generator can be observed.
+    let prompt: string | null = rawTest ? intent.subject.trim().slice(0, 1800) : null;
+    if (!rawTest) {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
       const t = await shamChatAuto(`Write ONE short English prompt (max 20 words) for an image model describing: ${intent.subject}. Output only the prompt.`, 40, 25000).catch(() => null);
-      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "", { preserveRaw: rawTest }) : null;
+      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
     if (!prompt) return await askForDescription();

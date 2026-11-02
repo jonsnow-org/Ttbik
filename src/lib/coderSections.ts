@@ -690,7 +690,8 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 
 async function englishMediaPrompt(subject: string, original: string, modelId = "coder", rawTest = false): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
-  if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject, { preserveRaw: rawTest });
+  if (rawTest) return String(subject || "").trim().slice(0, 1800) || null;
+  if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
   // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
   // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
   if (modelId !== "coder") return null;

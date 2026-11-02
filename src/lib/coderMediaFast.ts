@@ -54,7 +54,7 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
     || digits.match(/([12])\s*(?:دقيقة|دقائق|دقايق)/i);
   const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
     : /دقيقتين/i.test(raw) ? 120 : /(?:^|[\s،])دقيقة(?:$|[\s،])/i.test(raw) ? 60 : undefined;
-  const durationWords = /^(?:ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
+  const durationWords = /^(?:لمدة|لمده|مدة|مده|ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
   let subject = rawWords.filter((_word, i) => !inSet(ws[i], VERBS) && !inSet(ws[i], IMAGES) && !inSet(ws[i], VIDEOS) && !VIDEO_SHAPE.test(ws[i]) && !VIDEO_SHAPE.test(bare(ws[i])) && !/^\d+$/.test(ws[i]) && !durationWords.test(ws[i])).join(" ").trim();
   // For English commands, isolate the complete visual noun phrase after the media type.
   if (/^[\x00-\x7f]+$/.test(raw)) {
