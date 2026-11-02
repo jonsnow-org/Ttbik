@@ -46,10 +46,14 @@ jobs:
           F: ${{ inputs.frames }}
           S: ${{ inputs.steps }}
         run: |
+          ./sdcpp/build/bin/sd --help 2>&1 | grep -iE "vid_gen|mode|video|diffusion-model|t5xxl|offload|flow" | head -20
           START=$(date +%s)
+          set +e
           taskset -c 0,1 ./sdcpp/build/bin/sd -M vid_gen --diffusion-model models/wan.safetensors --vae models/vae.safetensors --t5xxl models/t5.gguf \
             -p "a beautiful girl walking on the beach at sunset, cinematic" --cfg-scale 6.0 --sampling-method euler -t 2 -W "$W" -H "$H" \
-            --diffusion-fa --video-frames "$F" --flow-shift 3.0 --steps "$S" -o out.avi -v 2>&1 | grep -E "sampling|step|it/s|s/it|generate|completed|total|error|ERROR|offload|memory|VAE|t5|encod" | tail -60
+            --diffusion-fa --video-frames "$F" --flow-shift 3.0 --steps "$S" -o out.avi -v > run.log 2>&1
+          echo "EXIT=$?"
+          tail -40 run.log | cut -c1-240
           echo "WALL_SECONDS=$(( $(date +%s) - START ))"
           ls -la out* 2>/dev/null || true
       - uses: actions/upload-artifact@v4

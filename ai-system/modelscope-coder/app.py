@@ -247,6 +247,8 @@ def _start_server(model: Path, bindir: Path) -> None:
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
            "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+    if "lfm" in model.name.lower():       # LFM thinks by default: all of a short answer's tokens went to reasoning and the text came back empty (measured 2026-11-02); the app turns thinking on per request itself
+        cmd += ["--reasoning-budget", "0"]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
     if os.environ.get("CODER_SPEC", "").strip() and not _SPEC["bad"]:
