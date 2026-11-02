@@ -59,6 +59,13 @@ MODELS = [
 ]
 if os.environ.get("CODER_MODEL_REPO") and os.environ.get("CODER_MODEL_FILE"):
     MODELS.insert(0, (os.environ["CODER_MODEL_REPO"], os.environ["CODER_MODEL_FILE"]))
+_OVR = Path(__file__).resolve().parent / "model.override"      # "<repo> <gguf file> [ctx]": a Studio chosen to run another model first; the models above stay its fallback
+if _OVR.is_file():
+    _parts = _OVR.read_text(encoding="utf-8").split()
+    if len(_parts) >= 2:
+        MODELS.insert(0, (_parts[0], _parts[1]))
+        if len(_parts) >= 3 and _parts[2].isdigit():
+            os.environ.setdefault("CODER_CTX", _parts[2])
 # 65,536 since 2026-10-24: measured on this exact model + llama.cpp build with 2 cores (.github/workflows/nova-ctx-probe.yml), peak memory is
 # 5.07 GB at 32k, 6.07 GB at 64k, 7.06 GB at 96k, 8.06 GB at 128k. The Studio has 8 GB in total, so 64k is the highest safe value.
 CTX = max(8192, int(os.environ.get("CODER_CTX", "65536")))

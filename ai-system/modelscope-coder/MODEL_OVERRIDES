@@ -1,0 +1,2 @@
+# One line per Studio: "<studio> <model repo> <gguf file> [ctx]". That Studio downloads this model first (Qwen3.5-4B stays the fallback). Trial of a faster model on ONE replica.
+coder-inference-server-4 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768

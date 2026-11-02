@@ -126,6 +126,9 @@ jobs:
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
+          # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> the app downloads that model first (Qwen stays the fallback)
+          line=$(grep -E "^${REPO} " ai-system/modelscope-coder/MODEL_OVERRIDES 2>/dev/null | head -1 || true)
+          if [ -n "$line" ]; then echo "$line" | cut -d' ' -f2- > ms-studio/model.override; else rm -f ms-studio/model.override; fi
           # ModelScope keeps big files (*.gz) in Git LFS; a fresh Studio instance then holds only the 130-byte LFS pointer (proven 2026-10-24:
           # its sha256 was exactly the pointer's) and llama.cpp cannot start. So the release goes in as 4 MiB plain parts (no LFS pattern
           # matches .partNNN), and app.py joins them and checks the pinned sha256.
@@ -137,6 +140,7 @@ jobs:
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
           git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
+          if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
