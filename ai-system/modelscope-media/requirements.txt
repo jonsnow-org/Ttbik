@@ -1,5 +1,6 @@
 gradio==6.17.3
 modelscope
+modelscope-hub>=0.1.8
 diffusers>=0.33.0
 transformers
 accelerate
