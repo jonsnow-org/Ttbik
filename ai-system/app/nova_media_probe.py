@@ -10,6 +10,7 @@ import base64
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -75,6 +76,12 @@ def verify_video(raw: bytes) -> dict:
         src = os.path.join(d, "in.mp4")
         with open(src, "wb") as fh:
             fh.write(raw)
+        info = subprocess.run([exe, "-hide_banner", "-i", src], capture_output=True, text=True, timeout=30)
+        probe_text = (info.stderr or "") + (info.stdout or "")
+        duration_match = re.search(r"Duration:\\s*(\\d+):(\\d+):([0-9.]+)", probe_text)
+        if not duration_match:
+            raise ProbeError("video: ffmpeg could not read a valid MP4 duration")
+        duration = int(duration_match.group(1)) * 3600 + int(duration_match.group(2)) * 60 + float(duration_match.group(3))
         proc = subprocess.run([exe, "-v", "error", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
                               capture_output=True, timeout=120)
     if len(proc.stdout) < side * side:
@@ -88,7 +95,7 @@ def verify_video(raw: bytes) -> dict:
         raise ProbeError("video: every frame is blank")
     if motion < MIN_MOTION:
         raise ProbeError(f"video: no motion between frames (mean change {motion:.3f})")
-    return {"frames": int(len(f)), "motion": round(motion, 2), "frame_std": round(float(np.mean(stds)), 1), "bytes": len(raw)}
+    return {"frames": int(len(f)), "seconds": round(duration, 2), "motion": round(motion, 2), "frame_std": round(float(np.mean(stds)), 1), "bytes": len(raw)}
 
 
 def _urllib(token: str):
