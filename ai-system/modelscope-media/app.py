@@ -379,7 +379,7 @@ def cv_profile(cpus: int | None = None) -> dict:
     # Keep the real generation grid at 512 px; upscaling a 256 px diffusion result hid detail rather than creating it.
     side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or 512)
     frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 32)
-    return {"side": max(512, min(512, side // 8 * 8)), "max_frames": max(16, min(128, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
+    return {"side": max(512, min(512, side // 8 * 8)), "max_frames": max(16, min(32, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
 
 
 def cv_dtype():
