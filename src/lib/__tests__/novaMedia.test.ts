@@ -31,6 +31,21 @@ describe("Nova media Studio client", () => {
     expect(calls[2].url).toBe("https://studio.example/gradio_api/call/v2/speech");
     expect(JSON.parse(JSON.parse(calls[2].body!).body)).toEqual({ text: "نص" });
   });
+  it("defaults to three seconds when the request does not specify a duration", async () => {
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+    let submitted: any = null;
+    const fakeFetch = (async (_url: string, init?: { body?: string }) => {
+      if (init?.body) {
+        submitted = JSON.parse(JSON.parse(init.body).body);
+        return { ok: true, json: async () => ({ event_id: "video-default" }) };
+      }
+      const raw = { type: "video", b64: b64(mp4Shell()) };
+      return { ok: true, text: async () => "event: complete\ndata: [" + JSON.stringify(JSON.stringify(raw)) + "]\n" };
+    }) as unknown as typeof fetch;
+    await novaMakeMedia("video", "a rabbit running", { fetchImpl: fakeFetch });
+    expect(submitted).toEqual({ prompt: "a rabbit running", seconds: 3, seed: 0 });
+  });
+
   it("a blank picture from the Studio is returned as a typed error, never as an image", async () => {
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
     const blank = b64(await png("black", 512));
