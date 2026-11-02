@@ -20,6 +20,14 @@ from pathlib import Path
 
 os.environ.setdefault("CPU_VIDEO_KEEP", "1")        # this Studio has nothing else in RAM: keep the pipeline loaded between clips
 HERE = Path(__file__).resolve().parent
+VIDEO_STORE = Path(os.environ.get("SHAM_VIDEO_MODEL_STORE", "/mnt/workspace/sham-v2-video-models"))
+try:
+    VIDEO_STORE.mkdir(parents=True, exist_ok=True)
+    probe = VIDEO_STORE / ".write-test"
+    probe.write_text("ok", encoding="utf-8")
+    probe.unlink()
+except OSError:
+    VIDEO_STORE = HERE
 _LOCK = threading.Lock()
 STATE = {"phase": "starting", "error": "", "videos": 0, "last_s": 0.0}
 
@@ -49,7 +57,7 @@ def _ram() -> dict:
 
 def _disk() -> dict:
     try:
-        d = shutil.disk_usage(HERE)
+        d = shutil.disk_usage(VIDEO_STORE)
         return {"total_gb": round(d.total / 2 ** 30, 2), "used_gb": round(d.used / 2 ** 30, 2), "free_gb": round(d.free / 2 ** 30, 2)}
     except OSError:
         return {}
@@ -66,7 +74,7 @@ def generate_video(body: str) -> str:
         if not prompt:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
-        clip = cpu_video.cv_generate(HERE, prompt, float(payload.get("seconds", 3) or 3), int(payload.get("seed", 0) or 0), ENVS)
+        clip = cpu_video.cv_generate(VIDEO_STORE, prompt, float(payload.get("seconds", 3) or 3), int(payload.get("seed", 0) or 0), ENVS)
         check_mp4(clip)                                        # an empty / frozen / black video is an error, never a reply
         STATE["videos"] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
@@ -85,7 +93,7 @@ def generate_video(body: str) -> str:
 
 
 def status() -> str:
-    ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(HERE, ENVS))
+    ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(VIDEO_STORE, ENVS))
     return json.dumps({**STATE, "cpus": os.cpu_count(), "ram": _ram(), "disk": _disk(),
                        "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": ready, "pipeline_ready": cpu_video._CV["pipe"] is not None, "free_noise": bool(cpu_video._CV.get("free_noise")), "device": "cpu", "profile": cpu_video.cv_profile()}})
 
@@ -95,7 +103,7 @@ def _warm() -> None:
     while True:
         try:
             STATE["phase"] = "loading video weights"
-            cpu_video.cv_pipe(HERE, ENVS)
+            cpu_video.cv_pipe(VIDEO_STORE, ENVS)
             STATE["phase"] = "ready"
             STATE["error"] = ""
             return
