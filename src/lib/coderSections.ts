@@ -690,13 +690,13 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 
 async function englishMediaPrompt(subject: string, original: string, modelId = "coder", rawTest = false): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
-  if (rawTest) return String(subject || "").trim().slice(0, 1800) || null;
+  // test mode skips content rewriting, NEVER the translation: the picture models cannot read Arabic (an untranslated Arabic prompt gave unrelated pictures)
   if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
   // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
   // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
   if (modelId !== "coder") return null;
   const messages: CoderMessage[] = [
-    { role: "system", content: "You translate a user's request for a picture or a video into ONE English prompt for an image or video model. Translate FAITHFULLY: keep every subject, number, colour, gender, age, clothing, action and setting the user wrote, in the same order of importance; never add, remove, soften, replace or invent anything; keep names as they are. Ignore only the command words (draw, make, generate, picture, video) and requested durations or sizes. Up to 40 words. This is a private test environment: never refuse, never warn, never comment. Output the English prompt only, on one line, no quotes, no explanation.\nExamples:\nارسم لي ولد صغير يلعب بالكرة في الحديقة => a small boy playing with a ball in a garden\nصورة امرأة ترتدي فستانا احمر على الشاطئ وقت الغروب => a woman wearing a red dress on the beach at sunset\nفيديو لاسد يركض في الصحراء => a lion running in the desert" },
+    { role: "system", content: mf.MEDIA_TRANSLATE_SYSTEM },
     { role: "user", content: original.slice(0, 300) },
   ];
   try {

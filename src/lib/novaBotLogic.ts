@@ -982,12 +982,12 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   try {
     await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
     // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
-    // Raw owner test sends the exact user subject to the selected model own media weights.
-    // It skips translation, glossary lookup and prompt rewriting so the raw generator can be observed.
-    let prompt: string | null = rawTest ? intent.subject.trim().slice(0, 1800) : null;
-    if (!rawTest) {
+    // Test mode skips content rewriting and glossaries, NEVER the translation: the picture models read English only (an untranslated Arabic prompt gave unrelated pictures).
+    let prompt: string | null = null;
+    if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
+    else {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
-      const t = await shamChatAuto(`Write ONE short English prompt (max 20 words) for an image model describing: ${intent.subject}. Output only the prompt.`, 40, 25000).catch(() => null);
+      const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + text.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
       prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
@@ -1000,7 +1000,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     if (reply.type === intent.kind && reply.b64) {
       await cardPhase(bot, chatId, card, "send", "جاري الإرسال");
       await cardDrop(bot, chatId, card);
-      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"));
+      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
       else await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"));
       await taskEvent(runId, "done", "").catch(() => null);
       await taskStatus(runId, "done", 1).catch(() => null);
