@@ -54,14 +54,14 @@ def generate_media(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if selected == "image":
-        payload = {"prompt": (prompt or "")[:400], "size": 512, "seed": 0}
+        payload = {"prompt": (prompt or "")[:400], "size": 512, "seed": __import__("random").randint(1, 2**31)}
     elif selected == "audio":
         payload = {"text": (prompt or "")[:1500]}
     else:
         payload = {
             "prompt": (prompt or "")[:800],
-            "seconds": max(1, min(int(seconds or 2), 2)),
-            "seed": 0,
+            "seconds": max(1, min(int(seconds or 6), 6)),
+            "seed": __import__("random").randint(1, 2**31),
         }
     try:
         submit = requests.post(

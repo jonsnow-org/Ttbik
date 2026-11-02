@@ -179,7 +179,7 @@ export async function makePhotoMedia(
   const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: "Bearer " + token };
 
   try {
-    const statusSse = await submitAndRead(base, "status", { data: [] }, headers, Math.min(timeoutMs, 45000), fetchImpl);
+    const statusSse = await submitAndRead(base, "status", { data: [] }, headers, Math.min(timeoutMs, 15000), fetchImpl);
     const status = findStatus(dataValues(statusSse));
     if (!status || status.phase !== "ready") {
       const phase = String(status?.phase || "unreadable");
