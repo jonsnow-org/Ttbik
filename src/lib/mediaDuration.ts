@@ -26,13 +26,13 @@ function normalizeDigits(value: string): string {
 export function requestedVideoSeconds(text: string, fallback = 3): number {
   const raw = normalizeDigits(String(text || "").toLowerCase());
   const safeFallback = Math.max(1, Math.min(MAX_VIDEO_SECONDS, Math.round(Number(fallback) || 3)));
-  const numeric = /(\d{1,2}(?:\.\d+)?)\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
+  const numeric = /(\d{1,2}(?:\.\d+)?)\s*-?\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
   if (numeric) {
     const amount = Number(numeric[1]);
     if (Number.isFinite(amount) && amount > 0) return Math.max(1, Math.min(MAX_VIDEO_SECONDS, Math.round(amount)));
   }
 
-  const words = /(one|two|three|four|five|واحده?|وحده|اثنين|اثنتين|ثنتين|ثانيتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
+  const words = /(one|two|three|four|five|واحده?|وحده|اثنين|اثنتين|ثنتين|ثانيتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*-?\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
   if (words) {
     const amount = WORD_SECONDS[words[1]];
     if (amount) return amount;
