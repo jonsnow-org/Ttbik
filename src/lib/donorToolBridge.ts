@@ -114,6 +114,8 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   return { url, ticket, model, run_id: runId || "", bot_id: botId || "", connectors: available, tools };
 }
 
+const ASK_HINT = (what: string) => "APPROVAL_REQUIRED: " + what + ". No change was made. Ask the owner in your reply (one short question saying exactly what will happen); only after the owner answers yes, call this same tool again with the same arguments plus user_confirmed:true.";
+
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
 export async function executeDonorTool(input: {
   ticket: string;
@@ -133,6 +135,11 @@ export async function executeDonorTool(input: {
   const nowConnected = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
   const allowed = ticket.connectors.filter((id) => nowConnected.includes(id));
   const gh = connections.github?.token ? githubClient(connections.github.token, fetchImpl) : null;
+  // Ask-then-confirm: a consequential call first answers APPROVAL_REQUIRED; the model asks the owner in the chat and, only after the owner
+  // answers yes, repeats the same call with user_confirmed:true. The flag never reaches the tool itself.
+  const { user_confirmed: userConfirmedRaw, ...cleanArguments } = (input.arguments || {}) as Record<string, unknown>;
+  const userConfirmed = userConfirmedRaw === true;
+  input = { ...input, arguments: cleanArguments };
   const call: CoderToolCall = {
     id: "candidate_" + randomBytes(8).toString("hex"),
     type: "function",
@@ -192,14 +199,14 @@ export async function executeDonorTool(input: {
       } catch { return false; }
     });
     if (!trustedBase) return { ok: false, result: "DENIED: connector URL is outside the connected service API." };
-    if (!isReadOnlyCall(method, connectorUrl)) {
-      return { ok: false, approval_required: true, result: "APPROVAL_REQUIRED: write operation blocked in this candidate bridge; no change was made." };
+    if (!isReadOnlyCall(method, connectorUrl) && !userConfirmed) {
+      return { ok: false, approval_required: true, result: ASK_HINT("a write to a connected service (" + method + " " + service + ")") };
     }
   }
 
   const guard = await guardCall(call, gh, "owner");
-  if (guard.confirm) {
-    return { ok: false, approval_required: true, result: "APPROVAL_REQUIRED: " + guard.reason + ". No change was made." };
+  if (guard.confirm && !userConfirmed) {
+    return { ok: false, approval_required: true, result: ASK_HINT(guard.reason + " — " + guard.summary) };
   }
   const ctx = {
     gh,
