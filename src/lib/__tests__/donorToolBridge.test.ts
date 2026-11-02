@@ -51,7 +51,7 @@ describe("computer tools under the zero-cost policy (production)", () => {
     withEnv("production", () => {
       const all = names(["computer"]);
       expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search", "computer_run", "computer_read", "browser"]));
-      expect(all.some((n) => n.startsWith("cloud_computer_"))).toBe(false);
+      expect(all.every((n) => !n.startsWith("cloud_"))).toBe(true);
     });
   });
 });
