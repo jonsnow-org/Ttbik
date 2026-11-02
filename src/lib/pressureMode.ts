@@ -1,7 +1,7 @@
 /**
  * Owner-only "pressure mode" (owner 2026-10-28): when the Studios are overloaded the owner flips ONE switch (Mini App → Settings → owner tools) and, until it is switched
  * off, the service sheds load in visible, honest ways:
- *   - media is made smaller (pictures 384 px instead of 512, videos 1 s instead of 2): fewer CPU seconds per request
+ *   - media is made smaller (pictures 384 px instead of 512, videos capped at the shortest duration supported by the temporal model (10 s)): fewer CPU seconds per request
  *   - the FREE plan's limits are halved (paid plans and the owner are untouched)
  *   - requests wait in a visible queue with position / estimate (never "busy"), and the overflow Studio is tried first (Sham v2), the least-queued Studio first (Nova)
  * Nothing here touches users' devices. The flag lives in the database so every serverless instance agrees (cached 20 s per instance).
@@ -40,7 +40,7 @@ export const pressureOn = (): boolean => on;
 export const _setPressureForTests = (v: boolean): void => { on = v; at = Date.now(); };
 
 /** Smaller media while the switch is on. */
-export const pressureMedia = (): { imageSize: number; videoSeconds: number } => (on ? { imageSize: 512, videoSeconds: 10 } : { imageSize: 512, videoSeconds: 10 });
+export const pressureMedia = (): { imageSize: number; videoSeconds: number } => (on ? { imageSize: 384, videoSeconds: 10 } : { imageSize: 512, videoSeconds: 10 });
 
 /** The free plan's limit while the switch is on: half (at least 1 when it was positive); unlimited (-1) and paid plans are untouched. */
 export function pressureLimit(limit: number, planId: string): number {

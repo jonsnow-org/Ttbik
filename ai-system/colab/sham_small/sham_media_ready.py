@@ -127,20 +127,20 @@ def _image(root: Path, prompt: str, size: int = 0, seed: int = 0):
     return image
 
 
-def _video(root: Path, prompts: list[str], narration: str, seconds: float = 2.0) -> bytes:
-    """Real text-to-video on CPU (AnimateDiff-Lightning, cpu_video.py): one temporal diffusion pass, never a slideshow of stills."""
-    from cpu_video import cv_generate
+def _video(root: Path, prompts: list[str], narration: str, seconds: int = 4, seed: int = 0) -> bytes:
+    """Real local text-to-video using AnimateDiff temporal segments joined into one checked MP4."""
+    from cpu_video import cv_generate_long
 
     prompt = (prompts[0] if prompts else "").strip()
     if not prompt:
         raise ValueError("native-video-unavailable: a text prompt is required")
-    data = cv_generate(root, prompt, seconds, 0, ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
-    check_mp4(data)             # empty / frozen / blank video is an error, never a reply
+    data = cv_generate_long(root, prompt, seconds, seed, ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    check_mp4(data, expected_seconds=seconds, min_width=480, min_height=270)
     return data
 
 
-def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, narration: str = "") -> dict:
-    """Create media with packaged local weights; video accepts up to six optional shots and local speech narration."""
+def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, narration: str = "", seconds: int = 4, seed: int = 0) -> dict:
+    """Create media with packaged local weights; video accepts all supported durations and optional narration."""
     kind = (kind or "").strip().lower()
     prompt = (prompt or "").strip()
     scenes = [str(item).strip()[:300] for item in (scenes or []) if str(item).strip()][:6]
@@ -155,7 +155,7 @@ def make(root: Path, kind: str, prompt: str, scenes: list[str] | None = None, na
             return {"type": "audio", "b64": base64.b64encode(_speech_wav(root, spoken)).decode()}
         if kind == "video":
             # One prompt goes directly into the temporal diffusion model. No image storyboard fallback.
-            clip = _video(root, [prompt], narration, seconds=2.0)
+            clip = _video(root, [prompt], narration, seconds=seconds, seed=seed)
             return {
                 "type": "video",
                 "mime": "video/mp4",

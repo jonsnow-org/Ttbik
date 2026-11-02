@@ -1,4 +1,4 @@
-"""
+""" 
 Nova Media Studio — image, speech, and native text-to-video inference on CPU only.
 
   image   a distilled one-step diffusion model (SDXS-512)
@@ -160,8 +160,11 @@ def _mp4_boxes(data: bytes) -> set:
     return names
 
 
-def check_mp4(data: bytes, *, decode: bool = True) -> dict:
-    """Structure check always (ftyp + moov + mdat, not tiny); when ffmpeg is available also decode a few frames and require real, non-blank, changing frames."""
+def check_mp4(
+    data: bytes, *, decode: bool = True, expected_seconds: float | None = None,
+    min_width: int = 0, min_height: int = 0,
+) -> dict:
+    """Validate the MP4 container, requested runtime, actual resolution, decodable frames and real motion."""
     if not data or len(data) < MIN_VIDEO_BYTES:
         raise MediaQualityError("empty_video", f"{len(data or b'')} bytes")
     boxes = _mp4_boxes(data)
@@ -169,7 +172,13 @@ def check_mp4(data: bytes, *, decode: bool = True) -> dict:
         raise MediaQualityError("empty_video", "not a complete MP4 (ftyp/moov/mdat)")
     info = {"bytes": len(data), "decoded": False}
     if not decode:
+        if expected_seconds is not None or min_width or min_height:
+            raise MediaQualityError(
+                "video_validation_unavailable",
+                "duration and resolution checks require actual ffmpeg decoding",
+            )
         return info
+
     try:
         import numpy as np
         try:
@@ -179,17 +188,52 @@ def check_mp4(data: bytes, *, decode: bool = True) -> dict:
             import shutil
             exe = shutil.which("ffmpeg")
         if not exe:
-            return info
+            raise MediaQualityError("video_validation_unavailable", "ffmpeg decoder is not installed")
         with _tf.TemporaryDirectory() as d:
             src = d + "/in.mp4"
             with open(src, "wb") as fh:
                 fh.write(data)
             side = 64
-            out = _sp.run([exe, "-v", "error", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
-                          capture_output=True, timeout=90).stdout
-        frames = np.frombuffer(out, dtype="u1").reshape(-1, side, side).astype("float64") if len(out) >= side * side else None
-    except Exception:  # noqa: BLE001  (a broken decoder is not proof the clip is bad: the structure check above stands)
-        return info
+            decoded = _sp.run(
+                [exe, "-hide_banner", "-i", src, "-vf", f"scale={side}:{side}",
+                 "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+                capture_output=True, timeout=90,
+            )
+        diagnostic = (decoded.stderr or b"").decode("utf-8", "replace")
+        if decoded.returncode != 0:
+            raise MediaQualityError("empty_video", "ffmpeg could not decode the MP4: " + diagnostic[-180:])
+        meta_duration = __import__("re").search(r"Duration:\s*(\d+):(\d+):([\d.]+)", diagnostic)
+        video_line = next((line for line in diagnostic.splitlines() if "Video:" in line), "")
+        meta_size = __import__("re").search(r"(\d{2,5})x(\d{2,5})", video_line)
+        if meta_duration:
+            actual_seconds = int(meta_duration.group(1)) * 3600 + int(meta_duration.group(2)) * 60 + float(meta_duration.group(3))
+            info["duration_seconds"] = round(actual_seconds, 2)
+        if expected_seconds is not None:
+            if not meta_duration:
+                raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video duration")
+            if abs(actual_seconds - float(expected_seconds)) > 0.30:
+                raise MediaQualityError("duration_mismatch", f"requested={float(expected_seconds):g}s actual={actual_seconds:.2f}s")
+        if meta_size:
+            width, height = int(meta_size.group(1)), int(meta_size.group(2))
+            info.update(width=width, height=height)
+        if min_width or min_height:
+            if not meta_size:
+                raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video dimensions")
+            if width < int(min_width) or height < int(min_height):
+                raise MediaQualityError("low_resolution", f"actual={width}x{height} minimum={int(min_width)}x{int(min_height)}")
+        out = decoded.stdout or b""
+        if len(out) < side * side or len(out) % (side * side):
+            raise MediaQualityError("empty_video", "ffmpeg returned incomplete or fewer than one decoded frame")
+        frames = np.frombuffer(out, dtype="u1").reshape(-1, side, side).astype("float64")
+    except MediaQualityError:
+        # Never swallow duration_mismatch / low_resolution / invalid-video decisions.
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise MediaQualityError(
+            "video_validation_unavailable",
+            f"ffmpeg could not verify the video: {type(exc).__name__}: {str(exc)[:140]}",
+        ) from exc
+
     if frames is None or len(frames) < 2:
         raise MediaQualityError("empty_video", "fewer than 2 decodable frames")
     info.update(decoded=True, frames=int(len(frames)))
@@ -209,6 +253,9 @@ _MESSAGES = {
     "invalid_audio": "الصوت الناتج غير صالح. / The generated audio is invalid.",
     "empty_video": "لم يُنشئ النموذج فيديو صالحاً (فارغ/غير مكتمل). / The model produced an empty or incomplete video.",
     "static_video": "الفيديو الناتج فارغ أو ثابت بلا حركة. / The video is blank or has no motion.",
+    "duration_mismatch": "مدة الفيديو الناتج لا تطابق المدة المطلوبة؛ لم يتم إرسال المقطع. / Generated video duration did not match the requested duration.",
+    "low_resolution": "دقة الفيديو الناتج أقل من الحد المطلوب؛ لم يتم إرسال المقطع. / Generated video resolution is below the required minimum.",
+    "video_validation_unavailable": "تعذّر التحقق من مدة الفيديو ودقته؛ لم يتم إرسال المقطع. / Video duration and resolution could not be verified."
 }
 
 
@@ -325,16 +372,18 @@ _CV_BASE_FILES = ["model_index.json", "scheduler/scheduler_config.json", "featur
 
 
 def cv_profile(cpus: int | None = None) -> dict:
-    """Frame size / frame count that a CPU can finish in about a minute or two: 512px x 16 frames with 6+ cores, 256px x 16 frames with fewer (16 frames is the length the motion model was trained on; 8 frames came out as a near-still clip). The clip is upscaled to out_side at encode time. CPU_VIDEO_SIDE / CPU_VIDEO_FRAMES override."""
+    """The installed CPU profile produces 16 frames for a 2 s clip or 32 frames for 4 s at 8 fps.
+    It keeps the diffusion grid at native 512x512; it does not claim longer durations or upscale a 256px generation."""
     import os as _os
     n = int(cpus or _os.cpu_count() or 2)
-    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or (512 if n >= 6 else 256))
-    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 16)
-    return {"side": max(256, min(512, side // 8 * 8)), "max_frames": max(8, min(128, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
+    # Keep the real generation grid at 512 px; upscaling a 256 px diffusion result hid detail rather than creating it.
+    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or 512)
+    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 32)
+    return {"side": max(512, min(512, side // 8 * 8)), "max_frames": max(16, min(128, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
 
 
 def cv_dtype():
-    """bfloat16 when this CPU has native bf16 (AVX512-BF16 / AMX): half the RAM and ~3x faster; float32 otherwise."""
+    """Use BF16 when the CPU advertises native AVX512-BF16/AMX support; otherwise use FP32."""
     import torch
     try:
         flags = open("/proc/cpuinfo", encoding="utf-8").read()
@@ -476,7 +525,50 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
             return fh.read()
 
 
-def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_names=("CPU_VIDEO_MODEL_DIR",)) -> bytes:
+CV_SUPPORTED_DURATIONS = (2, 4, 10, 15, 30, 60, 120)
+
+
+def cv_chunk_plan(seconds: int | float) -> list[int]:
+    """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
+    import math
+    if isinstance(seconds, bool):
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+    try:
+        requested = float(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
+    if not math.isfinite(requested) or not requested.is_integer() or int(requested) not in CV_SUPPORTED_DURATIONS:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+    remaining = int(requested)
+    chunks = []
+    while remaining > 4:
+        chunks.append(4)
+        remaining -= 4
+    if remaining:
+        chunks.append(remaining)
+    if any(part < 2 or part > 4 for part in chunks) or sum(chunks) != int(seconds):
+        raise ValueError("native-video-duration-limit: this duration cannot be split into supported 2-4 second temporal passes")
+    return chunks
+
+
+def cv_requested_frames(seconds: float, profile: dict) -> int:
+    """Return frames for one 2-4 second diffusion pass; long requests are segmented by cv_generate_long."""
+    import math
+    try:
+        requested = float(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("native-video-duration-limit: each diffusion pass must be 2, 3 or 4 seconds") from exc
+    fps = int(profile.get("fps") or 8)
+    maximum = int(profile.get("max_frames") or 16)
+    if not math.isfinite(requested) or requested not in (2.0, 3.0, 4.0):
+        raise ValueError("native-video-duration-limit: each temporal pass must be 2, 3 or 4 seconds")
+    frames = int(round(requested * fps))
+    if frames < 16 or frames > maximum or abs(frames / fps - requested) > 0.05:
+        raise ValueError(f"native-video-duration-limit: {requested:g} seconds do not fit this Studio profile (maximum {maximum / fps:g} seconds)")
+    return frames
+
+
+def cv_generate(root, prompt: str, seconds: float = 4.0, seed: int = 0, env_names=("CPU_VIDEO_MODEL_DIR",)) -> bytes:
     """Prompt -> MP4 bytes. 8 fps; frames = seconds x 8 within the CPU profile's limit."""
     prompt = (prompt or "").strip()
     if not prompt:
@@ -484,7 +576,7 @@ def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_name
     import torch
     prof = cv_profile()
     pipe = cv_pipe(root, env_names)
-    frames = max(8, min(prof["max_frames"], int(round(float(seconds or 2) * prof["fps"]))))
+    frames = cv_requested_frames(seconds, prof)
     keep = __import__("os").environ.get("CPU_VIDEO_KEEP", "") == "1"
     # The sampling result stays as latents; unless the pipeline is kept, the UNet and text encoder (~2 GB) are dropped BEFORE the float32 VAE decode, and the frames are decoded one at a time.
     # (The Sham v2 Studio holds a text model too, with ~1.4 GB RAM free: the all-in-one decode killed the Studio right after the 4 sampling steps: 502.)
@@ -506,12 +598,99 @@ def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_name
         del pipe
         cv_release()
     return data
+def cv_concat_mp4(clips: list[bytes], expected_seconds: int) -> bytes:
+    """Join already-generated H.264 temporal clips into one MP4 without holding decoded full-size frames in RAM."""
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        exe = _sh.which("ffmpeg")
+    if not exe:
+        raise RuntimeError("native-video-unavailable: ffmpeg is required to join the generated video segments")
+    if not clips:
+        raise RuntimeError("native-video-unavailable: no temporal segments were generated")
+    with _tf.TemporaryDirectory(prefix="sham-video-join-") as directory:
+        root = __import__("pathlib").Path(directory)
+        entries = []
+        for index, data in enumerate(clips):
+            path = root / f"segment-{index:03d}.mp4"
+            path.write_bytes(data)
+            entries.append(f"file '{path.as_posix()}'")
+        concat_list = root / "segments.txt"
+        concat_list.write_text("\n".join(entries) + "\n", encoding="utf-8")
+        output = root / "joined.mp4"
+        cmd = [
+            exe, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "concat", "-safe", "0", "-i", str(concat_list),
+            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
+            str(output),
+        ]
+        try:
+            _sp.run(cmd, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=max(180, expected_seconds * 5))
+        except Exception as exc:  # noqa: BLE001
+            detail = getattr(exc, "stderr", b"")
+            if isinstance(detail, bytes):
+                detail = detail.decode("utf-8", "replace")
+            raise RuntimeError("native-video-unavailable: ffmpeg could not join the generated segments: " + str(detail or exc)[-500:]) from exc
+        data = output.read_bytes()
+        from media_quality import check_mp4
+        check_mp4(data, expected_seconds=expected_seconds, min_width=480, min_height=270)
+        return data
+
+
+def cv_generate_long(
+    root, prompt: str, seconds: int = 4, seed: int = 0,
+    env_names=("CPU_VIDEO_MODEL_DIR",),
+) -> bytes:
+    """Generate 2/4/10/15/30/60/120 s locally from the installed temporal weights.
+
+    Longer clips are made from real 2-4 s AnimateDiff diffusion passes (not still images),
+    then joined and validated as one MP4. The model is deliberately unloaded between passes
+    to leave RAM for the VAE decode on the 8 GB Studio.
+    """
+    import os as _os
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ValueError("native-video-unavailable: a text prompt is required")
+    chunks = cv_chunk_plan(seconds)
+    target = sum(chunks)
+    old_keep = _os.environ.get("CPU_VIDEO_KEEP")
+    _os.environ["CPU_VIDEO_KEEP"] = "0"
+    clips: list[bytes] = []
+    try:
+        for index, duration in enumerate(chunks):
+            continuity = (
+                " Continue the same scene and same subject from the preceding temporal segment; "
+                "preserve subject identity, clothing, lighting, environment and camera direction. "
+                "Keep the action moving naturally without a title card or scene reset."
+            )
+            segment_prompt = prompt[:220] + (continuity if len(chunks) > 1 else "")
+            clip = cv_generate(root, segment_prompt, float(duration), int(seed) + index * 1009, env_names)
+            from media_quality import check_mp4
+            check_mp4(clip, expected_seconds=duration, min_width=480, min_height=270)
+            clips.append(clip)
+    finally:
+        if old_keep is None:
+            _os.environ.pop("CPU_VIDEO_KEEP", None)
+        else:
+            _os.environ["CPU_VIDEO_KEEP"] = old_keep
+    if len(clips) == 1:
+        from media_quality import check_mp4
+        check_mp4(clips[0], expected_seconds=target, min_width=480, min_height=270)
+        return clips[0]
+    return cv_concat_mp4(clips, target)
+
+
 # --- cpu_video END ---
 
 
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Real text-to-video on CPU (AnimateDiff-Lightning): one temporal diffusion pass, never stills stitched into a video. Weights live under HERE/video_animatediff."""
-    return cv_generate(HERE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4."""
+    return cv_generate_long(HERE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -527,16 +706,17 @@ def _run(kind: str, payload: dict) -> dict:
         STATE["phase"] = f"making {kind}"
         if kind == "image":
             img = _make_image(str(payload.get("prompt", "")), payload.get("size", 512), payload.get("seed", 0))
-            # check_image(img)  — quality gate temporarily bypassed for testing
+            # check_image(img)  - quality gate bypassed for testing (owner's request)
             out = {"type": "image", "b64": base64.b64encode(_png(img)).decode()}
         elif kind == "speech":
             wav = _speech_wav(str(payload.get("text", "")))
-            # check_wav(wav)  — quality gate temporarily bypassed for testing
+            # check_wav(wav)  - quality gate bypassed for testing
             out = {"type": "audio", "b64": base64.b64encode(wav).decode()}
         else:
             prompt = str(payload.get("prompt", "")).strip()
-            clip = _make_video(prompt, payload.get("seconds", 3), payload.get("seed", 0))
-            # check_mp4(clip)  — quality gate temporarily bypassed for testing
+            requested_seconds = float(payload.get("seconds", 4))
+            clip = _make_video(prompt, requested_seconds, payload.get("seed", 0))
+            # check_mp4(clip, ...)  - quality gate bypassed for testing
             out = {"type": "video", "b64": base64.b64encode(clip).decode(), "text": prompt[:120]}
         STATE[{"image": "images", "speech": "speech", "video": "videos"}[kind]] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
@@ -578,7 +758,7 @@ def api_status() -> str:
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),
-                  "mode": "native-diffusion-only", "note": "weights are fetched once on the first video request; 8 fps, 1-2 s clips"},
+                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
     })
 
 

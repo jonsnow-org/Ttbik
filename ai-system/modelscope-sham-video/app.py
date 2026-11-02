@@ -39,33 +39,39 @@ except Exception:                                                             # 
     computer_box = None
 try:
     import desktop_computer
-except Exception:                                                             # noqa: BLE001  (optional GUI desktop)
+except Exception:                                                             # noqa: BLE001  (the video Studio remains usable without the graphical desktop)
     desktop_computer = None
 
 
 def api_desktop_do(body: str) -> str:
+    """Authenticated graphical desktop API, scoped to the same private Studio session as computer_box."""
     if desktop_computer is None:
         return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
-    raw = body or ""
-    if raw.startswith("b64:"):
-        import base64 as _b64
+    wire = str(body or "{}")
+    if wire.startswith("b64:"):
+        encoded = wire[4:]
+        if len(encoded) > 128_000:
+            return json.dumps({"ok": False, "error": "desktop request is too large"})
         try:
-            raw = _b64.b64decode(raw[4:]).decode("utf-8")
-        except Exception:
-            return json.dumps({"ok": False, "error": "bad request"})
+            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
     try:
-        normalized = json.dumps(json.loads(raw), ensure_ascii=False)
-    except (ValueError, TypeError):
-        return json.dumps({"ok": False, "error": "bad request"})
-    action = json.loads(normalized).get("action", "")
-    if action == "start":
+        request = json.loads(wire or "{}")
+    except (TypeError, ValueError):
+        return json.dumps({"ok": False, "error": "invalid desktop request"})
+    if not isinstance(request, dict):
+        return json.dumps({"ok": False, "error": "desktop request must be an object"})
+    normalized = json.dumps(request, ensure_ascii=False)
+    if str(request.get("action") or "").lower() == "start":
         if not _LOCK.acquire(blocking=False):
-            return json.dumps({"ok": False, "phase": "busy", "error": "this Studio is generating video; retry desktop start after it finishes"})
+            return json.dumps({"ok": False, "phase": "busy", "error": "video generation is using this Studio; retry desktop start when it finishes"})
         try:
             return desktop_computer.api_desktop_do(normalized)
         finally:
             _LOCK.release()
     return desktop_computer.api_desktop_do(normalized)
+
 
 
 def _ram() -> dict:
@@ -95,8 +101,9 @@ def generate_video(body: str) -> str:
         if not prompt:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
-        clip = cpu_video.cv_generate(HERE, prompt, float(payload.get("seconds", 2) or 2), int(payload.get("seed", 0) or 0), ENVS)
-        check_mp4(clip)                                        # an empty / frozen / black video is an error, never a reply
+        requested_seconds = float(payload.get("seconds", 4) or 4)
+        clip = cpu_video.cv_generate_long(HERE, prompt, requested_seconds, int(payload.get("seed", 0) or 0), ENVS)
+        check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
         STATE["videos"] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
         STATE["error"] = ""
@@ -116,7 +123,7 @@ def generate_video(body: str) -> str:
 def status() -> str:
     ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(HERE, ENVS))
     return json.dumps({**STATE, "cpus": os.cpu_count(), "ram": _ram(), "disk": _disk(),
-                       "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "profile": cpu_video.cv_profile()}})
+                       "video": {"engine": "AnimateDiff-Lightning (segmented)", "ready": ready, "device": "cpu", "profile": cpu_video.cv_profile(), "supported_seconds": list(cpu_video.CV_SUPPORTED_DURATIONS), "segment_seconds": [2, 3, 4]}})
 
 
 def _warm() -> None:
@@ -142,8 +149,6 @@ if __name__ == "__main__":
         threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
     if computer_box is not None:
         threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
-    if desktop_computer is not None:
-        threading.Timer(180, lambda: threading.Thread(target=getattr(desktop_computer, "ensure_packages", lambda: None), daemon=True, name="desktop-packages").start()).start()
     with gr.Blocks() as demo:
         gr.Markdown("Sham v2 video Studio — real text-to-video on CPU for Sham v2.")
         box = gr.Textbox(visible=False)

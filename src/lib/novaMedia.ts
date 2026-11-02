@@ -67,22 +67,30 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string } = {},
+  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string } = {},
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
+  const requestedSeconds = kind === "video" ? Number(opts.seconds ?? pressureMedia().videoSeconds) : undefined;
+  const videoSeconds = requestedSeconds;
+  if (kind === "video" && ![10, 15, 30, 60, 120].includes(videoSeconds as number)) {
+    return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
+  }
+  const effectiveOpts = kind === "video"
+    ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(3600000, Math.max(Number(opts.timeoutMs) || 0, 300000, (videoSeconds as number) * 30000)) }
+    : opts;
   let last: MediaReply | null = null;
-  const deadline = Date.now() + (opts.timeoutMs ?? 240000);
+  const deadline = Date.now() + (effectiveOpts.timeoutMs ?? 240000);
   // every request starts from its own random seed (a fixed seed 0 made every Nova picture and clip share one noise start and look alike); tests keep 0
   const base0 = process.env.NODE_ENV === "test" ? 0 : Math.floor(Math.random() * 2000000000);
   for (let k = 0; k < attempts; k++) {
     const seed = base0 + k;
-    last = await novaMakeMediaOnce(kind, prompt, opts, seed);
+    last = await novaMakeMediaOnce(kind, prompt, effectiveOpts, seed);
     // the Studio does ONE job at a time and answers {"type":"busy"} (or "loading" while it starts): the request waits in line and asks again instead of failing
     for (let q = 1; last && (last.type === "busy" || last.type === "loading") && Date.now() + 20000 < deadline && q <= 40; q++) {
-      opts.onWait?.(q);
+      effectiveOpts.onWait?.(q);
       await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000 + Math.floor(Math.random() * 3000)));
-      last = await novaMakeMediaOnce(kind, prompt, { ...opts, timeoutMs: Math.max(30000, deadline - Date.now()) }, seed);
+      last = await novaMakeMediaOnce(kind, prompt, { ...effectiveOpts, timeoutMs: Math.max(30000, deadline - Date.now()) }, seed);
     }
     if (last && (last.type === "busy" || last.type === "loading")) return { type: "error", reason: "busy", text: kind === "image" ? "استوديو الوسائط مشغول بطلبات أخرى ولم يتفرّغ في الوقت المتاح" : "استوديو الوسائط مشغول بطلبات أخرى ولم يتفرّغ في الوقت المتاح" };
     if (!last || last.type !== "error" || !/^(blank_image|noise_image)$/.test(String(last.reason || ""))) return last;
@@ -93,7 +101,7 @@ export async function novaMakeMedia(
 async function novaMakeMediaOnce(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string },
+  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string },
   seed = 0,
 ): Promise<MediaReply | null> {
   const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();          // a candidate passes ITS OWN media Studio here (never Nova's)
@@ -102,7 +110,7 @@ async function novaMakeMediaOnce(
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
   const scenes = Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
   const payload =
-    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: pressureMedia().videoSeconds, seed };   // modelscope-media/app.py api_video reads "prompt"
+    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: Number(opts.seconds ?? pressureMedia().videoSeconds), seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
   if (tok) headers.Authorization = `Bearer ${tok}`;

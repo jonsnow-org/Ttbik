@@ -40,7 +40,7 @@ def generate_media(
     *,
     scenes: list[str] | None = None,
     narration: str = "",
-    seconds: int = 2,
+    seconds: int = 10,
     timeout: int = 900,
 ) -> bytes | None:
     """Generate media on Nova's own Studio; return bytes or None on a real error."""
@@ -54,14 +54,18 @@ def generate_media(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if selected == "image":
-        payload = {"prompt": (prompt or "")[:400], "size": 512, "seed": __import__("random").randint(1, 2**31)}
+        payload = {"prompt": (prompt or "")[:400], "size": 512, "seed": 0}
     elif selected == "audio":
         payload = {"text": (prompt or "")[:1500]}
     else:
+        requested_seconds = int(seconds or 10)
+        if requested_seconds not in (10, 15, 30, 60, 120):
+            logger.warning("Nova video request rejected: unsupported duration %s", requested_seconds)
+            return None
         payload = {
             "prompt": (prompt or "")[:800],
-            "seconds": max(1, int(seconds or 10)),
-            "seed": __import__("random").randint(1, 2**31),
+            "seconds": requested_seconds,
+            "seed": __import__("secrets").randbelow(2**31 - 1),
         }
     try:
         submit = requests.post(
@@ -78,7 +82,7 @@ def generate_media(
         result = requests.get(
             f"{base}/gradio_api/call/{api}/{event_id}",
             headers=headers,
-            timeout=max(30, min(int(timeout), 900)),
+            timeout=max(30, min(int(timeout), 21600)),
         )
         result.raise_for_status()
         body = _parse_sse(result.text)
@@ -89,7 +93,11 @@ def generate_media(
         if len(raw) < 64:
             logger.warning("Nova media Studio returned a suspiciously small %s payload (%d bytes)", selected, len(raw))
             return None
-        # quality gate temporarily bypassed for testing
+        try:        # defence in depth: the Studio already vets what it returns; an older Studio might not
+            (lambda b: check_mp4(b, decode=False))(raw) if selected == "video" else {"image": check_image, "audio": check_wav}[selected](raw)   # the Studio decodes video frames; this side checks the MP4 structure only
+        except MediaQualityError as exc:
+            logger.warning("Nova media Studio %s rejected by the quality gate (%s)", selected, exc.reason)
+            return None
         logger.info("Nova media Studio generated %s (%d bytes)", selected, len(raw))
         return raw
     except Exception as exc:

@@ -90,6 +90,69 @@ class CandidateImageSettings(unittest.TestCase):
             self.assertIn('"' + res + '"', app, f"{cand}: '{res}' is not a choice of {studio}")
 
 
+class CandidateToolRouting(unittest.TestCase):
+    def test_computer_tasks_preload_the_selected_model_computer_without_an_extra_generation_round(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        self.assertEqual(f("شغّل الاختبارات على الحاسوب وافحص ملف package.json", bridge), ["computer"])
+        self.assertEqual(f("run the build and debug the failing test in the terminal", bridge), ["computer"])
+
+    def test_github_tasks_load_only_a_connected_github_account(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
+        self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", no_github), ["computer"])
+        self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", with_github), ["computer", "github"])
+
+    def test_unlinked_or_missing_bridge_does_not_offer_remote_tools(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        self.assertEqual(f("run code in the computer", None), [])
+        self.assertEqual(f("run code in the computer", {"url": "", "connectors": []}), [])
+
+    def test_native_tool_template_errors_fall_back_to_the_text_parser(self):
+        f = load("_should_fallback_text_tools")["_should_fallback_text_tools"]
+        for code in (400, 422, 500, 501, 502, 503):
+            self.assertTrue(f(code), code)
+        for code in (200, 401, 403, 404):
+            self.assertFalse(f(code), code)
+
+
+
+class ComputerExecutionContract(unittest.TestCase):
+    def test_actionable_arabic_and_english_computer_requests_are_detected(self):
+        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        self.assertTrue(f("افحص ملف package.json على الحاسوب وشغّل الاختبارات"))
+        self.assertTrue(f("Open the browser and click the Settings button"))
+        self.assertTrue(f("Run the build in the terminal and inspect the failing file"))
+
+    def test_capability_questions_are_not_mistaken_for_execution_requests(self):
+        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        self.assertFalse(f("ما الذي يمكنك فعله على الحاسوب؟"))
+        self.assertFalse(f("What computer tools are available?"))
+
+    def test_preload_must_expose_a_real_computer_tool(self):
+        f = load("_has_computer_tools")["_has_computer_tools"]
+        self.assertFalse(f([{"function": {"name": "load_tools"}}]))
+        self.assertTrue(f([{"function": {"name": "computer_run"}}]))
+        self.assertTrue(f([{"function": {"name": "desktop"}}]))
+
+
+class CandidateVideoDurationContract(unittest.TestCase):
+    def test_every_owner_selected_duration_is_preserved_exactly(self):
+        f = load("_video_duration_seconds")["_video_duration_seconds"]
+        self.assertEqual(f(), 4)
+        for seconds in (2, 4, 10, 15, 30, 60, 120):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(f(seconds), seconds)
+
+    def test_invalid_fractional_or_unrequested_durations_are_rejected(self):
+        f = load("_video_duration_seconds")["_video_duration_seconds"]
+        for unsupported in (0, 1, 3, 5, 6, 8, 12, 20, 45, 90, 121, "4.5", float("nan"), float("inf")):
+            with self.subTest(seconds=unsupported):
+                with self.assertRaises(ValueError):
+                    f(unsupported)
+
+
 class TextToolFallback(unittest.TestCase):
     def test_payload_has_no_tools_field_and_turns_become_text(self):
         s = load("_one_system_message", "_text_tools_system", "_text_tool_payload")

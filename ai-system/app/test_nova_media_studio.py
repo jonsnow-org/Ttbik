@@ -30,7 +30,7 @@ class NovaMediaStudioTests(unittest.TestCase):
     def test_audio_and_video_use_the_nova_studio_apis(self):
         for kind, api, prompt, expected in (
             ("audio", "speech", "مرحبا", {"text": "مرحبا"}),
-            ("video", "video", "story", {"prompt": "story", "seconds": 2, "seed": 0}),
+            ("video", "video", "story", {"prompt": "story", "seconds": 10, "seed": 0}),
         ):
             raw = {"audio": media_fixtures.wav, "video": media_fixtures.mp4_shell}[kind]()
             result_payload = {"type": kind, "b64": base64.b64encode(raw).decode()}
@@ -46,7 +46,29 @@ class NovaMediaStudioTests(unittest.TestCase):
             self.assertTrue(post.call_args.args[0].endswith(f"/gradio_api/call/v2/{api}"))
             # Contract of ai-system/modelscope-media/app.py: video takes ONE prompt (+seconds/seed).
             # Per-scene prompts and narration are intentionally not sent: no stitched-image storyboards.
-            self.assertEqual(json.loads(post.call_args.kwargs["json"]["body"]), expected)
+            actual_payload = json.loads(post.call_args.kwargs["json"]["body"])
+            if kind == "video":
+                self.assertEqual({k: v for k, v in actual_payload.items() if k != "seed"}, {k: v for k, v in expected.items() if k != "seed"})
+                self.assertIsInstance(actual_payload["seed"], int)
+                self.assertGreaterEqual(actual_payload["seed"], 0)
+            else:
+                self.assertEqual(actual_payload, expected)
+
+    def test_video_preserves_each_supported_duration_and_rejects_unsupported_values(self):
+        for seconds in (10, 15, 30, 60, 120):
+            post = Mock()
+            post.return_value.raise_for_status = Mock()
+            post.return_value.json.return_value = {"event_id": "e"}
+            get = Mock()
+            get.return_value.raise_for_status = Mock()
+            get.return_value.text = "data: " + json.dumps([json.dumps({"type": "video", "b64": base64.b64encode(media_fixtures.mp4_shell()).decode()})]) + "\n"
+            with patch.dict(os.environ, {"NOVA_MEDIA_STUDIO_URL": "https://nova-media.example"}), patch.object(nova_media_studio.requests, "post", post), patch.object(nova_media_studio.requests, "get", get):
+                result = nova_media_studio.generate_media("video", "story", seconds=seconds)
+            self.assertIsNotNone(result)
+            self.assertEqual(json.loads(post.call_args.kwargs["json"]["body"])["seconds"], seconds)
+        with patch.dict(os.environ, {"NOVA_MEDIA_STUDIO_URL": "https://nova-media.example"}), patch.object(nova_media_studio.requests, "post") as post:
+            self.assertIsNone(nova_media_studio.generate_media("video", "story", seconds=6))
+            post.assert_not_called()
 
     def test_errors_are_returned_as_none_without_leaking_tokens(self):
         with patch.dict(os.environ, {"NOVA_MEDIA_STUDIO_URL": "https://nova-media.example", "MODELSCOPE_API_TOKEN": "secret"}), patch.object(nova_media_studio.requests, "post", side_effect=TimeoutError("timeout")):
