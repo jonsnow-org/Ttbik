@@ -1028,7 +1028,8 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
         f"else rm -rf {q}; git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {q}; fi; fi; "
         f"{repo_summary_command(folder)}"
     )
-    started = job_start(session, script, f"repo {owner}/{name}")
+    # a big repository (tar + git baseline commit) used to starve the 2 vCPUs so that the Studio answered the next calls with nothing: run it at the lowest priority
+    started = job_start(session, "nice -n 19 ionice -c3 bash -c " + shell_quote(script) if shutil.which("ionice") else "nice -n 19 bash -c " + shell_quote(script), f"repo {owner}/{name}")
     if not started.get("ok"):
         return started
     job_id = started["id"]
