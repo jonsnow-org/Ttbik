@@ -205,7 +205,7 @@ class InferenceTimeout(unittest.TestCase):
 class ComputerAndToolSpeed(unittest.TestCase):
     def test_slow_computer_tools_get_the_long_bridge_timeout(self):
         timeout = load("_bridge_read_timeout")["_bridge_read_timeout"]
-        for name in ("sandbox_clone", "sandbox_exec", "sandbox_wait", "cloud_computer_screenshot", "deep_research"):
+        for name in ("sandbox_clone", "sandbox_exec", "sandbox_wait", "computer_run", "deep_research"):
             self.assertEqual(timeout(name), 175, name)
         self.assertEqual(timeout("github_read_file"), 60)
         self.assertLess(175, 180)                                  # the app-server route allows 180 s
