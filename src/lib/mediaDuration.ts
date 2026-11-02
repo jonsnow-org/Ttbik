@@ -7,11 +7,11 @@ const WORD_SECONDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5,
   واحد: 1, واحدة: 1, وحده: 1,
   اثنين: 2, اثنتين: 2, ثنتين: 2, ثانيتين: 2,
-  ثلاث: 3, ثلاثة: 3, ثلاثه: 3,
-  اربع: 4, أربعة: 4, اربعة: 4, اربعه: 4,
-  خمس: 5, خمسة: 5, خمسه: 5,
+  ثلاث: 3, ثلاثه: 3,
+  اربع: 4, اربعه: 4,
+  خمس: 5, خمسه: 5,
 };
-const UNIT = "(?:seconds?|secs?|sec|ثانية|ثانيه|ثانيتين|ثوان(?:ي|ٍ|ا)?|s)";
+const UNIT = "(?:\\\\b(?:seconds?|secs?|sec|s)\\\\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\\\\u0600-\\\\u06FF]))";
 const MAX_VIDEO_SECONDS = 5;
 
 function normalizeDigits(value: string): string {
