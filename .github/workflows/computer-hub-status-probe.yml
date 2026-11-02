@@ -1,0 +1,52 @@
+name: Inspect dedicated computer Studio status
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ".github/workflows/computer-hub-status-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read the live computer-only status (no writes)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+          api = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
+          req = urllib.request.Request(
+              api + "/gradio_api/run/status",
+              data=b'{"data":[]}',
+              headers={"Authorization":"Bearer "+os.environ["T"],"Content-Type":"application/json","Accept":"application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=45) as r:
+                  raw=json.load(r)
+          except urllib.error.HTTPError as e:
+              print("STATUS_HTTP_ERROR", e.code)
+              raise SystemExit(1)
+          except Exception as e:
+              print("STATUS_REQUEST_ERROR", type(e).__name__, str(e)[:400])
+              raise SystemExit(1)
+          value=raw.get("data",raw)
+          if isinstance(value,list): value=value[0] if value else {}
+          if isinstance(value,str):
+              try: value=json.loads(value)
+              except Exception: value={"unparsed":value[:500]}
+          print("RAW_STATUS", json.dumps(value,ensure_ascii=False)[:12000])
+          if not isinstance(value,dict) or value.get("role") != "computer-only":
+              print("ERROR: the endpoint did not return the dedicated computer-only status")
+              raise SystemExit(1)
+          print("BOOTSTRAP_PHASE", (value.get("bootstrap") or {}).get("phase"))
+          print("MEMORY", json.dumps(value.get("hardware") or {},ensure_ascii=False))
+          print("CACHE_CLEANUP", json.dumps(value.get("legacy_minicpm_cache_cleanup") or {},ensure_ascii=False))
+          PY
