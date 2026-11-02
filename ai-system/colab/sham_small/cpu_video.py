@@ -18,9 +18,10 @@ def cv_profile(cpus: int | None = None) -> dict:
     """Frame size / frame count that a CPU can finish in about a minute or two: 512px x 16 frames with 6+ cores, 256px x 16 frames with fewer (16 frames is the length the motion model was trained on; 8 frames came out as a near-still clip). The clip is upscaled to out_side at encode time. CPU_VIDEO_SIDE / CPU_VIDEO_FRAMES override."""
     import os as _os
     n = int(cpus or _os.cpu_count() or 2)
-    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or (512 if n >= 6 else 256))
-    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 16)
-    return {"side": max(256, min(512, side // 8 * 8)), "max_frames": max(8, min(16, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
+    # Keep the real generation grid at 512 px; upscaling a 256 px diffusion result hid detail rather than creating it.
+    side = int(_os.environ.get("CPU_VIDEO_SIDE", "") or 512)
+    frames = int(_os.environ.get("CPU_VIDEO_FRAMES", "") or 32)
+    return {"side": max(512, min(512, side // 8 * 8)), "max_frames": max(16, min(32, frames)), "threads": max(1, n), "fps": 8, "out_side": 512}
 
 
 def cv_dtype():
@@ -166,7 +167,24 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
             return fh.read()
 
 
-def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_names=("CPU_VIDEO_MODEL_DIR",)) -> bytes:
+def cv_requested_frames(seconds: float, profile: dict) -> int:
+    """Return frames only when the requested duration fits the real model profile; never silently shorten a clip."""
+    import math
+    try:
+        requested = float(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("native-video-duration-limit: duration must be 2 or 4 seconds") from exc
+    fps = int(profile.get("fps") or 8)
+    maximum = int(profile.get("max_frames") or 16)
+    if not math.isfinite(requested) or requested not in (2.0, 4.0):
+        raise ValueError("native-video-duration-limit: the current CPU engine supports only 2 or 4 seconds; longer clips require the Wan GPU engine")
+    frames = int(round(requested * fps))
+    if frames < 16 or frames > maximum or abs(frames / fps - requested) > 0.05:
+        raise ValueError(f"native-video-duration-limit: {requested:g} seconds do not fit this Studio profile (maximum {maximum / fps:g} seconds)")
+    return frames
+
+
+def cv_generate(root, prompt: str, seconds: float = 4.0, seed: int = 0, env_names=("CPU_VIDEO_MODEL_DIR",)) -> bytes:
     """Prompt -> MP4 bytes. 8 fps; frames = seconds x 8 within the CPU profile's limit."""
     prompt = (prompt or "").strip()
     if not prompt:
@@ -174,7 +192,7 @@ def cv_generate(root, prompt: str, seconds: float = 2.0, seed: int = 0, env_name
     import torch
     prof = cv_profile()
     pipe = cv_pipe(root, env_names)
-    frames = max(8, min(prof["max_frames"], int(round(float(seconds or 2) * prof["fps"]))))
+    frames = cv_requested_frames(seconds, prof)
     keep = __import__("os").environ.get("CPU_VIDEO_KEEP", "") == "1"
     # The sampling result stays as latents; unless the pipeline is kept, the UNet and text encoder (~2 GB) are dropped BEFORE the float32 VAE decode, and the frames are decoded one at a time.
     # (The Sham v2 Studio holds a text model too, with ~1.4 GB RAM free: the all-in-one decode killed the Studio right after the 4 sampling steps: 502.)
