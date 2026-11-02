@@ -69,21 +69,6 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("connector_api", "Call the REST API of a service the user connected in the app (google_drive, gmail, notion, vercel, supabase, slack, discord) with their own account. GET reads run directly; anything that writes waits for the user's confirmation.", obj({ service: s("connector id, e.g. notion"), method: s("GET (default), POST, PATCH, PUT, DELETE"), path: s("API path relative to the service's API base or a full https URL on that API"), body: { type: "object", description: "JSON body for POST/PATCH/PUT" } }, ["service", "path"])),
   tool("mcp_list_tools", "List the tools of an MCP server the user added in the app (id like mcp:ab12cd34ef).", obj({ server: s("MCP server id") }, ["server"])),
   tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
-  tool("cloud_computer_status", "Inspect the persistent Linux desktop assigned to the current user and this Sham variant.", obj({})),
-  tool("cloud_computer_execute", "Run a full shell command inside your own persistent isolated Linux computer. Package installation, browsers, compilers and background processes are available inside this VM.", obj({ command: s("shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
-  tool("cloud_computer_write_file", "Write a file into your persistent Linux computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
-  tool("cloud_computer_read_file", "Read a file from your persistent Linux computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
-  tool("cloud_computer_action", "Full Computer Use: mouse move/click/drag/position/scroll; keyboard type/key/hotkey; accessibility tree/find/focus/invoke/set value; display and windows; process status/restart/logs/errors; screen recording start/stop/list/get/delete/download.", obj({
-    action: { type: "string", enum: ["click","move","drag","mouse_position","type","press","hotkey","scroll","windows","display_info","desktop_status","accessibility_tree","accessibility_find","accessibility_focus","accessibility_invoke","accessibility_set_value","recording_start","recording_stop","recording_list","recording_get","recording_delete","recording_download","process_status","process_restart","process_logs","process_errors"] },
-    x: n("screen x"), y: n("screen y"), start_x: n("drag start x"), start_y: n("drag start y"), end_x: n("drag end x"), end_y: n("drag end y"),
-    width: n("region width"), height: n("region height"), button: s("left | middle | right"), double: { type: "boolean" },
-    text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"),
-    direction: s("up | down"), amount: n("scroll amount"), scope: s("focused | all | pid"), pid: n("process id"), max_depth: n("accessibility tree depth"),
-    role: s("accessibility role"), name: s("accessible name"), name_match: s("exact | substring | regex"), states: { type: "array", items: s("visible | enabled | focusable | focused") }, limit: n("result count"),
-    node_id: s("accessibility node id"), node_action: s("node action"), value: s("accessibility value"), process: s("desktop process name"),
-    id: s("recording id"), recording_id: s("recording id"), path: s("download destination inside VM"),
-  }, ["action"])),
-  tool("cloud_computer_screenshot", "Take a full or region screenshot of the desktop and understand it with Sham's own vision model and Studio.", obj({ region: { type: "object", properties: { x: n("x"), y: n("y"), width: n("width"), height: n("height") } }, compressed: { type: "boolean" }, format: s("png | jpeg"), quality: n("quality 1-100"), scale: n("scale 0.1-1") })),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -317,41 +302,6 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       return await S.create(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events }, ctx.db);
     }
     const H0 = await host();
-    const computerCtx = { chatId: ctx.chatId, modelId: ctx.modelId, owner: ctx.owner, db: ctx.db };
-    // Sham's computer is the free one inside its OWN Studio when it has one (Sham v2: sham-v2-video-server): shell, files, jobs, browser. The old paid desktop is only the fallback.
-    if (name === "cloud_computer_status" || name === "cloud_computer_execute" || name === "cloud_computer_write_file" || name === "cloud_computer_read_file") {
-      const { browserStudioFor } = await import("@/lib/browserComputer");
-      if (browserStudioFor(ctx.modelId)) {
-        const { boxRaw } = await import("@/lib/computerBox");
-        const session = `${ctx.chatId}:${ctx.modelId}`;
-        if (name === "cloud_computer_status") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "status" })));
-        if (name === "cloud_computer_execute") {
-          const r = await boxRaw(ctx.modelId, session, { action: "run", command: String(a.command || ""), cwd: typeof a.cwd === "string" ? a.cwd : undefined, timeout: Math.max(1, Math.min(90, Number(a.timeout_seconds) || 60)) });
-          return clip([r.output, r.hint, r.error].filter(Boolean).join("\n") || JSON.stringify(r), 12000);
-        }
-        if (name === "cloud_computer_write_file") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "write", path: String(a.path || ""), content: String(a.content || "") })));
-        const r = await boxRaw(ctx.modelId, session, { action: "read", path: String(a.path || "") });
-        return r.ok === false ? "error: " + String(r.error || "file not found") : clip(String(r.text ?? JSON.stringify(r)), 12000);
-      }
-    }
-    if (name === "cloud_computer_status") return clip(await H0.computer.status(computerCtx));
-    if (name === "cloud_computer_execute") {
-      const result = await H0.computer.execute(computerCtx, String(a.command || ""), typeof a.cwd === "string" ? a.cwd : undefined, Math.max(1000, Math.min(300000, (Number(a.timeout_seconds) || 120) * 1000)));
-      return clip(result, 12000);
-    }
-    if (name === "cloud_computer_write_file") return clip(await H0.computer.writeFile(computerCtx, String(a.path || ""), String(a.content || "")));
-    if (name === "cloud_computer_read_file") {
-      const file = await H0.computer.readFile(computerCtx, String(a.path || ""));
-      return file ? clip(file.bytes.toString("utf8"), 12000) : "error: file not found";
-    }
-    if (name === "cloud_computer_action") return clip(await H0.computer.action(computerCtx, String(a.action || ""), a));
-    if (name === "cloud_computer_screenshot") {
-      const rawRegion = a.region && typeof a.region === "object" ? a.region as Record<string, unknown> : null;
-      const file = await H0.computer.screenshot(computerCtx, { ...(rawRegion ? { region: { x: Number(rawRegion.x) || 0, y: Number(rawRegion.y) || 0, width: Number(rawRegion.width) || 1, height: Number(rawRegion.height) || 1 } } : {}), compressed: a.compressed === true, format: a.format === "jpeg" ? "jpeg" : "png", quality: Number(a.quality) || 85, scale: Number(a.scale) || 1 });
-      if (!file) return "error: the selected model's cloud desktop is unavailable.";
-      const vision = await shamUnderstandImage(file.bytes.toString("base64"), "اشرح صورة شاشة حاسوبك الحالية، وحدد ما يظهر والنافذة النشطة والخيارات المتاحة.", 90000);
-      return clip(vision, 5000);
-    }
     if (H0.sandbox.has(name)) {
       const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));
       if (!c) return "error: the weekly sandbox time is used up. Continue without running code.";
