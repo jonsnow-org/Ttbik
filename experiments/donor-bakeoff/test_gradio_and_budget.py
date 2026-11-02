@@ -253,7 +253,7 @@ class OriginalVideoDuration(unittest.TestCase):
 
 class OriginalVideoToolArguments(unittest.TestCase):
     def test_missing_seconds_are_filled_from_the_original_user_prompt(self):
-        scope = load("_requested_video_seconds", "_preserve_requested_video_duration")
+        scope = load("_explicit_video_seconds", "_requested_video_seconds", "_preserve_requested_video_duration")
         preserve = scope["_preserve_requested_video_duration"]
         result = preserve(
             "generate_video",
@@ -262,16 +262,20 @@ class OriginalVideoToolArguments(unittest.TestCase):
         )
         self.assertEqual(result, {"prompt": "a rabbit running in a garden", "seconds": 5})
 
-    def test_explicit_seconds_are_preserved_and_clamped_at_the_generation_boundary(self):
+    def test_user_duration_overrides_model_seconds_but_model_can_choose_when_user_is_silent(self):
         scope = load("_requested_video_seconds", "_preserve_requested_video_duration")
         preserve = scope["_preserve_requested_video_duration"]
         self.assertEqual(
             preserve("generate_video", {"prompt": "boat", "seconds": 4}, "make a 5-second clip")["seconds"],
+            5,
+        )
+        self.assertEqual(
+            preserve("generate_video", {"prompt": "boat", "seconds": 4}, "a boat on the sea")["seconds"],
             4,
         )
         self.assertEqual(
             preserve("generate_video", {"prompt": "boat", "seconds": 9}, "make a 2-second clip")["seconds"],
-            9,
+            2,
         )
         self.assertEqual(preserve("generate_audio", {"text": "hello"}, "speak for 5 seconds"), {"text": "hello"})
 
