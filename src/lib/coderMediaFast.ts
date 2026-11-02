@@ -49,12 +49,12 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   }
   const digits = raw.replace(/[٠-٩۰-۹]/g, (d) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(d) % 10));
   const secondsMatch = digits.match(/\b(10|15|30|60|120)\s*(?:seconds?|secs?|s)\b/i)
-    || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثوان)/i);
+    || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثانيه|ثوان)/i);
   const minutesMatch = digits.match(/\b([12])\s*(?:minutes?|mins?|m)\b/i)
     || digits.match(/([12])\s*(?:دقيقة|دقائق|دقايق)/i);
   const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
     : /دقيقتين/i.test(raw) ? 120 : /(?:^|[\s،])دقيقة(?:$|[\s،])/i.test(raw) ? 60 : undefined;
-  const durationWords = /^(?:ثانية|ثواني|ثوان|دقيقة|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
+  const durationWords = /^(?:ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
   const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER) && !/^\d+$/.test(w) && !durationWords.test(w)).join(" ").trim();
   return { kind: video ? "video" : "image", subject: subject || norm(raw), ...(video && requestedSeconds ? { seconds: requestedSeconds } : {}) };
 }

@@ -64,6 +64,7 @@ describe("Nova video duration intent", () => {
   });
 
   it("does not add duration words or numbers to the visual subject", () => {
-    expect(detectMediaIntent("قم بتوليد فيديو أسد لمدة 30 ثانية")).toEqual({ kind: "video", subject: "اسد" });
+    expect(detectMediaIntent("قم بتوليد فيديو أسد لمدة 30 ثانية")).toMatchObject({ kind: "video", subject: "اسد", seconds: 30 });
+    expect(detectMediaIntent("أنشئ فيديو حصان لمدة 15 ثانيه")).toMatchObject({ kind: "video", subject: "حصان", seconds: 15 });
   });
 });

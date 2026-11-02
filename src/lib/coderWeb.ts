@@ -453,8 +453,8 @@ export async function fetchPage(url: string, opts: FetchOpts & { maxChars?: numb
 }
 
 // ---------------------------------------------------------------- deep research
-const STOP = new Set("the a an of to in on for and or is are was be with by as at from that this it how what why when which who does do vs versus best use using can".split(" ").concat("في من على إلى عن ما هو هي كيف لماذا متى هل أو و مع".split(" ")));
-export const terms = (s: string) => [...new Set(s.toLowerCase().split(/[^\p{L}\p{N}_.+#-]+/u).filter((w) => w.length > 1 && !STOP.has(w)))];
+/** Keep every user term for deep-research matching; no stop-word or token-length exclusions. */
+export const terms = (s: string) => [...new Set(String(s || "").toLowerCase().split(/[^\p{L}\p{N}_.+#-]+/u).filter(Boolean))];
 
 /** Query variants when the model gave none: the question, a docs-oriented one, a recent one, a comparison/problem one. */
 export function planQueries(question: string, given: string[] = [], now = new Date()): string[] {
