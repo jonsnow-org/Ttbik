@@ -1,6 +1,4 @@
-// Extra zero-cost VM backends for the coder sandbox (src/lib/coderSandbox.ts). Each is OFF until its key is set, so the live bot never
-// depends on them. None shares a quota with Sham (no GitHub Actions, Kaggle, Lightning, ModelScope).
-//   daytona — Daytona Cloud: free compute credit on sign-up, no card (DAYTONA_API_KEY; DAYTONA_API_URL optional). Full Linux, sudo.
+// Optional non-production VM drivers. Production routing is explicitly gated in coderSandbox.ts; these drivers are not selected by the free worker chain.
 //   e2b     — E2B Hobby: free one-time credit, no card (E2B_API_KEY). Full Linux (Firecracker microVM), 1 h sessions.
 // When a credit runs out the provider refuses new sandboxes (402/403/quota): the chain cools that backend and moves on; nothing is billed
 // unless the owner adds a card there himself.
