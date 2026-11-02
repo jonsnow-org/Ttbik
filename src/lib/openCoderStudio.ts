@@ -39,7 +39,7 @@ export function coderStudioUrl(): string {
 /** Primary Studio + optional replicas (OPEN_CODER_STUDIO_URLS, comma list): a new completion goes to the first healthy one; a job
  *  stays on the Studio that took it (job ids from a replica carry its index: "s<i>~<id>"). */
 export function coderStudioUrls(): string[] {
-  // Nova and Sham stay independent: a Sham Studio (sham-*, and nova-inference-server, which now serves Sham v2 as its overflow) is never used for Nova's calls, whatever the environment says
+  // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
   const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x);
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();

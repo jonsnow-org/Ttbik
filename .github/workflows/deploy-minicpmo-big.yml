@@ -1,81 +1,268 @@
-name: Deploy MiniCPM-o 4.5 to the spare 16 GB Studio (nova-inference-server)
-# Owner order 2026-11-02: the old empty 16 GB Studio gets the omni MiniCPM-o 4.5 brain (code, long tasks, image/video/audio input) for building and testing.
-# Manual only. Reuses the donor app + llama.cpp server; long context and long outputs; no output filter of ours.
+name: Deploy dedicated computer to the spare 16 GB ModelScope Studio
+
+# The 16 GB nova-inference-server is computer-only after this workflow.
+# MiniCPM-o 4.5 remains in its separate candidate Studio; no model/media weights are used here.
 on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ".github/workflows/deploy-minicpmo-big.yml"
+      - "ai-system/modelscope-media/computer_studio_app.py"
+      - "ai-system/modelscope-media/requirements-computer.txt"
+      - "ai-system/modelscope-media/computer_box.py"
+      - "ai-system/modelscope-media/desktop_computer.py"
+      - "ai-system/modelscope-media/browser_computer.py"
+      - "scripts/ops/modelscope_computer_smoke.py"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 concurrency:
-  group: deploy-minicpmo-big
+  group: computer-hub-16gb
   cancel-in-progress: false
+
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
   REPO: nova-inference-server
+  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
-      - name: Validate the app and manifest
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate computer-only app and smoke harness
         run: |
-          python3 -m py_compile experiments/donor-bakeoff/app.py experiments/donor-bakeoff/tool_parsing.py
-          python3 -c "import json;d=json.load(open('experiments/donor-bakeoff/candidates/minicpm-o45-big.json'));assert d['repo_id'] and d['filename'] and d['mmproj_filename'];print(d['context_tokens'],d['max_output_tokens'])"
-      - name: Studio state and hardware (read-only)
+          set -euo pipefail
+          python3 -m py_compile \
+            ai-system/modelscope-media/computer_studio_app.py \
+            ai-system/modelscope-media/computer_box.py \
+            ai-system/modelscope-media/desktop_computer.py \
+            ai-system/modelscope-media/browser_computer.py \
+            scripts/ops/modelscope_computer_smoke.py
+          python3 - <<'PY'
+          from pathlib import Path
+          app = Path("ai-system/modelscope-media/computer_studio_app.py").read_text()
+          assert 'APP_REVISION = "computer-hub-16gb-2026-11-02-r1"' in app
+          assert "model_loaded" in app and "api_desktop_do" in app and "api_browser_do" in app
+          assert "donor-bakeoff/minicpmo45-big/model_cache" in app
+          print("computer app syntax and contracts: OK")
+          PY
+
+      - name: Verify the target is the private 16 GB Studio
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | head -c 1500; echo
-      - name: Push the app
+          set -euo pipefail
+          test -n "$T"
+          code=$(curl -sS --connect-timeout 8 --max-time 25 -o studio.json -w '%{http_code}' \
+            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          test "$code" = "200" || { echo "Studio lookup failed: HTTP $code"; cat studio.json; exit 1; }
+          python3 - <<'PY'
+          import json
+          d=json.load(open("studio.json",encoding="utf-8")).get("data") or {}
+          runtime=d.get("runtime") or {}
+          hardware=str(d.get("hardware") or runtime.get("hardware") or "").lower()
+          visibility=str(d.get("visibility") or "").lower()
+          state=str(runtime.get("status") or d.get("status") or "")
+          print("Target Studio hardware:", hardware, "visibility:", visibility, "runtime:", state)
+          if "16g" not in hardware:
+              raise SystemExit("Refusing to repurpose a Studio that is not 16 GB.")
+          if visibility and visibility != "private":
+              raise SystemExit("Refusing to place the private computer on a non-private Studio.")
+          PY
+
+      - name: Stop the old MiniCPM runtime before replacing it
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          git config --global user.name "minicpmo big CI"
-          git config --global user.email "ci@minicpmo.local"
+          set -euo pipefail
+          read_state() {
+            curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" \
+              "$MS/openapi/v1/studios/$OWNER/$REPO" > studio-state.json
+            python3 -c "import json;d=json.load(open('studio-state.json')).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')"
+          }
+          state="$(read_state)"
+          echo "Previous Studio runtime: $state"
+          case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
+            stopped|deployfailed|failed|"") ;;
+            *)
+              code=$(curl -sS --connect-timeout 8 --max-time 30 -o stop.json -w '%{http_code}' \
+                -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/stop")
+              echo "Stop request HTTP $code"
+              if [[ ! "$code" =~ ^2[0-9][0-9]$ ]]; then cat stop.json; exit 1; fi
+              stopped=0
+              for i in $(seq 1 24); do
+                state="$(read_state)"
+                echo "Waiting for previous runtime to stop: $state ($i/24)"
+                case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
+                  stopped|deployfailed|failed) stopped=1; break;;
+                esac
+                sleep 10
+              done
+              test "$stopped" = "1" || { echo "::error::The old runtime did not stop; refusing to overwrite a live process."; exit 1; }
+              ;;
+          esac
+
+      - name: Replace MiniCPM app with the computer-only runtime
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "computer hub deployment"
+          git config --global user.email "computer-hub@users.noreply.github.com"
           git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
-          cp experiments/donor-bakeoff/app.py experiments/donor-bakeoff/tool_parsing.py experiments/donor-bakeoff/requirements.txt ms/
-          cp experiments/donor-bakeoff/candidates/minicpm-o45-big.json ms/candidate.json
-          mkdir -p ms/vendor && cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiments/donor-bakeoff/vendor/LICENSE.md ms/vendor/
+          cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
+          cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
+          cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
+          cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
+          cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt
+          rm -f ms/candidate.json ms/tool_parsing.py
+          rm -rf ms/vendor
+          cat > ms/README.md <<'EOF'
+          # Dedicated 16 GB computer hub
+          This private Studio is reserved for the persistent Linux computer, headless Chromium browser, and X11 graphical desktop.
+          No LLM, MiniCPM, image, speech, or video weights are loaded here.
+          Workspaces are isolated by user+model session keys under /mnt/workspace/computer and /mnt/workspace/browser.
+          The MiniCPM big-model app and its dedicated download cache were retired; the separate MiniCPM candidate Studio is unchanged.
+          EOF
           cd ms
           git add -A
-          git diff --cached --quiet && echo "no change" || git commit -m "MiniCPM-o 4.5 big (${GITHUB_SHA::8})"
+          if git diff --cached --quiet; then echo "Studio repository already contains the computer app."; else git commit -m "Replace MiniCPM runtime with dedicated computer hub"; fi
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
-      - name: Give the Studio its private model-read token
+
+      - name: Deploy and wait for computer-only readiness
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          python3 -m pip install -q "modelscope>=1.26.0"
-          python3 - <<'PY'
-          import os
-          from modelscope.hub.api import HubApi
-          api = HubApi(); token = os.environ["T"]; api.login(token)
-          studio = "novaai2026/" + os.environ["REPO"]
-          try:
-              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
-          except Exception as exc:
-              if not any(x in str(exc).lower() for x in ("exist", "already", "duplicate")): raise
-              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
-          print("token configured")
-          PY
-      - name: Deploy and wait until the model is ready
-        env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
-        run: |
-          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 800; echo
-          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          for i in $(seq 1 120); do
-            sleep 30
-            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
-            echo "$(date -u +%H:%M:%S) studio: $st"
-            case "$st" in
-              *ail*|*rror*)
-                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
-                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
-                exit 1;;
-              Running|running)
-                out=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
-                echo "$out" | head -c 600; echo
-                echo "$out" | grep -q 'phase[^,]*ready' && exit 0;;
+          set -euo pipefail
+          show_logs() {
+            for kind in build run; do
+              echo "===== $kind log tail ====="
+              curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" \
+                "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" | tail -c 7000 || true
+              echo
+            done
+          }
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          echo "Computer Studio deploy HTTP $deploy_code"
+          if [[ ! "$deploy_code" =~ ^2[0-9][0-9]$ ]]; then cat deploy.json; exit 1; fi
+          ready=0
+          for i in $(seq 1 180); do
+            curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" \
+              "$MS/openapi/v1/studios/$OWNER/$REPO" > studio-state.json || true
+            state=$(python3 -c "import json;d=json.load(open('studio-state.json')).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true)
+            echo "Runtime=$state ($i/180)"
+            case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
+              deployfailed|failed|error) show_logs; exit 1;;
             esac
+            case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
+              running|ready)
+                status_code=$(curl -sS --connect-timeout 8 --max-time 30 -o app-status.json -w '%{http_code}' \
+                  -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                  -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+                if [ "$status_code" = "200" ] && python3 - <<'PY'
+          import json
+          raw=json.load(open("app-status.json",encoding="utf-8"))
+          value=raw.get("data",raw)
+          if isinstance(value,list): value=value[0] if value else {}
+          if isinstance(value,str):
+              try: value=json.loads(value)
+              except Exception: value={}
+          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-02-r1" and value.get("role")=="computer-only" and value.get("model_loaded") is False
+          print("Computer app status:",{k:value.get(k) for k in ("phase","app_revision","role","model_loaded","hardware")} if isinstance(value,dict) else value)
+          raise SystemExit(0 if ok else 1)
+          PY
+                then ready=1; break; fi
+                ;;
+            esac
+            sleep 20
           done
-          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
-          exit 1
+          if [ "$ready" -ne 1 ]; then show_logs; echo "::error::The computer-only app did not become ready."; exit 1; fi
+
+      - name: Wait for terminal and graphical desktop prerequisites
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          ready=0
+          for i in $(seq 1 60); do
+            code=$(curl -sS --connect-timeout 8 --max-time 25 -o status.json -w '%{http_code}' \
+              -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+            if [ "$code" = "200" ] && python3 - <<'PY'
+          import json
+          raw=json.load(open("status.json",encoding="utf-8"))
+          value=raw.get("data",raw)
+          if isinstance(value,list): value=value[0] if value else {}
+          if isinstance(value,str):
+              try: value=json.loads(value)
+              except Exception: value={}
+          bootstrap=value.get("bootstrap") if isinstance(value,dict) else {}
+          print("computer bootstrap:",bootstrap)
+          raise SystemExit(0 if isinstance(bootstrap,dict) and bootstrap.get("phase")=="ready" else 1)
+          PY
+            then ready=1; break; fi
+            sleep 10
+          done
+          test "$ready" = "1" || { echo "::error::Terminal/X11 bootstrap did not become ready."; exit 1; }
+
+      - name: Start Chromium bootstrap
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sS --connect-timeout 8 --max-time 30 -X POST \
+            -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' \
+            "$API/gradio_api/run/browser_bootstrap" | head -c 1000
+          echo
+
+      - name: Wait for Chromium or mark its separate status
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -uo pipefail
+          browser_ready=0
+          for i in $(seq 1 75); do
+            code=$(curl -sS --connect-timeout 8 --max-time 25 -o browser.json -w '%{http_code}' \
+              -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              -d '{"data":[]}' "$API/gradio_api/run/browser_status" || true)
+            if [ "$code" = "200" ] && python3 - <<'PY'
+          import json
+          raw=json.load(open("browser.json",encoding="utf-8"))
+          value=raw.get("data",raw)
+          if isinstance(value,list): value=value[0] if value else {}
+          if isinstance(value,str):
+              try: value=json.loads(value)
+              except Exception: value={}
+          print("browser status:",value)
+          raise SystemExit(0 if isinstance(value,dict) and value.get("phase")=="ready" else 1)
+          PY
+            then browser_ready=1; break; fi
+            sleep 20
+          done
+          echo "BROWSER_READY=$browser_ready" >> "$GITHUB_ENV"
+          if [ "$browser_ready" -ne 1 ]; then echo "::warning::Chromium is not ready; terminal and X11 tests will still run, browser readiness remains unverified."; fi
+
+      - name: Live persistent terminal, files, jobs, X11 desktop and browser tests
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          API: ${{ env.API }}
+          BROWSER_READY: ${{ env.BROWSER_READY }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          if [ "$BROWSER_READY" = "1" ]; then
+            python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id computer_hub --browser
+          else
+            python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id computer_hub
+          fi

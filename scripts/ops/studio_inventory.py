@@ -16,7 +16,7 @@ OWNER = "novaai2026"
 MS = "https://www.modelscope.cn"
 # name -> role (from the deploy workflows in this repo)
 KNOWN = {
-    "nova-inference-server": "Nova legacy text/vision Studio",
+    "nova-inference-server": "Dedicated computer-only hub (2 vCPU / 16 GB); terminal, Chromium and X11 desktop",
     "coder-inference-server": "Nova coder replica 1",
     "coder-inference-server-2": "Nova coder replica 2",
     "coder-inference-server-3": "Nova coder replica 3",

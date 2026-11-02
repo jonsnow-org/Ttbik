@@ -75,15 +75,15 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
 
-/** The model's own free headless browser (browserComputer.ts): real pages with JavaScript, clicking and typing. One tool so a small context window pays for one schema. */
+/** Free headless browser on the shared computer hub; each user+model session keeps separate cookies and storage. */
 export const BROWSER_TOOL_DEFS: CoderTool[] = [
   tool("browser", "Your own web browser (real pages, JavaScript; it keeps your cookies and logins between calls, even after you were away). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list (or click{x,y} for a drawn area); type{id,text,enter} fills a field; press{key}; scroll{dy}; back; wait{text,seconds} waits for a single-page app to show some text, then reads the page; aria gives the page outline (roles and names) when the numbered list is not enough. Every answer lists the page text and numbered clickable elements.",
     obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
 ];
 
-/** The model's own graphical desktop: screenshots are returned to multimodal candidates as image input. */
+/** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate YOUR selected model's own graphical Linux desktop (not another model's). Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
     obj({
       action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
       app: { type: "string", enum: ["browser", "terminal", "files"] },
@@ -98,7 +98,7 @@ export const DESKTOP_TOOL_DEFS: CoderTool[] = [
     }, ["action"])),
 ];
 
-/** The model's own persistent Linux computer (computerBox.ts): shell, files and background jobs in its Studio, free. Four small tools so a small context window pays little. */
+/** Persistent Linux computer tools on the shared 16 GB hub; every user+model session has its own unprivileged home and job scope. */
 /** The working habits that make the computer fast (the Studio also writes this to ~/README.md and sends it with a session's first result). */
 export const COMPUTER_PLAYBOOK = [
   "How to work fast on your computer:",
@@ -111,7 +111,7 @@ export const COMPUTER_PLAYBOOK = [
 ].join("\n");
 
 export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
-  tool("computer_run", "Run a bash command on YOUR persistent Linux computer (own home folder, files stay; python3 pip node git curl). Max 90 s: use computer_job for longer work.",
+  tool("computer_run", "Run a bash command on your private persistent home in the dedicated 16 GB computer hub (isolated by user+model; python3 pip node git curl). Max 90 s: use computer_job for longer work.",
     obj({ command: s("bash command"), cwd: s("folder inside your home, default ."), timeout: n("seconds, 1-90") }, ["command"])),
   tool("computer_write", "Write a text file on YOUR computer (relative to your home folder). For big files write in parts with computer_run and `cat >>`.", obj({ path: s("file path"), content: s("file content") }, ["path", "content"])),
   tool("computer_read", "Read a file (or list a folder) on YOUR computer.", obj({ path: s("file or folder, default .") })),
@@ -313,8 +313,8 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs (give the time in their own timezone exactly as the tool returns it); never just promise. If what to do or what to cover is unclear ('write me a short summary' of what?), ask ONE question with ask_user BEFORE creating the schedule. The scheduled run starts by itself and reports in this chat.",
     "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "MEDIA: making a picture, a short video or Arabic speech is open to EVERY user (not only the owner) within a daily quota per plan: load the media tools and call make_media. Never say that media generation is for owners only or unavailable to this user. Only if make_media itself reports the daily quota used up, say so briefly (the user already got the full message with how to upgrade).",
-    "PERSISTENT COMPUTER: your normal execution environment is the selected model's own computer_* tools. Use computer_read ~/NOTES.md first; run real Bash with computer_run; create/edit files with computer_write/computer_edit; use computer_job for commands over 90 seconds; clone/search in its persistent home with computer_repo/computer_search. This home is private to this user and model, shared with the Mini App terminal and graphical desktop, and persists between chats. Prefer this computer for ordinary tasks; do not create a second environment for each step.",
-    "TEMPORARY TASK WORKER: sandbox_* is a separate disposable workspace used only for isolated tests/builds or an independent tester. It does NOT share files with computer_* and may use Oracle or fall back only to this selected model's own Studio. Use sandbox_clone/sandbox_exec there only when isolation is useful; sandbox_push publishes only that temporary workspace. Never confuse it with the persistent computer.",
+    "PERSISTENT COMPUTER: your normal execution environment is the dedicated 16 GB computer hub through computer_* tools; your files and jobs are private to your user+model session. Use computer_read ~/NOTES.md first; run real Bash with computer_run; create/edit files with computer_write/computer_edit; use computer_job for commands over 90 seconds; clone/search in its persistent home with computer_repo/computer_search. This home is private to this user and model, shared with the Mini App terminal and graphical desktop, and persists between chats. Prefer this computer for ordinary tasks; do not create a second environment for each step.",
+    "TEMPORARY TASK WORKER: sandbox_* is a separate disposable workspace used only for isolated tests/builds or an independent tester. It does NOT share files with computer_* and may use Oracle or fall back only to the dedicated computer hub with this selected model's isolated session. Use sandbox_clone/sandbox_exec there only when isolation is useful; sandbox_push publishes only that temporary workspace. Never confuse it with the persistent computer.",
     "COMPUTER SAFETY AND SPEED: the graphical desktop is another interface to the same selected Studio, not a replacement for the terminal. You may keep using computer_run and computer_job while your own desktop is running; other users' sessions are isolated. Use one repository clone and batch edits/tests rather than repeatedly cloning or creating sandboxes.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
     "Answers may be as long as needed. Use ``` code blocks for code.",
@@ -752,7 +752,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
       if (!mapped) return "error: computer_job action must be start, log, stop or list";
-      // one computer per user AND model; the Studio is the model's own
+      // one private computer namespace per user AND model on the shared 16 GB computer hub
       return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
     }
     if (name === "desktop") {
@@ -765,7 +765,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     if (name === "browser") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the browser";
       const { browserDo } = await import("@/lib/browserComputer");
-      // one browser session per user AND model: the Studio is the model's own, the id keeps one user's pages away from another's
+      // one browser session per user AND model on the shared hub; the id keeps one user's pages away from another's
       return browserDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, a as Record<string, unknown>, ctx.fetchImpl);
     }
     if (SANDBOX_TOOLS.has(name)) {

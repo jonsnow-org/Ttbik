@@ -1,13 +1,18 @@
 import { browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply } from "@/lib/browserComputer";
 
 describe("the model's own browser", () => {
-  test("each model uses only its own Studio; models without one have no browser", () => {
-    const bases = ["qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
-    expect(new Set(bases).size).toBe(3);
-    expect(bases[0]).toContain("sham-donor-qwen35-9b-media");
-    expect(browserStudioFor("sham")).toBeNull();
-    expect(browserStudioFor("sham_v2")).toContain("sham-v2-video-server");
-    for (const other of ["", undefined, "../x"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
+  test("all supported models use the dedicated computer hub with isolated user+model sessions", () => {
+    const prior = process.env.COMPUTER_STUDIO_URL;
+    process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
+    try {
+      const bases = ["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
+      expect(new Set(bases).size).toBe(1);
+      expect(bases.every((base) => base === "https://computer-hub.example.test")).toBe(true);
+      for (const other of ["", undefined, "../x", "nova"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
+    } finally {
+      if (prior === undefined) delete process.env.COMPUTER_STUDIO_URL;
+      else process.env.COMPUTER_STUDIO_URL = prior;
+    }
   });
 
   test("only known actions and bounded fields reach the Studio", () => {
@@ -47,9 +52,10 @@ describe("the model's own browser", () => {
     }) as any;
     const out = await browserDo("gemma4-e4b", "42:gemma4-e4b", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
-    expect(calls[0].url).toContain("sham-donor-gemma4-e4b-media");
+    expect(calls[0].url).toContain("nova-inference-server");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
     expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
-    expect(await browserDo("sham", "1:x", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
+    expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toContain("PAGE TEXT:");
+    expect(calls[2].url).toContain("nova-inference-server");
   });
 });

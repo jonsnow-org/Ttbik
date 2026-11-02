@@ -1,6 +1,6 @@
 // Sham's OWN tools: the definitions Sham is shown and the code that runs them. Nothing here goes through Nova's engine (coderAgent.ts):
 // it calls the plain libraries directly (the guarded web fetch, the sandbox VM driver, memory, schedules) and talks to the GitHub API itself.
-// The VM, the memory scope and the run id are Sham's own (`sham:<chat>`, `sham-<chat>`), so Sham and Nova never share a computer.
+// Sham and Nova share only the dedicated 16 GB computer host. Their session keys, UIDs, private homes and run IDs remain separate.
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
 import { prismaDb, type Db } from "@/lib/shamDb";
@@ -63,7 +63,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("connector_api", "Call the REST API of a service the user connected in the app (google_drive, gmail, notion, vercel, supabase, slack, discord) with their own account. GET reads run directly; anything that writes waits for the user's confirmation.", obj({ service: s("connector id, e.g. notion"), method: s("GET (default), POST, PATCH, PUT, DELETE"), path: s("API path relative to the service's API base or a full https URL on that API"), body: { type: "object", description: "JSON body for POST/PATCH/PUT" } }, ["service", "path"])),
   tool("mcp_list_tools", "List the tools of an MCP server the user added in the app (id like mcp:ab12cd34ef).", obj({ server: s("MCP server id") }, ["server"])),
   tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
-  tool("computer_run", "Run a bash command in Sham's own persistent Linux computer inside this model's dedicated Studio (not another model's Studio). Use computer_job for work longer than 90 seconds.", obj({ command: s("bash command"), cwd: s("folder inside your home, optional"), timeout: n("seconds, 1-90") }, ["command"])),
+  tool("computer_run", "Run a bash command in Sham's private persistent Linux workspace on the dedicated computer hub; it cannot read another model's workspace. Use computer_job for work longer than 90 seconds.", obj({ command: s("bash command"), cwd: s("folder inside your home, optional"), timeout: n("seconds, 1-90") }, ["command"])),
   tool("computer_write", "Write a text file into this user's private computer for this Sham model.", obj({ path: s("file path"), content: s("file content") }, ["path", "content"])),
   tool("computer_read", "Read a file or list a folder on this user's private computer.", obj({ path: s("file or folder, default .") })),
   tool("computer_job", "Manage a background job on this model's private computer: start{command,name}, log{id}, stop{id}, or list.", obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("command for start"), name: s("short label"), id: s("job id"), tail: n("lines to show, default 60") }, ["action"])),

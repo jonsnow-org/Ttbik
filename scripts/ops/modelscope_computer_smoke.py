@@ -296,11 +296,28 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         assert_ok(stopped, "desktop stop")
 
 
+def check_browser(api: str, token: str, session: str) -> None:
+    opened = gradio_call(
+        api,
+        "browser_do",
+        {"action": "open", "url": "https://example.com", "session": session},
+        token,
+        timeout=180,
+    )
+    assert_ok(opened, "headless browser open")
+    url = str(opened.get("url") or "")
+    title = str(opened.get("title") or "")
+    page_text = str(opened.get("text") or "")
+    if "example.com" not in url.lower() or not title or not page_text:
+        fail("headless browser did not return the expected public page URL, title and text")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", required=True, help="ModelScope Studio inference API base URL")
-    parser.add_argument("--model-id", required=True, choices=("coder", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
+    parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
     parser.add_argument("--no-gui", action="store_true", help="Run only persistent terminal/file/job smoke tests")
+    parser.add_argument("--browser", action="store_true", help="Also open a public page in the isolated headless browser")
     args = parser.parse_args()
     token = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
     if not token:
@@ -321,6 +338,10 @@ def main() -> int:
             print(f"[{args.model_id}] checking X11 desktop and terminal coexistence", flush=True)
             check_gui(api, token, session, marker)
             print(f"[{args.model_id}] PASS: X11 screenshot and terminal while GUI is running", flush=True)
+        if args.browser:
+            print(f"[{args.model_id}] checking the isolated Chromium browser", flush=True)
+            check_browser(api, token, session)
+            print(f"[{args.model_id}] PASS: Chromium opened a real public page", flush=True)
         print(f"[{args.model_id}] PASS: selected Studio computer smoke test complete", flush=True)
         return 0
     except Exception as exc:

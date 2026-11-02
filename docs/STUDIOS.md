@@ -1,16 +1,33 @@
-# Studios: which model uses which (checked in code and by `src/lib/__tests__/studioIsolation.test.ts`)
+# Studios: model inference, media and the dedicated computer hub
 
-| Model | Studios | Env | Code |
+| Service | Studio(s) | Env / router | Purpose |
 |---|---|---|---|
-| Nova (Qwen3.5-4B, llama-server) | `coder-inference-server`, `-2` … `-5` (list: `ai-system/modelscope-coder/STUDIOS`) | `OPEN_CODER_STUDIO_URL`, `OPEN_CODER_STUDIO_URLS` | `coderStudioUrls()` in `src/lib/openCoderStudio.ts` drops every Sham / `nova-inference-server` address |
-| Sham (old, v1) | `sham-v1-server` | `SHAM_MODELSCOPE_URL` | `shamBases()` in `src/lib/shamStudio.ts` drops sham-v2, `nova-inference-server`, `coder-inference-*` |
-| Sham v2 | `sham-v2-server` (+ replicas) ; video: `sham-v2-video-server` | `SHAM_V2_URL`, `SHAM_V2_VIDEO_URL` | `shamBases()` drops sham-v1 and Nova Studios |
-| Sham v2 overflow | `sham-v2-overflow-server` (dedicated endpoint) | `SHAM_V2_OVERFLOW_URL` | `src/lib/shamPool.ts` (`orderV2`): used only when it is a distinct endpoint and reports the Sham v2 checkpoint |
+| Nova inference | \`coder-inference-server\`, \`-2\` … \`-5\` | \`OPEN_CODER_STUDIO_URL\`, \`OPEN_CODER_STUDIO_URLS\` | Text/code inference only |
+| Sham old (v1) | \`sham-v1-server\` | \`SHAM_MODELSCOPE_URL\` | Sham v1 inference |
+| Sham v2 | \`sham-v2-server\` (+ replicas) | \`SHAM_V2_URL\` | Sham v2 inference |
+| Sham v2 overflow | \`sham-v2-overflow-server\` | \`SHAM_V2_OVERFLOW_URL\` | Sham v2 text overflow only after checkpoint verification |
+| Sham v2 video | \`sham-v2-video-server\` | \`SHAM_V2_VIDEO_URL\` | Sham v2 dedicated video generation |
+| Nova media | \`nova-media-server\` | \`NOVA_MEDIA_STUDIO_URL\` | Nova image, Arabic speech and real video |
+| Candidate inference | \`sham-donor-qwen35-9b-test\`, \`sham-donor-gemma4-e4b-test\`, \`sham-donor-minicpmo45-test\` | candidate-specific routes | Three isolated model evaluations |
+| Candidate media | each candidate's \`*-media\` Studio | candidate-specific media router | Candidate-owned image/audio/video weights |
+| **Computer hub** | **\`nova-inference-server\` (2 vCPU / 16 GB RAM)** | **\`COMPUTER_STUDIO_URL\` → \`browserStudioFor()\`** | **Terminal, persistent files/jobs, Chromium and X11 desktop only; no LLM or media weights** |
 
-## Load balancing and failover
-* Nova: a new completion goes to the first healthy Studio (`CODER_STUDIO_BALANCE`), a job stays on the Studio that took it (`s<i>~<id>`), a failed Studio is skipped for 60 s. Tests: `coderBalance`, `coderFailover`, `congestionRouting`.
-* Sham / Sham v2: calls start at a rotating Studio (users spread), a busy / unreachable one is skipped. Tests: `shamPool`, `studioIsolation` (rotation covers every v2 Studio).
-* Isolation test: with an environment that lists EVERY URL in EVERY variable, Nova gets only Nova Studios, v1 only v1, and v2 only dedicated v2 Studios. Nova-owned endpoints are rejected even if configured as Sham v2 overflow.
+## Computer isolation
 
-## Lint
-`npm run lint` = `eslint src` with the flat config `eslint.config.mjs` (Next 16 removed `next lint`). 0 errors; the React-Compiler rules of eslint-plugin-react-hooks v7 and Next's link / img advice are warnings (fixing them changes component behaviour).
+The 16 GB \`nova-inference-server\` is a private computer-only execution host. The MiniCPM-o 4.5 big-model runtime was removed from it. The separate MiniCPM candidate remains in \`sham-donor-minicpmo45-test\`; the three candidate inference Studios and their media Studios are unchanged.
+
+Every supported model identity uses the shared computer host, but **not a shared workspace**. Each API call carries the verified \`user:model\` session key. The Studio creates a separate persistent home, unprivileged UID, browser context/cookie store and desktop session for that key. The desktop host allows one active graphical desktop at a time; shell execution remains one global job at a time because the host has two vCPUs.
+
+- Shell/files/jobs use \`computer_box.py\` under \`/mnt/workspace/computer\`.
+- Chromium stores each session under \`/mnt/workspace/browser\`.
+- Xvfb/Openbox uses the same private computer home and UID.
+- Terminal processes use a clean environment, unprivileged UID, \`no_new_privs\`, bounded processes/output, an 8 GB per-session disk quota and a memory watcher. Provider tokens are not passed to shell processes.
+- The deployment removes only the retired MiniCPM cache path \`/mnt/workspace/donor-bakeoff/minicpmo45-big/model_cache\`; it preserves \`/mnt/workspace/computer\` and \`/mnt/workspace/browser\`.
+
+## Model isolation
+
+Nova, Sham v1, Sham v2 and all three candidate inference/media paths remain separate. The computer hub is a shared *execution host*, not a model endpoint: it does not perform inference or generate media. One model's user+model session cannot read another session's files, jobs or browser state. Media generation remains on the selected model's separate media Studio.
+
+## Tests
+
+The deployment verifies private visibility and 16 GB hardware before changing the Studio, stops the previous MiniCPM runtime, removes only its model cache, and waits for the computer-only app revision. It then tests Bash, persistent file read/write, a background job, a real X11 screenshot, and Bash while the desktop is running. Chromium is tested separately after bootstrap; if its bootstrap cannot complete, that status is reported as unverified rather than treating the browser test as passed.

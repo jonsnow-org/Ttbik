@@ -35,4 +35,4 @@ def nova_base(n):
 
 
 SHAM_V2 = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net"
-SHAM_V2_OVERFLOW = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
+SHAM_V2_OVERFLOW = "https://studio-novaai2026-sham-v2-overflow-server.api-inference.modelscope.net"

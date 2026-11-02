@@ -1,10 +1,10 @@
-"""A lightweight, real Linux desktop exposed through the existing Gradio API.
+"""A lightweight, real Linux desktop exposed through the computer hub's Gradio API.
 
 This is deliberately not VNC and does not need Docker, a public port, or a paid
-desktop provider. One model's own ModelScope Studio starts one Xvfb + Openbox
-session, then returns bounded JPEG frames and accepts bounded mouse/keyboard
-events through Gradio. The home directory and Unix UID are the same as the
-model's persistent computer_box session.
+desktop provider. The private 16 GB computer Studio starts one Xvfb + Openbox
+session at a time, then returns bounded JPEG frames and accepts bounded
+mouse/keyboard events through Gradio. The home directory and Unix UID are the
+same as that user+model's persistent computer_box session.
 
 The display is intentionally low-rate (frame polling, not 60-fps streaming).
 For low-latency streaming, Selkies remains a possible Oracle-hosted upgrade.

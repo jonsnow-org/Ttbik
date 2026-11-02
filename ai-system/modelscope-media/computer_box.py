@@ -1,6 +1,9 @@
-"""A free persistent Linux computer for one model: a private Linux work environment (a shell, persistent files and long jobs), built on what the model's OWN Studio already has.
+"""A persistent Linux computer hub with a private namespace for every user+model session.
 
-Measured on a real ModelScope Studio (2026-11-01): we are root, 2 vCPU / 8 GB, /mnt/workspace persists, apt and pip work through mirrors. So a "computer" is:
+The host is a dedicated private 2-vCPU / 16-GB ModelScope Studio. All models use
+this one computer-only host; each still gets a distinct home directory,
+unprivileged UID, browser context and session key. No model weights are loaded
+on this host. So a "computer" is:
   - a home folder per session (a session = one user of one model) under /mnt/workspace/computer, kept between chats and Studio restarts;
   - commands run as a private unprivileged user of that session (uid derived from the session id): no root, no capabilities (no_new_privs), memory (a watcher stops a process group above 3 GB) / process / file-size
     limits, a clean environment (the Studio's tokens and secrets are NOT passed), low CPU priority so the model's own work is not starved;
@@ -34,7 +37,7 @@ MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "1")))  # shared 2-vCPU Studio: one executing task at a time
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
-QUOTA_BYTES = 3 * 1024 ** 3
+QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs

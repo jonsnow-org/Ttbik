@@ -1,8 +1,7 @@
-// The model's free headless browser (ai-system/modelscope-media/browser_computer.py): real pages with JavaScript, clicking and typing, without a paid external desktop service.
-// It runs inside the model's OWN media Studio, so nothing is shared with another model: Nova uses Nova's media Studio, each candidate its own sham-donor-<id>-media.
-// A session is one user of one model (`session` is derived by the caller from the verified account and the model; the Studio hashes it into a folder name).
-import { candidateMediaStudio } from "@/lib/photoWeightMedia";
-import { novaMediaUrl } from "@/lib/novaMedia";
+// The free headless browser (ai-system/modelscope-media/browser_computer.py) runs on the dedicated 16 GB computer hub.
+// The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
+export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+const COMPUTER_MODELS = new Set(["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 
 export type BrowserArgs = {
   action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
@@ -10,11 +9,13 @@ export type BrowserArgs = {
 
 const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
 
-/** The browser lives in the media Studio of the model itself; models without such a Studio have no browser (null). */
+/** All supported models use the dedicated 16 GB computer-only Studio.
+ * The user+model session key still isolates each model's files, browser cookies and desktop. */
 export function browserStudioFor(modelId: string | undefined): string | null {
-  if (modelId === "coder") return novaMediaUrl() || null;
-  if (modelId === "sham_v2") return (process.env.SHAM_V2_VIDEO_URL || "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net").trim().replace(/\/+$/, "");   // Sham v2's own Studio hosts its computer
-  return candidateMediaStudio(modelId)?.base || null;
+  if (!modelId || !COMPUTER_MODELS.has(modelId)) return null;
+  const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
+  if (/^(off|none|0)$/i.test(configured)) return null;
+  return (configured || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
 }
 
 export function studioToken(): string {
