@@ -162,7 +162,7 @@ async function submitAndRead(
 /** Generate with exactly the image Studio assigned to the selected chat model. */
 export async function makePhotoMedia(
   model: string | undefined, prompt: string,
-  opts: { negativePrompt?: string; seed?: number; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+  opts: { negativePrompt?: string; seed?: number; timeoutMs?: number; fetchImpl?: typeof fetch; bypassNegativePrompt?: boolean } = {},
 ): Promise<PhotoMediaReply> {
   const profile = photoWeightProfile(model);
   if (!profile) return { type: "error", reason: "model_not_mapped", text: "No independent image weight is assigned to model " + (model || "unknown") + ". Nothing was sent to another Studio." };
@@ -193,7 +193,7 @@ export async function makePhotoMedia(
 
     const seed = Number.isInteger(opts.seed) ? Number(opts.seed) : Math.floor(Date.now() / 1000) % 2147483647;
     const payload = { data: [
-      description, String(opts.negativePrompt ?? profile.negative).slice(0, 1800),
+      description, opts.bypassNegativePrompt ? "" : String(opts.negativePrompt ?? profile.negative).slice(0, 1800),
       profile.resolution, profile.steps, profile.cfg, seed,
     ] };
     const outputSse = await submitAndRead(base, "image", payload, headers, timeoutMs, fetchImpl);

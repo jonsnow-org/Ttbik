@@ -67,7 +67,7 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string } = {},
+  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string; bypassContentHeuristics?: boolean } = {},
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
@@ -101,7 +101,7 @@ export async function novaMakeMedia(
 async function novaMakeMediaOnce(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string },
+  opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string; bypassContentHeuristics?: boolean },
   seed = 0,
 ): Promise<MediaReply | null> {
   const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();          // a candidate passes ITS OWN media Studio here (never Nova's)
@@ -124,7 +124,7 @@ async function novaMakeMediaOnce(
     const res = await f(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) return { type: "error", text: `the media Studio answered HTTP ${res.status}` };
     const parsed = await readMediaSse(res);
-    return ((await vetMedia(parsed)) as MediaReply | null) || { type: "error", text: "the media Studio's answer was unreadable" };
+    return ((await vetMedia(parsed, { bypassContentHeuristics: opts.bypassContentHeuristics })) as MediaReply | null) || { type: "error", text: "the media Studio's answer was unreadable" };
   } catch (e) {
     const n = (e as { name?: string })?.name || "";
     return { type: "error", text: n === "TimeoutError" || n === "AbortError" ? "the media Studio did not finish in time" : "the media Studio could not be reached" };

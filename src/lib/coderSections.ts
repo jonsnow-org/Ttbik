@@ -7,7 +7,6 @@
 // job, sending finished parts (< 4096 chars each) as they come. Before the 60 s function limit it hands itself to /api/coder/continue
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
-import { stripOwnersExcuse } from "@/lib/coderMediaFast";
 import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
@@ -689,11 +688,9 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 }
 
 
-async function englishMediaPrompt(subject: string, original: string, modelId = "coder"): Promise<string | null> {
+async function englishMediaPrompt(subject: string, original: string, modelId = "coder", rawTest = false): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
-  if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
-  const known = mf.glossaryPrompt(subject);
-  if (known) return known;
+  if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject, { preserveRaw: rawTest });
   // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
   // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
   if (modelId !== "coder") return null;
@@ -709,7 +706,7 @@ async function englishMediaPrompt(subject: string, original: string, modelId = "
       r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
     }
     if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
-    return r?.type === "done" ? mf.cleanEnglishPrompt(r.text || "") : null;
+    return r?.type === "done" ? mf.cleanEnglishPrompt(r.text || "", { preserveRaw: rawTest }) : null;
   } catch { return null; }
 }
 
@@ -725,6 +722,7 @@ async function fastMedia(
   card?: MsgCard | null,
 ): Promise<void> {
   const { kind } = intent;
+  const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
   const rb = realBot(bot);
   const beat = setInterval(() => void taskTouch(runId, db), 20000);
   const mq = await import("@/lib/coderMedia");
@@ -741,7 +739,7 @@ async function fastMedia(
       const rbm = realBot(bot) as never;
       const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
       if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
-      const prompt = await englishMediaPrompt(intent.subject, content, modelId);
+      const prompt = await englishMediaPrompt(intent.subject, content, modelId, rawTest);
       if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) {
         say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
@@ -753,13 +751,13 @@ async function fastMedia(
         let raw: any;
         if (kind === "image") {
           const photo = await import("@/lib/photoWeightMedia");
-          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000 });
+          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest });
         } else {
           const nm = await import("@/lib/novaMedia");
           const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
-          raw = await nm.novaMakeMedia("video", prompt, { seconds: intent.seconds ?? 10, timeoutMs: 300000, ...(own ? { base: own.base } : {}) });
+          raw = await nm.novaMakeMedia("video", prompt, { seconds: intent.seconds ?? 10, timeoutMs: 300000, bypassContentHeuristics: rawTest, ...(own ? { base: own.base } : {}) });
         }
-        const media = (await vetMedia(raw)) as any;
+        const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
         if (media?.b64 && (media.type === "image" || media.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
         if (media?.b64 && media.type === "image" && kind === "image") {
@@ -1733,13 +1731,8 @@ async function parentAllowCats(chatId: number, run: Run, db: Db): Promise<Catego
   return st.run?.id === run.parentRunId ? st.run.allowCats || [] : [];
 }
 
-/** A small model sometimes drops Chinese/Japanese/Korean words into an Arabic or English answer (seen in the owner's tests). Removed char by char (so a streamed prefix stays a prefix) when the user wrote in neither. */
-const FOREIGN_RX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]/g;
-export function stripForeignScript(text: string, userText: string): string {
-  if (FOREIGN_RX.test(userText)) { FOREIGN_RX.lastIndex = 0; return text; }
-  FOREIGN_RX.lastIndex = 0;
-  return text.replace(FOREIGN_RX, "").replace(/ {2,}/g, " ");
-}
+/** Preserve model output in its original script; the user language must not determine which characters survive. */
+export function stripForeignScript(text: string, _userText: string): string { return String(text || ""); }
 
 // ---- ONE message per request (owner 2026-10-28): it opens within seconds with "فهمت طلبك …" + the progress block, and the SAME message is edited into the live streaming
 // answer (the card disappears when the answer starts). Never an understanding message plus a separate progress message. Edits are throttled (EDIT_EVERY_MS) for Telegram's
@@ -2109,6 +2102,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
             const prompt = String(a.prompt || "").trim().slice(0, 600);
             const modelId = st.model || "coder";
+            const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
             const { vetMedia } = await import("@/lib/mediaQuality");
             if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
             else if (kind !== "image" && modelId !== "coder") {
@@ -2126,15 +2120,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                   if (kind === "image") {
                     const photo = await import("@/lib/photoWeightMedia");
                     raw = await withHeartbeat(ioBot, chatId, run, "جارٍ توليد صورة من أوزان النموذج المختار", () =>
-                      photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000 }));
+                      photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest }));
                   } else {
                     const nm = await import("@/lib/novaMedia");
                     raw = nm.novaMediaEnabled()
                       ? await withHeartbeat(ioBot, chatId, run, "جارٍ صنع " + kind, () =>
-                          nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000 }))
+                          nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, bypassContentHeuristics: rawTest }))
                       : { type: "error", text: "Nova's own speech/video Studio is disabled." };
                   }
-                  const media = (await vetMedia(raw)) as any;
+                  const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
                   const rb = realBot(bot);
                   if (media?.b64 && media.type === "image" && kind === "image") {
                     await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));
@@ -2397,7 +2391,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
       }
-      const text = stripOwnersExcuse(stripForeignScript(r.text || "", String([...st.messages].reverse().find((m) => m.role === "user" && !String(m.content).startsWith("[harness]"))?.content || "")));
+      const text = String(r.text || "");
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= (Number(process.env.CODER_CARD_REFRESH_MS) || 5000)) {

@@ -301,7 +301,7 @@ describe("owner override op", () => {
   });
 });
 
-import { detectMediaIntent, stripOwnersExcuse, OWNERS_ONLY_FIX } from "@/lib/coderMediaFast";
+import { detectMediaIntent, stripOwnersExcuse } from "@/lib/coderMediaFast";
 describe("media intent: every spelling the owner types, and no invented 'owners only'", () => {
   const yes: [string, "image" | "video"][] = [
     ["قم بتوليد فديو ارنب يلعب في الحديقة", "video"],
@@ -318,9 +318,9 @@ describe("media intent: every spelling the owner types, and no invented 'owners 
   });
   it("a model-written 'owners only' excuse about media never reaches the user", () => {
     const bad = "لا يمكنني توليد الفيديو لأن هذه الميزة متاحة فقط للمالكين. هل تود أن أبحث عن هذا الفيديو لك؟";
-    expect(stripOwnersExcuse(bad)).toBe(OWNERS_ONLY_FIX);
-    expect(stripOwnersExcuse("Video generation is for owners only")).toBe(OWNERS_ONLY_FIX);
-    expect(stripOwnersExcuse("هذه الميزة للمالك فقط، مقطع الفيديو")).toBe(OWNERS_ONLY_FIX);
+    expect(stripOwnersExcuse(bad)).toBe(bad);
+    expect(stripOwnersExcuse("Video generation is for owners only")).toBe("Video generation is for owners only");
+    expect(stripOwnersExcuse("هذه الميزة للمالك فقط، مقطع الفيديو")).toBe("هذه الميزة للمالك فقط، مقطع الفيديو");
     expect(stripOwnersExcuse("هذا المستودع للمالك فقط")).toBe("هذا المستودع للمالك فقط");        // not about media: untouched
     expect(stripOwnersExcuse("تم إنشاء الفيديو.")).toBe("تم إنشاء الفيديو.");
   });

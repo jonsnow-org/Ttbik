@@ -8,7 +8,7 @@ export type ShamMediaKind = "image" | "audio" | "video";
 export async function generateShamMediaThroughRoute(
   kind: ShamMediaKind,
   prompt: string,
-  opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown } = {},
+  opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown; bypassContentHeuristics?: boolean } = {},
 ): Promise<ShamReply> {
   const model = shamVariant.getStore();
   if (model !== "v1" && model !== "v2") {
@@ -19,7 +19,7 @@ export async function generateShamMediaThroughRoute(
   // The model's native audio/video routes remain isolated in its own Studios below.
   if (model === "v2" && kind === "image") {
     const photo = await import("@/lib/photoWeightMedia");
-    const generated = await photo.makePhotoMedia("sham_v2", prompt, { timeoutMs: Math.min(480000, Math.max(30000, opts.timeoutMs ?? 420000)) });
+    const generated = await photo.makePhotoMedia("sham_v2", prompt, { timeoutMs: Math.min(480000, Math.max(30000, opts.timeoutMs ?? 420000)), bypassNegativePrompt: opts.bypassContentHeuristics });
     if (generated.type === "image" && generated.b64) {
       return { type: "image", mime: "image/png", b64: generated.b64, text: generated.text, route: "sham_v2_photo_weight" };
     }

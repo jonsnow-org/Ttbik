@@ -948,6 +948,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
  * true = handled; false = not such a request (the model's agent round runs as before).
  */
 export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: string, botId?: string): Promise<boolean> {
+  const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
   const mf = await import("@/lib/coderMediaFast");
   let intent = mf.detectMediaIntent(text);
   if (!intent) {
@@ -981,18 +982,18 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
   try {
     await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
     // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
-    let prompt = mf.glossaryPrompt(intent.subject);
-    if (!prompt) {
+    let prompt: string | null = null;
+    {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
       const t = await shamChatAuto(`Write ONE short English prompt (max 20 words) for an image model describing: ${intent.subject}. Output only the prompt.`, 40, 25000).catch(() => null);
-      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
+      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "", { preserveRaw: rawTest }) : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
     if (!prompt) return await askForDescription();
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));
-    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 300000 : 420000 });
+    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 300000 : 420000, bypassContentHeuristics: rawTest });
     await cardStepDone(bot, chatId, card, Boolean(reply.type === intent.kind && reply.b64));
     if (reply.type === intent.kind && reply.b64) {
       await cardPhase(bot, chatId, card, "send", "جاري الإرسال");
@@ -1075,7 +1076,8 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
   if (variant !== "v1" && variant !== "v2") throw new Error("Missing selected Sham variant for memory context.");
   const memoryKey = mem?.chatKey || modelMemoryKey(chatId, variant);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-  const first = await shamThinkPatient(text, memoryKey, mem, shamReplyTokens(), 28000, 40000);
+  const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
+  const first = await shamThinkPatient(text, memoryKey, mem, shamReplyTokens(), 28000, 40000, rawTest);
   if (shamThinkUnavailable(first)) return false;
   const r = first.reply;
   let reasked = false;
@@ -1099,11 +1101,11 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     const left = 50000 - (Date.now() - t0);
     if (left < 2000) break;
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-    const o = await shamJobResult(job, false, Math.min(8000, left));
+    const o = await shamJobResult(job, false, Math.min(8000, left), rawTest);
     if (o.reply?.type === "gone" && !reasked && left > 20000) {
       // the Studio restarted and lost the job: the same message is asked again once (Nova does the same for a lost step) instead of asking the user to resend
       reasked = true;
-      const again = await shamThink(text, memoryKey, mem, shamReplyTokens(), Math.min(25000, left - 4000));
+      const again = await shamThink(text, memoryKey, mem, shamReplyTokens(), Math.min(25000, left - 4000), rawTest);
       if (again.reply?.type === "pending" && again.reply.job) { job = again.reply.job; continue; }
       if (again.reply && again.reply.type !== "pending" && again.reply.type !== "gone") { await done(again.reply); return true; }
     }
@@ -1175,10 +1177,11 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           return;
         }
         if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
-        let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000) : null;
-        if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)));
+        const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
+        let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000, { bypassContentHeuristics: rawTest }) : null;
+        if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest });
         const left = 52000 - (Date.now() - t0);
-        if (!any && left > 15000) any = await shamGenerateAny(text, 80, left);
+        if (!any && left > 15000) any = await shamGenerateAny(text, 80, left, { bypassContentHeuristics: rawTest });
         if (any) {
           await sendShamReply(bot, chatId, any);
           if (any.type === "text" && any.text) await saveChatTurn(chatId, text, any.text);

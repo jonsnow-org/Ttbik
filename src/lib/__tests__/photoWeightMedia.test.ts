@@ -83,7 +83,7 @@ describe("per-model photo weight routing", () => {
       throw new Error("Unexpected URL " + url);
     }) as unknown as typeof fetch;
 
-    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { seed: 42, fetchImpl: fakeFetch });
+    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { seed: 42, fetchImpl: fakeFetch, bypassNegativePrompt: true });
     expect(result.type).toBe("image");
     if (result.type !== "image") throw new Error("Expected image result");
     expect(result.metadata).toMatchObject({ model_repo: profile.modelRepo, checkpoint_sha256: checksum });
@@ -91,7 +91,7 @@ describe("per-model photo weight routing", () => {
     expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
     expect(urls.some((url) => url.includes("/gradio_api/file=/tmp/rv6-test.png"))).toBe(true);
     expect(JSON.parse(calls[2].body!).data).toEqual([
-      "A realistic portrait of an adult woman", profile.negative, profile.resolution, profile.steps, profile.cfg, 42,
+      "A realistic portrait of an adult woman", "", profile.resolution, profile.steps, profile.cfg, 42,
     ]);
   });
 

@@ -45,6 +45,17 @@ describe("Nova media Studio client", () => {
     await novaMakeMedia("video", "a horse galloping", { seconds: 60, fetchImpl: f });
     expect(bodies[0]).toMatchObject({ prompt: "a horse galloping", seconds: 60 });
   });
+  it("raw owner test mode passes a decodable blank picture through the same Nova Studio", async () => {
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+    const blank = b64(await png("black", 512));
+    const f = (async (_u: string, init?: { body?: string }) => {
+      if (init?.body) return { ok: true, json: async () => ({ event_id: "e" }) };
+      const value = { type: "image", b64: blank };
+      return { ok: true, text: async () => "event: complete\ndata: " + JSON.stringify([JSON.stringify(value)]) + "\n\n" };
+    }) as unknown as typeof fetch;
+    const r = await novaMakeMedia("image", "a robot", { fetchImpl: f, attempts: 1, bypassContentHeuristics: true });
+    expect(r).toMatchObject({ type: "image", b64: blank });
+  });
   it("a blank picture from the Studio is returned as a typed error, never as an image", async () => {
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
     const blank = b64(await png("black", 512));

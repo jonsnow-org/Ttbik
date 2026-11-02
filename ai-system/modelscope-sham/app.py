@@ -449,8 +449,10 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
         _LOCK.release()
 
 
-def _vet(res):
-    """Quality gate at the Studio's exit: a blank / noise picture, silent audio or an empty video becomes a typed error (media_quality.py), never a reply."""
+def _vet(res, raw_test: bool = False):
+    """Per-request owner raw-output test; the bot client still checks decoding and model/weight identity."""
+    if raw_test:
+        return res
     from media_quality import gate_reply
     return gate_reply(res)
 
@@ -469,7 +471,7 @@ def _busy_wait() -> float:
 
 # Hugging Face generation implementation is preserved in quarantine/huggingface/modelscope-sham-app.py.disabled.
 
-def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "") -> str:
+def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "", raw_test: bool = False) -> str:
     """Run exactly the selected Sham-owned path: internal tokens or packaged donor weights. No silent fallback."""
     selected = (backend or "internal").strip().lower()
     if selected not in ("internal", "ready"):
@@ -503,7 +505,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
                 kind.strip().lower(), prompt
             )
-        result = _vet(result)
+        result = _vet(result, raw_test=raw_test)
         if isinstance(result, dict):
             result.setdefault("backend", selected)
         return json.dumps(result, ensure_ascii=False)
@@ -523,7 +525,7 @@ def generate_media(kind: str, prompt: str) -> str:
 PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal", "المسار البديل (أوزان محلية جاهزة)": "ready"}     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
 
 
-def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "") -> str:
+def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "", raw_test: bool = False) -> str:
     """Select one media backend and optionally provide video shots and spoken narration."""
     label = (backend_label or "").strip()
     # explicit enum: an unknown label is an error, never a silent "internal" (which would answer with the untrained decoder). The Hugging Face route no longer exists.
@@ -537,7 +539,7 @@ def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes
         scenes = [str(item).strip()[:300] for item in scenes if str(item).strip()][:6]
     except (TypeError, ValueError, json.JSONDecodeError):
         return json.dumps({"type": "error", "text": "مشاهد الفيديو يجب أن تكون قائمة JSON صحيحة."}, ensure_ascii=False)
-    return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500])
+    return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500], raw_test=bool(raw_test))
 
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
@@ -660,6 +662,7 @@ def build_ui():
             ),
             gr.Textbox(label="مشاهد الفيديو بصيغة JSON (اختياري)", value="[]"),
             gr.Textbox(label="التعليق الصوتي (اختياري)", value=""),
+            gr.Checkbox(label="raw_test", value=False),
         ],
         gr.Textbox(label="النتيجة (JSON)"),
         api_name="generate_media_from_panel",

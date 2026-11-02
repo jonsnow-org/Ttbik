@@ -81,7 +81,7 @@ export async function shamAgentRun(opts: {
   const k = shamKnobs(effMode, variant);
   const maxNew = Math.max(20, opts.maxNew ?? (variant === "v2" ? 512 : 160));
   const v2 = variant === "v2";
-  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t)));
+  const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t, { bypassContentHeuristics: Boolean(opts.ctx.owner) })));
   const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
     opts.agentAsk || (!opts.ask && v2
@@ -146,7 +146,7 @@ export async function shamAgentRun(opts: {
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
     const directAsk = () => opts.ask
       ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => shamGenerateChat(chatMessages, maxNew, timeout));
+      : shamModeCtx.run(effMode, () => shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
@@ -198,7 +198,7 @@ export async function shamAgentRun(opts: {
     return { kind: "text", text: "Selected media route " + (r?.route || "unknown") + " did not return a usable file (" + (r?.text || r?.type || "no answer") + "). No automatic route switch was performed.", used: usedNow, steps: stepNow };
   };
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string } = {}): Promise<ShamReply | null> =>
-    generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)) });
+    generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait

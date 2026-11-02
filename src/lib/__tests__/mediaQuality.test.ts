@@ -22,6 +22,13 @@ describe("media quality gate (TypeScript side)", () => {
     expect(checkMp4(mp4Shell()).bytes).toBeGreaterThan(1024);
     for (const b of [Buffer.alloc(0), Buffer.alloc(5000, 7), mp4Shell().subarray(0, 200)]) expect(() => checkMp4(b)).toThrow(/empty_video/);
   });
+  it("raw test bypass exposes blank pixels but still rejects undecodable image bytes", async () => {
+    const black = { type: "image", b64: b64(await png("black", 512)) };
+    expect(await vetMedia(black)).toMatchObject({ type: "error", reason: "blank_image" });
+    expect(await vetMedia(black, { bypassContentHeuristics: true })).toBe(black);
+    const broken = { type: "image", b64: b64(Buffer.from("not an image")) };
+    expect(await vetMedia(broken, { bypassContentHeuristics: true })).toMatchObject({ type: "error", reason: "invalid_image" });
+  });
   it("vetMedia returns good media untouched and turns bad media into a typed error (backend kept, bytes dropped); non-media passes through", async () => {
     const good = { type: "image", b64: b64(await png("gradient")) };
     expect(await vetMedia(good)).toBe(good);
