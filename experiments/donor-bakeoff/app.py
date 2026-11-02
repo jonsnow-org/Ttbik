@@ -168,8 +168,8 @@ MEDIA_TOOLS = {
         "type": "function",
         "function": {
             "name": "generate_video",
-            "description": "Make a real text-to-video diffusion clip using only this candidate's own media Studio. The current local CPU engine supports exactly 4 seconds normally or 2 seconds for the faster/pressure mode; longer durations are rejected rather than silently shortened.",
-            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows; specific subject, action, camera movement and scene improve control"}, "seconds": {"type": "integer", "enum": [2, 4], "default": 4, "description": "4 seconds normal; 2 seconds faster under pressure"}}, "required": ["prompt"], "additionalProperties": False},
+            "description": "Generate a real text-to-video diffusion clip using only this candidate's own media Studio and its own local copy of the media weights. User-selectable durations: 2 seconds (fast/pressure), 4 seconds (normal), 10, 15, 30, 60 or 120 seconds. For durations above 4 seconds the current engine runs multiple short temporal passes and joins them; it verifies the resulting MP4 duration, dimensions and motion. Do not claim seamless long-form continuity without visual review.",
+            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows; describe subject, action, environment and camera movement"}, "seconds": {"type": "integer", "enum": [2, 4, 10, 15, 30, 60, 120], "default": 4, "description": "Choose exactly: 2 fast, 4 normal, 10, 15, 30, 60 or 120 seconds"}}, "required": ["prompt"], "additionalProperties": False},
         },
     },
 }
@@ -1020,13 +1020,14 @@ def _media_profile() -> dict | None:
 
 
 def _video_duration_seconds(value=4) -> int:
-    """The installed CPU video weights are validated only for exact 2 s / 4 s clips."""
+    """Accept only the owner's explicit duration choices; never round or silently truncate."""
+    supported = (2, 4, 10, 15, 30, 60, 120)
     try:
         seconds = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("This local video engine supports exactly 2 or 4 seconds.") from exc
-    if seconds not in (2.0, 4.0):
-        raise ValueError("This local video engine supports exactly 2 or 4 seconds; longer durations are not available with the installed weights.")
+        raise ValueError("اختر مدة الفيديو: 2 أو 4 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية.") from exc
+    if not math.isfinite(seconds) or not seconds.is_integer() or int(seconds) not in supported:
+        raise ValueError("مدة الفيديو غير مدعومة. الخيارات هي 2، 4، 10، 15، 30، 60، أو 120 ثانية.")
     return int(seconds)
 
 
