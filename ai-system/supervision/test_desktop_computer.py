@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 MEDIA_DIR = Path(__file__).resolve().parents[1] / "modelscope-media"
@@ -104,6 +105,53 @@ class Desktop(unittest.TestCase):
         self.assertIn("requires 3072 MB", result["error"])
         self.assertEqual(desktop._PHASE, "stopped")
         self.assertFalse(box._ACTIVE_DESKTOPS)
+
+    def test_xauthority_uses_private_local_tmp_and_breaks_stale_xauth_locks(self):
+        captured = {}
+
+        def create_authority(command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            auth = Path(command[command.index("-f") + 1])
+            auth.write_bytes(b"private-cookie-record")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.object(box, "session_uid", return_value=123456), \
+             patch.object(box, "is_root", return_value=False), \
+             patch.object(desktop.subprocess, "run", side_effect=create_authority):
+            auth, runtime = desktop._write_xauthority("alice:model-x", 91)
+
+        runtime_path = Path(runtime)
+        self.assertEqual(auth, runtime_path / "Xauthority")
+        self.assertEqual(runtime_path.parent, Path("/tmp"))
+        self.assertTrue(runtime_path.name.startswith("sham-desktop-xauth-"))
+        self.assertEqual(runtime_path.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(auth.stat().st_mode & 0o777, 0o600)
+        self.assertIn("-b", captured["command"])
+        self.assertEqual(captured["kwargs"]["timeout"], 30)
+        self.assertEqual(captured["kwargs"]["env"]["HOME"], runtime)
+        self.assertEqual(captured["kwargs"]["env"]["TMPDIR"], runtime)
+        desktop._remove_xauthority(auth)
+        self.assertFalse(runtime_path.exists())
+
+    def test_xauthority_timeout_is_actionable_and_cleans_its_private_directory(self):
+        created = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def make_tempdir(**kwargs):
+            path = real_mkdtemp(**kwargs)
+            created.append(Path(path))
+            return path
+
+        with patch.object(box, "session_uid", return_value=123456), \
+             patch.object(box, "is_root", return_value=False), \
+             patch.object(desktop.tempfile, "mkdtemp", side_effect=make_tempdir), \
+             patch.object(desktop.subprocess, "run", side_effect=subprocess.TimeoutExpired("xauth", 30)):
+            with self.assertRaisesRegex(RuntimeError, "timed out after 30 seconds.*local /tmp"):
+                desktop._write_xauthority("alice:model-x", 91)
+
+        self.assertEqual(len(created), 1)
+        self.assertFalse(created[0].exists())
 
     def test_stop_during_install_cancels_start_without_leaking_the_slot(self):
         def stop_while_installing():
