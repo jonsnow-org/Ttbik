@@ -44,8 +44,12 @@ def _snapshot(
     allow_patterns: list[str] | None,
     local_dir: Path | None,
 ) -> Path:
-    from modelscope import snapshot_download
     import inspect
+
+    # Set the endpoint before importing the SDK: older ModelScope versions read
+    # MODELSCOPE_ENDPOINT into module-level constants at import time.
+    os.environ["MODELSCOPE_ENDPOINT"] = endpoint
+    from modelscope import snapshot_download
 
     signature = inspect.signature(snapshot_download)
     params = signature.parameters
