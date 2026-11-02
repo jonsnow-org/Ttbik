@@ -146,10 +146,14 @@ def cv_pipe(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     enable_free_noise = getattr(pipe, "enable_free_noise", None)
     if callable(enable_free_noise):
         try:
-            enable_free_noise(context_length=16, context_stride=4)
-        except TypeError:
-            enable_free_noise()
-        free_noise = True
+            try:
+                enable_free_noise(context_length=16, context_stride=4)
+            except TypeError:
+                enable_free_noise()
+            free_noise = True
+        except Exception:  # noqa: BLE001 - short clips remain supported; long requests fail explicitly
+            free_noise = False
+    if free_noise:
         split_inference = getattr(pipe, "enable_free_noise_split_inference", None)
         if callable(split_inference):
             try:
