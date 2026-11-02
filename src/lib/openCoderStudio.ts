@@ -103,7 +103,7 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
   const now = Date.now();
   return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
 }
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier): Promise<CoderOutcome> {
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier, prefer = ""): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (pressureOn()) avoidHome = true;                                       // pressure mode (owner switch): the least-queued Studio, not the conversation's cache-holding one
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
@@ -128,6 +128,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
         ord = ord.filter((x) => visionBases.has(x.b));
         if (!ord.length) return null;
       }
+      if (prefer) { const now2 = Date.now(); const pick = ord.filter((x) => x.b.includes(prefer) && (studioCooling.get(x.b) || 0) <= now2); if (pick.length) ord = pick; }   // a short side job (picture-prompt translation) goes to the named fast Studio when it is up
       ord = filterByTier(ord, tier);                                                          // fast model for greetings and short questions, strong model for the rest (only when fast Studios are configured)
       if (fresh) {
         ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
@@ -296,7 +297,7 @@ export async function anyVisionStudio(capMs = 1500): Promise<boolean> {
 /** Queue one completion. max_tokens 0 = no cap (the model stops by itself or at the Studio's context size). */
 export async function coderChat(
   messages: CoderMessage[],
-  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; priority?: number; accuracy?: "fast" | "balanced" | "precise" } = {},
+  opts: { tools?: CoderTool[]; maxTokens?: number; think?: boolean; temperature?: number; waitS?: number; timeoutMs?: number; model?: string; affinity?: string; fresh?: boolean; avoidHome?: boolean; tag?: string; thinkCap?: number; priority?: number; prefer?: string; accuracy?: "fast" | "balanced" | "precise" } = {},
 ): Promise<CoderOutcome> {
   const waitS = opts.waitS ?? 20;
   const base = {
@@ -307,7 +308,7 @@ export async function coderChat(
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
   };
-  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools));
+  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools), opts.prefer || "");
   if (!(opts.priority && opts.priority > 0)) return call(base);                       // no field at all: the payload is what every Studio already understands
   const o = await call({ ...base, priority: 1 });                                     // Pro / owner: ahead in the Studio's queue
   return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it

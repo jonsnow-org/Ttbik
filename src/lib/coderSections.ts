@@ -700,7 +700,7 @@ async function englishMediaPrompt(subject: string, original: string, modelId = "
     { role: "user", content: original.slice(0, 300) },
   ];
   try {
-    const o = await coderChat(messages, { maxTokens: 90, temperature: 0, waitS: 15, timeoutMs: 30000, fresh: true, tag: "media-prompt" });
+    const o = await coderChat(messages, { maxTokens: 90, temperature: 0, waitS: 15, timeoutMs: 30000, prefer: process.env.NOVA_TRANSLATOR_STUDIO ?? "coder-inference-server-4", tag: "media-prompt" });
     let r: CoderReply | null | undefined = o?.reply;
     for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
       await new Promise((res) => setTimeout(res, 3000));
