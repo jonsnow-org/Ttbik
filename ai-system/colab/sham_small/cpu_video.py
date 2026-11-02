@@ -168,17 +168,36 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
             return fh.read()
 
 
+CV_SUPPORTED_DURATIONS = (2, 4, 10, 15, 30, 60, 120)
+
+
+def cv_chunk_plan(seconds: int) -> list[int]:
+    """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
+    if isinstance(seconds, bool) or int(seconds) not in CV_SUPPORTED_DURATIONS:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+    remaining = int(seconds)
+    chunks = []
+    while remaining > 4:
+        chunks.append(4)
+        remaining -= 4
+    if remaining:
+        chunks.append(remaining)
+    if any(part < 2 or part > 4 for part in chunks) or sum(chunks) != int(seconds):
+        raise ValueError("native-video-duration-limit: this duration cannot be split into supported 2-4 second temporal passes")
+    return chunks
+
+
 def cv_requested_frames(seconds: float, profile: dict) -> int:
-    """Return frames only when the requested duration fits the real model profile; never silently shorten a clip."""
+    """Return frames for one 2-4 second diffusion pass; long requests are segmented by cv_generate_long."""
     import math
     try:
         requested = float(seconds)
     except (TypeError, ValueError) as exc:
-        raise ValueError("native-video-duration-limit: duration must be 2 or 4 seconds") from exc
+        raise ValueError("native-video-duration-limit: each diffusion pass must be 2, 3 or 4 seconds") from exc
     fps = int(profile.get("fps") or 8)
     maximum = int(profile.get("max_frames") or 16)
-    if not math.isfinite(requested) or requested not in (2.0, 4.0):
-        raise ValueError("native-video-duration-limit: the installed AnimateDiff CPU weights support only 2 or 4 seconds; no longer clip was generated")
+    if not math.isfinite(requested) or requested not in (2.0, 3.0, 4.0):
+        raise ValueError("native-video-duration-limit: each temporal pass must be 2, 3 or 4 seconds")
     frames = int(round(requested * fps))
     if frames < 16 or frames > maximum or abs(frames / fps - requested) > 0.05:
         raise ValueError(f"native-video-duration-limit: {requested:g} seconds do not fit this Studio profile (maximum {maximum / fps:g} seconds)")
@@ -215,4 +234,94 @@ def cv_generate(root, prompt: str, seconds: float = 4.0, seed: int = 0, env_name
         del pipe
         cv_release()
     return data
+def cv_concat_mp4(clips: list[bytes], expected_seconds: int) -> bytes:
+    """Join already-generated H.264 temporal clips into one MP4 without holding decoded full-size frames in RAM."""
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        exe = _sh.which("ffmpeg")
+    if not exe:
+        raise RuntimeError("native-video-unavailable: ffmpeg is required to join the generated video segments")
+    if not clips:
+        raise RuntimeError("native-video-unavailable: no temporal segments were generated")
+    with _tf.TemporaryDirectory(prefix="sham-video-join-") as directory:
+        root = __import__("pathlib").Path(directory)
+        entries = []
+        for index, data in enumerate(clips):
+            path = root / f"segment-{index:03d}.mp4"
+            path.write_bytes(data)
+            entries.append(f"file '{path.as_posix()}'")
+        concat_list = root / "segments.txt"
+        concat_list.write_text("\n".join(entries) + "\n", encoding="utf-8")
+        output = root / "joined.mp4"
+        cmd = [
+            exe, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "concat", "-safe", "0", "-i", str(concat_list),
+            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
+            str(output),
+        ]
+        try:
+            _sp.run(cmd, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=max(180, expected_seconds * 5))
+        except Exception as exc:  # noqa: BLE001
+            detail = getattr(exc, "stderr", b"")
+            if isinstance(detail, bytes):
+                detail = detail.decode("utf-8", "replace")
+            raise RuntimeError("native-video-unavailable: ffmpeg could not join the generated segments: " + str(detail or exc)[-500:]) from exc
+        data = output.read_bytes()
+        from media_quality import check_mp4
+        check_mp4(data, expected_seconds=expected_seconds, min_width=480, min_height=270)
+        return data
+
+
+def cv_generate_long(
+    root, prompt: str, seconds: int = 4, seed: int = 0,
+    env_names=("CPU_VIDEO_MODEL_DIR",),
+) -> bytes:
+    """Generate 2/4/10/15/30/60/120 s locally from the installed temporal weights.
+
+    Longer clips are made from real 2-4 s AnimateDiff diffusion passes (not still images),
+    then joined and validated as one MP4. The model is deliberately unloaded between passes
+    to leave RAM for the VAE decode on the 8 GB Studio.
+    """
+    import os as _os
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ValueError("native-video-unavailable: a text prompt is required")
+    try:
+        target = int(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
+    chunks = cv_chunk_plan(target)
+    old_keep = _os.environ.get("CPU_VIDEO_KEEP")
+    _os.environ["CPU_VIDEO_KEEP"] = "0"
+    clips: list[bytes] = []
+    try:
+        for index, duration in enumerate(chunks):
+            continuity = (
+                " Continue the same scene and same subject from the preceding temporal segment; "
+                "preserve subject identity, clothing, lighting, environment and camera direction. "
+                "Keep the action moving naturally without a title card or scene reset."
+            )
+            segment_prompt = prompt[:220] + (continuity if len(chunks) > 1 else "")
+            clip = cv_generate(root, segment_prompt, float(duration), int(seed) + index * 1009, env_names)
+            from media_quality import check_mp4
+            check_mp4(clip, expected_seconds=duration, min_width=480, min_height=270)
+            clips.append(clip)
+    finally:
+        if old_keep is None:
+            _os.environ.pop("CPU_VIDEO_KEEP", None)
+        else:
+            _os.environ["CPU_VIDEO_KEEP"] = old_keep
+    if len(clips) == 1:
+        from media_quality import check_mp4
+        check_mp4(clips[0], expected_seconds=target, min_width=480, min_height=270)
+        return clips[0]
+    return cv_concat_mp4(clips, target)
+
+
 # --- cpu_video END ---
