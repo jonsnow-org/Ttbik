@@ -985,12 +985,26 @@ def _load_tool_groups(arguments: dict, tool_bridge: dict | None) -> dict:
             headers={"Cache-Control": "no-store"},
             timeout=(10, 30),
         )
+        response.raise_for_status()
         payload = response.json() if response.content else {}
-        loaded = json.loads(str(payload.get("result") or "[]")) if isinstance(payload, dict) and payload.get("ok") else []
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            detail = str(payload.get("error") or "the app bridge refused the requested tool group") if isinstance(payload, dict) else "invalid app bridge response"
+            return {"ok": False, "error": detail[:300]}
+        try:
+            loaded = json.loads(str(payload.get("result") or "[]"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "The app bridge returned invalid tool schemas."}
         if not isinstance(loaded, list) or not loaded:
-            return {"ok": False, "error": "No tools exist for those groups on this account (github needs a linked GitHub account)."}
-        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], loaded)
-        return {"ok": True, "loaded": [t["function"]["name"] for t in loaded], "note": "These tools are available from your next step."}
+            return {"ok": False, "error": "No tools exist for those groups on this account (GitHub needs a linked GitHub account)."}
+        valid = [
+            item for item in loaded
+            if isinstance(item, dict) and isinstance(item.get("function"), dict)
+            and isinstance(item["function"].get("name"), str) and isinstance(item["function"].get("parameters"), dict)
+        ]
+        if len(valid) != len(loaded) or not valid:
+            return {"ok": False, "error": "The app bridge returned an incomplete tool schema."}
+        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], valid)
+        return {"ok": True, "loaded": [t["function"]["name"] for t in valid], "note": "These tools are available from your next step."}
     except Exception as exc:
         return {"ok": False, "error": "Could not load the tool groups: " + str(exc)[:300]}
 
@@ -1083,6 +1097,33 @@ def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
     if any(word in text for word in github_words) and "github" in connected:
         groups.append("github")
     return groups
+
+
+def _requires_computer_execution(prompt: str) -> bool:
+    """True only when the request combines an actionable verb with a computer/file/repository target."""
+    text = str(prompt or "").lower()
+    has_target = bool(re.search(
+        r"\b(computer|desktop|terminal|shell|browser|file|files|folder|repository|repo|project|source code)\b|"
+        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|ملف|ملفات|مجلد|مستودع|ريبو|المشروع|الكود",
+        text,
+    ))
+    has_action = bool(re.search(
+        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
+        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|ابحث|استخدم|استعمل|انقر",
+        text,
+    ))
+    return has_target and has_action
+
+
+def _has_computer_tools(tools: list) -> bool:
+    """A computer group is usable only when it exposes at least one real execution/read path."""
+    if not isinstance(tools, list):
+        return False
+    names = {
+        str((item.get("function") or {}).get("name") or "")
+        for item in tools if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    }
+    return bool(names.intersection({"computer_run", "computer_read", "computer_repo", "browser", "desktop"}))
 
 
 def _should_fallback_text_tools(status_code: int) -> bool:
@@ -1336,12 +1377,34 @@ def infer(
             "temperature": float(max(0.0, min(CONFIG.get("temperature", 0.2) if temperature is None else temperature, 1.2))),
             "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
+        computer_required = bool(use_tools and _requires_computer_execution(prompt))
         if use_tools:
-            # Do not make a small CPU model spend another generation round merely asking to load
-            # the tools that its task obviously needs. The selected model still chooses the actions.
+            # Preload tools before inference; never let a missing bridge masquerade as a completed computer task.
+            if computer_required and not (
+                isinstance(tool_bridge, dict) and str(tool_bridge.get("url") or "").startswith("https://")
+            ):
+                return {
+                    "error": "computer_tool_bridge_unavailable",
+                    "detail": "المهمة تتطلب تنفيذ إجراء على الحاسوب، لكن جسر أدوات النموذج المختار غير متاح. لم يُنفّذ أي إجراء.",
+                    "tool_execution": "not_invoked",
+                }
             requested_groups = _requested_tool_groups(prompt, tool_bridge)
-            if requested_groups:
-                _load_tool_groups({"groups": requested_groups}, tool_bridge)
+            if computer_required and "computer" not in requested_groups:
+                requested_groups.insert(0, "computer")
+            for group in requested_groups:
+                loaded = _load_tool_groups({"groups": [group]}, tool_bridge)
+                if not loaded.get("ok") and (computer_required or group == "github"):
+                    return {
+                        "error": "tool_group_load_failed",
+                        "detail": str(loaded.get("error") or ("Could not load " + group + " tools."))[:500],
+                        "tool_execution": "not_invoked",
+                    }
+            if computer_required and not _has_computer_tools((tool_bridge or {}).get("tools") or []):
+                return {
+                    "error": "computer_tools_missing",
+                    "detail": "تعذّر تحميل أدوات تنفيذ الحاسوب الفعلية للنموذج المختار. لم يُنفّذ أي إجراء.",
+                    "tool_execution": "not_invoked",
+                }
             by_name = {item["function"]["name"]: item for item in TOOLS}
             if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
                 by_name["generate_image"] = IMAGE_GENERATION_TOOL
@@ -1362,6 +1425,7 @@ def infer(
         computer_vision_frames = []
         pending_calls = []
         text_tool_mode = False
+        computer_tool_retry_used = False
         choice_item = {}
         choice = {}
         # The model chooses when and which tool to call. Only allowlisted read-only
@@ -1383,6 +1447,28 @@ def infer(
             calls = _parse_tool_calls(choice)
             usage = data.get("usage") or {}
             token_count += int(usage.get("completion_tokens") or 0)
+            if not calls and computer_required and not computer_tool_retry_used and not executed_tools:
+                # A valid HTTP 200 with plain prose is not a computer action. Re-ask once before
+                # any tool has run, so this cannot duplicate a side effect.
+                computer_tool_retry_used = True
+                available = [
+                    str((item.get("function") or {}).get("name") or "")
+                    for item in (options.get("tools") or [])
+                    if isinstance(item, dict) and isinstance(item.get("function"), dict)
+                ]
+                available = [name for name in available if name.startswith("computer_") or name in {"browser", "desktop"}]
+                messages.append({"role": "assistant", "content": str(choice.get("content") or "")})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "لم تنفذ المهمة بعد: لم تستدعِ أي أداة حاسوب. نفّذ الإجراء المطلوب الآن فعلياً "
+                        "باستدعاء أداة واحدة مناسبة من هذه الأسماء فقط: " + ", ".join(available) +
+                        ". استخدم صيغة <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>. "
+                        "لا تصف ما ستفعله ولا تدّعِ التنفيذ قبل استلام نتيجة الأداة."
+                    ),
+                })
+                text_tool_mode = True
+                continue
             if not calls or not use_tools:
                 pending_calls = []
                 break
@@ -1461,8 +1547,25 @@ def infer(
         output = str(choice.get("content") or "")
         if pending_calls or executed_tools:
             output = strip_tool_call_markup(output)
+        successful_tools = sum(
+            1 for item in executed_tools
+            if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
+        )
+        tool_execution = (
+            "not_invoked" if not executed_tools
+            else "completed" if successful_tools == len(executed_tools)
+            else "partial" if successful_tools
+            else "failed"
+        )
+        if computer_required and tool_execution == "not_invoked":
+            output = "لم يُنفّذ أي إجراء على الحاسوب؛ لم يستدعِ النموذج أداة تنفيذ فعلية، لذلك لا أستطيع تأكيد إنجاز المهمة."
+            if choice.get("content"):
+                output += "\n" + str(choice.get("content"))
+        elif computer_required and tool_execution == "failed":
+            output = "حاول النموذج استدعاء أدوات الحاسوب، لكن جميع محاولات التنفيذ فشلت؛ لم يثبت إنجاز المهمة.\n" + output
         return {
             "text": output,
+            "tool_execution": tool_execution if use_tools else "not_requested",
             "tool_calls": pending_calls,
             "executed_tools": executed_tools,
             "generated_media": generated_media,
