@@ -72,6 +72,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
 
   const running = status?.phase === "running";
   const preparing = status?.phase === "installing" || status?.phase === "starting";
+  const networkIsolated = status?.network_mode === "network-namespace";
   const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
   const launch = (app: "browser" | "terminal" | "files") => {
     void perform({ action: "launch", app, ...(app === "browser" ? { url: address } : {}) });
@@ -103,7 +104,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             {ar ? "إيقاف سطح المكتب" : "Stop desktop"}
           </button>
         )}
-        <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("browser")}>{ar ? "المتصفح" : "Browser"}</button>
+        <button type="button" className="n-btn n-ghost" disabled={!running || busy || networkIsolated} onClick={() => launch("browser")}>{ar ? "المتصفح" : "Browser"}</button>
         <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("terminal")}>{ar ? "طرفية" : "Terminal"}</button>
         <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("files")}>{ar ? "الملفات" : "Files"}</button>
         <span className="n-meta" style={{ marginInlineStart: "auto" }}>
@@ -115,6 +116,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           ? "ذاكرة الاستوديو المتاحة: " + available + ". يتطلب البدء 3072 MB على الأقل. تُحدّث الصورة كل نحو ثانيتين؛ هذا ليس بثاً فورياً بسرعة 60 إطاراً."
           : "Studio memory available: " + available + ". Start requires at least 3072 MB. The screen refreshes about every two seconds; this is not 60-fps streaming."}
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
+        {running && networkIsolated ? (ar ? " سطح المكتب يعمل بعزل شبكي آمن؛ الطرفية والملفات متاحتان، والمتصفح معطل هنا. استخدم أدوات الويب في المحادثة." : " Desktop is running in a safe isolated network namespace. Terminal and files work; its browser is disabled. Use the chat web tools.") : null}
+        {running && status?.network_mode === "host-firewall" ? (ar ? " جدار الشبكة الخاص بالاستوديو مفعل." : " Studio egress firewall is active.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
       {frame && running ? (
@@ -141,8 +144,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       )}
       {running ? (
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-          <input value={address} dir="ltr" onChange={(event) => setAddress(event.target.value)} placeholder="https://example.com" style={{ ...mono, minWidth: 140, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }} />
-          <button type="button" className="n-btn n-ghost" disabled={busy} onClick={() => launch("browser")}>{ar ? "فتح العنوان" : "Open URL"}</button>
+          <input value={address} dir="ltr" disabled={networkIsolated} onChange={(event) => setAddress(event.target.value)} placeholder="https://example.com" style={{ ...mono, minWidth: 140, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8, opacity: networkIsolated ? 0.5 : 1 }} />
+          <button type="button" className="n-btn n-ghost" disabled={busy || networkIsolated} onClick={() => launch("browser")}>{ar ? "فتح العنوان" : "Open URL"}</button>
         </div>
       ) : null}
       {running ? (
