@@ -984,7 +984,9 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
     // Test mode skips content rewriting and glossaries, NEVER the translation: the picture models read English only (an untranslated Arabic prompt gave unrelated pictures).
     let prompt: string | null = null;
-    if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
+    // Old Sham (v1) writes the picture / clip from the model's OWN tokens (trained from scratch, its own tokenizer): it needs no translation and reads the user's language as written.
+    if ((shamVariant.getStore() || "v1") === "v1") prompt = intent.subject.trim().slice(0, 1800) || null;
+    else if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
     else {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
       const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + text.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
