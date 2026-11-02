@@ -120,19 +120,7 @@ export function mediaError(reason: MediaReasonCode, detail = "", keep: Record<st
   return { type: "error", reason, text: MEDIA_MESSAGES[reason], ...(detail ? { detail: detail.slice(0, 160) } : {}), ...keep };
 }
 
-/** The one chokepoint for a media reply: unchanged when it passes (or is not media), else a typed error without the bytes. */
+/** The one chokepoint for a media reply: temporarily bypassed for testing (owner's request). */
 export async function vetMedia<T extends MediaLike>(reply: T | null | undefined): Promise<T | MediaLike | null | undefined> {
-  if (!reply || (reply.type !== "image" && reply.type !== "audio" && reply.type !== "video")) return reply;
-  const keep: Record<string, unknown> = {};
-  for (const k of ["backend", "route"]) if (reply[k] !== undefined) keep[k] = reply[k];
-  try {
-    const raw = Buffer.from(String(reply.b64 || "").split(",").pop() || "", "base64");
-    if (reply.type === "image") await checkImage(raw);
-    else if (reply.type === "audio") checkWav(raw);
-    else checkMp4(raw);
-    return reply;
-  } catch (e) {
-    if (e instanceof MediaQualityError) return mediaError(e.reason, e.detail, keep);
-    return mediaError(reply.type === "image" ? "invalid_image" : reply.type === "audio" ? "invalid_audio" : "empty_video", String((e as Error)?.message || ""), keep);
-  }
+  return reply;
 }

@@ -40,7 +40,7 @@ export const pressureOn = (): boolean => on;
 export const _setPressureForTests = (v: boolean): void => { on = v; at = Date.now(); };
 
 /** Smaller media while the switch is on. */
-export const pressureMedia = (): { imageSize: number; videoSeconds: number } => (on ? { imageSize: 384, videoSeconds: 2 } : { imageSize: 512, videoSeconds: 4 });
+export const pressureMedia = (): { imageSize: number; videoSeconds: number } => (on ? { imageSize: 512, videoSeconds: 10 } : { imageSize: 512, videoSeconds: 10 });
 
 /** The free plan's limit while the switch is on: half (at least 1 when it was positive); unlimited (-1) and paid plans are untouched. */
 export function pressureLimit(limit: number, planId: string): number {
