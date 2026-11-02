@@ -15,6 +15,7 @@ describe("the tool list the model is shown", () => {
     const block = shamToolBlock(tools);
     for (const t of tools) expect(block).toContain(`- ${t.function.name}(`);
     expect(block).toContain("- make_media(");
+    expect(block).toContain("seconds");
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
     expect(block).toContain("- computer_run(");
