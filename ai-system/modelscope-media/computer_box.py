@@ -621,7 +621,21 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if timed_out:
         reply["timed_out"] = True
         reply["hint"] = f"stopped after {timeout} s: run long work with computer_job (it keeps running between calls)"
+    _log_activity(home, command, reply)
     return reply
+
+
+def _log_activity(home: Path, command: str, reply: dict) -> None:
+    """What the model ran, readable live in its graphical desktop terminal (tail -F of ~/.activity.log). Never fails the command."""
+    try:
+        path = home / ".activity.log"
+        if path.exists() and path.stat().st_size > 300_000:
+            path.write_text("", encoding="utf-8")
+        text = f"\n$ {command[:600]}\n{str(reply.get('output', ''))[-1500:]}\n[exit {reply.get('exit_code')} · {reply.get('seconds')} s]\n"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
+    except Exception:                                          # noqa: BLE001
+        pass
 
 
 def _kill_group(pid: int) -> None:

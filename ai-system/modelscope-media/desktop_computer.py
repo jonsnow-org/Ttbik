@@ -202,6 +202,13 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
     return env
 
 
+
+def _terminal_command() -> list[str]:
+    """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
+    cols, rows = max(80, WIDTH // 7 - 1), max(24, HEIGHT // 15 - 1)
+    script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
+    return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+0+0", "-title", "Model Computer", "-e", "bash", "-c", script]
+
 def _spawn(command: list[str], env: dict[str, str], label: str, timeout_cpu: int = 7200) -> subprocess.Popen:
     log_dir = Path(env["HOME"]) / ".desktop"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -328,7 +335,7 @@ def _spawn_desktop(session: str) -> None:
             return
 
         terminal = _spawn(
-            ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", "104x30+12+12", "-title", "Model Computer"],
+            _terminal_command(),
             env,
             "terminal",
         )
@@ -559,7 +566,7 @@ def api_desktop_do(body: str) -> str:
         if action == "launch":
             app = str(job.get("app") or "")
             if app == "terminal":
-                cmd = ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", "104x30+12+12", "-title", "Model Computer"]
+                cmd = _terminal_command()
             elif app == "files":
                 if not shutil.which("pcmanfm"):
                     return json.dumps({"ok": False, "error": "The file manager is not installed in this Studio."})
