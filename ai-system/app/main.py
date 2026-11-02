@@ -1415,8 +1415,8 @@ def _enqueue_real_video(
 # other media request here is already free-text. None if the user
 # didn't mention a number, which quota.check_video_duration reads as
 # "use the plan default".
-_DURATION_SECONDS_RE = re.compile(r"(\d+)\s*(?:ثانية|ثواني|ثوان|seconds?|secs?|s)\b?", re.IGNORECASE)
-_DURATION_MINUTES_RE = re.compile(r"(\d+)\s*(?:دقيقة|دقائق|دقايق|min(?:ute)?s?)\b?", re.IGNORECASE)
+_DURATION_SECONDS_RE = re.compile(r"(\d+)\s*(?:ثواني|ثانية|ثوان|seconds?|secs?|s)", re.IGNORECASE)
+_DURATION_MINUTES_RE = re.compile(r"(\d+)\s*(?:دقيقة|دقائق|دقايق|min(?:ute)?s?)", re.IGNORECASE)
 
 
 def _parse_requested_seconds(prompt: str) -> int | None:
