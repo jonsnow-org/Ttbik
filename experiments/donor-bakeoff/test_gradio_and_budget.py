@@ -138,14 +138,19 @@ class ComputerExecutionContract(unittest.TestCase):
 
 
 class CandidateVideoDurationContract(unittest.TestCase):
-    def test_only_the_real_two_and_four_second_profiles_are_accepted(self):
+    def test_every_owner_selected_duration_is_preserved_exactly(self):
         f = load("_video_duration_seconds")["_video_duration_seconds"]
         self.assertEqual(f(), 4)
-        self.assertEqual(f(2), 2)
-        self.assertEqual(f(4), 4)
-        for unsupported in (1, 3, 5, 10, 15, 30, 60, 120, "4.5"):
-            with self.assertRaises(ValueError, msg=str(unsupported)):
-                f(unsupported)
+        for seconds in (2, 4, 10, 15, 30, 60, 120):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(f(seconds), seconds)
+
+    def test_invalid_fractional_or_unrequested_durations_are_rejected(self):
+        f = load("_video_duration_seconds")["_video_duration_seconds"]
+        for unsupported in (0, 1, 3, 5, 6, 8, 12, 20, 45, 90, 121, "4.5", float("nan"), float("inf")):
+            with self.subTest(seconds=unsupported):
+                with self.assertRaises(ValueError):
+                    f(unsupported)
 
 
 class TextToolFallback(unittest.TestCase):
