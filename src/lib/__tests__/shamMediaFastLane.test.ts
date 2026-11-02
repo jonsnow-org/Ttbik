@@ -33,6 +33,24 @@ describe("Sham media fast lane", () => {
     expect(msgs[0].a[1]).not.toMatch(/فهمت طلبك/);                          // no canned echo of the request
     expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });
+  it("passes the original Arabic video duration to Sham's own media route after translating the scene", async () => {
+    routeReply = { type: "video", b64: tiny, route: "sham_v2_video" };
+    const studio = await import("@/lib/shamStudio");
+    const translate = jest.spyOn(studio, "shamChatAuto").mockResolvedValue({
+      type: "text", text: "a rabbit running in a garden",
+    } as any);
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    try {
+      expect(await shamMediaFastLane(b, 77, "اصنع فيديو لأرنب لمدة 5 ثوانٍ")).toBe(true);
+      expect(routeCalls[0][0]).toBe("video");
+      expect(routeCalls[0][1]).toBe("a rabbit running in a garden");
+      expect(routeCalls[0][2]).toMatchObject({ seconds: 5 });
+      expect(calls.some((c) => c.m === "sendVideo")).toBe(true);
+    } finally {
+      translate.mockRestore();
+    }
+  });
   it("a failed route says so plainly and sends nothing", async () => {
     routeReply = { type: "error", text: "disk" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
