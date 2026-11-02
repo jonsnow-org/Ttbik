@@ -1041,6 +1041,14 @@ def _requested_video_seconds(text: str, fallback: int = 3) -> int:
     return max(1, min(5, int(fallback)))
 
 
+def _preserve_requested_video_duration(name: str, arguments: dict, original_prompt: str) -> dict:
+    """Keep a duration from the user's original message when a model tool call omits seconds."""
+    copied = dict(arguments) if isinstance(arguments, dict) else {}
+    if name == "generate_video" and copied.get("seconds") is None:
+        copied["seconds"] = _requested_video_seconds(original_prompt)
+    return copied
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1385,9 +1393,11 @@ def infer(
             prefetched = _run_reads_in_parallel(calls, tool_bridge)
             for call_index, call in enumerate(calls):
                 name = str(call.get("name") or "")
-                arguments = dict(call.get("arguments")) if isinstance(call.get("arguments"), dict) else {}
-                if name == "generate_video" and arguments.get("seconds") is None:
-                    arguments["seconds"] = _requested_video_seconds(prompt)
+                arguments = _preserve_requested_video_duration(
+                    name,
+                    call.get("arguments") if isinstance(call.get("arguments"), dict) else {},
+                    prompt,
+                )
                 call_id = "call_" + uuid.uuid4().hex[:16]
                 tool_result = prefetched.get(call_index) or _execute_tool(name, arguments, tool_bridge)
                 generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
