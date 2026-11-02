@@ -107,6 +107,7 @@ def main() -> int:
     parser.add_argument("--cfg", type=float, required=True)
     parser.add_argument("--out", default="/tmp/photo-weight-smoke.png")
     parser.add_argument("--timeout", type=int, default=1200)
+    parser.add_argument("--wait-ready-seconds", type=int, default=1800)
     args = parser.parse_args()
     base = args.api.rstrip("/")
     if not TOKEN:
@@ -114,11 +115,24 @@ def main() -> int:
     if not re.fullmatch(r"[a-f0-9]{64}", args.sha256, re.I):
         raise ValueError("Expected checkpoint SHA-256 is invalid.")
 
-    status = _normalize_single(_event_value(base, "status", [], 90))
-    if not isinstance(status, dict):
-        raise RuntimeError(f"Studio status is not a JSON object: {str(status)[:300]}")
-    if status.get("phase") != "ready":
-        raise RuntimeError("Studio is not ready: " + json.dumps(status, ensure_ascii=False)[:1200])
+    ready_deadline = time.monotonic() + max(90, args.wait_ready_seconds)
+    status = None
+    last_status_error = ""
+    while time.monotonic() < ready_deadline:
+        try:
+            status = _normalize_single(_event_value(base, "status", [], 90))
+            if isinstance(status, dict) and status.get("phase") == "ready":
+                break
+            if isinstance(status, dict) and status.get("phase") == "error":
+                last_status_error = str(status.get("error") or status)
+            else:
+                last_status_error = json.dumps(status, ensure_ascii=False)[:800]
+        except Exception as exc:
+            last_status_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+        print("waiting for selected image Studio:", last_status_error, flush=True)
+        time.sleep(15)
+    if not isinstance(status, dict) or status.get("phase") != "ready":
+        raise TimeoutError("Selected image Studio did not become ready: " + last_status_error[:1200])
     status_repo = str(status.get("model_repo") or status.get("modelscope_model_repo") or "")
     status_hash = str(status.get("checkpoint_sha256") or "")
     if status_repo != args.repo:
