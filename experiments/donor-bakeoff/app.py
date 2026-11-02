@@ -1026,7 +1026,7 @@ def _video_duration_seconds(value=4) -> int:
         seconds = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError("اختر مدة الفيديو: 2 أو 4 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية.") from exc
-    if not math.isfinite(seconds) or not seconds.is_integer() or int(seconds) not in supported:
+    if not seconds.is_integer() or int(seconds) not in supported:
         raise ValueError("مدة الفيديو غير مدعومة. الخيارات هي 2، 4، 10، 15، 30، 60، أو 120 ثانية.")
     return int(seconds)
 
