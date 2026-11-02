@@ -1,4 +1,4 @@
-// The model's free headless browser (ai-system/modelscope-media/browser_computer.py): real pages with JavaScript, clicking and typing, without Daytona's paid desktop.
+// The model's free headless browser (ai-system/modelscope-media/browser_computer.py): real pages with JavaScript, clicking and typing, without a paid external desktop service.
 // It runs inside the model's OWN media Studio, so nothing is shared with another model: Nova uses Nova's media Studio, each candidate its own sham-donor-<id>-media.
 // A session is one user of one model (`session` is derived by the caller from the verified account and the model; the Studio hashes it into a folder name).
 import { candidateMediaStudio } from "@/lib/photoWeightMedia";
