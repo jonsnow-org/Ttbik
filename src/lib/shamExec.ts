@@ -19,6 +19,8 @@ export interface ShamHost {
   /** What this run already read (a file, a scan, CI logs, a page): kept per run so a later step can look it up again. Sham's own rows (`sham-<chat>` / `sham:<chat>`). */
   bank: { add(runId: string, chatKey: string, step: number, tool: string, label: string, body: string, db: Db): Promise<void>; recall(runId: string, chatKey: string, query: string, n: number, db: Db): Promise<string> };
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
+  computer: { run(c: { chatId: number; modelId: string; db: Db }, tool: string, args: Record<string, unknown>): Promise<string> };
+  browser: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<string> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
@@ -61,6 +63,14 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("connector_api", "Call the REST API of a service the user connected in the app (google_drive, gmail, notion, vercel, supabase, slack, discord) with their own account. GET reads run directly; anything that writes waits for the user's confirmation.", obj({ service: s("connector id, e.g. notion"), method: s("GET (default), POST, PATCH, PUT, DELETE"), path: s("API path relative to the service's API base or a full https URL on that API"), body: { type: "object", description: "JSON body for POST/PATCH/PUT" } }, ["service", "path"])),
   tool("mcp_list_tools", "List the tools of an MCP server the user added in the app (id like mcp:ab12cd34ef).", obj({ server: s("MCP server id") }, ["server"])),
   tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
+  tool("computer_run", "Run a bash command in Sham's own persistent Linux computer inside this model's dedicated Studio (not another model's Studio). Use computer_job for work longer than 90 seconds.", obj({ command: s("bash command"), cwd: s("folder inside your home, optional"), timeout: n("seconds, 1-90") }, ["command"])),
+  tool("computer_write", "Write a text file into this user's private computer for this Sham model.", obj({ path: s("file path"), content: s("file content") }, ["path", "content"])),
+  tool("computer_read", "Read a file or list a folder on this user's private computer.", obj({ path: s("file or folder, default .") })),
+  tool("computer_job", "Manage a background job on this model's private computer: start{command,name}, log{id}, stop{id}, or list.", obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("command for start"), name: s("short label"), id: s("job id"), tail: n("lines to show, default 60") }, ["action"])),
+  tool("computer_edit", "Replace exact text in a file on your private computer; edits can be grouped atomically.", obj({ path: s("file"), old: s("exact text"), new: s("replacement"), replace_all: { type: "boolean" }, edits: { type: "array", items: obj({ old: s("exact text"), new: s("replacement") }, ["old", "new"]) } }, ["path"])),
+  tool("computer_repo", "Clone a public GitHub repository into your own persistent computer in one call.", obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
+  tool("computer_search", "Search files on your private computer using ripgrep.", obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
+  tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -294,6 +304,12 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       return await S.create(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events }, ctx.db);
     }
     const H0 = await host();
+    if (name.startsWith("computer_")) {
+      return clip(await H0.computer.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, name, a));
+    }
+    if (name === "browser") {
+      return clip(await H0.browser.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a));
+    }
     if (H0.sandbox.has(name)) {
       const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));
       if (!c) return "error: the weekly sandbox time is used up. Continue without running code.";
