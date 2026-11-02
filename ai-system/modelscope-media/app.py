@@ -27,6 +27,7 @@ import wave
 from pathlib import Path
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ.setdefault("CPU_VIDEO_KEEP", "1")  # keep Nova/candidate video weights resident between consecutive video requests
 HERE = Path(__file__).resolve().parent
 
 
@@ -281,6 +282,12 @@ def _root() -> Path:
 
 def _pipe():
     if _MODELS["pipe"] is None:
+        # The Studio has one limited RAM budget. Never keep SDXS and the much
+        # larger AnimateDiff UNet resident at the same time.
+        if _CV.get("pipe") is not None:
+            import gc
+            cv_release()
+            gc.collect()
         import torch
         from diffusers import AutoPipelineForText2Image
         torch.set_num_threads(os.cpu_count() or 2)
@@ -562,9 +569,45 @@ def cv_generate(root, prompt: str, seconds: float = 3.0, seed: int = 0, env_name
 # --- cpu_video END ---
 
 
+_VIDEO_ASSET_READY = threading.Event()
+_VIDEO_ASSET_LOCK = threading.Lock()
+_VIDEO_ASSET_STATE = {"phase": "pending", "error": ""}
+
+
+def _warm_video_assets() -> None:
+    """Download this Studio's private on-disk video weights after image/voice startup, without loading the video pipeline into RAM."""
+    with _VIDEO_ASSET_LOCK:
+        if _VIDEO_ASSET_READY.is_set():
+            return
+        _VIDEO_ASSET_STATE["phase"] = "downloading"
+        for attempt in range(1, 4):
+            try:
+                cv_fetch_weights(MODEL_STORE)
+                _VIDEO_ASSET_STATE["phase"] = "ready"
+                _VIDEO_ASSET_STATE["error"] = ""
+                return
+            except Exception as exc:  # noqa: BLE001
+                _VIDEO_ASSET_STATE["error"] = f"{type(exc).__name__}: {str(exc)[:220]}"
+                traceback.print_exc()
+                if attempt < 3:
+                    time.sleep(30 * attempt)
+        _VIDEO_ASSET_STATE["phase"] = "error"
+        _VIDEO_ASSET_READY.set()
+        return
+    _VIDEO_ASSET_READY.set()
+
+
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Real text-to-video on CPU (AnimateDiff-Lightning): one temporal diffusion pass, never stills stitched into a video. Weights live under HERE/video_animatediff."""
-    return cv_generate(HERE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    """Real text-to-video. Keep one heavy model resident; cache this Studio's weights in its persistent /mnt/workspace volume."""
+    if not _VIDEO_ASSET_READY.wait(timeout=1800):
+        raise RuntimeError("native-video-unavailable: this Studio's video weights did not finish downloading within 30 minutes")
+    if _VIDEO_ASSET_STATE["phase"] != "ready":
+        raise RuntimeError("native-video-unavailable: this Studio's own persistent video weights could not be prepared (" + _VIDEO_ASSET_STATE["error"][:200] + ")")
+    if _MODELS["pipe"] is not None:
+        _MODELS["pipe"] = None
+        import gc
+        gc.collect()
+    return cv_generate(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -620,17 +663,17 @@ def api_video(body: str) -> str:
 def _disk() -> dict:
     """The Studio's disk in GiB (total / used / free of the volume that holds the weights), for the capacity audit."""
     try:
-        d = shutil.disk_usage(HERE)
+        d = shutil.disk_usage(MODEL_STORE)
         return {"total_gb": round(d.total / 2 ** 30, 2), "used_gb": round(d.used / 2 ** 30, 2), "free_gb": round(d.free / 2 ** 30, 2)}
     except OSError:
         return {}
 
 
 def api_status() -> str:
-    ready = bool(_CV["pipe"] is not None or cv_find_weights(HERE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
+    ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
-        "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": ready, "pipeline_ready": _CV["pipe"] is not None, "free_noise": bool(_CV.get("free_noise")), "device": "cpu", "gpu_required": False, "profile": cv_profile(),
+        "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": ready, "pipeline_ready": _CV["pipe"] is not None, "free_noise": bool(_CV.get("free_noise")), "weights_phase": _VIDEO_ASSET_STATE["phase"], "weights_error": _VIDEO_ASSET_STATE["error"][:180], "device": "cpu", "gpu_required": False, "profile": cv_profile(),
                   "mode": "native-diffusion-only", "note": "real 3-5 s text-to-video at 8 fps; clips over 2 s use FreeNoise sliding temporal windows"},
     })
 
@@ -644,6 +687,7 @@ def _warm() -> None:
             _voice()
             STATE["phase"] = "ready"
             STATE["error"] = ""
+            threading.Thread(target=_warm_video_assets, daemon=True, name="video-weights-preload").start()
             return
         except Exception as exc:  # noqa: BLE001
             traceback.print_exc()
