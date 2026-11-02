@@ -1,0 +1,184 @@
+name: "Repair and live-test the five independent photo-weight Studios"
+
+# Code-only repair. Existing private model checkpoints and per-model routes are untouched.
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ai-system/modelscope-media/model_download.py
+      - scripts/ops/photo_weight_live_smoke.py
+      - experiments/epicrealism-image-test/app.py
+      - experiments/epicrealism-image-test/requirements.txt
+      - experiments/cyberrealistic-test/app.py
+      - experiments/cyberrealistic-test/requirements.txt
+      - experiments/gemma4-realistic-vision-v6-test/app.py
+      - experiments/gemma4-realistic-vision-v6-test/requirements.txt
+      - experiments/umranz-image-test/app.py
+      - experiments/umranz-image-test/requirements.txt
+      - experiments/realistic-vision-test/app.py
+      - experiments/realistic-vision-test/requirements.txt
+      - .github/workflows/deploy-photo-weight-studios.yml
+  workflow_dispatch: {}
+
+concurrency:
+  group: dedicated-photo-weight-studio-repair
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+
+jobs:
+  deploy-and-test:
+    name: ${{ matrix.photo.id }} dedicated image Studio
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        photo:
+          - id: nova-epicrealism
+            studio: epicrealism-image-test
+            source: experiments/epicrealism-image-test
+            model_repo: novaai2026/epicrealism-image-test-models
+            sha256: 657a6b9cf3594b1c30f1b7bc35418e07caaaa0ca668fbefb13bbecc5391181e0
+            aspect: "512 × 768"
+            steps: 24
+            cfg: 7
+          - id: qwen-cyberrealistic
+            studio: cyberrealistic-final-test
+            source: experiments/cyberrealistic-test
+            model_repo: novaai2026/cyberrealistic-final-test-models
+            sha256: 2209c07b331a06cb28cf7c830ec758ae5b49eb97fab21f5de6b18c7be8b41554
+            aspect: "512 × 768 (author recommended)"
+            steps: 24
+            cfg: 5
+          - id: gemma-realistic-vision
+            studio: gemma4-realistic-vision-v6-test
+            source: experiments/gemma4-realistic-vision-v6-test
+            model_repo: novaai2026/gemma4-realistic-vision-v6-test-models
+            sha256: c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7
+            aspect: "512 × 512"
+            steps: 25
+            cfg: 5.5
+          - id: minicpmo-umranz
+            studio: umranz-sd15-image-test
+            source: experiments/umranz-image-test
+            model_repo: novaai2026/umranz-sd15-test-models
+            sha256: 28e09ca1ce1f0682deda6df1039beaded321db379eea9c7cd850f15ea37ca0ed
+            aspect: "512 × 768"
+            steps: 24
+            cfg: 6.5
+          - id: sham-v2-realistic-vision
+            studio: realistic-vision-v6-test
+            source: experiments/realistic-vision-test
+            model_repo: novaai2026/realistic-vision-v6-test-models
+            sha256: c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7
+            aspect: "512 × 512"
+            steps: 25
+            cfg: 5.5
+    env:
+      REPO: ${{ matrix.photo.studio }}
+      API: https://studio-novaai2026-${{ matrix.photo.studio }}.api-inference.modelscope.net
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify this model's exact existing private Studio and model repo
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          EXPECTED_REPO: ${{ matrix.photo.model_repo }}
+        run: |
+          set -euo pipefail
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN is missing"; exit 1; }
+          code=$(curl -sS --connect-timeout 10 --max-time 30 -o studio.json -w '%{http_code}' \
+            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          [ "$code" = "200" ] || { echo "::error::Expected existing private Studio $OWNER/$REPO, HTTP $code"; cat studio.json; exit 1; }
+          echo "existing Studio confirmed: $OWNER/$REPO"
+          echo "expected private image repo: $EXPECTED_REPO"
+          echo "No model repo is created, deleted, renamed, or copied in this workflow."
+
+      - name: Update only this Studio's application code
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SOURCE: ${{ matrix.photo.source }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "photo Studio repair CI"
+          git config --global user.email "photo-studio-ci@users.noreply.github.com"
+          git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
+          cp "$SOURCE/app.py" ms-studio/app.py
+          cp "$SOURCE/requirements.txt" ms-studio/requirements.txt
+          cp ai-system/modelscope-media/model_download.py ms-studio/model_download.py
+          cd ms-studio
+          git add app.py requirements.txt model_download.py
+          git diff --cached --quiet || git commit -m "repair photo inference startup and ModelScope downloader ${GITHUB_SHA::8}"
+          git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
+
+      - name: Set this Studio's token and its exact photo weight repo
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PHOTO_REPO: ${{ matrix.photo.model_repo }}
+        run: |
+          python -m pip install -q "modelscope>=1.26.0"
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          token = os.environ["MODELSCOPE_TOKEN"]
+          studio = "novaai2026/" + os.environ["REPO"]
+          for key, value in (
+              ("MODELSCOPE_API_TOKEN", token),
+              ("PHOTO_MODEL_REPO", os.environ["PHOTO_REPO"]),
+          ):
+              try:
+                  api.add_studio_secret(studio, key, value)
+              except Exception:
+                  api.update_studio_secret(studio, key, value)
+          print("Studio secrets updated for its exact existing model repo.")
+          PY
+
+      - name: Deploy this Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS --connect-timeout 10 --max-time 30 -X POST \
+            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          echo "$response" | head -c 1500
+          echo
+
+      - name: Wait for this model's weights to load and generate a real image
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PHOTO_REPO: ${{ matrix.photo.model_repo }}
+          EXPECTED_SHA: ${{ matrix.photo.sha256 }}
+          ASPECT: ${{ matrix.photo.aspect }}
+          STEPS: ${{ matrix.photo.steps }}
+          CFG: ${{ matrix.photo.cfg }}
+          OUT: ${{ runner.temp }}/${{ matrix.photo.id }}.png
+        run: |
+          python -m pip install -q pillow numpy
+          python -m py_compile scripts/ops/photo_weight_live_smoke.py
+          python scripts/ops/photo_weight_live_smoke.py \
+            --api "$API" \
+            --repo "$PHOTO_REPO" \
+            --sha256 "$EXPECTED_SHA" \
+            --aspect "$ASPECT" \
+            --steps "$STEPS" \
+            --cfg "$CFG" \
+            --out "$OUT" \
+            --wait-ready-seconds 2400 \
+            --timeout 1500
+
+      - name: Preserve the actual generated image for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.photo.id }}-photo-smoke
+          path: ${{ runner.temp }}/${{ matrix.photo.id }}.png
+          if-no-files-found: ignore
