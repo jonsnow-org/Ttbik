@@ -46,7 +46,8 @@ describe("the tool list the model is shown", () => {
     expect(codeNotTried(code, [user, { role: "tool", name: "computer_write", content: "written" } as any], tools)).toBe(true);
     expect(codeNotTried(code, [user, { role: "tool", name: "sandbox_exec", content: "exit 0" } as any], tools)).toBe(true);
     expect(codeNotTried(code, [user, { role: "tool", name: "computer_run", content: "exit 0" } as any], tools)).toBe(false);
-    expect(codeNotTried(code, [user, { role: "tool", name: "computer_job", content: "job finished with exit 0" } as any], tools)).toBe(false);
+    expect(codeNotTried(code, [user, { role: "tool", name: "computer_job", content: "job started, read its log" } as any], tools)).toBe(true);
+    expect(codeNotTried(code, [user, { role: "tool", name: "computer_job", content: "job 123 finished with exit 0" } as any], tools)).toBe(false);
   });
 
   it("the parallel GitHub batch reader is v2-only", () => {
