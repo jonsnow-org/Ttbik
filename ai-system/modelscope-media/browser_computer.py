@@ -1,4 +1,4 @@
-"""A free headless browser for one model: the part of "the computer" that Daytona's desktop used to give (real pages with JavaScript, clicking, typing).
+"""A free headless browser for one model: an interactive web browser with JavaScript, clicking and typing.
 
 Runs inside the model's OWN media Studio (free 2 vCPU / 8 GB CPU): nothing is shared with another model, nothing is paid, nothing leaves the account.
 The app server calls it through the Studio's Gradio API (`browser_do`, `browser_status`); a session is one user of one model (the app derives the id).

@@ -1346,7 +1346,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   await endRun(st, "stopped", db, "conversation switched", key);
   if (st.convId) {
     const conv = st.convId;
-    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv, st.model)));
   }
   if (st.threadId) {
     await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
@@ -1376,7 +1376,7 @@ export async function stopRun(chatId: number, slot = "", runId?: string, db: Db 
   await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
   if (!slot && st.convId) {
     const conv = st.convId;
-    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv)));
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv, st.model)));
   }
   st.inbox = [];
   await saveState(chatId, st, db, slot);
@@ -2098,7 +2098,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await send(bot, chatId, `❓ ${q}${opts.length ? `\n\n${opts.map((o: string, i: number) => `${i + 1}. ${o}`).join("\n")}` : ""}\n\nاكتب جوابك هنا وأكمل المهمة.`);
         return;
       }
-      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "cloud_computer_screenshot" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
+      if ((call.function.name === "view_image" || call.function.name === "view_video" || call.function.name === "make_media") && (!run.agent || run.agentRole === "worker")) {
         // tools whose result is a picture the model is shown next (view_*), or a file made by Sham and sent to the chat (make_media): they need the chat, so they run here
         const a = parseArgs(call);
         let out = "";
@@ -2156,59 +2156,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             }
           } else {
             const { anyVisionStudio } = await import("@/lib/openCoderStudio");
-            if (call.function.name === "cloud_computer_screenshot") {
-              const { cloudComputerScreenshot, cloudComputerOcrScreenshot, cloudComputerVisionDescribeScreenshot, cloudComputerAction } = await import("@/lib/cloudComputer");
-              const shotArgs = parseArgs(call);
-              const rawRegion = shotArgs.region && typeof shotArgs.region === "object" ? shotArgs.region as Record<string, unknown> : null;
-              const options = {
-                ...(rawRegion ? { region: { x: Number(rawRegion.x) || 0, y: Number(rawRegion.y) || 0, width: Number(rawRegion.width) || 1, height: Number(rawRegion.height) || 1 } } : {}),
-                compressed: shotArgs.compressed === true,
-                format: shotArgs.format === "jpeg" ? "jpeg" as const : "png" as const,
-                quality: Number(shotArgs.quality) || 85,
-                scale: Number(shotArgs.scale) || 1,
-              };
-              const computerCtx = { chatId, modelId: ctx.modelId || st.model || "coder", tier: ctx.tier, db };
-              const file = await cloudComputerScreenshot(computerCtx, options);
-              if (!file?.bytes?.length) out = "error: the private cloud desktop returned an empty screenshot.";
-              else {
-                const [windows, tree, ocr, visionReady] = await Promise.all([
-                  cloudComputerAction(computerCtx, "windows").catch((e) => ({ error: String((e as Error)?.message || e).slice(0, 160) })),
-                  cloudComputerAction(computerCtx, "accessibility_tree", { scope: "all", max_depth: 8 }).catch((e) => ({ error: String((e as Error)?.message || e).slice(0, 160) })),
-                  cloudComputerOcrScreenshot(computerCtx, file.bytes, options.format === "jpeg" ? "image/jpeg" : "image/png").catch((e) => "OCR error: " + String((e as Error)?.message || e).slice(0, 220)),
-                  anyVisionStudio().catch(() => false),
-                ]);
-                const description = [
-                  "This is the selected model's own persistent cloud desktop.",
-                  "Active windows: " + JSON.stringify(windows).slice(0, 3500),
-                  "Accessibility tree: " + JSON.stringify(tree).slice(0, 8000),
-                  "Visible text (Arabic + English OCR from this same isolated computer): " + String(ocr).slice(0, 12000),
-                ].join("\n");
-                if (visionReady) {
-                  const img = await toModelImage(file.bytes, 1024);
-                  if (img) {
-                    shown = [img];
-                    from = "the selected model's private cloud desktop";
-                    out = description + "\nThe screenshot is also attached as a visual input. Correlate its pixels with the accessibility tree and OCR; verify actions with a new screenshot.";
-                  } else out = description + "\nImage conversion was unavailable; use the accessibility tree and OCR text above.";
-                } else {
-                  const visual = await cloudComputerVisionDescribeScreenshot(
-                    computerCtx,
-                    file.bytes,
-                    options.format === "jpeg" ? "image/jpeg" : "image/png",
-                    "Describe this live computer screen. Identify visual regions, active application, UI elements, controls and approximate normalized coordinates. Return JSON; use Arabic if the user is speaking Arabic. Do not guess unreadable content.",
-                  ).catch((error): Record<string, any> => ({ ok: false, state: "error", detail: String((error as Error)?.message || error).slice(0, 300) }));
-                  if (visual.ok && visual.description) {
-                    out = description + "\nLocal visual-perception sidecar (runs inside this exact account+model VM; no screenshot leaves the VM):\n" + String(visual.description).slice(0, 10000) +
-                      "\nUse the visual coordinates together with the accessibility tree. Verify every UI action with a fresh screenshot.";
-                  } else {
-                    out = description + "\nThe model has no native image projector in its current route. Its private visual-perception sidecar is " +
-                      String(visual.state || "starting") + (visual.detail ? ": " + String(visual.detail).slice(0, 250) : "") +
-                      ". OCR and the accessibility tree remain available. Never invent visual details that are not visible in those results.";
-                  }
-                }
-              }
-            }
-            else if (!(await anyVisionStudio())) out = "error: no vision-capable route is configured for reading this external picture. Use cloud_computer_screenshot for the computer, which provides OCR and accessibility text without requiring model vision.";
+            if (!(await anyVisionStudio())) out = "error: no vision-capable route is configured for reading this external picture.";
             else if (call.function.name === "view_image") {
               let bytes: Buffer | null = null;
               if (a.url) {

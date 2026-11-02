@@ -24,11 +24,6 @@ import {
 } from "./parts";
 
 const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
-const CloudComputerWorkspace = dynamic(
-  () => import("../_native/NativeApp").then((module) => module.CloudComputerWorkspace),
-  { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> },
-);
-
 type Tab = "home" | "chats" | "computer" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
 type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };

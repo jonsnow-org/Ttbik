@@ -146,6 +146,59 @@ describe("sandbox", () => {
     expect(await runSandboxTool("sandbox_read_file", { path: "e.ts" }, ctx)).toMatch(/a = 9\nb = 3\nb = 3/);
     expect(await runSandboxTool("sandbox_search", {}, ctx)).toMatch(/give a pattern/);
   });
+  it("falls back to the selected model's own ModelScope Studio and keeps the task session private", async () => {
+    const priorToken = process.env.MODELSCOPE_API_TOKEN;
+    const priorBackend = process.env.SANDBOX_BACKEND;
+    const priorLight = process.env.CODER_LIGHT;
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    process.env.SANDBOX_BACKEND = "off";          // no Oracle VM; test the model-owned Linux fallback directly
+    process.env.CODER_LIGHT = "off";
+    const events = new Map<string, any>();
+    const calls: { url: string; payload: any }[] = [];
+    let seq = 0;
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/gradio_api/call/box_do")) {
+        const raw = JSON.parse(String(init?.body || "{}")).data[0] as string;
+        const decoded = raw.startsWith("b64:") ? Buffer.from(raw.slice(4), "base64").toString("utf8") : raw;
+        const payload = JSON.parse(decoded);
+        const event = String(++seq);
+        events.set(event, payload);
+        calls.push({ url, payload });
+        return new Response(JSON.stringify({ event_id: event }), { status: 200 });
+      }
+      const event = url.split("/").pop() || "";
+      const payload = events.get(event);
+      let result: any = { ok: false, error: "unexpected test action" };
+      if (payload?.action === "status") {
+        result = { ok: true, your_disk_mb: 0, jobs_running: 0, capacity: { can_accept: true, active_jobs: 0, available_mb: 4096 } };
+      } else if (payload?.action === "job_start") {
+        result = { ok: true, id: "job12345", message: "running" };
+      } else if (payload?.action === "read" && String(payload.path).endsWith(".exit")) {
+        result = { ok: true, kind: "file", text: "0\n" };
+      } else if (payload?.action === "read" && String(payload.path).endsWith(".out")) {
+        result = { ok: true, kind: "file", text: "ModelScope task output" };
+      }
+      return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify(result)]) + "\n\n", { status: 200 });
+    }) as any;
+    try {
+      const out = await runSandboxTool("sandbox_exec", { command: "echo model-scope" }, {
+        chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "minicpmo45", userId: "42", fetchImpl,
+      });
+      expect(out).toContain("new sandbox (model-owned ModelScope Linux workspace");
+      expect(out).toContain("exit code 0\nModelScope task output");
+      expect(calls.length).toBeGreaterThanOrEqual(4);
+      expect(calls.every((c) => c.url.includes("sham-donor-minicpmo45-media"))).toBe(true);
+      expect(calls.every((c) => c.payload.session.startsWith("task:"))).toBe(true);
+      expect(calls.some((c) => c.payload.action === "job_start")).toBe(true);
+      expect(calls.some((c) => c.payload.action === "status")).toBe(true);
+    } finally {
+      if (priorToken === undefined) delete process.env.MODELSCOPE_API_TOKEN; else process.env.MODELSCOPE_API_TOKEN = priorToken;
+      if (priorBackend === undefined) delete process.env.SANDBOX_BACKEND; else process.env.SANDBOX_BACKEND = priorBackend;
+      if (priorLight === undefined) delete process.env.CODER_LIGHT; else process.env.CODER_LIGHT = priorLight;
+    }
+  });
+
   it("refuses dark-web tooling", async () => {
     setSandboxDriver(fakeDriver().d);
     for (const c of ["sudo dnf install tor", "torsocks curl http://x.onion", "curl http://abc.onion/", "i2pd --daemon"]) expect(await runSandboxTool("sandbox_exec", { command: c }, ctx)).toMatch(/not allowed/);

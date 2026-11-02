@@ -515,10 +515,15 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
 
 
 def _run(kind: str, payload: dict) -> dict:
+    if desktop_computer is not None and desktop_computer.any_active():
+        return {"type": "busy", "reason": "the model's graphical desktop currently uses this Studio's execution slot"}
     if not _LOCK.acquire(blocking=False):
         return {"type": "busy"}
     t0 = time.time()
     try:
+        # Recheck after acquiring the media lock to close the desktop/generation race.
+        if desktop_computer is not None and desktop_computer.any_active():
+            return {"type": "busy", "reason": "the model's graphical desktop currently uses this Studio's execution slot"}
         STATE["phase"] = f"making {kind}"
         if kind == "image":
             img = _make_image(str(payload.get("prompt", "")), payload.get("size", 512), payload.get("seed", 0))
@@ -602,6 +607,57 @@ try:
     import computer_box
 except Exception:                                                             # noqa: BLE001  (the media Studio works without the computer)
     computer_box = None
+try:
+    import desktop_computer
+except Exception:                                                             # noqa: BLE001  (optional GUI; the model/media Studio remains usable without it)
+    desktop_computer = None
+
+
+def api_desktop_do(body: str) -> str:
+    if desktop_computer is None:
+        return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
+    # The app-server sends computer/browser/desktop calls as "b64:<base64>"
+    # because the Studio gateway rejects some shell-like text in ordinary JSON.
+    # Accept both the protected wire format and plain JSON for older clients.
+    wire = str(body or "{}")
+    if wire.startswith("b64:"):
+        encoded = wire[4:]
+        if len(encoded) > 128_000:
+            return json.dumps({"ok": False, "error": "desktop request is too large"})
+        try:
+            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
+    try:
+        request = json.loads(wire or "{}")
+    except (TypeError, ValueError):
+        return json.dumps({"ok": False, "error": "invalid desktop request"})
+    if not isinstance(request, dict):
+        return json.dumps({"ok": False, "error": "desktop request must be an object"})
+    normalized = json.dumps(request, ensure_ascii=False)
+    if str(request.get("action") or "").lower() == "start":
+        if not _LOCK.acquire(blocking=False):
+            return json.dumps({"ok": False, "phase": "busy", "error": "this Studio is generating media; retry desktop start after it finishes"})
+        try:
+            return desktop_computer.api_desktop_do(normalized)
+        finally:
+            _LOCK.release()
+    return desktop_computer.api_desktop_do(normalized)
+
+
+def api_browser_do(body: str) -> str:
+    if desktop_computer is not None and desktop_computer.any_active():
+        return json.dumps({"ok": False, "error": "the graphical desktop is active; stop it before using the headless browser"})
+    if browser_computer is None:
+        return json.dumps({"ok": False, "error": "the browser module is unavailable"})
+    return browser_computer.api_browser_do(body)
+
+
+def api_browser_status() -> str:
+    if browser_computer is None:
+        return json.dumps({"phase": "unavailable", "error": "the browser module is unavailable"})
+    return browser_computer.api_browser_status()
+
 
 if __name__ == "__main__":
     import gradio as gr
@@ -618,9 +674,11 @@ if __name__ == "__main__":
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
         gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
         if browser_computer is not None:      # this model's own free headless browser (see browser_computer.py)
-            gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
-            gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
+            gr.Button("browser_do", visible=False).click(api_browser_do, box, out, api_name="browser_do")
+            gr.Button("browser_status", visible=False).click(api_browser_status, None, out, api_name="browser_status")
         if computer_box is not None:          # this model's own free persistent Linux computer: shell, files, background jobs (see computer_box.py)
             gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
             gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
+        if desktop_computer is not None:       # graphical desktop: Xvfb/Openbox over the authenticated Gradio API
+            gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

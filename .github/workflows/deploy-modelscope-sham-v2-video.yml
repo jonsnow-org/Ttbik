@@ -11,6 +11,7 @@ on:
       - ai-system/modelscope-sham-video/**
       - ai-system/modelscope-media/computer_box.py
       - ai-system/modelscope-media/browser_computer.py
+      - ai-system/modelscope-media/desktop_computer.py
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/sham_v2_video_probe.py
@@ -80,9 +81,9 @@ jobs:
           git config --global user.name "sham video CI"
           git config --global user.email "ci@sham-video.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-sham-video/app.py ai-system/modelscope-sham-video/requirements.txt ai-system/colab/sham_small/cpu_video.py ai-system/colab/sham_small/media_quality.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/browser_computer.py ms-studio/
+          cp ai-system/modelscope-sham-video/app.py ai-system/modelscope-sham-video/requirements.txt ai-system/colab/sham_small/cpu_video.py ai-system/colab/sham_small/media_quality.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/desktop_computer.py ms-studio/
           cd ms-studio
-          git add app.py requirements.txt cpu_video.py media_quality.py computer_box.py browser_computer.py
+          git add app.py requirements.txt cpu_video.py media_quality.py computer_box.py browser_computer.py desktop_computer.py
           git diff --cached --quiet && echo "no change" || git commit -m "sham-v2-video: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 

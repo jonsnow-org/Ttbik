@@ -19,14 +19,8 @@ export interface ShamHost {
   /** What this run already read (a file, a scan, CI logs, a page): kept per run so a later step can look it up again. Sham's own rows (`sham-<chat>` / `sham:<chat>`). */
   bank: { add(runId: string, chatKey: string, step: number, tool: string, label: string, body: string, db: Db): Promise<void>; recall(runId: string, chatKey: string, query: string, n: number, db: Db): Promise<string> };
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
-  computer: {
-    status(c: { chatId: number; modelId: string; owner: boolean; db: Db }): Promise<Record<string, unknown>>;
-    execute(c: { chatId: number; modelId: string; owner: boolean; db: Db }, command: string, cwd?: string, timeoutMs?: number): Promise<Record<string, unknown>>;
-    writeFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string, content: string): Promise<Record<string, unknown>>;
-    readFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string): Promise<{ path: string; bytes: Buffer } | null>;
-    action(c: { chatId: number; modelId: string; owner: boolean; db: Db }, action: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>;
-    screenshot(c: { chatId: number; modelId: string; owner: boolean; db: Db }, options?: { region?: { x: number; y: number; width: number; height: number }; compressed?: boolean; format?: "png" | "jpeg"; quality?: number; scale?: number }): Promise<{ path: string; bytes: Buffer } | null>;
-  };
+  computer: { run(c: { chatId: number; modelId: string; db: Db }, tool: string, args: Record<string, unknown>): Promise<string> };
+  browser: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<string> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
@@ -69,21 +63,14 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("connector_api", "Call the REST API of a service the user connected in the app (google_drive, gmail, notion, vercel, supabase, slack, discord) with their own account. GET reads run directly; anything that writes waits for the user's confirmation.", obj({ service: s("connector id, e.g. notion"), method: s("GET (default), POST, PATCH, PUT, DELETE"), path: s("API path relative to the service's API base or a full https URL on that API"), body: { type: "object", description: "JSON body for POST/PATCH/PUT" } }, ["service", "path"])),
   tool("mcp_list_tools", "List the tools of an MCP server the user added in the app (id like mcp:ab12cd34ef).", obj({ server: s("MCP server id") }, ["server"])),
   tool("mcp_call", "Call a tool on an MCP server the user added in the app. Waits for the user's confirmation.", obj({ server: s("MCP server id"), tool: s("tool name"), arguments: { type: "object", description: "tool arguments" } }, ["server", "tool"])),
-  tool("cloud_computer_status", "Inspect the persistent Linux desktop assigned to the current user and this Sham variant.", obj({})),
-  tool("cloud_computer_execute", "Run a full shell command inside your own persistent isolated Linux computer. Package installation, browsers, compilers and background processes are available inside this VM.", obj({ command: s("shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
-  tool("cloud_computer_write_file", "Write a file into your persistent Linux computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
-  tool("cloud_computer_read_file", "Read a file from your persistent Linux computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
-  tool("cloud_computer_action", "Full Computer Use: mouse move/click/drag/position/scroll; keyboard type/key/hotkey; accessibility tree/find/focus/invoke/set value; display and windows; process status/restart/logs/errors; screen recording start/stop/list/get/delete/download.", obj({
-    action: { type: "string", enum: ["click","move","drag","mouse_position","type","press","hotkey","scroll","windows","display_info","desktop_status","accessibility_tree","accessibility_find","accessibility_focus","accessibility_invoke","accessibility_set_value","recording_start","recording_stop","recording_list","recording_get","recording_delete","recording_download","process_status","process_restart","process_logs","process_errors"] },
-    x: n("screen x"), y: n("screen y"), start_x: n("drag start x"), start_y: n("drag start y"), end_x: n("drag end x"), end_y: n("drag end y"),
-    width: n("region width"), height: n("region height"), button: s("left | middle | right"), double: { type: "boolean" },
-    text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"),
-    direction: s("up | down"), amount: n("scroll amount"), scope: s("focused | all | pid"), pid: n("process id"), max_depth: n("accessibility tree depth"),
-    role: s("accessibility role"), name: s("accessible name"), name_match: s("exact | substring | regex"), states: { type: "array", items: s("visible | enabled | focusable | focused") }, limit: n("result count"),
-    node_id: s("accessibility node id"), node_action: s("node action"), value: s("accessibility value"), process: s("desktop process name"),
-    id: s("recording id"), recording_id: s("recording id"), path: s("download destination inside VM"),
-  }, ["action"])),
-  tool("cloud_computer_screenshot", "Take a full or region screenshot of the desktop and understand it with Sham's own vision model and Studio.", obj({ region: { type: "object", properties: { x: n("x"), y: n("y"), width: n("width"), height: n("height") } }, compressed: { type: "boolean" }, format: s("png | jpeg"), quality: n("quality 1-100"), scale: n("scale 0.1-1") })),
+  tool("computer_run", "Run a bash command in Sham's own persistent Linux computer inside this model's dedicated Studio (not another model's Studio). Use computer_job for work longer than 90 seconds.", obj({ command: s("bash command"), cwd: s("folder inside your home, optional"), timeout: n("seconds, 1-90") }, ["command"])),
+  tool("computer_write", "Write a text file into this user's private computer for this Sham model.", obj({ path: s("file path"), content: s("file content") }, ["path", "content"])),
+  tool("computer_read", "Read a file or list a folder on this user's private computer.", obj({ path: s("file or folder, default .") })),
+  tool("computer_job", "Manage a background job on this model's private computer: start{command,name}, log{id}, stop{id}, or list.", obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("command for start"), name: s("short label"), id: s("job id"), tail: n("lines to show, default 60") }, ["action"])),
+  tool("computer_edit", "Replace exact text in a file on your private computer; edits can be grouped atomically.", obj({ path: s("file"), old: s("exact text"), new: s("replacement"), replace_all: { type: "boolean" }, edits: { type: "array", items: obj({ old: s("exact text"), new: s("replacement") }, ["old", "new"]) } }, ["path"])),
+  tool("computer_repo", "Clone a public GitHub repository into your own persistent computer in one call.", obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
+  tool("computer_search", "Search files on your private computer using ripgrep.", obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
+  tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -317,40 +304,11 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       return await S.create(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events }, ctx.db);
     }
     const H0 = await host();
-    const computerCtx = { chatId: ctx.chatId, modelId: ctx.modelId, owner: ctx.owner, db: ctx.db };
-    // Sham's computer is the free one inside its OWN Studio when it has one (Sham v2: sham-v2-video-server): shell, files, jobs, browser. The old paid desktop is only the fallback.
-    if (name === "cloud_computer_status" || name === "cloud_computer_execute" || name === "cloud_computer_write_file" || name === "cloud_computer_read_file") {
-      const { browserStudioFor } = await import("@/lib/browserComputer");
-      if (browserStudioFor(ctx.modelId)) {
-        const { boxRaw } = await import("@/lib/computerBox");
-        const session = `${ctx.chatId}:${ctx.modelId}`;
-        if (name === "cloud_computer_status") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "status" })));
-        if (name === "cloud_computer_execute") {
-          const r = await boxRaw(ctx.modelId, session, { action: "run", command: String(a.command || ""), cwd: typeof a.cwd === "string" ? a.cwd : undefined, timeout: Math.max(1, Math.min(90, Number(a.timeout_seconds) || 60)) });
-          return clip([r.output, r.hint, r.error].filter(Boolean).join("\n") || JSON.stringify(r), 12000);
-        }
-        if (name === "cloud_computer_write_file") return clip(JSON.stringify(await boxRaw(ctx.modelId, session, { action: "write", path: String(a.path || ""), content: String(a.content || "") })));
-        const r = await boxRaw(ctx.modelId, session, { action: "read", path: String(a.path || "") });
-        return r.ok === false ? "error: " + String(r.error || "file not found") : clip(String(r.text ?? JSON.stringify(r)), 12000);
-      }
+    if (name.startsWith("computer_")) {
+      return clip(await H0.computer.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, name, a));
     }
-    if (name === "cloud_computer_status") return clip(await H0.computer.status(computerCtx));
-    if (name === "cloud_computer_execute") {
-      const result = await H0.computer.execute(computerCtx, String(a.command || ""), typeof a.cwd === "string" ? a.cwd : undefined, Math.max(1000, Math.min(300000, (Number(a.timeout_seconds) || 120) * 1000)));
-      return clip(result, 12000);
-    }
-    if (name === "cloud_computer_write_file") return clip(await H0.computer.writeFile(computerCtx, String(a.path || ""), String(a.content || "")));
-    if (name === "cloud_computer_read_file") {
-      const file = await H0.computer.readFile(computerCtx, String(a.path || ""));
-      return file ? clip(file.bytes.toString("utf8"), 12000) : "error: file not found";
-    }
-    if (name === "cloud_computer_action") return clip(await H0.computer.action(computerCtx, String(a.action || ""), a));
-    if (name === "cloud_computer_screenshot") {
-      const rawRegion = a.region && typeof a.region === "object" ? a.region as Record<string, unknown> : null;
-      const file = await H0.computer.screenshot(computerCtx, { ...(rawRegion ? { region: { x: Number(rawRegion.x) || 0, y: Number(rawRegion.y) || 0, width: Number(rawRegion.width) || 1, height: Number(rawRegion.height) || 1 } } : {}), compressed: a.compressed === true, format: a.format === "jpeg" ? "jpeg" : "png", quality: Number(a.quality) || 85, scale: Number(a.scale) || 1 });
-      if (!file) return "error: the selected model's cloud desktop is unavailable.";
-      const vision = await shamUnderstandImage(file.bytes.toString("base64"), "اشرح صورة شاشة حاسوبك الحالية، وحدد ما يظهر والنافذة النشطة والخيارات المتاحة.", 90000);
-      return clip(vision, 5000);
+    if (name === "browser") {
+      return clip(await H0.browser.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a));
     }
     if (H0.sandbox.has(name)) {
       const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));

@@ -1,13 +1,14 @@
-// A virtual computer per task for the coder agent. Zero-cost policy:
-//   1. Oracle: one isolated, capped Linux container per task on our existing Always Free VM.
-//   2. Light: in-process QuickJS/WebAssembly JavaScript runner (no shell/npm/network), used when Oracle is down, busy or low on RAM.
-// Vercel Sandbox, CodeSandbox VM, GitHub Codespaces, Daytona and E2B are disabled from automatic selection because their VM usage
-// is metered, relies on personal credits, or has an account-level $0 spending cap that could not be verified.
-// We do not silently use those providers if Oracle runs out of capacity or credit. SANDBOX_BACKEND can select Oracle or Light only.
+// A virtual computer per task. Zero-cost placement policy:
+//   1. ModelScope: first choice, inside the selected model's OWN media Studio only.
+//   2. Oracle: second Linux worker when that Studio is unavailable or at capacity.
+//   3. Light: last-resort QuickJS/WASM for simple JS when neither Linux worker can accept the task.
+// GitHub Actions remains an artifact-based batch lane for builds/tests, not a persistent shell or live desktop.
+// No worker may borrow another model's Studio or weights. ModelScope admission is Studio-wide and memory-gated.
 // Tools: sandbox_clone, sandbox_exec (+ sandbox_wait for long commands), sandbox_write_file, sandbox_read_file.
 // The GitHub token is used only for an explicit clone/push and scrubbed from output. No dark-web tooling is run.
 import { createHash, randomUUID } from "crypto";
 import { oracleConfigured } from "@/lib/coderSandboxRunner";
+import { browserStudioFor } from "@/lib/browserComputer";
 
 export type ExecResult = { exitCode: number | null; stdout: string; stderr: string };
 export interface SbxHandle {
@@ -102,20 +103,19 @@ export function vercelDriver(): SbxDriver {
 export type Backend = { id: string; driver: SbxDriver };
 /** Backend ids in order of use; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
 /**
- * Zero-cost execution policy (2026-11-01):
- * Oracle is the only full Linux VM backend enabled automatically.
- * Metered and personal-credit backends are deliberately excluded.
- * If Oracle is unavailable, runLightTool is the only automatic fallback.
- * SANDBOX_BACKEND can select Oracle or disable VM execution; it cannot opt into
- * a provider that may bill the account.
+ * Zero-cost three-tier policy (2026-11-02):
+ * The selected model's own free ModelScope Studio is the first Linux worker.
+ * Oracle is the second Linux worker and yields to Sham's protected memory reserve.
+ * GitHub Actions is reserved for short-lived CI/build/test batches that return artifacts.
+ * Metered and personal-credit desktop providers remain disabled.
  */
 export const VM_BACKENDS = ["oracle"] as const;
-export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
+export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "e2b"] as const;
 const RUNNER_BACKENDS = new Set(["oracle"]);
 export function backendConfigured(id: string): boolean {
   return id === "oracle" && oracleConfigured();
 }
-/** The only full VM permitted by the zero-cost policy. Empty means Light-only mode. */
+/** Oracle is the only external Linux VM permitted by the zero-cost policy. */
 export function backendOrder(env = (process.env.SANDBOX_BACKEND || "oracle").trim().toLowerCase()): string[] {
   if (!env || env === "auto" || env === "oracle") return backendConfigured("oracle") ? ["oracle"] : [];
   if (env === "off" || env === "none" || env === "light") return [];
@@ -142,11 +142,6 @@ export function setSandboxBackends(b: Backend[] | null): void {
   backendsOverride = b;
   cooling.clear();
 }
-function backends(): Backend[] {
-  if (backendsOverride) return backendsOverride;
-  if (driverOverride) return [{ id: "vercel", driver: driverOverride }];
-  return backendOrder().map((id) => ({ id, driver: driverFor(id) }));
-}
 // a backend that said "quota / capacity" is skipped for a while (per server instance)
 const cooling = new Map<string, number>();
 const COOL_MS = () => Math.max(60000, Number(process.env.CODER_SANDBOX_COOLDOWN_MS || 3600000));
@@ -165,12 +160,122 @@ export function sandboxHealth(now = Date.now()): { id: string; configured: boole
   return rows;
 }
 
-export type SbxCtx = { chatKey?: string; runId?: string; githubToken?: string | null; owner?: boolean; db?: import("@/lib/coderAuth").Db };
+export type SbxCtx = {
+  chatKey?: string;
+  runId?: string;
+  modelId?: string;
+  userId?: number | string;
+  githubToken?: string | null;
+  owner?: boolean;
+  db?: import("@/lib/coderAuth").Db;
+  fetchImpl?: typeof fetch;
+};
+
+/** Each task gets a private workspace inside its selected model's own Studio. No generic/shared Studio fallback exists. */
+function modelScopeDriver(ctx: SbxCtx): SbxDriver {
+  const modelId = String(ctx.modelId || "");
+  const session = "task:" + createHash("sha256")
+    .update([String(ctx.chatKey || ""), modelId, String(ctx.runId || "")].join("|"))
+    .digest("hex");
+  const taskJobs = new Map<string, string>();
+  const call = async (args: Record<string, unknown>): Promise<Record<string, any>> => {
+    const { boxRaw } = await import("@/lib/computerBox");
+    return boxRaw(modelId, session, args as any, ctx.fetchImpl);
+  };
+  const shellQuote = (value: unknown) => "'" + String(value).replace(/'/g, "'\\''") + "'";
+  const handle = (): SbxHandle => ({
+    home: "/",
+    async exec(cmd, args, opts) {
+      const command = [cmd, ...args].map(shellQuote).join(" ");
+      const tailMarker = "/tmp/coder-cmd/";
+      const tailIndex = command.indexOf(tailMarker);
+      const tailPath = tailIndex >= 0 ? command.slice(tailIndex).split(" ")[0] : "";
+      // Only intercept the explicit short tail read used by waitFor().
+      // The detached start script itself also contains /tmp/coder-cmd/*.out;
+      // treating that as a read suppresses job_start and silently skips work.
+      if (tailPath && command.includes("tail -c")) {
+        const result = await call({ action: "read", path: tailPath });
+        return { exitCode: result?.ok ? 0 : 1, stdout: String(result?.text || ""), stderr: String(result?.error || "") };
+      }
+      if (opts.detached) {
+        const id = command.match(/\/tmp\/coder-cmd\/([a-f0-9]{8})\.out/)?.[1] || "";
+        const result = await call({ action: "job_start", command, name: id ? "task-" + id : "sandbox-task" });
+        if (!result?.ok || !result.id) throw new Error(String(result?.error || "ModelScope refused the background task"));
+        if (id) taskJobs.set(id, String(result.id));
+        return { exitCode: null, stdout: "", stderr: "" };
+      }
+      const result = await call({ action: "run", command, cwd: opts.cwd || ".", timeout: Math.min(90, Math.max(1, Math.ceil(opts.timeoutMs / 1000))) });
+      return {
+        exitCode: typeof result?.exit_code === "number" ? result.exit_code : result?.ok ? 0 : 1,
+        stdout: String(result?.output || ""),
+        stderr: String(result?.error || ""),
+      };
+    },
+    async write(files) {
+      for (const file of files) {
+        const result = await call({ action: "write", path: file.path, content: file.content.toString("utf8") });
+        if (!result?.ok) throw new Error(String(result?.error || "ModelScope file write failed"));
+      }
+    },
+    async read(path) {
+      const result = await call({ action: "read", path });
+      if (!result?.ok || result.kind !== "file") return null;
+      return Buffer.from(String(result.text || ""), "utf8");
+    },
+    async extend() {
+      // The ModelScope workspace belongs to a Studio; it is not a separately billed VM.
+    },
+    async stop() {
+      const listing = await call({ action: "job_list" }).catch(() => null);
+      const jobs = Array.isArray(listing?.jobs) ? listing.jobs : [];
+      for (const job of jobs) {
+        if (job?.running && typeof job.id === "string") await call({ action: "job_stop", id: job.id }).catch(() => null);
+      }
+      taskJobs.clear();
+    },
+  });
+  return {
+    async get(name) {
+      const expected = sandboxName(String(ctx.chatKey || ""), String(ctx.runId || ""));
+      if (name !== expected) return null;
+      const status = await call({ action: "status" }).catch(() => null);
+      if (!status?.ok) return null;
+      if (Number(status.your_disk_mb || 0) > 0 || Number(status.jobs_running || 0) > 0) return handle();
+      return null;
+    },
+    async create(name) {
+      const expected = sandboxName(String(ctx.chatKey || ""), String(ctx.runId || ""));
+      if (name !== expected) throw new Error("ModelScope task identity mismatch");
+      const status = await call({ action: "status" });
+      if (!status?.ok) throw new Error(String(status?.error || "ModelScope computer is not ready"));
+      if (status.capacity?.can_accept !== true) {
+        throw new Error(String(status?.capacity?.reason || "ModelScope Studio is busy or below its safe memory reserve"));
+      }
+      return handle();
+    },
+  };
+}
+
+function backends(ctx?: SbxCtx): Backend[] {
+  if (backendsOverride) return backendsOverride;
+  if (driverOverride) return [{ id: "vercel", driver: driverOverride }];
+  // Oracle is the primary, independently provisioned Linux worker. It has
+  // its own capacity gate and protects Sham's machine when the model is busy.
+  const oracle = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
+  // On Oracle refusal, fall back only to this selected model's own Studio.
+  // That admission check reads live free memory and the Studio-wide slot.
+  const modelScope: Backend[] = (
+    ctx?.modelId && ctx.chatKey && ctx.runId &&
+    browserStudioFor(ctx.modelId) &&
+    (process.env.MODELSCOPE_API_TOKEN || "").trim()
+  ) ? [{ id: "modelscope", driver: modelScopeDriver(ctx) }] : [];
+  return [...oracle, ...modelScope];
+}
 
 async function open(ctx: SbxCtx): Promise<{ sb: SbxHandle; fresh: boolean; backend: Backend["id"] }> {
   if (!ctx.chatKey || !ctx.runId) throw new Error("no task context for a sandbox");
   const name = sandboxName(ctx.chatKey, ctx.runId);
-  const list = backends();
+  const list = backends(ctx);
   for (const b of list) {
     const got = await b.driver.get(name).catch((e) => {
       if (isQuotaError(String((e as Error)?.message || e))) cooling.set(b.id, Date.now() + COOL_MS());
@@ -205,7 +310,7 @@ async function open(ctx: SbxCtx): Promise<{ sb: SbxHandle; fresh: boolean; backe
 export async function readSandboxFile(ctx: SbxCtx, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null> {
   if (!ctx.chatKey || !ctx.runId) return null;
   const name = sandboxName(ctx.chatKey, ctx.runId);
-  for (const b of backends()) {
+  for (const b of backends(ctx)) {
     const sb = await b.driver.get(name).catch(() => null);
     if (!sb) continue;
     const full = resolvePath(path, resolvePath(cwd || sb.home || HOME, sb.home || HOME));
@@ -216,9 +321,9 @@ export async function readSandboxFile(ctx: SbxCtx, path: string, cwd?: string): 
 }
 
 /** Stops the task's VM (task ended), on whichever backend has it. Best-effort. */
-export async function stopSandbox(chatKey: string, runId: string): Promise<void> {
+export async function stopSandbox(chatKey: string, runId: string, modelId?: string): Promise<void> {
   if (lightEnabled()) await import("@/lib/coderSandboxLight").then((m) => m.clearLight(sandboxName(chatKey, runId))).catch(() => null);
-  for (const b of backends()) {
+  for (const b of backends({ chatKey, runId, modelId })) {
     try {
       const sb = await b.driver.get(sandboxName(chatKey, runId));
       if (sb) await sb.stop();
@@ -280,8 +385,9 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
     }
     const { sb, fresh, backend } = opened;
     const home = sb.home || HOME;
-    const label = backend === "vercel" ? "Vercel Linux microVM" : backend === "daytona" ? "Daytona Linux sandbox" : backend === "e2b" ? "E2B Linux microVM"
-      : backend === "oracle" ? "capped Linux container (1 CPU, 2 GB)" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
+    const label = backend === "modelscope" ? "model-owned ModelScope Linux workspace (capacity-gated)" :
+      backend === "vercel" ? "Vercel Linux microVM" : backend === "e2b" ? "E2B Linux microVM"
+      : backend === "oracle" ? "capped Linux container on Oracle" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
     const note = fresh ? `[new sandbox (${label}): node + python3 + git, home ${home}, auto-stops after ${timeoutMin()} min]\n` : "";
     switch (name) {
       case "sandbox_clone": {

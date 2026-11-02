@@ -1063,7 +1063,7 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
 def _bridge_read_timeout(name: str) -> int:
     """How long the Studio waits for the app server to finish one tool. The route allows 180 s: a clone, an install or a test run on the task computer
     (and a screenshot, a deep research) legitimately take minutes, and a 38 s cut-off turned each of them into a 'bridge request failed' step."""
-    if name.startswith(("sandbox_", "cloud_computer_")) or name in {"deep_research", "web_research", "github_repo_audit"}:
+    if name.startswith(("sandbox_", "computer_")) or name in {"deep_research", "web_research", "github_repo_audit"}:
         return 175
     return 60
 
@@ -1395,7 +1395,7 @@ def infer(
                 description = (
                     "The screenshot of your own selected-model cloud computer is attached. "
                     "Inspect the pixels directly and correlate visible text, layout, dialogs and "
-                    "controls with the accessibility tree returned by cloud_computer_screenshot. "
+                    "controls with the accessibility metadata returned by the selected model's browser or graphical desktop. "
                     "Do not assume a control succeeded until you inspect the next screen."
                 )
                 messages.append({

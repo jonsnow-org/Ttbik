@@ -1,4 +1,4 @@
-// The model's free persistent Linux computer (ai-system/modelscope-media/computer_box.py): a shell, files that stay, and background jobs. It is what Daytona's paid sandbox gave,
+// The model's free persistent Linux computer (ai-system/modelscope-media/computer_box.py): a shell, files that stay, and background jobs. It provides the model-owned persistent Linux workspace,
 // built on the model's OWN Studio (root, 2 vCPU / 8 GB, a persistent /mnt/workspace). Nothing is shared between models: Nova uses Nova's media Studio, each candidate its own.
 // A session is one user of one model (`session` is derived by the caller from the verified account and the model); the Studio gives it a private unprivileged Unix user and home folder.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";

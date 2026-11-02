@@ -28,6 +28,69 @@ class Box(unittest.TestCase):
         return json.loads(cb.api_box_do(json.dumps(job)))
 
 
+class Capacity(Box):
+    def test_only_one_execution_can_run_across_the_whole_studio(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
+        cb.MAX_GLOBAL_JOBS = 1
+        cb._JOBS.clear()
+        cb._ACTIVE_COMMANDS.clear()
+        cb._ACTIVE_DESKTOPS.clear()
+        cb._mem_available_mb = lambda: 8192
+        try:
+            first = cb.job_start("user-a:model-x", "sleep 20", "first")
+            self.assertTrue(first.get("ok"), first)
+            second = cb.job_start("user-b:model-x", "echo should-not-run", "second")
+            self.assertFalse(second.get("ok"))
+            self.assertIn("Studio is busy", second.get("error", ""))
+            blocked = cb.run_command("user-c:model-x", "echo should-not-run")
+            self.assertFalse(blocked.get("ok"))
+            self.assertIn("Studio is busy", blocked.get("error", ""))
+            stopped = cb.job_stop("user-a:model-x", first["id"])
+            self.assertTrue(stopped.get("ok"), stopped)
+        finally:
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
+            cb._JOBS.clear()
+            cb._ACTIVE_COMMANDS.clear()
+            cb._ACTIVE_DESKTOPS.clear()
+
+    def test_graphical_desktop_reserves_the_same_single_execution_slot(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
+        cb.MAX_GLOBAL_JOBS = 1
+        cb._JOBS.clear()
+        cb._ACTIVE_COMMANDS.clear()
+        cb._ACTIVE_DESKTOPS.clear()
+        cb._mem_available_mb = lambda: 8192
+        try:
+            first = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertTrue(first.get("ok"), first)
+            self.assertEqual(first.get("reserved"), True)
+            second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
+            self.assertFalse(second.get("ok"))
+            self.assertIn("Studio is busy", second.get("error", ""))
+            blocked = cb.run_command("third:model-x", "echo should-not-run")
+            self.assertFalse(blocked.get("ok"))
+            self.assertIn("Studio is busy", blocked.get("error", ""))
+            cb.release_desktop("owner:model-x")
+            self.assertFalse(cb._ACTIVE_DESKTOPS)
+            cb._mem_available_mb = lambda: 2048
+            too_low = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertFalse(too_low.get("ok"))
+            self.assertIn("requires 3072 MB", too_low.get("error", ""))
+            cb._mem_available_mb = lambda: None
+            unknown = cb.reserve_desktop("owner:model-x", min_available_mb=3072)
+            self.assertFalse(unknown.get("ok"))
+            self.assertIn("could not report available memory", unknown.get("error", ""))
+        finally:
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
+            cb._JOBS.clear()
+            cb._ACTIVE_COMMANDS.clear()
+            cb._ACTIVE_DESKTOPS.clear()
+
+
 class Paths(Box):
     def test_a_session_cannot_leave_its_home(self):
         for bad in ("../../etc/passwd", "/../x/../../etc", "a/../../b"):
@@ -42,11 +105,16 @@ class Paths(Box):
         with self.assertRaises(ValueError):
             cb.safe_path("u:m", "escape/passwd")
 
-    def test_each_session_has_its_own_folder_and_user(self):
+    def test_each_session_has_its_own_folder_and_persistently_unique_user(self):
         self.assertNotEqual(cb.session_home("a"), cb.session_home("b"))
-        self.assertNotEqual(cb.session_uid("a"), cb.session_uid("b"))
-        self.assertEqual(cb.session_uid("a"), cb.session_uid("a"))
-        self.assertTrue(cb.UID_BASE <= cb.session_uid("anything") < cb.UID_BASE + cb.UID_SPAN)
+        first = cb.session_uid("a")
+        second = cb.session_uid("b")
+        self.assertNotEqual(first, second)
+        self.assertEqual(cb.session_uid("a"), first)
+        self.assertTrue(cb.UID_BASE <= first < cb.UID_BASE + cb.UID_SPAN)
+        saved = json.loads((cb.ROOT / ".session-uids.json").read_text(encoding="utf-8"))
+        self.assertNotIn("a", saved)                       # raw session/user identifiers are never stored
+        self.assertEqual(saved[cb.digest("a")], first)
 
     def test_output_is_cut_in_the_middle_with_a_hint(self):
         out = cb.clip("x" * 50000, 1000)
@@ -126,14 +194,22 @@ class Jobs(Box):
         self.run_box(session="a:m", action="job_stop", id=job_id)
 
     def test_too_many_jobs_are_refused(self):
+        old_limit = cb.MAX_GLOBAL_JOBS
+        old_mem_probe = cb._mem_available_mb
+        cb.MAX_GLOBAL_JOBS = cb.MAX_JOBS
+        cb._mem_available_mb = lambda: 8192
         ids = []
         try:
             for _ in range(cb.MAX_JOBS):
-                ids.append(self.run_box(session="u:m", action="job_start", command="sleep 20")["id"])
+                result = self.run_box(session="u:m", action="job_start", command="sleep 20")
+                self.assertTrue(result.get("ok"), result)
+                ids.append(result["id"])
             self.assertFalse(self.run_box(session="u:m", action="job_start", command="sleep 20")["ok"])
         finally:
             for job_id in ids:
                 self.run_box(session="u:m", action="job_stop", id=job_id)
+            cb.MAX_GLOBAL_JOBS = old_limit
+            cb._mem_available_mb = old_mem_probe
 
     def test_memory_is_measured_per_process_group(self):
         self.assertGreater(cb.group_rss(os.getpgid(os.getpid())), 1024 * 1024)
