@@ -376,7 +376,7 @@ _CV_LEAN_FILES = ["model_index.json", "scheduler/scheduler_config.json", "featur
 CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
 
 
-def _cv_download_repo(repo_id, target, patterns):
+def _cv_download_repo(repo_id, target, patterns, required_files):
     """Download into this Studio's own persistent folder; use the shared ModelScope endpoint/Git-LFS recovery helper when deployed."""
     import os as _os
     from pathlib import Path as _P
@@ -392,6 +392,7 @@ def _cv_download_repo(repo_id, target, patterns):
         target.parent / "hub-cache",
         token=(_os.environ.get("MODELSCOPE_API_TOKEN") or _os.environ.get("MODELSCOPE_TOKEN") or "").strip(),
         allow_patterns=patterns,
+        required_files=required_files,
         local_dir=target,
         allow_git_fallback=True,
         timeout_seconds=1800,
@@ -412,8 +413,8 @@ def cv_fetch_weights(root):
     for source in ("modelscope", "huggingface"):
         try:
             if source == "modelscope":
-                _cv_download_repo(CV_MS_BASE, dest / "base", _CV_BASE_FILES)
-                _cv_download_repo(CV_MS_ADAPTER, dest / "adapter", [CV_ADAPTER_FILE])
+                _cv_download_repo(CV_MS_BASE, dest / "base", _CV_BASE_FILES, ("model_index.json", "unet/config.json"))
+                _cv_download_repo(CV_MS_ADAPTER, dest / "adapter", [CV_ADAPTER_FILE], (CV_ADAPTER_FILE,))
             else:
                 from huggingface_hub import snapshot_download as hf_download
                 hf_download(CV_HF_LEAN_BASE if lean else CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_LEAN_FILES if lean else _CV_BASE_FILES)
