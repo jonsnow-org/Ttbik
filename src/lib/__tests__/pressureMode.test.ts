@@ -28,9 +28,9 @@ describe("the switch", () => {
 
 describe("what it changes", () => {
   it("media gets smaller", async () => {
-    expect(pressureMedia()).toEqual({ imageSize: 512, videoSeconds: 2 });
+    expect(pressureMedia()).toEqual({ imageSize: 512, videoSeconds: 3 });
     _setPressureForTests(true);
-    expect(pressureMedia()).toEqual({ imageSize: 384, videoSeconds: 1 });
+    expect(pressureMedia()).toEqual({ imageSize: 384, videoSeconds: 3 });
     const bodies: any[] = [];
     const f = (async (u: any, init: any) => { if (init?.body) bodies.push(JSON.parse(JSON.parse(init.body).body)); return new Response(JSON.stringify({ event_id: "e" })); }) as any;
     process.env.NOVA_MEDIA_STUDIO_URL = "https://m.test";
@@ -39,7 +39,7 @@ describe("what it changes", () => {
     const img = bodies.find((b) => b.prompt && b.seed !== undefined && b.seconds === undefined);
     const vid = bodies.find((b) => b.seconds !== undefined);
     expect(img).toBeTruthy(); expect(img.size).toBe(384);
-    expect(vid).toBeTruthy(); expect(vid.seconds).toBe(1);
+    expect(vid).toBeTruthy(); expect(vid.seconds).toBe(3);
   });
   it("the FREE plan's limits are halved; paid plans and the owner are untouched", async () => {
     const d: any = pgDb();
