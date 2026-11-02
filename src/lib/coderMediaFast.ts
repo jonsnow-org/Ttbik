@@ -17,23 +17,21 @@ const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو
 /** Any spelling of "video" (فيديو / فديو / فيدو / ڤيديو / فيديوهات ...): after norm(), a word of the shape ف-ي?-د-ي?-و-ه?. */
 const VIDEO_SHAPE = /^ف[يا]?د[يا]?[وؤ][هو]?(?:ات|ا)?$/;
 const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن لمده");
-const EXCLUDED_WORDS = set("كود برمج code script html css python javascript موقع website تطبيق app ملف file github repo حلل اشرح كيف how explain describe عدل edit حول convert ترجم translate تحويل png jpg svg pdf رابط http ماذا وصف هذه هذي تلك this");
 const bare = (w: string): string => w.replace(/^(ال|ب|ل|و|ف)(?=.{3,})/, "");
 const inSet = (w: string, s: Set<string>): boolean => s.has(w) || s.has(bare(w));
 const words = (t: string): string[] => t.split(/[^\p{L}\p{N}:/.]+/u).filter(Boolean);
 
 /** A clear "make a picture / a video of X" request, or null (anything else goes to the general worker). */
 export type MediaFollowupContext = { previousUser?: string; previousAssistant?: string };
-export type MediaIntentOptions = { ignoreExcludedWords?: boolean };
 
 /** A short subject-only reply can complete an earlier media request, but only when
  * the immediately previous assistant turn explicitly asked for the missing visual description.
  * This avoids treating ordinary nouns in a normal chat as generation requests. */
-export function detectMediaIntent(text: string, context: MediaFollowupContext = {}, options: MediaIntentOptions = {}): MediaIntent | null {
+export function detectMediaIntent(text: string, context: MediaFollowupContext = {}): MediaIntent | null {
   const raw = String(text || "").trim();
   if (!raw || raw.length > 300 || raw.startsWith("/")) return null;
   const ws = words(norm(raw));
-  if ((!options.ignoreExcludedWords && ws.some((w) => inSet(w, EXCLUDED_WORDS))) || ws.some((w) => /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
+  if (ws.some((w) => /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
   const verb = ws.some((w) => inSet(w, VERBS));
   const draw = ws.some((w) => inSet(w, DRAW));
   const video = ws.some((w) => inSet(w, VIDEOS) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)));
@@ -41,7 +39,7 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   if (!verb || !(video || image || draw)) {
     const previous = String(context.previousAssistant || "");
     const clarification = /(?:اكتب|اذكر|صف).{0,70}(?:الوصف|ما الذي يظهر|ماذا يظهر)|ما الذي تريد أن يظهر.{0,45}(?:الصورة|الفيديو|المقطع)|ما المشهد الذي تريد أن يظهر.{0,45}(?:الفيديو|المقطع)|(?:الوصف|description).{0,60}(?:الصورة|الفيديو|المقطع|image|picture|video)|(?:what should appear|describe the subject).{0,70}(?:image|picture|video)/i.test(previous);
-    if (!clarification || !raw || (!options.ignoreExcludedWords && ws.some((w) => inSet(w, EXCLUDED_WORDS))) || ws.some((w) => /^https?:/.test(w))) return null;
+    if (!clarification || !raw || ws.some((w) => /^https?:/.test(w))) return null;
     const priorIntent = detectMediaIntent(String(context.previousUser || ""));
     const previousKind = /(?:فيديو|فديو|مقطع|video|clip)/i.test(previous) ? "video" : undefined;
     const followupKind = priorIntent?.kind || previousKind || "image";
