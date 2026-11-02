@@ -22,10 +22,10 @@ describe("Nova media Studio client", () => {
       if (init?.body) return { ok: true, json: async () => ({ event_id: "e1" }) };
       return { ok: true, text: async () => `data: ["{\\"type\\":\\"video\\",\\"b64\\":\\"${b64(mp4Shell())}\\"}"]\n` };
     }) as unknown as typeof fetch;
-    const r = await novaMakeMedia("video", "title", { scenes: ["a cat", "a dog", ""], narration: "مرحبا", fetchImpl: fakeFetch });
+    const r = await novaMakeMedia("video", "title", { scenes: ["a cat", "a dog", ""], narration: "مرحبا", seconds: 4, fetchImpl: fakeFetch });
     expect(r).toEqual({ type: "video", b64: b64(mp4Shell()) });
     expect(calls[0].url).toBe("https://studio.example/gradio_api/call/v2/video");
-    expect(JSON.parse(JSON.parse(calls[0].body!).body)).toEqual({ prompt: "title", seconds: 2, seed: 0 });      // scenes / narration never become stills
+    expect(JSON.parse(JSON.parse(calls[0].body!).body)).toEqual({ prompt: "title", seconds: 4, seed: 0 });      // scenes / narration never become stills
     expect(calls[1].url).toBe("https://studio.example/gradio_api/call/video/e1");
     await novaMakeMedia("audio", "نص", { fetchImpl: fakeFetch });
     expect(calls[2].url).toBe("https://studio.example/gradio_api/call/v2/speech");
