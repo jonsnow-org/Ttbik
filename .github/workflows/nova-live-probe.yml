@@ -39,6 +39,7 @@ jobs:
           import json, os, time, urllib.request
           n = os.environ["N"]; sfx = "" if n == "1" else f"-{n}"
           base = f"https://studio-novaai2026-coder-inference-server{sfx}.api-inference.modelscope.net/gradio_api"
+          if n == "big": base = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net/gradio_api"      # the 16 GB Studio (big model trial)
           hdr = {"Authorization": "Bearer " + os.environ["T"], "content-type": "application/json"}
           import urllib.error
           def op(req, t):
