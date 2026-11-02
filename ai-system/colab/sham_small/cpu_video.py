@@ -56,8 +56,30 @@ _CV_LEAN_FILES = ["model_index.json", "scheduler/scheduler_config.json", "featur
 CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
 
 
+def _cv_download_repo(repo_id, target, patterns):
+    """Download into this Studio's own persistent folder; use the shared ModelScope endpoint/Git-LFS recovery helper when deployed."""
+    import os as _os
+    from pathlib import Path as _P
+    target = _P(target)
+    try:
+        from model_download import download_model_repo
+    except ImportError:  # local notebook / legacy runtime without the deployed helper
+        from modelscope import snapshot_download
+        snapshot_download(repo_id, local_dir=str(target), allow_patterns=patterns)
+        return target
+    return download_model_repo(
+        repo_id,
+        target.parent / "hub-cache",
+        token=(_os.environ.get("MODELSCOPE_API_TOKEN") or _os.environ.get("MODELSCOPE_TOKEN") or "").strip(),
+        allow_patterns=patterns,
+        local_dir=target,
+        allow_git_fallback=True,
+        timeout_seconds=1800,
+    )
+
+
 def cv_fetch_weights(root):
-    """Download the (open) weights once into <root>/video_animatediff. epiCRealism (fp16-sized files, ~2.1 GB) + the 0.9 GB adapter from ModelScope (~2.9 GiB in total); Hugging Face is the fallback (with a small disk: the fp16 SD-1.5 base). Weights only; all inference stays local."""
+    """Download this Studio's local copy of the open video weights. The Hub API is tried on both official endpoints, then its Git/LFS transport."""
     import shutil as _sh
     from pathlib import Path as _P
     dest = _P(root) / "video_animatediff"
@@ -67,19 +89,17 @@ def cv_fetch_weights(root):
         raise RuntimeError(f"native-video-unavailable: the video model needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
     lean = free < CV_FULL_NEED
     errors = []
-    for source in ("modelscope", "huggingface"):          # ModelScope first: epiCRealism there is already fp16-sized (unet 1.72 GB), ~2.9 GiB with the adapter; the Studios cannot always reach Hugging Face
+    for source in ("modelscope", "huggingface"):
         try:
             if source == "modelscope":
-                from modelscope import snapshot_download
-                snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-                snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+                _cv_download_repo(CV_MS_BASE, dest / "base", _CV_BASE_FILES)
+                _cv_download_repo(CV_MS_ADAPTER, dest / "adapter", [CV_ADAPTER_FILE])
             else:
                 from huggingface_hub import snapshot_download as hf_download
                 hf_download(CV_HF_LEAN_BASE if lean else CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_LEAN_FILES if lean else _CV_BASE_FILES)
-                if lean:                                            # the adapter is the same file on ModelScope; use it first, it is closer to the Studio
+                if lean:
                     try:
-                        from modelscope import snapshot_download
-                        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+                        _cv_download_repo(CV_MS_ADAPTER, dest / "adapter", [CV_ADAPTER_FILE])
                     except Exception:  # noqa: BLE001
                         hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
                 else:
@@ -89,7 +109,7 @@ def cv_fetch_weights(root):
                 return found
             errors.append(f"{source}: files incomplete")
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{source}: {type(exc).__name__}: {str(exc)[:120]}")
+            errors.append(f"{source}: {type(exc).__name__}: {str(exc)[:160]}")
     raise RuntimeError("native-video-unavailable: could not fetch the video weights (" + "; ".join(errors) + ")")
 
 
