@@ -106,13 +106,28 @@ async function ownerBot(): Promise<{ api: Bot["api"]; chat: string } | null> {
 export async function notifyOwner(text: string): Promise<void> {
   try { const b = await ownerBot(); if (b) await b.api.sendMessage(b.chat, text); } catch { /* telling the owner must never break a request */ }
 }
-/** The standby was asked to serve because Oracle is down (the gate marks those requests): tell the owner, at most once in 15 minutes. */
+/** A deploy on Oracle (the site container is replaced) or a one-minute network blip makes the gate fail over for a few seconds; that is not an outage worth a message.
+ *  Failover requests that keep coming for FAILOVER_MIN_MS (gaps of up to FAILOVER_GAP_MS between them) are one continuous outage. Pure, tested. */
+export const FAILOVER_MIN_MS = 3 * 60_000;
+export const FAILOVER_GAP_MS = 10 * 60_000;
+export function failoverRun(prev: string | null, now: number): { start: number; alert: boolean } {
+  const [s, l] = (prev || "").split(",").map(Number);
+  const continuing = Number.isFinite(s) && Number.isFinite(l) && now - l <= FAILOVER_GAP_MS && now >= l;
+  const start = continuing ? s : now;
+  return { start, alert: now - start >= FAILOVER_MIN_MS };
+}
+/** The standby was asked to serve because Oracle is down (the gate marks those requests): tell the owner only when the outage lasts 3+ minutes, at most once in 15 minutes. */
 export async function noteFailover(h: { get(n: string): string | null }): Promise<void> {
   if (h.get("x-gate-failover") !== "1" || h.get("x-gate") !== "1") return;
   try {
     await ensureHostingTables();
+    const now = Date.now();
+    const rows = (await prisma.$queryRawUnsafe(`SELECT value FROM hosting_flags WHERE key='failover_run'`)) as { value: string }[];
+    const run = failoverRun(rows[0]?.value ?? null, now);
+    await prisma.$executeRawUnsafe(`INSERT INTO hosting_flags (key, value) VALUES ('failover_run',$1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, `${run.start},${now}`);
+    if (!run.alert) return;
     const n = Number(await prisma.$executeRawUnsafe(`INSERT INTO hosting_flags (key, value) VALUES ('failover_alert_at', now()::text) ON CONFLICT (key) DO UPDATE SET value=now()::text, updated_at=now() WHERE hosting_flags.updated_at < now() - interval '15 minutes'`));
-    if (n > 0) await notifyOwner("⚠️ الخادم الأساسي (Oracle) لا يرد، والبوابة تخدم الآن من Vercel الاحتياطي.\nOracle is not answering; the gate is serving from the Vercel standby.\n\n/admin ← 🌐 الاستضافة");
+    if (n > 0) await notifyOwner("⚠️ الخادم الأساسي (Oracle) لا يرد منذ أكثر من 3 دقائق، والبوابة تخدم الآن من Vercel الاحتياطي.\nOracle has not answered for 3+ minutes; the gate is serving from the Vercel standby.\n\n/admin ← 🌐 الاستضافة");
   } catch { /* best effort */ }
 }
 

@@ -60,3 +60,25 @@ describe("caller checks", () => {
     expect(HOSTING.engineUrl).toBe(HOSTING.gateUrl);   // after the cutover the site speaks as the gate
   });
 });
+
+import { failoverRun, FAILOVER_MIN_MS } from "../hostingOps";
+describe("failover alert debounce", () => {
+  const t0 = 1_000_000_000_000;
+  test("a short deploy blip never alerts", () => {
+    const a = failoverRun(null, t0);
+    expect(a.alert).toBe(false);
+    const b = failoverRun(`${a.start},${t0}`, t0 + 40_000);
+    expect(b.alert).toBe(false);
+  });
+  test("an outage that keeps failing for 3+ minutes alerts", () => {
+    const a = failoverRun(null, t0);
+    const b = failoverRun(`${a.start},${t0 + 60_000}`, t0 + FAILOVER_MIN_MS + 1000);
+    expect(b.start).toBe(t0);
+    expect(b.alert).toBe(true);
+  });
+  test("a long quiet gap starts a new run", () => {
+    const b = failoverRun(`${t0},${t0 + 1000}`, t0 + 30 * 60_000);
+    expect(b.start).toBe(t0 + 30 * 60_000);
+    expect(b.alert).toBe(false);
+  });
+});
