@@ -25,11 +25,25 @@ describe("Nova media Studio client", () => {
     const r = await novaMakeMedia("video", "title", { scenes: ["a cat", "a dog", ""], narration: "مرحبا", fetchImpl: fakeFetch });
     expect(r).toEqual({ type: "video", b64: b64(mp4Shell()) });
     expect(calls[0].url).toBe("https://studio.example/gradio_api/call/v2/video");
-    expect(JSON.parse(JSON.parse(calls[0].body!).body)).toEqual({ prompt: "title", seconds: 2, seed: 0 });      // scenes / narration never become stills
+    expect(JSON.parse(JSON.parse(calls[0].body!).body)).toEqual({ prompt: "title", seconds: 10, seed: 0 });      // scenes / narration never become stills
     expect(calls[1].url).toBe("https://studio.example/gradio_api/call/video/e1");
     await novaMakeMedia("audio", "نص", { fetchImpl: fakeFetch });
     expect(calls[2].url).toBe("https://studio.example/gradio_api/call/v2/speech");
     expect(JSON.parse(JSON.parse(calls[2].body!).body)).toEqual({ text: "نص" });
+  });
+  it("preserves the requested 60-second video duration in the Studio payload", async () => {
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+    const bodies: any[] = [];
+    const f = (async (_url: string, init?: { body?: string }) => {
+      if (init?.body) {
+        bodies.push(JSON.parse(JSON.parse(init.body).body));
+        return { ok: true, json: async () => ({ event_id: "e1" }) };
+      }
+      const value = { type: "video", b64: b64(mp4Shell()) };
+      return { ok: true, text: async () => "data: " + JSON.stringify([JSON.stringify(value)]) + "\n" };
+    }) as unknown as typeof fetch;
+    await novaMakeMedia("video", "a horse galloping", { seconds: 60, fetchImpl: f });
+    expect(bodies[0]).toMatchObject({ prompt: "a horse galloping", seconds: 60 });
   });
   it("a blank picture from the Studio is returned as a typed error, never as an image", async () => {
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";

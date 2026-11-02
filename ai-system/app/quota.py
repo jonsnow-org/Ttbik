@@ -151,8 +151,9 @@ def has_active_subscription(user: dict) -> bool:
 # Owner spec, 2026-09-09: default video length when the user doesn't
 # specify one, and the floor no plan can go below (a request for "0
 # seconds" or a nonsensical value falls back to this, not an error).
-DEFAULT_VIDEO_SECONDS = 6
-MIN_VIDEO_SECONDS = 4
+DEFAULT_VIDEO_SECONDS = 10
+MIN_VIDEO_SECONDS = 10
+VIDEO_DURATION_OPTIONS = (10, 15, 30, 60, 120)
 
 
 def is_platform_owner(user: dict) -> bool:
@@ -205,30 +206,29 @@ def verify_owner_password(telegram_id: str, password: str) -> tuple[bool, str]:
 
 
 def check_video_duration(user: dict, requested_seconds: int | None) -> tuple[bool, int, str]:
-    """Returns (allowed, seconds_to_use, message). The platform owner
-    skips this like every other cap. requested_seconds is whatever the
-    user asked for in plain text (None if they didn't specify a
-    number) — clamped to [MIN_VIDEO_SECONDS, plan's max_video_seconds]
-    rather than rejected outright for an unreasonably small/large
-    number, since "give me the closest thing I'm allowed" is a better
-    experience than an error for an honest typo like "0 ثواني". Only
-    a request that explicitly exceeds the plan's own ceiling is
-    rejected with an upgrade prompt — that's the real business rule
-    ("من 15 ثانية وفوق ضمن الخطة المدفوعة"), not a technical limit."""
+    """Accept only the real temporal-segment durations supported by Nova's local video engine."""
     if is_platform_owner(user):
-        return True, requested_seconds or DEFAULT_VIDEO_SECONDS, "مالك المنصة — بلا حد"
+        seconds = DEFAULT_VIDEO_SECONDS if requested_seconds is None else int(requested_seconds)
+        if seconds not in VIDEO_DURATION_OPTIONS:
+            return False, DEFAULT_VIDEO_SECONDS, "اختر مدة مدعومة: 10 أو 15 أو 30 أو 60 أو 120 ثانية."
+        return True, seconds, "مالك المنصة — بلا حد"
 
     plan = effective_plan(user)
     max_seconds = PLANS[plan]["max_video_seconds"]
     if requested_seconds is None:
         return True, DEFAULT_VIDEO_SECONDS, ""
-    if requested_seconds > max_seconds:
+    seconds = int(requested_seconds)
+    if seconds > max_seconds:
         return (
             False,
             max_seconds,
             f"خطتك الحالية تسمح بفيديو حتى {max_seconds} ثانية فقط — أرسل /ترقية لمدة أطول (حتى {PLANS['PRO_ULTRA']['max_video_seconds']} ثانية).",
         )
-    return True, max(MIN_VIDEO_SECONDS, requested_seconds), ""
+    allowed = [value for value in VIDEO_DURATION_OPTIONS if value <= max_seconds]
+    if seconds not in allowed:
+        choices = "، ".join(str(value) for value in allowed)
+        return False, DEFAULT_VIDEO_SECONDS, f"المدد المتاحة لخطتك: {choices} ثانية."
+    return True, seconds, ""
 
 
 def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, str]:

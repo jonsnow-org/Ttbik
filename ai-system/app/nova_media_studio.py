@@ -40,7 +40,7 @@ def generate_media(
     *,
     scenes: list[str] | None = None,
     narration: str = "",
-    seconds: int = 2,
+    seconds: int = 10,
     timeout: int = 900,
 ) -> bytes | None:
     """Generate media on Nova's own Studio; return bytes or None on a real error."""
@@ -58,10 +58,14 @@ def generate_media(
     elif selected == "audio":
         payload = {"text": (prompt or "")[:1500]}
     else:
+        requested_seconds = int(seconds or 10)
+        if requested_seconds not in (10, 15, 30, 60, 120):
+            logger.warning("Nova video request rejected: unsupported duration %s", requested_seconds)
+            return None
         payload = {
             "prompt": (prompt or "")[:800],
-            "seconds": max(1, min(int(seconds or 2), 2)),
-            "seed": 0,
+            "seconds": requested_seconds,
+            "seed": __import__("secrets").randbelow(2**31 - 1),
         }
     try:
         submit = requests.post(
@@ -78,7 +82,7 @@ def generate_media(
         result = requests.get(
             f"{base}/gradio_api/call/{api}/{event_id}",
             headers=headers,
-            timeout=max(30, min(int(timeout), 900)),
+            timeout=max(30, min(int(timeout), 21600)),
         )
         result.raise_for_status()
         body = _parse_sse(result.text)
