@@ -45,6 +45,7 @@ class Desktop(unittest.TestCase):
         desktop._PROCESSES = []
         desktop._ENV = {}
         desktop._UID = None
+        desktop._NETWORK_MODE = "not checked"
         desktop._INSTALL_THREAD = None
         desktop._CANCEL_INSTALL = False
 
@@ -106,6 +107,54 @@ class Desktop(unittest.TestCase):
         self.assertIn("requires 3072 MB", result["error"])
         self.assertEqual(desktop._PHASE, "stopped")
         self.assertFalse(box._ACTIVE_DESKTOPS)
+
+    def test_desktop_uses_uid_firewall_when_the_studio_has_it(self):
+        with patch.object(box, "install_egress_rules", return_value="private ranges and metadata blocked"):
+            mode, error = desktop._network_isolation(123456, "alice:model-x")
+        self.assertEqual(mode, "host-firewall")
+        self.assertEqual(error, "")
+
+    def test_desktop_falls_back_to_an_unprivileged_network_namespace(self):
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(box, "install_egress_rules", return_value="not available (no iptables or not root)"), \
+             patch.object(desktop.shutil, "which", return_value="/usr/bin/unshare"), \
+             patch.object(box, "is_root", return_value=False), \
+             patch.object(desktop.subprocess, "run", return_value=completed) as probe:
+            mode, error = desktop._network_isolation(123456, "alice:model-x")
+        self.assertEqual(mode, "network-namespace")
+        self.assertEqual(error, "")
+        command = probe.call_args.args[0]
+        self.assertEqual(command[:6], [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--net", "--", "/bin/sh"
+        ])
+        self.assertIn("/proc/self/ns/net", command[-1])
+        self.assertEqual(probe.call_args.kwargs["timeout"], 12)
+
+    def test_desktop_refuses_start_if_no_firewall_or_network_namespace_is_available(self):
+        failed = SimpleNamespace(returncode=1, stdout="", stderr="unshare failed: Operation not permitted")
+        with patch.object(box, "install_egress_rules", return_value="not available (no iptables or not root)"), \
+             patch.object(desktop.shutil, "which", return_value="/usr/bin/unshare"), \
+             patch.object(box, "is_root", return_value=False), \
+             patch.object(desktop.subprocess, "run", return_value=failed):
+            mode, error = desktop._network_isolation(123456, "alice:model-x")
+        self.assertEqual(mode, "")
+        self.assertIn("Operation not permitted", error)
+
+    def test_network_namespace_wraps_every_gui_process_and_disables_network_browser(self):
+        with patch.object(desktop.shutil, "which", return_value="/usr/bin/unshare"):
+            wrapped = desktop._command_with_network_isolation(["xterm", "-title", "Model Computer"], {
+                "DESKTOP_NETWORK_MODE": "network-namespace"
+            })
+        self.assertEqual(wrapped[:5], ["/usr/bin/unshare", "--user", "--map-root-user", "--net", "--"])
+        self.assertEqual(wrapped[5:], ["xterm", "-title", "Model Computer"])
+        desktop._SESSION_HASH = desktop.session_hash("alice:model-x")
+        desktop._SESSION_RAW = "alice:model-x"
+        desktop._PHASE = "running"
+        desktop._DISPLAY = ":91"
+        desktop._ENV = {"DESKTOP_NETWORK_MODE": "network-namespace"}
+        result = self.call(action="launch", session="alice:model-x", app="browser")
+        self.assertFalse(result["ok"])
+        self.assertIn("internet browsing is disabled", result["error"])
 
     def test_xauthority_uses_private_local_tmp_and_breaks_stale_xauth_locks(self):
         captured = {}
