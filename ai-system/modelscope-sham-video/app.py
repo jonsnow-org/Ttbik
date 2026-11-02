@@ -66,7 +66,7 @@ def generate_video(body: str) -> str:
         if not prompt:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
-        clip = cpu_video.cv_generate(HERE, prompt, float(payload.get("seconds", 2) or 2), int(payload.get("seed", 0) or 0), ENVS)
+        clip = cpu_video.cv_generate(HERE, prompt, float(payload.get("seconds", 3) or 3), int(payload.get("seed", 0) or 0), ENVS)
         check_mp4(clip)                                        # an empty / frozen / black video is an error, never a reply
         STATE["videos"] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
@@ -87,7 +87,7 @@ def generate_video(body: str) -> str:
 def status() -> str:
     ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(HERE, ENVS))
     return json.dumps({**STATE, "cpus": os.cpu_count(), "ram": _ram(), "disk": _disk(),
-                       "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "profile": cpu_video.cv_profile()}})
+                       "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": ready, "pipeline_ready": cpu_video._CV["pipe"] is not None, "free_noise": bool(cpu_video._CV.get("free_noise")), "device": "cpu", "profile": cpu_video.cv_profile()}})
 
 
 def _warm() -> None:
