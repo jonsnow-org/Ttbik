@@ -11,6 +11,8 @@ import { memoryTool } from "@/lib/coderMemory";
 import * as S from "@/lib/coderSchedules";
 import { prismaDb as shamDb } from "@/lib/shamDb";
 import type { ShamHost } from "@/lib/shamExec";
+import { boxActionFor, boxDo } from "@/lib/computerBox";
+import { browserDo } from "@/lib/browserComputer";
 
 /** Sham's own db handle stands for the platform's real one, so the platform creates its tables as usual; a test double passes through. */
 const d = (db: unknown): PlatformDb => (db === shamDb ? platformDb : (db as PlatformDb));
@@ -27,6 +29,16 @@ export const shamHost: ShamHost = {
   },
   bank: { add: (runId, chatKey, step, tool, label, body, db) => bankAdd(runId, chatKey, step, tool, label, body, d(db)), recall: (runId, chatKey, query, n, db) => bankRecall(runId, chatKey, query, n, d(db)) },
   sandbox: { readFile: (c, p, cwd) => readSandboxFile(c, p, cwd), has: (n) => SANDBOX_TOOLS.has(n), run: (name, args, c) => runSandboxTool(name, args, { ...c, db: d(c.db) }) },
+  computer: {
+    run: async (c, name, args) => {
+      const mapped = boxActionFor(name, args);
+      if (!mapped) return "error: unsupported computer action";
+      return boxDo(c.modelId, `${c.chatId}:${c.modelId}`, mapped);
+    },
+  },
+  browser: {
+    run: (c, args) => browserDo(c.modelId, `${c.chatId}:${c.modelId}`, args),
+  },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
     const connectors = (await connectedIds(chatId, d(db)).catch(() => [] as string[])).filter((x) => x !== "github");
