@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShamTool } from "@/lib/shamTypes";
 import { pressureMedia } from "@/lib/pressureMode";
+import { requestedVideoSeconds } from "@/lib/mediaDuration";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
