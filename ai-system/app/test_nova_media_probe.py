@@ -136,7 +136,7 @@ class Waiting(unittest.TestCase):
         return P.Studio("https://x.test", "tok", http, sleep=lambda s: t.__setitem__(0, t[0] + s), now=lambda: t[0], **kw)
 
     def test_waits_until_phase_ready(self):
-        http = FakeStudio([{"phase": "loading"}, {"phase": "loading"}, {"phase": "ready", "video": {"engine": "AnimateDiff-Lightning", "ready": True}}])
+        http = FakeStudio([{"phase": "loading"}, {"phase": "loading"}, {"phase": "ready", "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": True}}])
         st = self.studio(http).wait_ready(timeout=600)
         self.assertEqual(st["phase"], "ready")
         self.assertEqual(http.n, 3)
