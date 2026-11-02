@@ -2119,7 +2119,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const latestUser = [...st.messages].reverse().find((message) =>
               message.role === "user" && !String(message.content || "").startsWith("[harness]"),
             );
-            const originalRequest = String(latestUser?.content || content || "");
+            const originalRequest = String(latestUser?.content || run.goal || "");
             const explicitSeconds = Number.isFinite(Number(a.seconds)) && a.seconds !== undefined
               ? Math.max(1, Math.min(5, Math.round(Number(a.seconds))))
               : undefined;
