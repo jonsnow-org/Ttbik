@@ -4,7 +4,7 @@
 // or video of X" does not need that decision: it is recognised here, X is turned into a short English prompt by one tiny call (the media models read English), and the
 // ordinary pipeline runs (quota reserved -> Studio -> vetMedia -> Telegram, never a caption, quota handed back on failure).
 
-export type MediaIntent = { kind: "image" | "video"; subject: string };
+export type MediaIntent = { kind: "image" | "video"; subject: string; seconds?: number };
 
 const norm = (s: string): string =>
   s.toLowerCase().replace(/ڤ/g, "ف").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/\s+/g, " ").trim();
@@ -33,8 +33,14 @@ export function detectMediaIntent(text: string): MediaIntent | null {
   const video = ws.some((w) => inSet(w, VIDEOS) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)));
   const image = ws.some((w) => inSet(w, IMAGES));
   if (!verb || !(video || image || draw)) return null;
-  const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER)).join(" ").trim();
-  return { kind: video ? "video" : "image", subject: subject || norm(raw) };
+  const digits = raw.replace(/[٠-٩۰-۹]/g, (d) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(d) % 10));
+  const secondsMatch = digits.match(/\b(10|15|30|60|120)\s*(?:ثانية|ثواني|ثوان|seconds?|secs?|s)\b/i);
+  const minutesMatch = digits.match(/\b([12])\s*(?:دقيقة|دقائق|دقايق|minutes?|mins?|m)\b/i);
+  const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
+    : /\bدقيقتين\b/i.test(raw) ? 120 : /\bدقيقة\b/i.test(raw) ? 60 : undefined;
+  const durationWords = /^(?:ثانية|ثواني|ثوان|دقيقة|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
+  const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER) && !/^\d+$/.test(w) && !durationWords.test(w)).join(" ").trim();
+  return { kind: video ? "video" : "image", subject: subject || norm(raw), ...(video && requestedSeconds ? { seconds: requestedSeconds } : {}) };
 }
 
 // A last resort when the tiny model call is not answered in time: common words only. Unknown words are not guessed (the caller gives up honestly).
