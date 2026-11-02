@@ -168,8 +168,8 @@ MEDIA_TOOLS = {
         "type": "function",
         "function": {
             "name": "generate_video",
-            "description": "Make a short real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. Takes a few minutes. Do not claim success without a returned video file.",
-            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 3}}, "required": ["prompt"], "additionalProperties": False},
+            "description": "Make a real text-to-video diffusion clip using only this candidate's own media Studio. The current local CPU engine supports exactly 4 seconds normally or 2 seconds for the faster/pressure mode; longer durations are rejected rather than silently shortened.",
+            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows; specific subject, action, camera movement and scene improve control"}, "seconds": {"type": "integer", "enum": [2, 4], "default": 4, "description": "4 seconds normal; 2 seconds faster under pressure"}}, "required": ["prompt"], "additionalProperties": False},
         },
     },
 }
@@ -1019,6 +1019,17 @@ def _media_profile() -> dict | None:
     return {"base": base, "media_repo": str(conf.get("media_repo") or "")}
 
 
+def _video_duration_seconds(value=4) -> int:
+    """The installed CPU video weights are validated only for exact 2 s / 4 s clips."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("This local video engine supports exactly 2 or 4 seconds.") from exc
+    if seconds not in (2.0, 4.0):
+        raise ValueError("This local video engine supports exactly 2 or 4 seconds; longer durations are not available with the installed weights.")
+    return int(seconds)
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1036,8 +1047,11 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         prompt = str(arguments.get("prompt") or "").strip()
         if len(prompt) < 4 or len(prompt) > 800:
             return {"ok": False, "error": "Prompt must be between 4 and 800 characters."}
-        seconds = int(arguments.get("seconds") or 2)
-        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(3, seconds)), "seed": int(time.time()) % 2147483647}
+        try:
+            seconds = _video_duration_seconds(arguments.get("seconds", 4))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
         submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
@@ -1061,6 +1075,7 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         raw_bytes = base64.b64decode(str(item["b64"]), validate=True)
         if len(raw_bytes) < 1000 or len(raw_bytes) > 2_600_000:
             raise RuntimeError("the " + kind + " file is empty or larger than the delivery limit (" + str(len(raw_bytes)) + " bytes)")
+        video_info = _check_candidate_video(raw_bytes, seconds) if kind == "video" else None
         return {
             "ok": True,
             "message": kind + " made by this candidate's own dedicated media Studio.",
@@ -1068,6 +1083,7 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
                 "kind": kind, "mime": MEDIA_MIME[kind], "b64": str(item["b64"]), "bytes": len(raw_bytes),
                 "candidate": CONFIG.get("route_id"), "media_repo": profile["media_repo"], "media_studio": profile["base"],
                 "prompt": str(payload.get("text") or payload.get("prompt") or "")[:200],
+                **({"seconds": seconds, "video_info": video_info} if kind == "video" else {}),
             },
         }
     except Exception as exc:
@@ -1843,6 +1859,58 @@ def _make_video_fixture() -> str:
         raise RuntimeError("Could not create the video smoke fixture: " + run.stderr.decode("utf-8", "replace")[-600:])
     return str(path)
 
+def _check_candidate_video(data: bytes, expected_seconds: int) -> dict:
+    """Decode and verify the real MP4: duration, dimensions, nonblank frames and temporal motion."""
+    import tempfile
+    import subprocess
+    import numpy as np
+    import imageio_ffmpeg
+
+    exe = imageio_ffmpeg.get_ffmpeg_exe()
+    if not exe:
+        raise RuntimeError("video_validation_unavailable: local ffmpeg decoder is unavailable")
+    with tempfile.TemporaryDirectory(prefix="donor-video-check-") as directory:
+        source = Path(directory) / "candidate.mp4"
+        source.write_bytes(data)
+        probe = subprocess.run(
+            [exe, "-hide_banner", "-i", str(source)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25,
+        )
+        diagnostic = (probe.stderr or b"").decode("utf-8", "replace")
+        duration = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", diagnostic)
+        video_line = next((line for line in diagnostic.splitlines() if "Video:" in line), "")
+        dimensions = re.search(r"(\d{2,5})x(\d{2,5})", video_line)
+        if not duration or not dimensions:
+            raise RuntimeError("video_validation_unavailable: ffmpeg could not read duration or dimensions")
+        actual_seconds = int(duration.group(1)) * 3600 + int(duration.group(2)) * 60 + float(duration.group(3))
+        width, height = int(dimensions.group(1)), int(dimensions.group(2))
+        if abs(actual_seconds - float(expected_seconds)) > 0.30:
+            raise RuntimeError(f"duration_mismatch: requested={expected_seconds}s actual={actual_seconds:.2f}s")
+        if width < 480 or height < 270:
+            raise RuntimeError(f"low_resolution: actual={width}x{height}; minimum=480x270")
+        side = 64
+        decoded = subprocess.run(
+            [exe, "-v", "error", "-i", str(source), "-vf", "fps=8,scale=64:64:flags=area",
+             "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+        )
+        if decoded.returncode != 0 or not decoded.stdout or len(decoded.stdout) % (side * side):
+            raise RuntimeError("empty_video: ffmpeg could not decode complete video frames")
+        frames = np.frombuffer(decoded.stdout, dtype=np.uint8).reshape(-1, side, side)
+        if len(frames) < expected_seconds * 6:
+            raise RuntimeError(f"empty_video: only {len(frames)} decodable frames")
+        blank = [frame for frame in frames if float(frame.std()) < 2.0 or int(frame.max()) - int(frame.min()) < 12]
+        if len(blank) == len(frames):
+            raise RuntimeError("static_video: all decoded frames are blank")
+        motion = float(np.abs(frames[1:].astype(np.float32) - frames[:-1].astype(np.float32)).mean())
+        if motion < 0.05:
+            raise RuntimeError("static_video: decoded frames contain no measurable motion")
+        return {
+            "duration_seconds": round(actual_seconds, 2), "width": width, "height": height,
+            "decoded_frames": int(len(frames)), "motion_score": round(motion, 3),
+        }
+
+
 def _run_direct_tool(test: dict) -> dict:
     """Runs one generation tool by itself (no model turns): the call to the candidate's OWN image / media Studio is what is checked, so a slow
     model cannot push the test past the gateway's stream limit. The file must be real: a valid image, a WAV with sound, an MP4 with motion."""
@@ -1874,8 +1942,7 @@ def _run_direct_tool(test: dict) -> dict:
                 if w.getnframes() / max(1, w.getframerate()) < 0.5 or not any(frames[:200000]):
                     problem = "audio is shorter than 0.5 s or silent"
         elif kind == "video":
-            if raw[4:8] != b"ftyp":
-                problem = "not an MP4 file"
+            _check_candidate_video(raw, int(generated.get("seconds") or (test.get("direct_args") or {}).get("seconds") or 4))
     except Exception as exc:
         problem = f"file could not be checked: {type(exc).__name__}: {str(exc)[:120]}"
     out["generated_media"] = [generated]
