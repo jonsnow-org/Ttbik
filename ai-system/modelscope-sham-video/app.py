@@ -101,7 +101,7 @@ def generate_video(body: str) -> str:
         if not prompt:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
-        requested_seconds = int(payload.get("seconds", 4) or 4)
+        requested_seconds = float(payload.get("seconds", 4) or 4)
         clip = cpu_video.cv_generate_long(HERE, prompt, requested_seconds, int(payload.get("seed", 0) or 0), ENVS)
         check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
         STATE["videos"] += 1
