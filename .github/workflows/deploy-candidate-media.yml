@@ -16,6 +16,7 @@ on:
       - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/requirements.txt
       - scripts/ops/modelscope_computer_smoke.py
+      - ai-system/app/nova_media_probe.py
       - .github/workflows/deploy-candidate-media.yml
   workflow_dispatch: {}
 
