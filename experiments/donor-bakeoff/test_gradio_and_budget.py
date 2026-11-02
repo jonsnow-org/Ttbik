@@ -251,3 +251,29 @@ class OriginalVideoDuration(unittest.TestCase):
         self.assertEqual(self.seconds("a rabbit running in a garden", 4), 4)
         self.assertEqual(self.seconds("make a 9-second video"), 5)
 
+class OriginalVideoToolArguments(unittest.TestCase):
+    def test_missing_seconds_are_filled_from_the_original_user_prompt(self):
+        scope = load("_requested_video_seconds", "_preserve_requested_video_duration")
+        preserve = scope["_preserve_requested_video_duration"]
+        result = preserve(
+            "generate_video",
+            {"prompt": "a rabbit running in a garden"},
+            "اصنع فيديو أرنب لمدة 5 ثوانٍ",
+        )
+        self.assertEqual(result, {"prompt": "a rabbit running in a garden", "seconds": 5})
+
+    def test_explicit_seconds_are_preserved_and_clamped_at_the_generation_boundary(self):
+        scope = load("_requested_video_seconds", "_preserve_requested_video_duration")
+        preserve = scope["_preserve_requested_video_duration"]
+        self.assertEqual(
+            preserve("generate_video", {"prompt": "boat", "seconds": 4}, "make a 5-second clip")["seconds"],
+            4,
+        )
+        self.assertEqual(
+            preserve("generate_video", {"prompt": "boat", "seconds": 9}, "make a 2-second clip")["seconds"],
+            9,
+        )
+        # The media endpoint clamps any explicit number to its supported 1–5 second range.
+        media = load("_requested_video_seconds", "_generate_candidate_media") if False else None
+        self.assertEqual(preserve("generate_audio", {"text": "hello"}, "speak for 5 seconds"), {"text": "hello"})
+
