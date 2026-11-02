@@ -76,7 +76,7 @@ class ModelDownloadTests(unittest.TestCase):
                 required_files=("manifest.json",),
                 allow_git_fallback=False,
             )
-        self.assertTrue((result / "manifest.json").is_file())
+        self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}")
         self.assertEqual(calls, [("owner/exact-photo-model", "https://modelscope.ai", "private-token")])
 
     def test_git_lfs_fallback_uses_same_exact_repo_and_model_scope_token(self):
@@ -97,7 +97,7 @@ class ModelDownloadTests(unittest.TestCase):
                 required_files=("manifest.json",),
                 timeout_seconds=17,
             )
-        self.assertTrue((result / "manifest.json").is_file())
+        self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}; repo_calls={repository.calls}")
         self.assertEqual(repository.calls[0]["clone_from"], "models/owner/exact-photo-model")
         self.assertEqual(repository.calls[0]["git_token"], "private-token")
         self.assertEqual(repository.calls[0]["endpoint"], "https://modelscope.ai")
