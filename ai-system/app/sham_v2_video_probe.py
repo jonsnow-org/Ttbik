@@ -31,7 +31,7 @@ def main() -> int:
     prompt = os.environ.get("PROBE_PROMPT", "").strip() or "a red apple slowly rotating on a white table, camera slowly orbiting"
     t0 = time.time()
     try:
-        raw = _bytes(st.call("generate_video", {"prompt": prompt, "seconds": 5, "seed": 17}, timeout=900), "video", "video")
+        raw = _bytes(st.call("generate_video", {"prompt": prompt, "seconds": 5, "seed": 17}, timeout=2400), "video", "video")
         with open(os.path.join(os.environ.get("PROBE_OUT", "."), "sham_v2_video.mp4"), "wb") as fh:
             fh.write(raw)
         metrics = verify_video(raw)
