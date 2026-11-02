@@ -107,6 +107,18 @@ class RealVideoDecode(unittest.TestCase):
             mq.check_mp4(fx.mp4_shell())
         self.assertEqual(c.exception.reason, "empty_video")
 
+    def test_decoder_unavailable_is_not_treated_as_a_pass(self):
+        import sys
+        with patch.dict(sys.modules, {"imageio_ffmpeg": None}), patch("shutil.which", return_value=None):
+            with self.assertRaises(mq.MediaQualityError) as c:
+                mq.check_mp4(fx.mp4_shell())
+        self.assertEqual(c.exception.reason, "video_validation_unavailable")
+
+    def test_metadata_checks_cannot_be_bypassed_with_decode_false(self):
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(fx.mp4_shell(), decode=False, expected_seconds=2)
+        self.assertEqual(c.exception.reason, "video_validation_unavailable")
+
 
 class GateReply(unittest.TestCase):
     def reply(self, kind, raw, **extra):
