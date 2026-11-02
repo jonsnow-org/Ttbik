@@ -90,6 +90,33 @@ class CandidateImageSettings(unittest.TestCase):
             self.assertIn('"' + res + '"', app, f"{cand}: '{res}' is not a choice of {studio}")
 
 
+class CandidateToolRouting(unittest.TestCase):
+    def test_computer_tasks_preload_the_selected_model_computer_without_an_extra_generation_round(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        self.assertEqual(f("شغّل الاختبارات على الحاسوب وافحص ملف package.json", bridge), ["computer"])
+        self.assertEqual(f("run the build and debug the failing test in the terminal", bridge), ["computer"])
+
+    def test_github_tasks_load_only_a_connected_github_account(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
+        self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", no_github), ["computer"])
+        self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", with_github), ["computer", "github"])
+
+    def test_unlinked_or_missing_bridge_does_not_offer_remote_tools(self):
+        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        self.assertEqual(f("run code in the computer", None), [])
+        self.assertEqual(f("run code in the computer", {"url": "", "connectors": []}), [])
+
+    def test_native_tool_template_errors_fall_back_to_the_text_parser(self):
+        f = load("_should_fallback_text_tools")["_should_fallback_text_tools"]
+        for code in (400, 422, 500, 501, 502, 503):
+            self.assertTrue(f(code), code)
+        for code in (200, 401, 403, 404):
+            self.assertFalse(f(code), code)
+
+
 class TextToolFallback(unittest.TestCase):
     def test_payload_has_no_tools_field_and_turns_become_text(self):
         s = load("_one_system_message", "_text_tools_system", "_text_tool_payload")
