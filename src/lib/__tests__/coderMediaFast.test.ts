@@ -28,15 +28,20 @@ describe("Arabic subject-only media follow-ups", () => {
 });
 
 describe("Media intent without a blocked-word dictionary", () => {
+  it("keeps the old Sham exclusion behavior unless explicitly bypassed", () => {
+    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة")).toBeNull();
+    expect(detectMediaIntent("أنشئ صورة لموقع شركة")).toBeNull();
+  });
+
   it("accepts an image request whose subject contains code and programming words", () => {
-    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة")).toEqual({
+    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة", {}, { ignoreExcludedWords: true })).toEqual({
       kind: "image",
       subject: "لكود python علي شاشه",
     });
   });
 
   it("accepts an image request describing a website or application", () => {
-    expect(detectMediaIntent("أنشئ صورة لموقع شركة وتطبيق الهاتف")).toEqual({
+    expect(detectMediaIntent("أنشئ صورة لموقع شركة وتطبيق الهاتف", {}, { ignoreExcludedWords: true })).toEqual({
       kind: "image",
       subject: "لموقع شركه وتطبيق الهاتف",
     });
@@ -46,7 +51,7 @@ describe("Media intent without a blocked-word dictionary", () => {
     expect(detectMediaIntent("كود Python داخل موقع", {
       previousUser: "قم بتوليد صورة",
       previousAssistant: "ما الذي تريد أن يظهر في الصورة؟",
-    })).toEqual({
+    }, { ignoreExcludedWords: true })).toEqual({
       kind: "image",
       subject: "كود Python داخل موقع",
     });
