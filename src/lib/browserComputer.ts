@@ -1,6 +1,6 @@
-// The free headless browser (ai-system/modelscope-media/browser_computer.py) runs on the dedicated computer hub (an 8 GB Studio since 2026-11-02; the 16 GB Studio is free for a big model).
+// The free headless browser (ai-system/modelscope-media/browser_computer.py) runs on the dedicated computer hub (the 16 GB Studio since 2026-11-02; an 8 GB hub is kept as a manual backup).
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
-export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-juggernaut-ragnarok-image-test.api-inference.modelscope.net";
+export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 const COMPUTER_MODELS = new Set(["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 
 export type BrowserArgs = {

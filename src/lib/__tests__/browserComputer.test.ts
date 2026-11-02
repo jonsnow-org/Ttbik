@@ -52,10 +52,10 @@ describe("the model's own browser", () => {
     }) as any;
     const out = await browserDo("gemma4-e4b", "42:gemma4-e4b", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
-    expect(calls[0].url).toContain("juggernaut-ragnarok-image-test");
+    expect(calls[0].url).toContain("nova-inference-server");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
     expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
     expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toContain("PAGE TEXT:");
-    expect(calls[2].url).toContain("juggernaut-ragnarok-image-test");
+    expect(calls[2].url).toContain("nova-inference-server");
   });
 });
