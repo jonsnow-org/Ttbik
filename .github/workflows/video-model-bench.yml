@@ -46,10 +46,11 @@ jobs:
           F: ${{ inputs.frames }}
           S: ${{ inputs.steps }}
         run: |
-          ./sdcpp/build/bin/sd --help 2>&1 | grep -iE "vid_gen|mode|video|diffusion-model|t5xxl|offload|flow" | head -20
+          SD=$(ls sdcpp/build/bin/sd-cli sdcpp/build/bin/sd 2>/dev/null | head -1); echo "binary: $SD"; ls sdcpp/build/bin
+          $SD --help 2>&1 | grep -iE "vid_gen|mode|video|diffusion-model|t5xxl|offload|flow" | head -20
           START=$(date +%s)
           set +e
-          taskset -c 0,1 ./sdcpp/build/bin/sd -M vid_gen --diffusion-model models/wan.safetensors --vae models/vae.safetensors --t5xxl models/t5.gguf \
+          taskset -c 0,1 $SD -M vid_gen --diffusion-model models/wan.safetensors --vae models/vae.safetensors --t5xxl models/t5.gguf \
             -p "a beautiful girl walking on the beach at sunset, cinematic" --cfg-scale 6.0 --sampling-method euler -t 2 -W "$W" -H "$H" \
             --diffusion-fa --video-frames "$F" --flow-shift 3.0 --steps "$S" -o out.avi -v > run.log 2>&1
           echo "EXIT=$?"
