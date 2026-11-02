@@ -1005,8 +1005,8 @@ def _media_profile() -> dict | None:
     return {"base": base, "media_repo": str(conf.get("media_repo") or "")}
 
 
-def _requested_video_seconds(text: str, fallback: int = 3) -> int:
-    """Read duration from the original user request (Arabic/English) before model prompt rewriting."""
+def _explicit_video_seconds(text: str) -> int | None:
+    """Return only a duration explicitly stated in the original user message."""
     value = str(text or "").lower().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
     value = re.sub(r"[أإآ]", "ا", value).replace("ة", "ه").replace("ى", "ي")
     value = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", value)
@@ -1021,13 +1021,13 @@ def _requested_video_seconds(text: str, fallback: int = 3) -> int:
     }
     match = re.search(
         r"\b(one|two|three|four|five)\s*-?\s*(?:seconds?|secs?|sec|s)\b|"
-        r"(واحده?|وحده|اثنين|اثنتين|ثنتين|ثانيتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*"
+        r"(واحده?|وحده|اثنين|اثنتين|ثنتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*"
         r"(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)",
         value,
     )
     if match:
         token = match.group(1) or match.group(2)
-        return words.get(token, max(1, min(5, int(fallback))))
+        return words.get(token)
     if "ثانيتين" in value:
         return 2
     if re.search(r"(?:خمس|خمسه).*ثوان", value):
@@ -1038,16 +1038,24 @@ def _requested_video_seconds(text: str, fallback: int = 3) -> int:
         return 3
     if re.search(r"(?:واحد|واحده|وحده).*ثوان", value):
         return 1
-    return max(1, min(5, int(fallback)))
+    return None
+
+
+def _requested_video_seconds(text: str, fallback: int = 3) -> int:
+    explicit = _explicit_video_seconds(text)
+    return explicit if explicit is not None else max(1, min(5, int(fallback)))
 
 
 def _preserve_requested_video_duration(name: str, arguments: dict, original_prompt: str) -> dict:
-    """Keep a duration from the user's original message when a model tool call omits seconds."""
+    """An explicit user duration outranks whatever the model selected in its tool call."""
     copied = dict(arguments) if isinstance(arguments, dict) else {}
-    if name == "generate_video" and copied.get("seconds") is None:
-        copied["seconds"] = _requested_video_seconds(original_prompt)
+    if name == "generate_video":
+        user_seconds = _explicit_video_seconds(original_prompt)
+        if user_seconds is not None:
+            copied["seconds"] = user_seconds
+        elif copied.get("seconds") is None:
+            copied["seconds"] = 3
     return copied
-
 
 def _clamp_video_seconds(value, default: int = 3) -> int:
     try:
