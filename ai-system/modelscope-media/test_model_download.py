@@ -35,7 +35,7 @@ def fake_modelscope(snapshot_download):
             })
             root = Path(model_dir)
             (root / ".git").mkdir(parents=True, exist_ok=True)
-            (root / ".git" / "config").write_text("[remote \"origin\"]\nurl = " + endpoint + "/" + clone_from + ".git\n")
+            (root / ".git" / "config").write_text("[remote \"origin\"]\nurl = https://oauth2:" + str(git_token or "user") + "@" + endpoint.split("://", 1)[-1] + "/" + clone_from + ".git\n")
             (root / "manifest.json").write_text("{}")
 
     repository_module.Repository = Repository
@@ -101,8 +101,11 @@ class ModelDownloadTests(unittest.TestCase):
         self.assertEqual(repository.calls[0]["clone_from"], "models/owner/exact-photo-model")
         self.assertEqual(repository.calls[0]["git_token"], "private-token")
         self.assertEqual(repository.calls[0]["endpoint"], "https://modelscope.ai")
-        self.assertEqual(git_run.call_args.args[0], ["git", "lfs", "pull"])
-        self.assertEqual(git_run.call_args.kwargs["timeout"], 17)
+        commands = [call.args[0] for call in git_run.call_args_list]
+        self.assertEqual(commands[0], ["git", "lfs", "pull"])
+        self.assertEqual(commands[1], ["git", "remote", "set-url", "origin", "https://modelscope.ai/models/owner/exact-photo-model.git"])
+        self.assertNotIn("private-token", " ".join(commands[1]))
+        self.assertEqual(git_run.call_args_list[0].kwargs["timeout"], 17)
 
     def test_download_failure_redacts_private_token_and_never_changes_model_id(self):
         secret = "secret-token-should-not-leak"
