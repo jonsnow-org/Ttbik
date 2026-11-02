@@ -191,7 +191,7 @@ jobs:
 
       - name: Wait for terminal and graphical desktop prerequisites
         env:
-          T: \${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           ready=0
@@ -212,8 +212,6 @@ jobs:
           bootstrap=value.get("bootstrap") if isinstance(value,dict) else {}
           if not isinstance(bootstrap,dict): bootstrap={}
           print("phase="+str(bootstrap.get("phase") or "unknown"))
-          if bootstrap.get("phase") in ("ready","failed"):
-              print("bootstrap details:",bootstrap)
           PY
           )
               case "$phase" in
