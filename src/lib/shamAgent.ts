@@ -1,4 +1,4 @@
-import { requestedVideoSeconds } from "@/lib/mediaDuration";
+import { explicitVideoSeconds } from "@/lib/mediaDuration";
 // Sham's OWN agent loop (owner, 2026-10-26: "Sham must own everything"). It lives with Sham, not with Nova's engine:
 //   - its own conversation format (shamTools.ts: the tool block + "المستخدم: … / شام: <tool_call>… / نتيجة الأداة …"),
 //   - its own tool selection (SHAM_TOOL_NAMES below: what Sham may use, chosen here, not by Nova's tool-group loader),
@@ -185,7 +185,8 @@ export async function shamAgentRun(opts: {
     const scenes = Array.isArray(a.scenes) ? a.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6) : undefined;
     const narration = String(a.narration || "").trim().slice(0, 1500) || undefined;
     const explicitSeconds = Number.isFinite(Number(a.seconds)) && a.seconds !== undefined ? Math.max(1, Math.min(5, Math.round(Number(a.seconds)))) : undefined;
-    const seconds = kind === "video" ? (explicitSeconds ?? requestedVideoSeconds(opts.text)) : undefined;
+    const userSeconds = kind === "video" ? explicitVideoSeconds(opts.text) : null;
+    const seconds = kind === "video" ? (userSeconds ?? explicitSeconds ?? 3) : undefined;
     opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
     opts.onStep?.({ type: "tool_start", name: "make_media", args: JSON.stringify({ kind }) });
     const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600), { scenes, narration, seconds });
