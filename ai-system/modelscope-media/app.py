@@ -616,18 +616,33 @@ except Exception:                                                             # 
 def api_desktop_do(body: str) -> str:
     if desktop_computer is None:
         return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
+    # The app-server sends computer/browser/desktop calls as "b64:<base64>"
+    # because the Studio gateway rejects some shell-like text in ordinary JSON.
+    # Accept both the protected wire format and plain JSON for older clients.
+    wire = str(body or "{}")
+    if wire.startswith("b64:"):
+        encoded = wire[4:]
+        if len(encoded) > 128_000:
+            return json.dumps({"ok": False, "error": "desktop request is too large"})
+        try:
+            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
     try:
-        request = json.loads(body or "{}")
-    except ValueError:
+        request = json.loads(wire or "{}")
+    except (TypeError, ValueError):
         return json.dumps({"ok": False, "error": "invalid desktop request"})
-    if isinstance(request, dict) and str(request.get("action") or "").lower() == "start":
+    if not isinstance(request, dict):
+        return json.dumps({"ok": False, "error": "desktop request must be an object"})
+    normalized = json.dumps(request, ensure_ascii=False)
+    if str(request.get("action") or "").lower() == "start":
         if not _LOCK.acquire(blocking=False):
             return json.dumps({"ok": False, "phase": "busy", "error": "this Studio is generating media; retry desktop start after it finishes"})
         try:
-            return desktop_computer.api_desktop_do(body)
+            return desktop_computer.api_desktop_do(normalized)
         finally:
             _LOCK.release()
-    return desktop_computer.api_desktop_do(body)
+    return desktop_computer.api_desktop_do(normalized)
 
 
 def api_browser_do(body: str) -> str:
