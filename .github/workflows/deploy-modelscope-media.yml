@@ -10,6 +10,7 @@ on:
     paths:
       - ai-system/modelscope-media/**
       - scripts/ops/modelscope_computer_smoke.py
+      - ai-system/app/nova_media_probe.py
       - .github/workflows/deploy-modelscope-media.yml
   workflow_dispatch:
     inputs:
