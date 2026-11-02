@@ -13,7 +13,7 @@ No model calls another model, its tools, its Studio or its weights. Only the old
 | MiniCPM-o 4.5 | sham-donor-minicpmo45-test | Umranz Studio | sham-donor-minicpmo45-media | Oracle task box → its own candidate media computer → Light JS |
 
 ## The computer
-The persistent graphical desktop (Daytona, metered) is off in production (`src/lib/cloudDesktopPolicy.ts`). What replaces it is built on the free Studio each model already owns
+The graphical Linux desktop and the model's task computer run inside that model's own dedicated ModelScope Studio. The desktop is an Xvfb/Openbox session controlled through the Studio's authenticated Gradio API; the headless browser and shell share the same per-user/per-model workspace. The code is capacity-gated and is not activated until the selected Studio has at least 3 GB free RAM. This is built on the free Studio each model already owns
 (measured: root, 2 vCPU / 8 GB, a persistent `/mnt/workspace`, apt and pip through mirrors). Everything is private to one user and one model and is never shared between models:
 - **The computer** (`ai-system/modelscope-media/computer_box.py`, client `src/lib/computerBox.ts`): `computer_run` (a bash command, 90 s), `computer_write`, `computer_read` (file or folder),
   `computer_job` (start / log / stop / list: long work that keeps running between steps), `computer_repo` (a public GitHub repository into `~/repos` in ONE call, with a summary),
