@@ -47,14 +47,14 @@ class Profile(unittest.TestCase):
             for k in ("CPU_VIDEO_SIDE", "CPU_VIDEO_FRAMES"):
                 os.environ.pop(k, None)
             big, small = cpu_video.cv_profile(8), cpu_video.cv_profile(2)
-        self.assertEqual((big["side"], big["max_frames"]), (512, 16))
-        self.assertEqual((small["side"], small["max_frames"]), (256, 16))
-        self.assertTrue(all(p["side"] % 8 == 0 and 8 <= p["max_frames"] <= 16 for p in (big, small)))
+        self.assertEqual((big["side"], big["max_frames"], big["max_seconds"]), (512, 40, 5.0))
+        self.assertEqual((small["side"], small["max_frames"], small["max_seconds"]), (256, 40, 5.0))
+        self.assertTrue(all(p["side"] % 8 == 0 and 8 <= p["max_frames"] <= 40 for p in (big, small)))
 
     def test_overrides_are_clamped(self):
         with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "9000", "CPU_VIDEO_FRAMES": "1"}):
             p = cpu_video.cv_profile(2)
-        self.assertEqual((p["side"], p["max_frames"]), (512, 8))
+        self.assertEqual((p["side"], p["max_frames"], p["max_seconds"]), (512, 8, 1.0))
 
 
 class Weights(unittest.TestCase):
