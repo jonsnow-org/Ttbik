@@ -1375,8 +1375,10 @@ def _enqueue_real_video(
         native_prompt = (expanded_prompt or "").strip()
         if not native_prompt:
             native_prompt = council.expand_media_prompt(prompt, "video") or prompt
+        requested_seconds = int(seconds or quota.DEFAULT_VIDEO_SECONDS)
+        video_timeout = min(21600, max(900, requested_seconds * 300))
         video_bytes = nova_media_studio.generate_media(
-            "video", native_prompt, seconds=max(2, min(int(seconds or 4), 6)), timeout=900
+            "video", native_prompt, seconds=requested_seconds, timeout=video_timeout
         )
         if video_bytes is None:
             quota.refund_quota(user_id, "IMAGE")
@@ -1413,12 +1415,24 @@ def _enqueue_real_video(
 # other media request here is already free-text. None if the user
 # didn't mention a number, which quota.check_video_duration reads as
 # "use the plan default".
-_DURATION_RE = re.compile(r"(\d+)\s*(?:ثانية|ثواني|ثوان|sec|second)", re.IGNORECASE)
+_DURATION_SECONDS_RE = re.compile(r"(\d+)\s*(?:ثانية|ثواني|ثوان|seconds?|secs?|s)\b?", re.IGNORECASE)
+_DURATION_MINUTES_RE = re.compile(r"(\d+)\s*(?:دقيقة|دقائق|دقايق|min(?:ute)?s?)\b?", re.IGNORECASE)
 
 
 def _parse_requested_seconds(prompt: str) -> int | None:
-    match = _DURATION_RE.search(prompt)
-    return int(match.group(1)) if match else None
+    # Normalize Arabic-Indic digits before parsing.
+    text = str(prompt or "").translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    seconds_match = _DURATION_SECONDS_RE.search(text)
+    if seconds_match:
+        return int(seconds_match.group(1))
+    minutes_match = _DURATION_MINUTES_RE.search(text)
+    if minutes_match:
+        return int(minutes_match.group(1)) * 60
+    if re.search(r"\bدقيقتين\b", text):
+        return 120
+    if re.search(r"\bدقيقة\b", text):
+        return 60
+    return None
 
 
 @app.post("/generate-video", response_model=GenerateVideoResponse)
