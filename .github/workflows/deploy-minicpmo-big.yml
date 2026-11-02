@@ -23,7 +23,8 @@ jobs:
       - name: Studio state and hardware (read-only)
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
-        run: curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | head -c 1500; echo
+        run: |
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | head -c 1500; echo
       - name: Push the app
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
