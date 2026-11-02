@@ -183,7 +183,7 @@ export function codeNotTried(text: string, messages: CoderMessage[], tools: Code
   if (!names.has("computer_run") || !names.has("computer_write")) return false;
   let i = messages.length - 1;
   while (i >= 0 && !(messages[i].role === "user" && !String((messages[i] as { content?: string }).content || "").startsWith("[harness]"))) i--;
-  return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "computer_run");
+  return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && ["computer_run", "computer_job"].includes((m as { name?: string }).name || ""));
 }
 
 export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه. استخدم الحاسوب الدائم نفسه: اكتب الملف بـ computer_write أو عدّله بـ computer_edit، ثم نفّذ أمراً حقيقياً بـ computer_run (وللمهام الأطول استخدم computer_job). بعد التنفيذ اقرأ النتيجة وأصلح أي فشل قبل الإجابة. لا تنقل العمل إلى sandbox مؤقت.";
