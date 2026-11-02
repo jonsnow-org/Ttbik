@@ -1049,6 +1049,14 @@ def _preserve_requested_video_duration(name: str, arguments: dict, original_prom
     return copied
 
 
+def _clamp_video_seconds(value, default: int = 3) -> int:
+    try:
+        seconds = int(value) if value is not None else int(default)
+    except (TypeError, ValueError, OverflowError):
+        seconds = int(default)
+    return max(1, min(5, seconds))
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1066,8 +1074,8 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         prompt = str(arguments.get("prompt") or "").strip()
         if len(prompt) < 4 or len(prompt) > 800:
             return {"ok": False, "error": "Prompt must be between 4 and 800 characters."}
-        seconds = int(arguments.get("seconds") or 3)
-        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(5, seconds)), "seed": int(time.time()) % 2147483647}
+        seconds = _clamp_video_seconds(arguments.get("seconds"))
+        api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
         submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
