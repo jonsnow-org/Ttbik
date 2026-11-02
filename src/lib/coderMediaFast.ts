@@ -23,7 +23,12 @@ const inSet = (w: string, s: Set<string>): boolean => s.has(w) || s.has(bare(w))
 const words = (t: string): string[] => t.split(/[^\p{L}\p{N}:/.]+/u).filter(Boolean);
 
 /** A clear "make a picture / a video of X" request, or null (anything else goes to the general worker). */
-export function detectMediaIntent(text: string): MediaIntent | null {
+export type MediaFollowupContext = { previousUser?: string; previousAssistant?: string };
+
+/** A short subject-only reply can complete an earlier media request, but only when
+ * the immediately previous assistant turn explicitly asked for the missing visual description.
+ * This avoids treating ordinary nouns in a normal chat as generation requests. */
+export function detectMediaIntent(text: string, context: MediaFollowupContext = {}): MediaIntent | null {
   const raw = String(text || "").trim();
   if (!raw || raw.length > 300 || raw.startsWith("/")) return null;
   const ws = words(norm(raw));
@@ -32,7 +37,17 @@ export function detectMediaIntent(text: string): MediaIntent | null {
   const draw = ws.some((w) => inSet(w, DRAW));
   const video = ws.some((w) => inSet(w, VIDEOS) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)));
   const image = ws.some((w) => inSet(w, IMAGES));
-  if (!verb || !(video || image || draw)) return null;
+  if (!verb || !(video || image || draw)) {
+    const previous = String(context.previousAssistant || "");
+    const clarification = /(?:اكتب|اذكر|صف).{0,70}(?:الوصف|ما الذي يظهر|ماذا يظهر)|(?:الوصف|description).{0,60}(?:الصورة|الفيديو|المقطع|image|picture|video)|(?:what should appear|describe the subject).{0,70}(?:image|picture|video)/i.test(previous);
+    if (!clarification || !raw || ws.some((w) => inSet(w, NOT_WORDS) || /^https?:/.test(w))) return null;
+    const priorIntent = detectMediaIntent(String(context.previousUser || ""));
+    const previousKind = /(?:فيديو|فديو|مقطع|video|clip)/i.test(previous) ? "video" : undefined;
+    const followupKind = priorIntent?.kind || previousKind || "image";
+    const subject = raw.trim().slice(0, 220);
+    if (!subject || subject.length < 2) return null;
+    return { kind: followupKind, subject };
+  }
   const digits = raw.replace(/[٠-٩۰-۹]/g, (d) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(d) % 10));
   const secondsMatch = digits.match(/\b(10|15|30|60|120)\s*(?:seconds?|secs?|s)\b/i)
     || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثوان)/i);
