@@ -1,4 +1,4 @@
-/** Parse a requested video length before the prompt is translated for the media model. */
+/** Parse the user's requested video duration before the model prompt is translated or rewritten. */
 const ARABIC_DIGITS: Record<string, string> = {
   "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
   "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
@@ -13,8 +13,9 @@ const WORD_SECONDS: Record<string, number> = {
 };
 const MAX_VIDEO_SECONDS = 5;
 
-function normalizeDigits(value: string): string {
-  return value.replace(/[٠-٩]/g, (digit) => ARABIC_DIGITS[digit] || digit)
+function normalizeDurationText(value: string): string {
+  return value.toLowerCase()
+    .replace(/[٠-٩]/g, (digit) => ARABIC_DIGITS[digit] || digit)
     .replace(/[أإآ]/g, "ا")
     .replace(/ة/g, "ه")
     .replace(/ى/g, "ي")
@@ -22,27 +23,42 @@ function normalizeDigits(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-/** Default 3 seconds; explicit requests are preserved from 1 to 5 seconds. */
-export function requestedVideoSeconds(text: string, fallback = 3): number {
-  const raw = normalizeDigits(String(text || "").toLowerCase());
-  const safeFallback = Math.max(1, Math.min(MAX_VIDEO_SECONDS, Math.round(Number(fallback) || 3)));
-  const numeric = /(\d{1,2}(?:\.\d+)?)\s*-?\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
+function boundedSeconds(value: number): number {
+  return Math.max(1, Math.min(MAX_VIDEO_SECONDS, Math.round(value)));
+}
+
+/** Returns an explicit 1–5 second duration, or null when the user did not specify one. */
+export function explicitVideoSeconds(text: string): number | null {
+  const raw = normalizeDurationText(String(text || ""));
+  const unit = String.raw`(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))`;
+  const numeric = new RegExp(String.raw`(\d{1,2}(?:\.\d+)?)\s*-?\s*` + unit, "i").exec(raw);
   if (numeric) {
     const amount = Number(numeric[1]);
-    if (Number.isFinite(amount) && amount > 0) return Math.max(1, Math.min(MAX_VIDEO_SECONDS, Math.round(amount)));
+    if (Number.isFinite(amount) && amount > 0) return boundedSeconds(amount);
   }
 
-  const words = /(one|two|three|four|five|واحده?|وحده|اثنين|اثنتين|ثنتين|ثانيتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*-?\s*(?:\b(?:seconds?|secs?|sec|s)\b|(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)(?=$|[^\u0600-\u06FF]))/i.exec(raw);
-  if (words) {
-    const amount = WORD_SECONDS[words[1]];
+  const word = new RegExp(
+    String.raw`(one|two|three|four|five|واحده?|وحده|اثنين|اثنتين|ثنتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*-?\s*` + unit,
+    "i",
+  ).exec(raw);
+  if (word) {
+    const amount = WORD_SECONDS[word[1]];
     if (amount) return amount;
   }
 
   if (/ثانيتين/.test(raw)) return 2;
-  if (/ثانيه|ثانية/.test(raw) && !/ثوان/.test(raw)) return 1;
-  if (/خمس|خمسه/.test(raw) && /ثوان/.test(raw)) return 5;
-  if (/اربع|اربعه/.test(raw) && /ثوان/.test(raw)) return 4;
-  if (/ثلاث|ثلاثه/.test(raw) && /ثوان/.test(raw)) return 3;
-  if (/واحد|واحده|وحده/.test(raw) && /ثوان/.test(raw)) return 1;
-  return safeFallback;
+  if (/ثانيه/.test(raw) && !/ثوان/.test(raw)) return 1;
+  if (/(?:خمس|خمسه).*ثوان/.test(raw)) return 5;
+  if (/(?:اربع|اربعه).*ثوان/.test(raw)) return 4;
+  if (/(?:ثلاث|ثلاثه).*ثوان/.test(raw)) return 3;
+  if (/(?:واحد|واحده|وحده).*ثوان/.test(raw)) return 1;
+  return null;
+}
+
+/** Default to three seconds only when the user did not state a duration. */
+export function requestedVideoSeconds(text: string, fallback = 3): number {
+  const explicit = explicitVideoSeconds(text);
+  if (explicit !== null) return explicit;
+  const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : 3;
+  return boundedSeconds(safeFallback || 3);
 }
