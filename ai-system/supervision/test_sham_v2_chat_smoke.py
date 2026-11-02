@@ -27,6 +27,18 @@ class ShamV2ChatRouteTests(unittest.TestCase):
         self.assertIn('context >= 4096', source)
         self.assertIn("before the 300s deadline", source)
 
+    def test_deploy_enables_native_tool_calls_in_the_private_sham_v2_studio(self):
+        workflow = (ROOT / ".github" / "workflows" / "deploy-modelscope-sham-v2.yml").read_text(encoding="utf-8")
+        self.assertIn('set_secret SHAM_NATIVE_TOOL_CALLS "1"', workflow)
+
+    def test_live_smoke_requires_the_model_to_choose_and_execute_its_own_terminal_tool(self):
+        source = SMOKE.read_text(encoding="utf-8")
+        self.assertIn('call("agent_step"', source)
+        self.assertIn('"- computer_run(command, cwd?, timeout?)', source)
+        self.assertIn('call_computer_box({', source)
+        self.assertIn("Sham v2 itself selected computer_run", source)
+        self.assertIn("generated_command", source)
+
 
 if __name__ == "__main__":
     unittest.main()

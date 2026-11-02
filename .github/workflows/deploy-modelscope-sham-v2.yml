@@ -132,6 +132,7 @@ jobs:
           # When no separate signing key is configured, both use the ModelScope token.
           set_secret SHAM_CODE_SIGNING_KEY "${SHAM_CODE_SIGNING_KEY:-$T}"
           set_secret SHAM_MS_MODEL "novaai2026/sham-v2"
+          set_secret SHAM_NATIVE_TOOL_CALLS "1"
           rm -f secret.json secret-response.json
 
       - name: Deploy and show status

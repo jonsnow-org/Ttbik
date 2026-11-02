@@ -61,14 +61,18 @@ describe("the model's own persistent computer", () => {
     expect(calls[2].url).toContain("sham-v2-video-server");
   });
 
-  test("the computer group carries the four tools for Nova and the candidates, with short descriptions that keep the 90 s rule", () => {
-    const names = (toolGroups(false, false).computer || []).map((t) => t.function.name);
-    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]) expect(names).toContain(name);
+  test("persistent computer and temporary worker are separate tool groups", () => {
+    const computer = (toolGroups(false, false).computer || []).map((t) => t.function.name);
+    const worker = (toolGroups(false, false).worker || []).map((t) => t.function.name);
+    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]) expect(computer).toContain(name);
+    expect(computer).not.toContain("sandbox_exec");
+    expect(worker).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_search"]));
     expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
     expect(COMPUTER_PLAYBOOK).toContain("computer_job");
     const seen = candidateToolsFor(["computer"], false, false).find((t) => t.function.name === "computer_run")!;
     expect(seen.function.description).toContain("90 s");
     expect(seen.function.description).toContain("computer_job");
+    expect(candidateToolsFor(["computer"], false, false).map((t) => t.function.name)).not.toContain("sandbox_exec");
   });
 });
 

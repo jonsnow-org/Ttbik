@@ -9,6 +9,7 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-media/**
+      - scripts/ops/modelscope_computer_smoke.py
       - .github/workflows/deploy-modelscope-media.yml
   workflow_dispatch:
     inputs:
@@ -148,3 +149,10 @@ jobs:
           done
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
+
+
+      - name: Live test Nova's own persistent computer and graphical desktop
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
+        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id coder
