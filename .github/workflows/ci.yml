@@ -22,8 +22,10 @@ jobs:
           python -m unittest discover -s ai-system/supervision -p 'test_sham_v2_chat_smoke.py' -v
           python -m unittest discover -s ai-system/supervision -p 'test_browser_computer.py' -v
           python -m unittest discover -s ai-system/supervision -p 'test_computer_box.py' -v
+          python -m unittest discover -s ai-system/supervision -p 'test_desktop_computer.py' -v
           python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
+          python -m py_compile ai-system/modelscope-media/desktop_computer.py ai-system/supervision/test_desktop_computer.py
           python -m py_compile ai-system/supervision/sham_v2_media_smoke.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_media_ready.py ai-system/colab/sham_small/sham_toolcall.py
           python -m py_compile experiments/donor-bakeoff/app.py
           python ai-system/colab/sham_small/sham_media_ready.py
@@ -102,7 +104,7 @@ jobs:
       - name: Install the repository's existing Jest test toolchain
         run: npm ci --prefix athar
       - name: Run Sham v2 routing and model-access regression tests
-        run: cd athar && npx jest --config ../jest.media.config.js --rootDir .. --runInBand --runTestsByPath ../src/lib/__tests__/shamAgent.test.ts ../src/lib/__tests__/coderModels.test.ts ../src/lib/__tests__/shamContinuation.test.ts ../src/lib/__tests__/shamStudio.test.ts ../src/lib/__tests__/perModelSettings.test.ts ../src/lib/__tests__/openCoderStudio.test.ts ../src/lib/__tests__/coderSections.test.ts ../src/lib/__tests__/photoWeightMedia.test.ts ../src/lib/__tests__/coderApp.test.ts ../src/lib/__tests__/donorTests.test.ts ../src/lib/__tests__/cloudComputer.test.ts ../src/lib/__tests__/coderFailover.test.ts ../src/lib/__tests__/coderSandboxRunner.test.ts ../src/lib/__tests__/shamAgentTools.test.ts ../src/lib/__tests__/shamRuntimeIsolation.test.ts ../src/lib/__tests__/coderPlans.test.ts ../src/lib/__tests__/donorToolBridge.test.ts ../src/lib/__tests__/browserComputer.test.ts ../src/lib/__tests__/computerBox.test.ts
+        run: cd athar && npx jest --config ../jest.media.config.js --rootDir .. --runInBand --runTestsByPath ../src/lib/__tests__/shamAgent.test.ts ../src/lib/__tests__/coderModels.test.ts ../src/lib/__tests__/shamContinuation.test.ts ../src/lib/__tests__/shamStudio.test.ts ../src/lib/__tests__/perModelSettings.test.ts ../src/lib/__tests__/openCoderStudio.test.ts ../src/lib/__tests__/coderSections.test.ts ../src/lib/__tests__/photoWeightMedia.test.ts ../src/lib/__tests__/coderApp.test.ts ../src/lib/__tests__/donorTests.test.ts ../src/lib/__tests__/coderFailover.test.ts ../src/lib/__tests__/coderSandboxRunner.test.ts ../src/lib/__tests__/coderSandbox.test.ts ../src/lib/__tests__/shamAgentTools.test.ts ../src/lib/__tests__/shamRuntimeIsolation.test.ts ../src/lib/__tests__/coderPlans.test.ts ../src/lib/__tests__/donorToolBridge.test.ts ../src/lib/__tests__/browserComputer.test.ts ../src/lib/__tests__/desktopComputer.test.ts ../src/lib/__tests__/computerBox.test.ts
   oracle-runner-policy-tests:
     runs-on: ubuntu-latest
     steps:

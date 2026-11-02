@@ -5,15 +5,15 @@ No model calls another model, its tools, its Studio or its weights. Only the old
 
 | Model | Chat Studio | Image | Speech / video | Computer |
 |---|---|---|---|---|
-| Nova AI (`coder`) | coder-inference-server 1-5 | epiCRealism Studio | Nova media Studio | task Linux box (`sandbox_*`) |
-| Sham (old) | sham-v1-server | its own | its own | untouched |
-| Sham v2 | sham-v2-server (+ overflow) | Realistic Vision V6 Studio | its own video Studio | task Linux box |
-| Qwen3.5-9B | sham-donor-qwen35-9b-test | CyberRealistic Studio | sham-donor-qwen35-9b-media | task Linux box |
-| Gemma 4 E4B | sham-donor-gemma4-e4b-test | its own copy of Realistic Vision V6 | sham-donor-gemma4-e4b-media | task Linux box |
-| MiniCPM-o 4.5 | sham-donor-minicpmo45-test | Umranz Studio | sham-donor-minicpmo45-media | task Linux box |
+| Nova AI (`coder`) | coder-inference-server 1-5 | epiCRealism Studio | Nova media Studio | Oracle task box → Nova's own ModelScope media computer → Light JS |
+| Sham (old) | sham-v1-server | its own | its own | untouched; no fallback into another model |
+| Sham v2 | sham-v2-server (+ overflow) | Realistic Vision V6 Studio | its own video Studio | Oracle task box → Sham v2's own video Studio computer → Light JS |
+| Qwen3.5-9B | sham-donor-qwen35-9b-test | CyberRealistic Studio | sham-donor-qwen35-9b-media | Oracle task box → its own candidate media computer → Light JS |
+| Gemma 4 E4B | sham-donor-gemma4-e4b-test | its own copy of Realistic Vision V6 | sham-donor-gemma4-e4b-media | Oracle task box → its own candidate media computer → Light JS |
+| MiniCPM-o 4.5 | sham-donor-minicpmo45-test | Umranz Studio | sham-donor-minicpmo45-media | Oracle task box → its own candidate media computer → Light JS |
 
 ## The computer
-The persistent graphical desktop (Daytona, metered) is off in production (`src/lib/cloudDesktopPolicy.ts`). What replaces it is built on the free Studio each model already owns
+The graphical Linux desktop and the model's task computer run inside that model's own dedicated ModelScope Studio. The desktop is an Xvfb/Openbox session controlled through the Studio's authenticated Gradio API; the headless browser and shell share the same per-user/per-model workspace. The code is capacity-gated and is not activated until the selected Studio has at least 3 GB free RAM. This is built on the free Studio each model already owns
 (measured: root, 2 vCPU / 8 GB, a persistent `/mnt/workspace`, apt and pip through mirrors). Everything is private to one user and one model and is never shared between models:
 - **The computer** (`ai-system/modelscope-media/computer_box.py`, client `src/lib/computerBox.ts`): `computer_run` (a bash command, 90 s), `computer_write`, `computer_read` (file or folder),
   `computer_job` (start / log / stop / list: long work that keeps running between steps), `computer_repo` (a public GitHub repository into `~/repos` in ONE call, with a summary),
@@ -22,7 +22,8 @@ The persistent graphical desktop (Daytona, metered) is off in production (`src/l
   and a best-effort iptables block of private ranges and the metadata address (the result is reported by `status`, never assumed).
 - **The browser** (`browser_computer.py`, client `src/lib/browserComputer.ts`): one shared Chromium with a context per session, sessions saved to disk when idle, `wait`, `aria`
   (page outline) and drawn-area hints for single-page apps. Chromium comes from a mirror first (Playwright's own host timed out on a real Studio).
-- **The task box** (`sandbox_*`: clone / push with the user's GitHub grant): Oracle Always Free runner, then the in-process JavaScript runner. Kept for repository writes.
+- **The task box** (`sandbox_*`: clone / push with the user's GitHub grant): Oracle is primary; on capacity/health refusal the task may use the same selected model's own ModelScope media computer, then the limited in-process JavaScript runner. ModelScope fallback receives a separate task-scoped session hash and is blocked unless its own Studio reports sufficient free memory and an available global execution slot. It never falls back across model IDs.
+- **GitHub Actions** is the third compute resource for disposable batch work (build/test/repo snapshots). It is not yet a generic interactive shell provider: a live task can move there only after packaging and checkpointing its files/logs, and only when an authorized Actions dispatch connection is available. No task process or browser session is moved in memory.
 - Not used, on purpose: Microsandbox (needs KVM, `/dev/kvm` is absent), Bubblewrap (needs user namespaces the host may forbid; probed and recorded), Steel Browser (a second server for what
   Playwright contexts already do).
 

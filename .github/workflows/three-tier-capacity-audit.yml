@@ -1,0 +1,59 @@
+name: "Three-tier compute capacity audit (read-only)"
+
+on:
+  push:
+    branches:
+      - infra/three-tier-computer-2026-11-02
+    paths:
+      - ".github/workflows/three-tier-capacity-audit.yml"
+      - "scripts/ops/studio_inventory.py"
+      - "scripts/ops/test_studio_inventory.py"
+      - "scripts/ops/three_tier_capacity_audit.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: three-tier-capacity-audit
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated audit branch
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record GitHub runner resources and Oracle status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          python3 scripts/ops/three_tier_capacity_audit.py | tee artifacts/oracle-and-github.json
+      - name: Test ModelScope inventory parser
+        run: cd scripts/ops && python3 -m unittest test_studio_inventory -v
+      - name: Inventory every ModelScope Studio and live runtime
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          if [ -z "$MODELSCOPE_TOKEN" ]; then
+            echo '{"error":"MODELSCOPE_TOKEN GitHub secret is not configured"}' | tee artifacts/modelscope-inventory.jsonl
+          else
+            python3 scripts/ops/studio_inventory.py | tee artifacts/modelscope-inventory.jsonl
+          fi
+      - name: Upload capacity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: three-tier-capacity-audit
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7

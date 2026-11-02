@@ -4,6 +4,7 @@
 // log box in the Chats tab. Owner only (the server refuses everyone else).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
+import GraphicalDesktop from "./GraphicalDesktop";
 import type { Lang } from "../i18n";
 
 const MODELS: { id: string; label: string }[] = [
@@ -23,7 +24,7 @@ function joinPath(cwd: string, arg: string): string {
 export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang; defaultModel: string; logs?: React.ReactNode }) {
   const ar = lang === "ar";
   const [model, setModel] = useState(MODELS.some((m) => m.id === defaultModel) ? defaultModel : "coder");
-  const [tab, setTab] = useState<"desk" | "term" | "files" | "jobs" | "log">("desk");
+  const [tab, setTab] = useState<"desktop" | "desk" | "term" | "files" | "jobs" | "log">("desktop");
   const [status, setStatus] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [cmd, setCmd] = useState("");
@@ -98,7 +99,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
   useEffect(() => { if (tab !== "jobs") return; void loadJobs(); const t = setInterval(() => { void loadJobs(); if (jobLog) void showJob(jobLog.id); }, 4000); return () => clearInterval(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loadJobs, jobLog?.id]);
 
   const chip = (on: boolean) => ({ borderRadius: 999, padding: "6px 12px", border: "1px solid var(--n-line, #8883)", background: on ? "var(--n-accent, #0d9488)" : "transparent", color: on ? "#fff" : "inherit", font: "600 13px system-ui" });
-  const tabs: [typeof tab, string][] = [["desk", ar ? "سطح المكتب" : "Desktop"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["log", ar ? "سجل المهام" : "Task log"]];
+  const tabs: [typeof tab, string][] = [["desktop", ar ? "الحاسوب الرسومي" : "Graphical desktop"], ["desk", ar ? "المتصفح الآلي" : "Headless browser"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["log", ar ? "سجل المهام" : "Task log"]];
   const okStatus = status?.ok;
   return (
     <div className="n-page">
@@ -115,6 +116,8 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
       <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
         {tabs.map(([id, label]) => <button key={id} type="button" style={chip(tab === id)} onClick={() => setTab(id)}>{label}</button>)}
       </div>
+
+      {tab === "desktop" && <GraphicalDesktop key={model} model={model} ar={ar} />}
 
       {tab === "desk" && (
         <div className="n-card" style={{ padding: 12 }}>

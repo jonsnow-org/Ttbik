@@ -1,4 +1,4 @@
-"""A free persistent Linux computer for one model: what Daytona's paid sandbox gave (a shell, files that stay, long jobs), built on what the model's OWN Studio already has.
+"""A free persistent Linux computer for one model: a private Linux work environment (a shell, persistent files and long jobs), built on what the model's OWN Studio already has.
 
 Measured on a real ModelScope Studio (2026-11-01): we are root, 2 vCPU / 8 GB, /mnt/workspace persists, apt and pip work through mirrors. So a "computer" is:
   - a home folder per session (a session = one user of one model) under /mnt/workspace/computer, kept between chats and Studio restarts;
@@ -12,6 +12,7 @@ Nothing here is shared between models: every model's Studio runs its own copy an
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -30,20 +31,26 @@ DEFAULT_TIMEOUT = 60
 MAX_TIMEOUT = 90                    # longer work belongs in a background job: the Studio gateway cuts long answers
 MAX_READ = 60000
 MAX_WRITE = 1_000_000
-MAX_JOBS = 4
+MAX_JOBS = 4                       # per-session ceiling
+MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "1")))  # shared 2-vCPU Studio: one executing task at a time
+MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
 QUOTA_BYTES = 3 * 1024 ** 3
-MEMORY_KILL = 3 * 1024 ** 3         # a command / job whose processes use more real memory than this is stopped (the model in this Studio needs the rest of the 8 GB)
+MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs
     "fsize": 1024 ** 3,
     "nofile": 2048,
 }
-UID_BASE = 20000
-UID_SPAN = 40000
+# Allocate unique persistent UIDs instead of hashing into a small modulo range.
+# UID mappings survive Studio restarts and are stored by a one-way session digest.
+UID_BASE = 100000
+UID_SPAN = 400000
 
 _LOCK = threading.RLock()
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
+_ACTIVE_COMMANDS: set[str] = set()
+_ACTIVE_DESKTOPS: set[str] = set()  # a graphical desktop reserves the Studio's single execution slot
 STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
 
 
@@ -74,7 +81,52 @@ def session_home(session: str) -> Path:
 
 
 def session_uid(session: str) -> int:
-    return UID_BASE + int(digest(session)[:8], 16) % UID_SPAN
+    """Return a collision-free, persistent unprivileged UID for this session.
+
+    A per-session hashed directory is not sufficient isolation when Unix UIDs
+    collide: mode 0700 grants access to every process running under the same UID.
+    This allocator serializes reservations with flock and uses linear probing.
+    Only a SHA-256 digest is stored; raw Telegram/session identifiers are not.
+    """
+    ROOT.mkdir(parents=True, exist_ok=True)
+    lock_path = ROOT / ".session-uids.lock"
+    map_path = ROOT / ".session-uids.json"
+    key = digest(session)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            try:
+                mapping = json.loads(map_path.read_text(encoding="utf-8")) if map_path.exists() else {}
+                if not isinstance(mapping, dict):
+                    mapping = {}
+            except (OSError, ValueError):
+                mapping = {}
+            saved = mapping.get(key)
+            if isinstance(saved, int) and UID_BASE <= saved < UID_BASE + UID_SPAN:
+                return saved
+            used = {v for v in mapping.values() if isinstance(v, int) and UID_BASE <= v < UID_BASE + UID_SPAN}
+            start = int(key[:16], 16) % UID_SPAN
+            allocated = None
+            for offset in range(UID_SPAN):
+                candidate = UID_BASE + ((start + offset) % UID_SPAN)
+                if candidate not in used:
+                    allocated = candidate
+                    break
+            if allocated is None:
+                raise RuntimeError("the private computer UID allocation range is full")
+            mapping[key] = allocated
+            tmp = ROOT / f".session-uids.{os.getpid()}.{threading.get_ident()}.tmp"
+            with tmp.open("w", encoding="utf-8") as out:
+                json.dump(mapping, out, separators=(",", ":"))
+                out.flush()
+                os.fsync(out.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, map_path)
+            os.chmod(map_path, 0o600)
+            return allocated
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def safe_path(session: str, rel: str) -> Path:
@@ -300,6 +352,66 @@ def over_quota(session: str) -> bool:
     return dir_size(session_home(session)) > QUOTA_BYTES
 
 
+def _mem_available_mb() -> int | None:
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _global_counts_locked() -> tuple[int, int, int]:
+    active_jobs = 0
+    for jobs in _JOBS.values():
+        for job in jobs.values():
+            _refresh(job)
+            if job.get("exit_code") is None:
+                active_jobs += 1
+    return active_jobs, len(_ACTIVE_COMMANDS), len(_ACTIVE_DESKTOPS)
+
+
+def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
+    """Reserve this Studio's single execution slot for one private graphical desktop."""
+    ensure_home(session)
+    key = digest(session)[:24]
+    required = max(MIN_AVAILABLE_MB, min(6000, int(min_available_mb)))
+    with _LOCK:
+        if key in _ACTIVE_DESKTOPS:
+            return {"ok": True, "already_reserved": True, "available_mb": _mem_available_mb()}
+        active_jobs, active_commands, active_desktops = _global_counts_locked()
+        active = active_jobs + active_commands + active_desktops
+        if active >= MAX_GLOBAL_JOBS:
+            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot)"}
+        available = _mem_available_mb()
+        if available is None:
+            return {"ok": False, "error": "the Studio could not report available memory; graphical desktop start was refused"}
+        if available < required:
+            return {"ok": False, "error": f"only {available} MB of Studio memory is available; the graphical desktop requires {required} MB"}
+        _ACTIVE_DESKTOPS.add(key)
+        return {"ok": True, "available_mb": available, "reserved": True}
+
+
+def release_desktop(session: str) -> None:
+    key = digest(session)[:24]
+    with _LOCK:
+        _ACTIVE_DESKTOPS.discard(key)
+
+
+def _capacity_reason_locked() -> str:
+    active_jobs, active_commands, active_desktops = _global_counts_locked()
+    active = active_jobs + active_commands + active_desktops
+    if active >= MAX_GLOBAL_JOBS:
+        return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot); retry after the active task finishes"
+    available = _mem_available_mb()
+    if available is None:
+        return "the Studio could not report available memory; refusing a new task rather than risk the model process"
+    if available < MIN_AVAILABLE_MB:
+        return f"the Studio has only {available} MB available; a new task requires at least {MIN_AVAILABLE_MB} MB"
+    return ""
+
+
 def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT) -> dict:
     command = str(command or "").strip()
     if not command:
@@ -319,20 +431,30 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if drop and workdir.stat().st_uid != uid:
         os.chown(workdir, uid, uid)
     started = time.time()
-    with _run_lock(session):
-        proc = subprocess.Popen(["/bin/bash", "-c", command], cwd=str(workdir), env=clean_env(session), stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, preexec_fn=_child_setup(uid, drop, timeout + 15))
-        timed_out = False
-        watch(proc.pid, "command")
-        try:
-            raw, _ = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _kill_group(proc.pid)
+    reservation = f"{digest(session)[:12]}:{threading.get_ident()}:{time.monotonic_ns()}"
+    with _LOCK:
+        reason = _capacity_reason_locked()
+        if reason:
+            return {"ok": False, "error": reason}
+        _ACTIVE_COMMANDS.add(reservation)
+    try:
+        with _run_lock(session):
+            proc = subprocess.Popen(["/bin/bash", "-c", command], cwd=str(workdir), env=clean_env(session), stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, preexec_fn=_child_setup(uid, drop, timeout + 15))
+            timed_out = False
+            watch(proc.pid, "command")
             try:
-                raw, _ = proc.communicate(timeout=5)
-            except Exception:                              # noqa: BLE001
-                raw = b""
+                raw, _ = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill_group(proc.pid)
+                try:
+                    raw, _ = proc.communicate(timeout=5)
+                except Exception:                              # noqa: BLE001
+                    raw = b""
+    finally:
+        with _LOCK:
+            _ACTIVE_COMMANDS.discard(reservation)
     out = raw.decode("utf-8", "replace") if raw else ""
     reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else "."}
     if timed_out:
@@ -450,7 +572,10 @@ def job_start(session: str, command: str, name: str = "") -> dict:
         for job in jobs.values():
             _refresh(job)
         if sum(1 for j in jobs.values() if j.get("exit_code") is None) >= MAX_JOBS:
-            return {"ok": False, "error": f"{MAX_JOBS} jobs are already running; stop one first (computer_job action=stop)"}
+            return {"ok": False, "error": f"{MAX_JOBS} jobs are already running in this session; stop one first (computer_job action=stop)"}
+        reason = _capacity_reason_locked()
+        if reason:
+            return {"ok": False, "error": reason}
         job_id = hashlib.sha256(f"{time.time()}{command}".encode()).hexdigest()[:8]
         log = home / ".jobs" / f"{job_id}.log"
         drop = is_root()
@@ -720,9 +845,18 @@ def status(session: str = "") -> dict:
     except OSError:
         disk = {}
     tools = {name: bool(shutil.which(name)) for name in ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")}
+    with _LOCK:
+        active_jobs, active_commands, active_desktops = _global_counts_locked()
+        available_mb = _mem_available_mb()
+        can_accept = (active_jobs + active_commands + active_desktops < MAX_GLOBAL_JOBS
+                      and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
-             "limits": {"command_seconds": MAX_TIMEOUT, "jobs": MAX_JOBS, "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": MEMORY_KILL // 1024 ** 3},
+             "limits": {"command_seconds": MAX_TIMEOUT, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
+                        "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": round(MEMORY_KILL / 1024 ** 3, 2),
+                        "minimum_available_mb": MIN_AVAILABLE_MB},
+             "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
+                          "active_desktops": active_desktops, "available_mb": available_mb},
              "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked")}
     if session:
         home = session_home(session)

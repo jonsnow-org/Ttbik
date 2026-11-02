@@ -48,7 +48,7 @@ The production zero-cost chain has exactly one full Linux backend:
 | Oracle runner | `CODER_SANDBOX_ORACLE_URL` (HTTPS base; defaults to `https://PUBLIC_HOST/coder-sbx`), optional `CODER_SANDBOX_ORACLE_SECRET` (otherwise derived from the existing Telegram bot token) | Enabled when Oracle is reachable and has capacity |
 | Light JS | none | Automatic last resort; no Linux shell, npm or network |
 
-Vercel Sandbox, CodeSandbox VM, Codespaces, Daytona and E2B are deliberately disabled from application backend selection. Do not add their API keys to enable failover: their VM compute is metered or depends on personal credits that have not been verified as permanently free. The app must never silently fall back to them.
+Vercel Sandbox, CodeSandbox VM, Codespaces and E2B are deliberately disabled from application backend selection. Do not add their API keys to enable failover: their VM compute is metered or depends on personal credits that have not been verified as permanently free. The app must never silently fall back to them.
 
 `SANDBOX_BACKEND` accepts `oracle`, `light` or `off`; unknown/provider names are ignored. Default is `oracle`, but if Oracle is not configured the Linux backend list is empty and the app moves to Light only.
 
@@ -56,7 +56,7 @@ Vercel Sandbox, CodeSandbox VM, Codespaces, Daytona and E2B are deliberately dis
 
 The legacy CodeSandbox and GitHub Codespaces adapter code remains for isolated tests and historical reference, but the production zero-cost
 policy does not call it. CodeSandbox VM forks consume credits; GitHub Codespaces are personal-account monthly allowances and must not be
-treated as unlimited shared compute. Daytona and E2B are also disabled because their free allowances are credits, not guaranteed permanent
+treated as unlimited shared compute. E2B is also disabled because its free allowance is credits, not guaranteed permanent
 zero-cost capacity. No fallback provider should be enabled merely because an API key is present.
 
 ## API
