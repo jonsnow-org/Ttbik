@@ -271,6 +271,10 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         fail("desktop did not reach running phase within six minutes")
 
     try:
+        network_mode = str(current.get("network_mode") or "")
+        if network_mode not in ("host-firewall", "network-namespace"):
+            fail(f"desktop has no verified network isolation mode: {network_mode or 'missing'}")
+        print(f"desktop network isolation: {network_mode}", flush=True)
         frame = desktop_call(api, token, {"action": "frame", "session": session}, timeout=60)
         assert_ok(frame, "desktop screenshot")
         shot = frame.get("screenshot_b64")
