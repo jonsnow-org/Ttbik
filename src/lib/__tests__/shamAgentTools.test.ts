@@ -1,7 +1,7 @@
 // Sham v2's agent: every tool is shown to the model, helpers (delegate) really run read-only tools and report back, the new GitHub tools read real API answers,
 // tool errors surface (never a raw plan as the answer).
 import { shamAgentRun, shamToolDefs, SHAM_HELPER_TOOLS, type ShamAsk } from "@/lib/shamAgent";
-import { shamRunTool, shamTools, SHAM_TOOLS, type ShamCtx } from "@/lib/shamExec";
+import { shamConfirmText, shamNeedsOk, shamRunTool, shamTools, SHAM_NEEDS_OK, SHAM_TOOLS, type ShamCtx } from "@/lib/shamExec";
 import { codeNotTried, SHAM_CODE_NOTE, shamToolBlock } from "@/lib/shamTools";
 import { shamVariant } from "@/lib/shamStudio";
 
@@ -57,7 +57,22 @@ describe("the tool list the model is shown", () => {
   it("helpers can only use read tools that really exist", () => {
     const all = new Set(SHAM_TOOLS.map((t) => t.function.name));
     for (const n of SHAM_HELPER_TOOLS) expect(all.has(n)).toBe(true);
-    for (const w of ["sandbox_exec", "sandbox_write_file", "sandbox_edit_file", "sandbox_push", "github_create_pr", "github_merge_pr", "make_media", "ask_user", "delegate", "mcp_call", "connector_api", "schedule_create"]) expect(SHAM_HELPER_TOOLS.has(w)).toBe(false);
+    for (const w of ["sandbox_exec", "sandbox_write_file", "sandbox_edit_file", "sandbox_push", "computer_run", "computer_write", "computer_publish", "github_create_pr", "github_merge_pr", "make_media", "ask_user", "delegate", "mcp_call", "connector_api", "schedule_create"]) expect(SHAM_HELPER_TOOLS.has(w)).toBe(false);
+  });
+});
+
+
+describe("persistent computer publishing", () => {
+  it("exposes computer_publish only when GitHub is connected and requires explicit user approval", () => {
+    const withGithub = shamTools(true, false).map((tool) => tool.function.name);
+    const withoutGithub = shamTools(false, false).map((tool) => tool.function.name);
+    expect(withGithub).toContain("computer_publish");
+    expect(withoutGithub).not.toContain("computer_publish");
+    const call = { id: "1", type: "function", function: { name: "computer_publish", arguments: JSON.stringify({ repo: "owner/repo", branch: "fix/change", message: "update" }) } } as any;
+    expect(SHAM_NEEDS_OK.has("computer_publish")).toBe(true);
+    expect(shamNeedsOk(call)).toBe(true);
+    expect(shamConfirmText(call)).toContain("الحاسوب الدائم");
+    expect(shamConfirmText(call)).toContain("fix/change");
   });
 });
 
