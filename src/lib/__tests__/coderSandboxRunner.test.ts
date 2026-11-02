@@ -3,7 +3,7 @@ import { codesandboxDriver, codespacesDriver, oracleDriver, setRunnerFetch } fro
 
 type Call = { method: string; url: string; headers: Record<string, string>; body: any };
 const KEYS = ["CODER_SANDBOX_ORACLE_URL", "CODER_SANDBOX_ORACLE_SECRET", "CSB_API_KEY", "CODER_CSB_TEMPLATE", "CODER_CSB_RUNNER_SECRET",
-  "CODER_CODESPACES_TOKEN", "CODER_CODESPACES_REPO", "CODER_CODESPACES_RUNNER_SECRET", "VERCEL", "DAYTONA_API_KEY", "E2B_API_KEY", "VERCEL_OIDC_TOKEN", "VERCEL_TOKEN"];
+  "CODER_CODESPACES_TOKEN", "CODER_CODESPACES_REPO", "CODER_CODESPACES_RUNNER_SECRET", "VERCEL", "E2B_API_KEY", "VERCEL_OIDC_TOKEN", "VERCEL_TOKEN"];
 const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) {
@@ -89,12 +89,11 @@ function fakeWorld(opt: { accepting?: boolean } = {}) {
 const ctx = { chatKey: "chat-1", runId: "run-1" };
 
 describe("runner backends (oracle / codesandbox / codespaces)", () => {
-  it("chain order: oracle first, then vercel, codesandbox, codespaces, daytona, e2b — only configured ones", () => {
+  it("chain order: Oracle is the only configured Linux VM backend", () => {
     expect(backendOrder("auto")).toEqual([]); // no automatic paid fallback
     process.env.VERCEL = "1";
     process.env.CODER_SANDBOX_ORACLE_URL = "https://o.example";
     process.env.CODER_SANDBOX_ORACLE_SECRET = "oracle-secret";
-    process.env.DAYTONA_API_KEY = "d";
     expect(backendOrder("auto")).toEqual(["oracle"]);
     process.env.CSB_API_KEY = "csb-key";
     process.env.CODER_CSB_TEMPLATE = "tmpl1";
@@ -195,29 +194,6 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     expect(await codespacesDriver().get("x")).toBeNull();
     await expect(oracleDriver().create("x", { timeoutMs: 1000, vcpus: 1, tags: {} })).rejects.toThrow(/not configured/);
     expect(w.calls).toHaveLength(0);
-  });
-});
-
-describe("daytona create body", () => {
-  it("sends no cpu/memory/disk (Daytona refuses them next to its default snapshot) and deletes a sandbox that fails to start", async () => {
-    const { daytonaDriver, setDriverFetch } = await import("@/lib/coderSandboxDrivers");
-    process.env.DAYTONA_API_KEY = "dt";
-    const calls: { method: string; url: string; body: any }[] = [];
-    setDriverFetch((async (u: any, init: any = {}) => {
-      calls.push({ method: init.method || "GET", url: String(u), body: typeof init.body === "string" ? JSON.parse(init.body) : null });
-      if ((init.method || "GET") === "POST") return new Response(JSON.stringify({ id: "s1", state: "error" }), { status: 200 });
-      return new Response("{}", { status: 200 });
-    }) as typeof fetch);
-    try {
-      await expect(daytonaDriver().create("coder-x-1", { timeoutMs: 120000, vcpus: 2, tags: {} })).rejects.toThrow(/daytona sandbox error/);
-      const body = calls[0].body;
-      expect(body).toMatchObject({ name: "coder-x-1", autoStopInterval: 2, autoDeleteInterval: 0 });
-      expect(body.cpu).toBeUndefined();
-      expect(body.memory).toBeUndefined();
-      expect(calls.some((c) => c.method === "DELETE" && /\/sandbox\/s1$/.test(c.url))).toBe(true);
-    } finally {
-      setDriverFetch(null);
-    }
   });
 });
 
