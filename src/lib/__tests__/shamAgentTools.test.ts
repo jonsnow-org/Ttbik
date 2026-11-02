@@ -2,7 +2,7 @@
 // tool errors surface (never a raw plan as the answer).
 import { shamAgentRun, shamToolDefs, SHAM_HELPER_TOOLS, type ShamAsk } from "@/lib/shamAgent";
 import { shamRunTool, shamTools, SHAM_TOOLS, type ShamCtx } from "@/lib/shamExec";
-import { shamToolBlock } from "@/lib/shamTools";
+import { codeNotTried, SHAM_CODE_NOTE, shamToolBlock } from "@/lib/shamTools";
 import { shamVariant } from "@/lib/shamStudio";
 
 const mkCtx = (fetchImpl?: typeof fetch) => ({ chatId: 1, db: { exec: async () => undefined, query: async () => [] }, githubToken: "t", chatKey: "sham:1", runId: "sham-1", owner: true, fetchImpl } as unknown as ShamCtx);
@@ -18,7 +18,14 @@ describe("the tool list the model is shown", () => {
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
     expect(block).toContain("- computer_run(");
+    expect(block).toContain("- computer_write(");
+    expect(block).toContain("- computer_job(");
+    expect(block).toContain("- computer_publish(");
     expect(block).toContain("- browser(");
+    expect(block).toContain("الحاسوب الدائم");
+    expect(block).toContain("computer_write");
+    expect(SHAM_CODE_NOTE).toContain("computer_run");
+    expect(SHAM_CODE_NOTE).not.toContain("sandbox_write_file");
     expect(block.length).toBeLessThan(6500);                               // the new body's prompt window is small
   });
   it("without GitHub there is no GitHub tool, but delegate and the VM stay", () => {
@@ -30,6 +37,17 @@ describe("the tool list the model is shown", () => {
     expect(names).toContain("computer_run");
     expect(names).toContain("browser");
   });
+
+  it("requires actual execution in Sham's persistent computer, not just writing code or using the temporary worker", () => {
+    const tools = shamTools(true, true);
+    const code = "```python\nprint('hello persistent computer')\n```";
+    const user = { role: "user", content: "write and run this code" } as any;
+    expect(codeNotTried(code, [user], tools)).toBe(true);
+    expect(codeNotTried(code, [user, { role: "tool", name: "computer_write", content: "written" } as any], tools)).toBe(true);
+    expect(codeNotTried(code, [user, { role: "tool", name: "sandbox_exec", content: "exit 0" } as any], tools)).toBe(true);
+    expect(codeNotTried(code, [user, { role: "tool", name: "computer_run", content: "exit 0" } as any], tools)).toBe(false);
+  });
+
   it("the parallel GitHub batch reader is v2-only", () => {
     const v1 = shamVariant.run("v1", () => shamTools(true, true).map((t) => t.function.name));
     const v2 = shamVariant.run("v2", () => shamTools(true, true).map((t) => t.function.name));
