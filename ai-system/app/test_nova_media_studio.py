@@ -30,7 +30,7 @@ class NovaMediaStudioTests(unittest.TestCase):
     def test_audio_and_video_use_the_nova_studio_apis(self):
         for kind, api, prompt, expected in (
             ("audio", "speech", "مرحبا", {"text": "مرحبا"}),
-            ("video", "video", "story", {"prompt": "story", "seconds": 2, "seed": 0}),
+            ("video", "video", "story", {"prompt": "story", "seconds": 3, "seed": 0}),
         ):
             raw = {"audio": media_fixtures.wav, "video": media_fixtures.mp4_shell}[kind]()
             result_payload = {"type": kind, "b64": base64.b64encode(raw).decode()}
