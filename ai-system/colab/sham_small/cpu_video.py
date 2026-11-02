@@ -147,21 +147,21 @@ def cv_pipe(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     if callable(enable_free_noise):
         try:
             enable_free_noise(context_length=16, context_stride=4)
-            split_inference = getattr(pipe, "enable_free_noise_split_inference", None)
-            if callable(split_inference):
-                try:
-                    split_inference(spatial_split_size=256, temporal_split_size=16)
-                except TypeError:
-                    split_inference()
-            chunking = getattr(pipe.unet, "enable_forward_chunking", None)
-            if callable(chunking):
-                try:
-                    chunking(16)
-                except TypeError:
-                    chunking()
-            free_noise = True
-        except Exception:  # noqa: BLE001 - short clips still work; long requests fail explicitly below
-            free_noise = False
+        except TypeError:
+            enable_free_noise()
+        free_noise = True
+        split_inference = getattr(pipe, "enable_free_noise_split_inference", None)
+        if callable(split_inference):
+            try:
+                split_inference(spatial_split_size=256, temporal_split_size=16)
+            except Exception:  # noqa: BLE001 - optional memory optimization
+                pass
+        chunking = getattr(pipe.unet, "enable_forward_chunking", None)
+        if callable(chunking):
+            try:
+                chunking(16)
+            except Exception:  # noqa: BLE001 - optional memory optimization
+                pass
     pipe.to("cpu")
     _CV["pipe"], _CV["dtype"], _CV["free_noise"] = pipe, dtype, free_noise
     return pipe
