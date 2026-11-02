@@ -75,7 +75,7 @@ export function extractFacts(text: string): Facts {
 }
 
 const norm = (s: string) =>
-  (s || "").trim().toLowerCase().replace(/[\u064B-\u0652]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
+  (s || "").normalize("NFKC").trim().toLowerCase().replace(/[\u064B-\u0652\u0640]/g, "");
 
 /** Rolling summary: the previous summary plus the topics of the turns now leaving the window, newest kept when too long. Rule-based on purpose:
  *  the model is still too weak to summarise reliably, and a wrong summary would be worse than a short one. */
@@ -133,8 +133,7 @@ export function cleanHistory(turns: Turn[], withReplies = false): Turn[] {
   return sendRepliesOn() || withReplies ? out : out.map((t) => ({ q: t.q, a: "" }));
 }
 
-const STOP = new Set(["هذا", "هذه", "ذلك", "التي", "الذي", "على", "الى", "إلى", "عن", "في", "من", "ما", "هل", "كيف", "ماذا", "لماذا", "أنا", "انا", "انت", "أنت", "لي", "لك", "مع", "كان", "يكون", "هو", "هي", "the", "and", "for", "you", "what", "how"]);
-const words = (s: string) => new Set(norm(s).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w)));
+const words = (s: string) => new Set(norm(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
 
 /** Turns from the CURRENT conversation only (newest first in, oldest first out): it ends where a pause longer than SESSION_GAP_MIN begins.
  *  Rows without a timestamp count as current. */
