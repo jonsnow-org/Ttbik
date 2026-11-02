@@ -211,7 +211,7 @@ def main() -> int:
     for api, kind, payload, verify, fname, label in steps:
         t0 = time.time()
         try:
-            raw = _bytes(st.call(api, payload, timeout=1500 if kind == "video" else 900), kind, label)
+            raw = _bytes(st.call(api, payload, timeout=2400 if kind == "video" else 900), kind, label)
             with open(os.path.join(outdir, fname), "wb") as fh:
                 fh.write(raw)
             metrics = verify(raw)
