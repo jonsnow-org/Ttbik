@@ -1,4 +1,4 @@
-name: "Deploy the Sham v2 video Studio (real AnimateDiff-Lightning text-to-video on a free CPU Studio of its own)"
+name: "Deploy the Sham v2 video Studio (real 3–5 second AnimateDiff-Lightning + FreeNoise text-to-video on its own CPU Studio)"
 
 # A Studio of its own (sham-v2-video-server), free CPU hardware only, private. The weights (epiCRealism + AnimateDiff-Lightning) are fetched from ModelScope by the Studio itself.
 # Sham v2's chat Studio cannot carry the video pipeline in its 8 GB RAM (HTTP 502 after sampling). Independent of Nova. Uses MODELSCOPE_TOKEN; nothing secret is printed.
@@ -17,6 +17,7 @@ on:
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/sham_v2_video_probe.py
+      - ai-system/app/nova_media_probe.py
       - .github/workflows/deploy-modelscope-sham-v2-video.yml
   workflow_dispatch:
 
