@@ -289,7 +289,7 @@ export async function shamGenerateMedia(
   prompt: string,
   timeoutMs = 55000,
   backend: ShamMediaBackend = "internal",
-  opts: { scenes?: unknown; narration?: unknown } = {},
+  opts: { scenes?: unknown; narration?: unknown; seconds?: number } = {},
 ): Promise<ShamReply | null> {
   const api = "generate_media_from_panel";
   if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
@@ -297,7 +297,7 @@ export async function shamGenerateMedia(
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: requestedVideoSeconds(prompt, pressureMedia().videoSeconds), seed: 0 }) }, timeoutMs);
+    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: Math.max(1, Math.min(5, Math.round(opts.seconds ?? requestedVideoSeconds(prompt, pressureMedia().videoSeconds)))), seed: 0 }) }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body)) : null;
     if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
     if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");
