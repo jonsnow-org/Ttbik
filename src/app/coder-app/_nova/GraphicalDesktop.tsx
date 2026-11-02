@@ -128,7 +128,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             event.preventDefault();
             void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
           }}
-          style={{ display: "block", width: "100%", maxHeight: "68vh", objectFit: "contain", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
+          style={{ display: "block", width: "100%", maxHeight: "80vh", objectFit: "fill", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
         />
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>

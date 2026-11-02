@@ -37,6 +37,35 @@ try:
     import computer_box
 except Exception:                                                             # noqa: BLE001  (the video Studio works without the computer)
     computer_box = None
+try:
+    import desktop_computer
+except Exception:                                                             # noqa: BLE001  (optional GUI desktop)
+    desktop_computer = None
+
+
+def api_desktop_do(body: str) -> str:
+    if desktop_computer is None:
+        return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
+    raw = body or ""
+    if raw.startswith("b64:"):
+        import base64 as _b64
+        try:
+            raw = _b64.b64decode(raw[4:]).decode("utf-8")
+        except Exception:
+            return json.dumps({"ok": False, "error": "bad request"})
+    try:
+        normalized = json.dumps(json.loads(raw), ensure_ascii=False)
+    except (ValueError, TypeError):
+        return json.dumps({"ok": False, "error": "bad request"})
+    action = json.loads(normalized).get("action", "")
+    if action == "start":
+        if not _LOCK.acquire(blocking=False):
+            return json.dumps({"ok": False, "phase": "busy", "error": "this Studio is generating video; retry desktop start after it finishes"})
+        try:
+            return desktop_computer.api_desktop_do(normalized)
+        finally:
+            _LOCK.release()
+    return desktop_computer.api_desktop_do(normalized)
 
 
 def _ram() -> dict:
@@ -113,6 +142,8 @@ if __name__ == "__main__":
         threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
     if computer_box is not None:
         threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
+    if desktop_computer is not None:
+        threading.Timer(180, lambda: threading.Thread(target=getattr(desktop_computer, "ensure_packages", lambda: None), daemon=True, name="desktop-packages").start()).start()
     with gr.Blocks() as demo:
         gr.Markdown("Sham v2 video Studio — real text-to-video on CPU for Sham v2.")
         box = gr.Textbox(visible=False)
@@ -125,4 +156,6 @@ if __name__ == "__main__":
         if computer_box is not None:
             gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
             gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
+        if desktop_computer is not None:
+            gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
