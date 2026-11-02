@@ -339,7 +339,7 @@ INSIST = {
 
 BANNED = re.compile(r"qwen|alibaba|علي ?بابا|tongyi|通义|阿里|openai|anthropic|chatgpt|gpt-|claude|gemini|google|meta|llama|deepseek|mistral|"
                     r"copilot|grok|phi\b|gguf|ggml|modelscope|hugging ?face|kaggle|unsloth|lora|sandbox|ساندبوكس|محاكي|emulator|linux|لينكس|"
-                    r"\bsudo\b|\bdnf\b|\bapt\b|docker|vercel|oracle|daytona|e2b|codesandbox|github_|web_search|run_command", re.I)
+                    r"\bsudo\b|\bdnf\b|\bapt\b|docker|vercel|oracle|e2b|codesandbox|github_|web_search|run_command", re.I)
 
 
 # answers name the assistant Nova AI; SHAM AI appears only as the platform, never as the assistant's own name
