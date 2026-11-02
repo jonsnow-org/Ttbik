@@ -144,7 +144,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
 
       {tab === "term" && (
         <div className="n-card" style={{ padding: 0, overflow: "hidden", background: "#0b1220", color: "#d1fae5" }}>
-          <div style={{ ...mono, padding: 12, maxHeight: 420, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          <div style={{ ...mono, padding: 12, minHeight: "52vh", maxHeight: "68vh", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {lines.length === 0 && <div style={{ color: "#94a3b8" }}>{ar ? "طرفية حقيقية على حاسوب النموذج (bash). جرّب: ls  ·  python3 -V  ·  git --version" : "A real shell on the model's computer (bash). Try: ls · python3 -V · git --version"}</div>}
             {lines.map((l, i) => (
               <div key={i} style={{ marginBottom: 8 }}>
@@ -167,7 +167,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
               }}
               style={{ ...mono, flex: 1, minHeight: 36, resize: "none", background: "#0b1220", color: "#f8fafc", border: "1px solid #334155", borderRadius: 8, padding: 8 }} />
             <button type="button" className="n-btn" disabled={busy || !cmd.trim()} onClick={() => void run(cmd)}>{ar ? "تنفيذ" : "Run"}</button>
-            <button type="button" className="n-btn n-ghost" disabled={busy || !cmd.trim()} title={ar ? "أوامر أطول من 90 ثانية" : "for commands longer than 90 s"} onClick={() => void run(cmd, true)}>{ar ? "خلفية" : "BG"}</button>
+            <button type="button" className="n-btn n-ghost" disabled={busy || !cmd.trim()} title={ar ? "يشغّل الأمر في الخلفية ولا يتوقف عند 90 ثانية؛ تراه في «المهام الخلفية»" : "runs the command in the background with no 90 s limit; see it under Background tasks"} onClick={() => void run(cmd, true)}>{ar ? "خلفية (طويل)" : "Background"}</button>
           </div>
         </div>
       )}
