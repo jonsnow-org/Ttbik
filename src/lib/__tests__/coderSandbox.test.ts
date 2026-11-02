@@ -188,7 +188,7 @@ describe("sandbox", () => {
       expect(out).toContain("new sandbox (private ModelScope computer-hub task workspace");
       expect(out).toContain("exit code 0\nModelScope task output");
       expect(calls.length).toBeGreaterThanOrEqual(4);
-      expect(calls.every((c) => c.url.includes("nova-inference-server"))).toBe(true);
+      expect(calls.every((c) => c.url.includes("juggernaut-ragnarok-image-test"))).toBe(true);
       expect(calls.every((c) => c.payload.session.startsWith("task:"))).toBe(true);
       expect(calls.some((c) => c.payload.action === "job_start")).toBe(true);
       expect(calls.some((c) => c.payload.action === "status")).toBe(true);

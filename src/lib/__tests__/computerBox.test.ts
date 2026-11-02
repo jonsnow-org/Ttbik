@@ -55,10 +55,10 @@ describe("the model's own persistent computer", () => {
     }) as any;
     const out = await boxDo("minicpmo45", "42:minicpmo45", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
-    expect(calls[0].url).toContain("nova-inference-server");
+    expect(calls[0].url).toContain("juggernaut-ragnarok-image-test");
     expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:minicpmo45" });
     expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/hello/);
-    expect(calls[2].url).toContain("nova-inference-server");
+    expect(calls[2].url).toContain("juggernaut-ragnarok-image-test");
   });
 
   test("persistent computer and temporary worker are separate tool groups", () => {
