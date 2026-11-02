@@ -165,7 +165,6 @@ def check_mp4(
     min_width: int = 0, min_height: int = 0,
 ) -> dict:
     """Validate the MP4 container, requested runtime, actual resolution, decodable frames and real motion."""
-
     if not data or len(data) < MIN_VIDEO_BYTES:
         raise MediaQualityError("empty_video", f"{len(data or b'')} bytes")
     boxes = _mp4_boxes(data)
@@ -173,7 +172,13 @@ def check_mp4(
         raise MediaQualityError("empty_video", "not a complete MP4 (ftyp/moov/mdat)")
     info = {"bytes": len(data), "decoded": False}
     if not decode:
+        if expected_seconds is not None or min_width or min_height:
+            raise MediaQualityError(
+                "video_validation_unavailable",
+                "duration and resolution checks require actual ffmpeg decoding",
+            )
         return info
+
     try:
         import numpy as np
         try:
@@ -183,36 +188,52 @@ def check_mp4(
             import shutil
             exe = shutil.which("ffmpeg")
         if not exe:
-            return info
+            raise MediaQualityError("video_validation_unavailable", "ffmpeg decoder is not installed")
         with _tf.TemporaryDirectory() as d:
             src = d + "/in.mp4"
             with open(src, "wb") as fh:
                 fh.write(data)
             side = 64
-            decoded = _sp.run([exe, "-hide_banner", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
-                              capture_output=True, timeout=90)
+            decoded = _sp.run(
+                [exe, "-hide_banner", "-i", src, "-vf", f"scale={side}:{side}",
+                 "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+                capture_output=True, timeout=90,
+            )
         diagnostic = (decoded.stderr or b"").decode("utf-8", "replace")
+        if decoded.returncode != 0:
+            raise MediaQualityError("empty_video", "ffmpeg could not decode the MP4: " + diagnostic[-180:])
         meta_duration = __import__("re").search(r"Duration:\s*(\d+):(\d+):([\d.]+)", diagnostic)
         video_line = next((line for line in diagnostic.splitlines() if "Video:" in line), "")
         meta_size = __import__("re").search(r"(\d{2,5})x(\d{2,5})", video_line)
+        if meta_duration:
+            actual_seconds = int(meta_duration.group(1)) * 3600 + int(meta_duration.group(2)) * 60 + float(meta_duration.group(3))
+            info["duration_seconds"] = round(actual_seconds, 2)
         if expected_seconds is not None:
             if not meta_duration:
                 raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video duration")
-            actual_seconds = int(meta_duration.group(1)) * 3600 + int(meta_duration.group(2)) * 60 + float(meta_duration.group(3))
-            info["duration_seconds"] = round(actual_seconds, 2)
             if abs(actual_seconds - float(expected_seconds)) > 0.30:
                 raise MediaQualityError("duration_mismatch", f"requested={float(expected_seconds):g}s actual={actual_seconds:.2f}s")
+        if meta_size:
+            width, height = int(meta_size.group(1)), int(meta_size.group(2))
+            info.update(width=width, height=height)
         if min_width or min_height:
             if not meta_size:
                 raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video dimensions")
-            width, height = int(meta_size.group(1)), int(meta_size.group(2))
-            info.update(width=width, height=height)
             if width < int(min_width) or height < int(min_height):
                 raise MediaQualityError("low_resolution", f"actual={width}x{height} minimum={int(min_width)}x{int(min_height)}")
-        out = decoded.stdout
-        frames = np.frombuffer(out, dtype="u1").reshape(-1, side, side).astype("float64") if len(out) >= side * side else None
-    except Exception:  # noqa: BLE001  (a broken decoder is not proof the clip is bad: the structure check above stands)
-        return info
+        out = decoded.stdout or b""
+        if len(out) < side * side or len(out) % (side * side):
+            raise MediaQualityError("empty_video", "ffmpeg returned incomplete or fewer than one decoded frame")
+        frames = np.frombuffer(out, dtype="u1").reshape(-1, side, side).astype("float64")
+    except MediaQualityError:
+        # Never swallow duration_mismatch / low_resolution / invalid-video decisions.
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise MediaQualityError(
+            "video_validation_unavailable",
+            f"ffmpeg could not verify the video: {type(exc).__name__}: {str(exc)[:140]}",
+        ) from exc
+
     if frames is None or len(frames) < 2:
         raise MediaQualityError("empty_video", "fewer than 2 decodable frames")
     info.update(decoded=True, frames=int(len(frames)))
