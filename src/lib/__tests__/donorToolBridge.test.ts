@@ -6,7 +6,7 @@ describe("candidate tool groups", () => {
   test("the four groups give a candidate GitHub, one persistent computer, the web and linked services", () => {
     const all = names(CANDIDATE_GROUPS);
     expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "computer_run", "computer_read", "browser", "web_search", "fetch_page", "connector_api"]));
-    expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
+    expect(all).not.toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
   });
 
   test("nothing that would reach into another model is ever offered", () => {
@@ -47,10 +47,11 @@ describe("computer tools under the zero-cost policy (production)", () => {
     (process.env as Record<string, string>).NODE_ENV = value;
     try { fn(); } finally { (process.env as Record<string, string | undefined>).NODE_ENV = original; }
   };
-  test("each candidate receives its own persistent ModelScope computer plus checkpointable task tools", () => {
+  test("each candidate receives only its own persistent ModelScope computer and browser, not a second task VM", () => {
     withEnv("production", () => {
       const all = names(["computer"]);
-      expect(all).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search", "computer_run", "computer_read", "browser"]));
+      expect(all).toEqual(expect.arrayContaining(["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]));
+      expect(all).not.toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
       expect(all.every((n) => !n.startsWith("cloud_"))).toBe(true);
     });
   });
