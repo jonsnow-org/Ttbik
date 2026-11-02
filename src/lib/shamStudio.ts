@@ -286,7 +286,7 @@ export type ShamMediaBackend = keyof typeof SHAM_BACKEND_LABELS;
 export async function shamGenerateMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  timeoutMs = 55000,
+  timeoutMs = 180000,
   backend: ShamMediaBackend = "internal",
   opts: { scenes?: unknown; narration?: unknown } = {},
 ): Promise<ShamReply | null> {
@@ -296,7 +296,7 @@ export async function shamGenerateMedia(
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: 0 }) }, timeoutMs);
+    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) }) }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body)) : null;
     if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
     if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");

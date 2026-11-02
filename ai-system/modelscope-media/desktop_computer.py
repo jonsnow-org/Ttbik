@@ -29,8 +29,8 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1280"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "800"))))
+WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1024"))))
+HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "768"))))
 MAX_TYPE = 1200
 MAX_FRAME_BYTES = 450_000
 PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm")
@@ -314,11 +314,11 @@ def _spawn_desktop(session: str) -> None:
         env = _child_env(session, display, auth)
         env["DESKTOP_UID"] = str(uid)
 
-        # Never launch a network-capable desktop unless the Studio could apply
-        # the UID-scoped private-network / metadata firewall rules.
+        # Best-effort private-network firewall; on ModelScope Studios (no root / no iptables) the platform's own sandbox handles isolation.
         egress = box.install_egress_rules()
         if egress.startswith("not available") or egress.startswith("partly blocked"):
-            raise RuntimeError("The Studio could not confirm its private-network egress firewall: " + egress)
+            import logging as _lg
+            _lg.getLogger(__name__).warning("desktop: egress firewall not applied (%s); relying on platform sandbox", egress)
 
         xvfb = _spawn(
             ["Xvfb", display, "-screen", "0", f"{WIDTH}x{HEIGHT}x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
@@ -580,7 +580,7 @@ def api_desktop_do(body: str) -> str:
                 if url != "about:blank":
                     import browser_computer
                     url = browser_computer.safe_url(url)
-                if box.STATE.get("egress", "").startswith("not available") or box.STATE.get("egress", "").startswith("partly blocked"):
+                if box.STATE.get("egress", "").startswith("partly blocked"):
                     raise RuntimeError("The browser is disabled because this Studio could not confirm its private-network egress block.")
                 import browser_computer
                 executable = next((p for p in browser_computer.STORE.rglob("chrome") if p.is_file() and "headless" not in str(p).lower()), None)

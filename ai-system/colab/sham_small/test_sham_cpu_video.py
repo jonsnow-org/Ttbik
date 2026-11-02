@@ -47,14 +47,73 @@ class Profile(unittest.TestCase):
             for k in ("CPU_VIDEO_SIDE", "CPU_VIDEO_FRAMES"):
                 os.environ.pop(k, None)
             big, small = cpu_video.cv_profile(8), cpu_video.cv_profile(2)
-        self.assertEqual((big["side"], big["max_frames"]), (512, 16))
-        self.assertEqual((small["side"], small["max_frames"]), (256, 16))
-        self.assertTrue(all(p["side"] % 8 == 0 and 8 <= p["max_frames"] <= 16 for p in (big, small)))
+        self.assertEqual((big["side"], big["max_frames"]), (512, 32))
+        self.assertEqual((small["side"], small["max_frames"]), (512, 32))
+        self.assertTrue(all(p["side"] == 512 and 16 <= p["max_frames"] <= 32 for p in (big, small)))
 
     def test_overrides_are_clamped(self):
         with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "9000", "CPU_VIDEO_FRAMES": "1"}):
             p = cpu_video.cv_profile(2)
-        self.assertEqual((p["side"], p["max_frames"]), (512, 8))
+        self.assertEqual((p["side"], p["max_frames"]), (512, 16))
+
+
+class RequestedDuration(unittest.TestCase):
+    def test_temporal_segments_map_to_real_frame_counts(self):
+        profile = {"fps": 8, "max_frames": 32}
+        self.assertEqual(cpu_video.cv_requested_frames(2, profile), 16)
+        self.assertEqual(cpu_video.cv_requested_frames(3, profile), 24)
+        self.assertEqual(cpu_video.cv_requested_frames(4, profile), 32)
+
+    def test_all_user_requested_durations_have_exact_segment_plans(self):
+        expected = {
+            2: [2], 4: [4], 10: [4, 4, 2], 15: [4, 4, 4, 3],
+            30: [4, 4, 4, 4, 4, 4, 4, 2],
+            60: [4] * 15, 120: [4] * 30,
+        }
+        for seconds, chunks in expected.items():
+            with self.subTest(seconds=seconds):
+                self.assertEqual(cpu_video.cv_chunk_plan(seconds), chunks)
+                self.assertEqual(sum(chunks), seconds)
+                self.assertTrue(all(2 <= part <= 4 for part in chunks))
+
+    def test_unsupported_or_fractional_durations_are_rejected_without_truncation(self):
+        for requested in (1, 3, 5, 6, 8, 12, 20, 45, 90, 121, 2.5, "four"):
+            with self.assertRaises(ValueError) as caught:
+                cpu_video.cv_chunk_plan(requested)
+            self.assertIn("native-video-duration-limit", str(caught.exception))
+
+    def test_profile_smaller_than_one_segment_is_refused(self):
+        with self.assertRaises(ValueError):
+            cpu_video.cv_requested_frames(4, {"fps": 8, "max_frames": 16})
+
+
+class LongGenerationPlan(unittest.TestCase):
+    def test_ten_seconds_uses_three_real_temporal_passes_and_one_join(self):
+        import media_quality
+        original_keep = os.environ.get("CPU_VIDEO_KEEP")
+        with (
+            patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b", b"part-c"]) as generate,
+            patch("cpu_video.cv_concat_mp4", return_value=b"joined") as join,
+            patch.object(media_quality, "check_mp4", return_value={}),
+            patch.dict(os.environ, {"CPU_VIDEO_KEEP": "1"}),
+        ):
+            result = cpu_video.cv_generate_long("/weights", "a moving car", 10, 42)
+        self.assertEqual(result, b"joined")
+        self.assertEqual([call.args[2] for call in generate.call_args_list], [4.0, 4.0, 2.0])
+        self.assertEqual(join.call_args.args, ([b"part-a", b"part-b", b"part-c"], 10))
+        self.assertEqual(os.environ.get("CPU_VIDEO_KEEP"), original_keep)
+
+    def test_two_seconds_is_one_real_pass_without_a_join(self):
+        import media_quality
+        with (
+            patch("cpu_video.cv_generate", return_value=b"clip") as generate,
+            patch("cpu_video.cv_concat_mp4") as join,
+            patch.object(media_quality, "check_mp4", return_value={}),
+        ):
+            result = cpu_video.cv_generate_long("/weights", "a moving car", 2, 7)
+        self.assertEqual(result, b"clip")
+        self.assertEqual(generate.call_count, 1)
+        join.assert_not_called()
 
 
 class Weights(unittest.TestCase):
@@ -86,24 +145,24 @@ class Weights(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
-    def test_make_video_goes_through_cpu_video_and_the_gate(self):
+    def test_make_video_passes_requested_duration_through_local_segmented_engine_and_gate(self):
         root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate", return_value=fx.mp4_shell()) as g, patch.object(sham_media_ready, "check_mp4", return_value={}):
-            r = sham_media_ready.make(root, "video", "a lighthouse")
+        with patch("cpu_video.cv_generate_long", return_value=fx.mp4_shell()) as g, patch.object(sham_media_ready, "check_mp4", return_value={}):
+            r = sham_media_ready.make(root, "video", "a lighthouse", seconds=15)
         self.assertEqual(r["type"], "video")
         self.assertEqual(base64.b64decode(r["b64"])[4:8], b"ftyp")
-        self.assertEqual(g.call_args[0][1], "a lighthouse")
+        self.assertEqual(g.call_args.args[1:3], ("a lighthouse", 15))
 
     def test_blank_clip_is_an_error(self):
         root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate", return_value=b"not a video"):
-            r = sham_media_ready.make(root, "video", "x")
+        with patch("cpu_video.cv_generate_long", side_effect=RuntimeError("not a video")):
+            r = sham_media_ready.make(root, "video", "x", seconds=10)
         self.assertEqual(r["type"], "error")
 
     def test_missing_weights_is_a_typed_error(self):
         root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate", side_effect=RuntimeError("native-video-unavailable: could not fetch")):
-            r = sham_media_ready.make(root, "video", "x")
+        with patch("cpu_video.cv_generate_long", side_effect=RuntimeError("native-video-unavailable: could not fetch")):
+            r = sham_media_ready.make(root, "video", "x", seconds=10)
         self.assertEqual(r["type"], "error")
         self.assertIn("reason", r)
 
@@ -112,11 +171,12 @@ class Wiring(unittest.TestCase):
 class RealGeneration(unittest.TestCase):
     def test_real_clip_decodes_and_moves(self):
         import media_quality as mq
-        with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "384", "CPU_VIDEO_FRAMES": "8"}):
-            data = cpu_video.cv_generate(os.environ["CPU_VIDEO_TEST_DIR"], "a red car driving on a coastal road", 1.0, 0)
-        info = mq.check_mp4(data)               # structure + ffmpeg decode + not blank + real motion
+        with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "512", "CPU_VIDEO_FRAMES": "32"}):
+            data = cpu_video.cv_generate(os.environ["CPU_VIDEO_TEST_DIR"], "a red car driving on a coastal road", 4.0, 0)
+        info = mq.check_mp4(data, expected_seconds=4, min_width=480, min_height=270)
         self.assertTrue(info["decoded"])
-        self.assertGreaterEqual(info["frames"], 8)
+        self.assertEqual(info["duration_seconds"], 4.0)
+        self.assertGreaterEqual(info["frames"], 32)
 
 
 class SmallDiskFetch(unittest.TestCase):
