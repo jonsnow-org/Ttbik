@@ -46,11 +46,19 @@ script.oracle = () => { throw new TypeError("oracle unavailable"); };
 script.vercel = () => { throw new TypeError("vercel unavailable"); };
 r = await get("/both-origins-down");
 assert.equal(r.status, 502);
-assert.equal(calls.length, 2);
+assert.equal(calls.length, 3, "Oracle twice (one quick retry), then the standby");
+
+// a one-second blip on Oracle (Cloudflare 530 / refused once) is retried and does NOT fail over or alert
+reset(); { let n = 0; script.oracle = () => (n++ === 0 ? new Response("err", { status: 530 }) : new Response("oracle ok")); }
+r = await get("/blip"); assert.equal(await r.text(), "oracle ok"); assert.equal(r.headers.get("x-gate-origin"), "oracle");
+assert.equal(calls.length, 2); assert.equal(_state.downUntil, 0, "a blip does not mark Oracle down");
+// writes are never replayed
+reset(); script.oracle = () => new Response("err", { status: 530 });
+r = await get("/w", { method: "POST", body: "x" }); assert.equal(calls.filter((c) => c.url.startsWith(P)).length, 1, "a POST reaches Oracle once");
 
 reset(); script.oracle = () => { throw new TypeError("refused"); };
 r = await get("/a"); assert.equal(await r.text(), "vercel ok"); assert.equal(r.headers.get("x-gate-origin"), "vercel");
-assert.equal(hdr(1).get("x-gate-failover"), "1", "the standby is told it is serving because Oracle is down");
+assert.equal(hdr(2).get("x-gate-failover"), "1", "the standby is told it is serving because Oracle is down");
 assert.ok(_state.downUntil > Date.now());
 calls = []; await get("/b"); assert.equal(calls[0].url, S + "/b", "primary is skipped while marked down");
 assert.equal(hdr(0).get("x-gate-failover"), "1");
@@ -63,7 +71,7 @@ for (const code of [520, 522, 523, 530]) {
   reset(); script.oracle = () => new Response("error code: 1016", { status: code });
   r = await get("/coder-app"); assert.equal(await r.text(), "vercel ok", "status " + code + " falls back to the standby");
 }
-reset(); script.oracle = () => new Response("error code: 1016", { status: 530 }); await get("/x"); r = await get("/y"); assert.equal(calls.filter((c) => c.url.startsWith("https://89-168-89-15")).length, 1, "the primary is skipped for a while after a 530");
+reset(); script.oracle = () => new Response("error code: 1016", { status: 530 }); await get("/x"); r = await get("/y"); assert.equal(calls.filter((c) => c.url.startsWith("https://89-168-89-15")).length, 2, "Oracle is asked twice for /x (one quick retry), then skipped for a while after a 530");
 
 reset(); script.oracle = () => new Response("boom", { status: 500 });
 r = await get("/x"); assert.equal(r.status, 500); assert.equal(calls.length, 1, "an application error is not retried elsewhere");
