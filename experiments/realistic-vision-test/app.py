@@ -228,11 +228,21 @@ def _load_pipeline():
 
 
 def _load_worker() -> None:
-    try:
-        _load_pipeline()
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}"
-        _set_state(phase="error", error=detail[:1200], traceback=traceback.format_exc()[-5000:])
+    # Hub listing and image Studio starts can fail transiently. Retry the exact
+    # same private repository; never substitute another model or checkpoint.
+    for attempt in range(1, 7):
+        try:
+            _load_pipeline()
+            return
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            _set_state(
+                phase="error" if attempt == 6 else "retrying",
+                error=f"attempt {attempt}/6: {detail}"[:1200],
+                traceback=traceback.format_exc()[-5000:],
+            )
+            if attempt < 6:
+                time.sleep(min(30 * attempt, 120))
 
 
 def status_json() -> dict:
