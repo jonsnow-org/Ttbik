@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: computer-hub-16gb
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   MS: https://www.modelscope.cn
