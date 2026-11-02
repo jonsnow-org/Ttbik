@@ -72,7 +72,7 @@ export async function novaMakeMedia(
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
   const requestedSeconds = kind === "video" ? Number(opts.seconds ?? pressureMedia().videoSeconds) : undefined;
-  const videoSeconds = requestedSeconds === undefined ? undefined : (pressureOn() ? Math.min(requestedSeconds, 10) : requestedSeconds);
+  const videoSeconds = requestedSeconds;
   if (kind === "video" && ![10, 15, 30, 60, 120].includes(videoSeconds as number)) {
     return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
   }
