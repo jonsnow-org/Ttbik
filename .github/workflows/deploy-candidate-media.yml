@@ -113,9 +113,9 @@ jobs:
           git config --global user.name "media CI"
           git config --global user.email "ci@media.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/requirements.txt ms-studio/
+          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/desktop_computer.py ai-system/modelscope-media/requirements.txt ms-studio/
           cd ms-studio
-          git add app.py browser_computer.py computer_box.py requirements.txt
+          git add app.py browser_computer.py computer_box.py desktop_computer.py requirements.txt
           git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
