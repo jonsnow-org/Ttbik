@@ -130,11 +130,12 @@ class Wiring(unittest.TestCase):
 class RealGeneration(unittest.TestCase):
     def test_real_clip_decodes_and_moves(self):
         import media_quality as mq
-        with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "384", "CPU_VIDEO_FRAMES": "8"}):
-            data = cpu_video.cv_generate(os.environ["CPU_VIDEO_TEST_DIR"], "a red car driving on a coastal road", 1.0, 0)
-        info = mq.check_mp4(data)               # structure + ffmpeg decode + not blank + real motion
+        with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "512", "CPU_VIDEO_FRAMES": "32"}):
+            data = cpu_video.cv_generate(os.environ["CPU_VIDEO_TEST_DIR"], "a red car driving on a coastal road", 4.0, 0)
+        info = mq.check_mp4(data, expected_seconds=4, min_width=480, min_height=270)
         self.assertTrue(info["decoded"])
-        self.assertGreaterEqual(info["frames"], 8)
+        self.assertEqual(info["duration_seconds"], 4.0)
+        self.assertGreaterEqual(info["frames"], 32)
 
 
 class SmallDiskFetch(unittest.TestCase):
