@@ -8,7 +8,7 @@
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
 import { stripOwnersExcuse } from "@/lib/coderMediaFast";
-import { requestedVideoSeconds } from "@/lib/mediaDuration";
+import { explicitVideoSeconds } from "@/lib/mediaDuration";
 import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
@@ -2123,7 +2123,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const explicitSeconds = Number.isFinite(Number(a.seconds)) && a.seconds !== undefined
               ? Math.max(1, Math.min(5, Math.round(Number(a.seconds))))
               : undefined;
-            const videoSeconds = kind === "video" ? (explicitSeconds ?? requestedVideoSeconds(originalRequest)) : undefined;
+            const userSeconds = kind === "video" ? explicitVideoSeconds(originalRequest) : null;
+            const videoSeconds = kind === "video" ? (userSeconds ?? explicitSeconds ?? 3) : undefined;
             if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
             else if (kind !== "image" && modelId !== "coder" && !ownCandidateMedia) {
               out = "error: this selected model has no dedicated " + kind + " generator configured yet. Nothing was sent to another model.";
