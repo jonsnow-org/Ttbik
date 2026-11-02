@@ -3,7 +3,6 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
-import { cloudDesktopEnabled } from "@/lib/cloudDesktopPolicy";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
@@ -111,33 +110,11 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
 ];
 
-export const CLOUD_COMPUTER_TOOL_DEFS: CoderTool[] = [
-  tool("cloud_computer_status", "Inspect the persistent Linux computer assigned to the current user and selected model.", obj({})),
-  tool("cloud_computer_execute", "Run an unrestricted shell command inside the current user's persistent isolated Linux VM. The VM survives between chats and tasks; install packages, run browsers, compilers, servers and background processes as needed.", obj({ command: s("complete shell command"), cwd: s("working directory, optional"), timeout_seconds: n("timeout, default 120, max 300") }, ["command"])),
-  tool("cloud_computer_write_file", "Write a file into the persistent cloud computer.", obj({ path: s("absolute path inside the computer"), content: s("file content") }, ["path", "content"])),
-  tool("cloud_computer_read_file", "Read a file from the persistent cloud computer.", obj({ path: s("absolute path inside the computer") }, ["path"])),
-  tool("cloud_computer_action", "Full Computer Use API: mouse move/click/drag/position/scroll; keyboard type/key/hotkey; accessibility tree/search/focus/invoke/set value; display and windows; process status/restart/logs/errors; screen recording start/stop/list/get/delete/download.", obj({
-    action: { type: "string", enum: ["click","move","drag","mouse_position","type","press","hotkey","scroll","windows","display_info","desktop_status","accessibility_tree","accessibility_find","accessibility_focus","accessibility_invoke","accessibility_set_value","recording_start","recording_stop","recording_list","recording_get","recording_delete","recording_download","process_status","process_restart","process_logs","process_errors"] },
-    x: n("screen x"), y: n("screen y"), start_x: n("drag start x"), start_y: n("drag start y"), end_x: n("drag end x"), end_y: n("drag end y"),
-    width: n("region width"), height: n("region height"), button: s("left | middle | right"), double: { type: "boolean" },
-    text: s("text to type"), delay: n("typing delay ms"), key: s("key name"), modifiers: { type: "array", items: s("ctrl | alt | shift | meta") }, keys: s("hotkey combination"),
-    direction: s("up | down"), amount: n("scroll ticks"), scope: s("focused | all | pid"), pid: n("process id"), max_depth: n("accessibility tree depth"),
-    role: s("accessibility role"), name: s("accessible element name"), name_match: s("exact | substring | regex"), states: { type: "array", items: s("visible | enabled | focusable | focused") }, limit: n("result count"),
-    node_id: s("accessibility node id"), node_action: s("node action, e.g. click"), value: s("accessibility value"), process: s("desktop service name"),
-    id: s("recording id"), recording_id: s("recording id"), path: s("destination path for recording_download"),
-  }, ["action"])),
-  tool("cloud_computer_screenshot", "Capture a desktop screenshot and inspect it visually in your next model step. Supports full screen or a selected region and compressed output.", obj({
-    region: { type: "object", properties: { x: n("region x"), y: n("region y"), width: n("region width"), height: n("region height") } },
-    compressed: { type: "boolean" }, format: { type: "string", enum: ["png","jpeg"] }, quality: n("quality 1-100"), scale: n("scale 0.1-1"),
-  })),
-];
-
 export const COMMON_TOOLS: CoderTool[] = [
   ...WEB_TOOLS,
   ...SANDBOX_TOOL_DEFS,
   ...COMPUTER_BOX_TOOL_DEFS,                               // the same computer tools the `computer` group offers, so the "every tool" mode (CODER_TOOL_GROUPS=off) has them too
   ...BROWSER_TOOL_DEFS,
-  ...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []),
   tool("view_image", "LOOK at a picture: from a public URL or from a file in the VM. You see it in your next step (a few seconds to a minute on this server). Use it for screenshots, photos, charts, scans. Small text in a picture may be misread: say so when it matters.", obj({ url: s("https URL of the picture"), path: s("or a file path in the VM"), cwd: s("base dir for path") })),
   tool("view_video", "LOOK at a video that is a file in the VM: it takes a few frames spread over the video (ffmpeg in the VM) and you see them in your next step, in order. Each frame costs about as much time as one picture.", obj({ path: s("video file path in the VM"), frames: n("how many frames, default 4, max 6"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "MAKE media using the selected model's own independent generator. image: use that model's assigned photorealistic checkpoint and private ModelScope Studio only; never switch to another model. audio/video are available only when that selected model has its own configured route; otherwise return a clear unavailable result without using Nova or another model. Respect the daily quota. If the tool reports an error, NOTHING was sent: tell the user plainly; never claim generation succeeded.", obj({ kind: s("image | audio | video"), prompt: s("what to make (image: description; audio: the text to speak; video: the scene and its motion)") }, ["kind", "prompt"])),
@@ -208,8 +185,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    // The persistent desktop (cloud_computer_*) is off in production (zero-cost policy): offering it would only cost the model a slow step per failed call.
-    computer: [...(cloudDesktopEnabled() ? CLOUD_COMPUTER_TOOL_DEFS : []), ...SANDBOX_TOOL_DEFS, ...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...SANDBOX_TOOL_DEFS, ...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
     memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
@@ -763,25 +739,6 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       // one browser session per user AND model: the Studio is the model's own, the id keeps one user's pages away from another's
       return browserDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, a as Record<string, unknown>, ctx.fetchImpl);
     }
-    if (name.startsWith("cloud_computer_")) {
-      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model computer context is available";
-      const computer = await import("@/lib/cloudComputer");
-      const cloudCtx = { chatId: ctx.userId, modelId: ctx.modelId, tier: ctx.tier || "user", db: ctx.db, fetchImpl: ctx.fetchImpl };
-      if (name === "cloud_computer_status") return JSON.stringify(await computer.cloudComputerStatus(cloudCtx));
-      if (name === "cloud_computer_execute") {
-        const result = await computer.cloudComputerExecute(cloudCtx, String(a.command || ""), typeof a.cwd === "string" ? a.cwd : undefined, Math.max(1000, Math.min(300000, (Number(a.timeout_seconds) || 120) * 1000)));
-        return clip(JSON.stringify(result), 16000);
-      }
-      if (name === "cloud_computer_write_file") return JSON.stringify(await computer.cloudComputerWriteFile(cloudCtx, String(a.path || ""), String(a.content || "")));
-      if (name === "cloud_computer_read_file") {
-        const file = await computer.cloudComputerReadFile(cloudCtx, String(a.path || ""));
-        return file ? clip(file.bytes.toString("utf8"), 16000) : "error: file not found";
-      }
-      const action = name === "cloud_computer_action" ? String(a.action || "") : name.replace("cloud_computer_", "");
-      if (action === "screenshot") return "Screenshot capture is routed through the visual result handler.";
-      const result = await computer.cloudComputerAction(cloudCtx, action, a);
-      return clip(JSON.stringify(result), 6000);
-    }
     if (SANDBOX_TOOLS.has(name)) {
       // plan limit: sandbox time (measured as the time these tools run, in seconds; shown in minutes). The owner has none.
       let meter: null | ((s: number) => Promise<void>) = null;
@@ -1091,7 +1048,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-  cloud_computer_execute: ["🖥️", "تشغيل أوامر في الحاسوب الدائم"], cloud_computer_screenshot: ["📸", "فهم لقطة شاشة الحاسوب"], cloud_computer_action: ["🖱️", "التحكم الكامل بسطح المكتب"], sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
