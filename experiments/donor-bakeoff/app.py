@@ -169,7 +169,7 @@ MEDIA_TOOLS = {
         "function": {
             "name": "generate_video",
             "description": "Make a short real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. Takes a few minutes. Do not claim success without a returned video file.",
-            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 3}}, "required": ["prompt"], "additionalProperties": False},
+            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 5}}, "required": ["prompt"], "additionalProperties": False},
         },
     },
 }
@@ -1022,8 +1022,8 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         prompt = str(arguments.get("prompt") or "").strip()
         if len(prompt) < 4 or len(prompt) > 800:
             return {"ok": False, "error": "Prompt must be between 4 and 800 characters."}
-        seconds = int(arguments.get("seconds") or 2)
-        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(3, seconds)), "seed": int(time.time()) % 2147483647}
+        seconds = int(arguments.get("seconds") or 3)
+        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(5, seconds)), "seed": int(time.time()) % 2147483647}
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
         submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
