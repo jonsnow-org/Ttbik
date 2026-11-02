@@ -1032,7 +1032,7 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     if not started.get("ok"):
         return started
     job_id = started["id"]
-    deadline = time.time() + 45          # stay under the gateway limit; the download keeps running as a job
+    deadline = time.time() + 25          # the ModelScope gateway cuts a call after ~45 s: stay well under it; the download keeps running as a job
     while time.time() < deadline:
         log = job_log(session, job_id, 60)
         if log.get("ok") and not log.get("running"):
