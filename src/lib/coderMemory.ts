@@ -21,16 +21,14 @@ export function normScope(scope: unknown, repo?: unknown): string {
 const keyOf = (chatId: number | string) => coderChatKey(chatId);
 
 // ---------------------------------------------------------------- text similarity (Arabic + English)
-const STOP = new Set("the a an and or of to in on for is are be with that this it as at by from we you i my our use uses using should always never please في من على إلى الى عن مع أن ان هذا هذه ذلك التي الذي هو هي كان يكون لا ما أو او ثم كل قد لقد عند".split(" "));
 export function memTerms(text: string): string[] {
   return (text || "")
     .toLowerCase()
     .normalize("NFKC")
-    .replace(/[\u064B-\u0652\u0640]/g, "")                                // tashkeel, tatweel
-    .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+    .replace(/[\u064B-\u0652\u0640]/g, "")
     .split(/[^\p{L}\p{N}_./-]+/u)
-    .map((w) => w.replace(/^ال(?=\p{L}{3,})/u, "").replace(/^[./-]+|[./-]+$/g, ""))
-    .filter((w) => w.length >= 2 && !STOP.has(w));
+    .map((w) => w.replace(/^[./-]+|[./-]+$/g, ""))
+    .filter(Boolean);
 }
 export function similarity(a: string, b: string): number {
   const A = new Set(memTerms(a));
