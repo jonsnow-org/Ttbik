@@ -1,6 +1,8 @@
 """Read-only inventory of the account's ModelScope Studios: runtime state, hardware, and the app's own status (whitelisted numbers only, never a token or a user text).
 
 Run by .github/workflows/modelscope-inventory.yml with the repo secret. Prints one JSON line per Studio and a table. Tests: scripts/ops/test_studio_inventory.py."""
+# Deliberately report unknown/unlisted Studio names too: this is how we locate unused
+# account-owned Studios and compare their hardware before assigning isolated Nova tests.
 from __future__ import annotations
 
 import json
