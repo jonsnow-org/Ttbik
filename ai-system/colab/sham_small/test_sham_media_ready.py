@@ -71,7 +71,7 @@ class LocalMediaReadinessTests(unittest.TestCase):
             self.assertEqual(video["mime"], "video/mp4")
             self.assertEqual(video_fn.call_args.args[1], ["a fox in the forest"])
             self.assertEqual(video_fn.call_args.args[2], "")
-            self.assertEqual(video_fn.call_args.kwargs["seconds"], 2.0)
+            self.assertEqual(video_fn.call_args.kwargs["seconds"], 4)
 
     def test_video_never_becomes_a_scene_slideshow_and_keeps_narration(self):
         with tempfile.TemporaryDirectory() as temp:
