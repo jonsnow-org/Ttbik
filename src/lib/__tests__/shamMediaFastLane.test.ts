@@ -4,8 +4,9 @@ import { looksLikeToolPlan } from "@/lib/coderMediaFast";
 
 const routeCalls: any[][] = [];
 let routeReply: any = null;
+let mockLastMemory: any = null;
 jest.mock("@/lib/shamMediaRoutes", () => ({ generateShamMediaThroughRoute: jest.fn(async (...a: any[]) => { routeCalls.push(a); return routeReply; }) }));
-jest.mock("@/lib/shamThreads", () => ({ loadChatMemory: jest.fn(async () => null), saveChatTurn: jest.fn(async () => undefined) }));
+jest.mock("@/lib/shamThreads", () => ({ loadChatMemory: jest.fn(async () => mockLastMemory), saveChatTurn: jest.fn(async () => undefined) }));
 jest.mock("@/lib/coderTasks", () => ({ ...jest.requireActual("@/lib/coderTasks"), taskStart: jest.fn(async () => undefined), taskEvent: jest.fn(async () => undefined), taskStatus: jest.fn(async () => undefined) }));
 
 const bot = () => {
@@ -16,7 +17,7 @@ const bot = () => {
 const tiny = Buffer.from("png").toString("base64");
 
 describe("Sham media fast lane", () => {
-  beforeEach(() => { routeCalls.length = 0; process.env.CODER_TOKEN_KEY = "k"; });
+  beforeEach(() => { routeCalls.length = 0; routeReply = null; mockLastMemory = null; process.env.CODER_TOKEN_KEY = "k"; });
   it("'قم بتوليد صورة فرس ابيض' -> the media route with an ENGLISH prompt; the picture is sent without a caption", async () => {
     routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
@@ -33,6 +34,20 @@ describe("Sham media fast lane", () => {
     expect(msgs[0].a[1]).not.toMatch(/فهمت طلبك/);                          // no canned echo of the request
     expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });
+  it("resumes image generation when the user replies with only 'حصان أبيض' after a description question", async () => {
+    mockLastMemory = { history: [{
+      q: "قم بتوليد صورة",
+      a: "تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح.",
+    }] };
+    routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamMediaFastLane(b, 77, "حصان أبيض")).toBe(true);
+    expect(routeCalls[0][0]).toBe("image");
+    expect(routeCalls[0][1]).toBe("white horse");
+    expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
+  });
+
   it("a failed route says so plainly and sends nothing", async () => {
     routeReply = { type: "error", text: "disk" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
