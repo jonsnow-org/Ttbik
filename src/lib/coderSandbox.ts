@@ -1,9 +1,9 @@
 // A virtual computer per task. Zero-cost placement policy:
-//   1. ModelScope: first choice, inside the selected model's OWN media Studio only.
-//   2. Oracle: second Linux worker when that Studio is unavailable or at capacity.
+//   1. ModelScope: the dedicated 16 GB computer-only hub, with a private user+model task namespace.
+//   2. Oracle: second Linux worker when the hub is unavailable or at capacity.
 //   3. Light: last-resort QuickJS/WASM for simple JS when neither Linux worker can accept the task.
 // GitHub Actions remains an artifact-based batch lane for builds/tests, not a persistent shell or live desktop.
-// No worker may borrow another model's Studio or weights. ModelScope admission is Studio-wide and memory-gated.
+// The hub never loads model/media weights; ModelScope admission is Studio-wide and memory-gated.
 // Tools: sandbox_clone, sandbox_exec (+ sandbox_wait for long commands), sandbox_write_file, sandbox_read_file.
 // The GitHub token is used only for an explicit clone/push and scrubbed from output. No dark-web tooling is run.
 import { createHash, randomUUID } from "crypto";
@@ -104,7 +104,7 @@ export type Backend = { id: string; driver: SbxDriver };
 /** Backend ids in order of use; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
 /**
  * Zero-cost three-tier policy (2026-11-02):
- * The selected model's own free ModelScope Studio is the first Linux worker.
+ * The dedicated free 16 GB ModelScope computer hub is the first Linux worker; its task home is private to the selected user+model.
  * Oracle is the second Linux worker and yields to Sham's protected memory reserve.
  * GitHub Actions is reserved for short-lived CI/build/test batches that return artifacts.
  * Metered and personal-credit desktop providers remain disabled.
@@ -171,7 +171,7 @@ export type SbxCtx = {
   fetchImpl?: typeof fetch;
 };
 
-/** Each task gets a private workspace inside its selected model's own Studio. No generic/shared Studio fallback exists. */
+/** Each task gets a private workspace on the shared 16 GB computer hub. No other model's session or files are accessible. */
 function modelScopeDriver(ctx: SbxCtx): SbxDriver {
   const modelId = String(ctx.modelId || "");
   const session = "task:" + createHash("sha256")
@@ -262,7 +262,7 @@ function backends(ctx?: SbxCtx): Backend[] {
   // Oracle is the primary, independently provisioned Linux worker. It has
   // its own capacity gate and protects Sham's machine when the model is busy.
   const oracle = backendOrder().map((id) => ({ id, driver: driverFor(id) }));
-  // On Oracle refusal, fall back only to this selected model's own Studio.
+  // On Oracle refusal, fall back only to the dedicated computer hub using this selected model's isolated session.
   // That admission check reads live free memory and the Studio-wide slot.
   const modelScope: Backend[] = (
     ctx?.modelId && ctx.chatKey && ctx.runId &&
@@ -385,7 +385,7 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
     }
     const { sb, fresh, backend } = opened;
     const home = sb.home || HOME;
-    const label = backend === "modelscope" ? "model-owned ModelScope Linux workspace (capacity-gated)" :
+    const label = backend === "modelscope" ? "private ModelScope computer-hub task workspace (capacity-gated)" :
       backend === "vercel" ? "Vercel Linux microVM" : backend === "e2b" ? "E2B Linux microVM"
       : backend === "oracle" ? "capped Linux container on Oracle" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
     const note = fresh ? `[new sandbox (${label}): node + python3 + git, home ${home}, auto-stops after ${timeoutMin()} min]\n` : "";

@@ -1,6 +1,6 @@
-// The owner's isolated graphical Linux desktop. The display runs in the selected
-// model's own ModelScope media Studio; only bounded input actions and JPEG
-// frames cross the existing authenticated Gradio endpoint.
+// The owner's isolated graphical Linux desktop on the shared 16 GB computer hub.
+// A verified user+model session owns its own display, home directory and UID;
+// only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type DesktopArgs = {
@@ -66,7 +66,7 @@ export async function desktopDo(
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Record<string, any>> {
   const base = browserStudioFor(modelId);
-  if (!base) return { ok: false, error: "this model has no dedicated computer Studio" };
+  if (!base) return { ok: false, error: "the dedicated computer hub is unavailable for this model" };
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
   try {

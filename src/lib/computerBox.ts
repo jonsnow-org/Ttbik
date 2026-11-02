@@ -1,6 +1,5 @@
-// The model's free persistent Linux computer (ai-system/modelscope-media/computer_box.py): a shell, files that stay, and background jobs. It provides the model-owned persistent Linux workspace,
-// built on the model's OWN Studio (root, 2 vCPU / 8 GB, a persistent /mnt/workspace). Nothing is shared between models: Nova uses Nova's media Studio, each candidate its own.
-// A session is one user of one model (`session` is derived by the caller from the verified account and the model); the Studio gives it a private unprivileged Unix user and home folder.
+// Shared 16 GB computer-only Studio (ai-system/modelscope-media/computer_box.py): shell, persistent files and background jobs.
+// The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
@@ -100,7 +99,7 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
   }
 }
 
-/** The raw reply of one computer action (for the Mini App's terminal / files screens): the same Studio, the same private session as the model's own, never a token. */
+/** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
 export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
   const base = browserStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };
@@ -115,7 +114,7 @@ export async function boxRaw(modelId: string | undefined, session: string, args:
 
 export type BoxChanges = { ok: true; repo: string; base: string; files: { path: string; content: string }[]; deleted: string[]; skipped: { path: string; why: string }[] } | { ok: false; error: string };
 
-/** The changed files of a computer_repo checkout, read inside the model's own account in its Studio. The GitHub token never goes there: the app commits what comes back. */
+/** Changed files are read from this user+model session on the computer hub. The GitHub token never goes there: the app commits what comes back. */
 export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
   const base = browserStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };

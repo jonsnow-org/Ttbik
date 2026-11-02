@@ -1,0 +1,33 @@
+name: Live terminal and Chromium smoke for computer hub
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ".github/workflows/computer-hub-terminal-browser-smoke.yml"
+      - "scripts/ops/modelscope_computer_smoke.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computer-hub-terminal-browser-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Test persistent Bash, files, background jobs and a real Chromium page
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ops/modelscope_computer_smoke.py
+          python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net --model-id computer_hub --browser

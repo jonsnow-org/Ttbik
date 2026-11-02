@@ -6,7 +6,7 @@
 ## القواعد الثابتة (من المالك)
 - **CPU only** لكل التوليد والاستدلال؛ لا GPU.
 - **لا خدمات وسائط خارجية** (HeyGen، HyperFrames، Cloudflare AI، edge-tts، gTTS، HF Spaces). HF للتنزيل الأولي للأوزان فقط، لا للتوليد. فيديو حقيقي (AnimateDiff) وليس صوراً متتابعة.
-- **Nova و Sham v2 مستقلان تماماً**: كل نموذج له Studios خاصة (انظر `docs/STUDIOS.md`، واختبار `studioIsolation.test.ts`). فقط `nova-inference-server` يخدم **Sham v2 overflow**، ولا يُعطى لـ Nova أو Sham v1.
+- **Nova و Sham v2 مستقلان في الاستدلال والوسائط**: لكل منهما Studios خاصة (انظر `docs/STUDIOS.md`). `nova-inference-server` مخصص الآن للحاسوب المشترك فقط، وليس Studio استدلال أو وسائط لأي نموذج. عزل بيانات الحاسوب يبقى حسب المستخدم+النموذج.
 - **#184 لا يُدمج أبداً.**
 - الإصلاحات المؤكدة بالتشغيل فقط؛ الدمج فور CI أخضر؛ الأوزان لا تُستبدل إلا بإثبات أنها أفضل؛ المالك معفى من الحدود.
 - حدود Vercel اليومية: الإصلاحات التي توقف الإنتاج تُشحن فوراً.
@@ -40,4 +40,4 @@
 12. صورة Sham v2: `prof.image` في `modes.ts` توثيق فقط؛ الفعلي `SHAM_IMAGE_SIDE` في `sham_media_ready.py`.
 
 ## ملاحظات Studios
-10 استوديوهات: Nova (`coder-inference-server`…`-5`)، Sham v1، Sham v2 (+replicas) + فيديو v2، و`nova-inference-server` = overflow لـ Sham v2 فقط (الاسم تاريخي). التفاصيل والاختبارات: `docs/STUDIOS.md`.
+استوديوهات Nova وSham ومرشحو الأوزان تبقى مستقلة للاستدلال والوسائط، بينما `nova-inference-server` مخصص للحاسوب 16GB فقط. Sham v2 overflow في `sham-v2-overflow-server`. التفاصيل والاختبارات: `docs/STUDIOS.md`.

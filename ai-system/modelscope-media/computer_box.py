@@ -1,6 +1,9 @@
-"""A free persistent Linux computer for one model: a private Linux work environment (a shell, persistent files and long jobs), built on what the model's OWN Studio already has.
+"""A persistent Linux computer hub with a private namespace for every user+model session.
 
-Measured on a real ModelScope Studio (2026-11-01): we are root, 2 vCPU / 8 GB, /mnt/workspace persists, apt and pip work through mirrors. So a "computer" is:
+The host is a dedicated private 2-vCPU / 16-GB ModelScope Studio. All models use
+this one computer-only host; each still gets a distinct home directory,
+unprivileged UID, browser context and session key. No model weights are loaded
+on this host. So a "computer" is:
   - a home folder per session (a session = one user of one model) under /mnt/workspace/computer, kept between chats and Studio restarts;
   - commands run as a private unprivileged user of that session (uid derived from the session id): no root, no capabilities (no_new_privs), memory (a watcher stops a process group above 3 GB) / process / file-size
     limits, a clean environment (the Studio's tokens and secrets are NOT passed), low CPU priority so the model's own work is not starved;
@@ -34,7 +37,7 @@ MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "1")))  # shared 2-vCPU Studio: one executing task at a time
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
-QUOTA_BYTES = 3 * 1024 ** 3
+QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs
@@ -51,7 +54,107 @@ _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
 _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
-STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
+STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
+_APT_INDEX_UPDATED_AT = 0.0
+
+
+def rewrite_ubuntu_apt_sources_text(text: str, architecture: str | None = None) -> str:
+    """Use the canonical Ubuntu archive when the Studio image points at Aliyun's stale mirror.
+
+    Only Ubuntu mirror URLs are rewritten; PPAs and unrelated package sources remain
+    exactly as configured. ARM and other non-x86 architectures use Ubuntu Ports.
+    """
+    machine = (architecture or (os.uname().machine if hasattr(os, "uname") else "x86_64")).lower()
+    is_x86 = machine in ("x86_64", "amd64", "i386", "i486", "i586", "i686")
+    ubuntu_uri = "https://archive.ubuntu.com/ubuntu" if is_x86 else "https://ports.ubuntu.com/ubuntu-ports"
+    rewritten = str(text)
+    for scheme in ("http", "https"):
+        for suffix in ("ubuntu-ports", "ubuntu"):
+            pattern = rf"{scheme}://mirrors\.aliyun\.com/{suffix}(?=$|[/\s,])"
+            rewritten = re.sub(pattern, ubuntu_uri, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def prepare_ubuntu_apt_sources(sources_root: str | Path | None = None, architecture: str | None = None) -> dict:
+    """Repair only stale Aliyun Ubuntu entries in apt's standard source files."""
+    root = Path(sources_root or "/etc/apt")
+    candidates = [root / "sources.list"]
+    parts = root / "sources.list.d"
+    if parts.is_dir():
+        candidates.extend(sorted(parts.glob("*.list")))
+        candidates.extend(sorted(parts.glob("*.sources")))
+    changed = []
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            continue
+        original = path.read_text(encoding="utf-8", errors="replace")
+        updated = rewrite_ubuntu_apt_sources_text(original, architecture)
+        if updated == original:
+            continue
+        mode = path.stat().st_mode & 0o777
+        temporary = path.with_name(path.name + ".computer-apt.tmp")
+        try:
+            temporary.write_text(updated, encoding="utf-8")
+            os.chmod(temporary, mode)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        changed.append(str(path))
+    machine = (architecture or (os.uname().machine if hasattr(os, "uname") else "x86_64")).lower()
+    is_x86 = machine in ("x86_64", "amd64", "i386", "i486", "i586", "i686")
+    result = {
+        "changed": changed,
+        "ubuntu_archive": "https://archive.ubuntu.com/ubuntu" if is_x86 else "https://ports.ubuntu.com/ubuntu-ports",
+    }
+    STATE["apt_sources"] = result
+    if changed:
+        print("Updated stale Ubuntu APT mirror entries: " + ", ".join(changed), flush=True)
+    return dict(result)
+
+
+def apt_environment() -> dict[str, str]:
+    """Minimal system package-manager environment; never use a model session's HOME/TMPDIR."""
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": "/root" if is_root() else os.environ.get("HOME", "/tmp"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TERM": "xterm",
+        "TMPDIR": "/tmp",
+        "DEBIAN_FRONTEND": "noninteractive",
+    }
+    for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
+def apt_update(timeout: int = 420) -> subprocess.CompletedProcess:
+    """Refresh Ubuntu indexes once per Studio boot, using its repaired source configuration."""
+    global _APT_INDEX_UPDATED_AT
+    if _APT_INDEX_UPDATED_AT and time.monotonic() - _APT_INDEX_UPDATED_AT < 900:
+        return subprocess.CompletedProcess(["apt-get", "update"], 0, "reused fresh APT indexes", "")
+    if not is_root() or not shutil.which("apt-get"):
+        raise RuntimeError("APT update requires root and apt-get in this Studio.")
+    prepare_ubuntu_apt_sources()
+    result = subprocess.run(
+        ["apt-get", "update"], capture_output=True, text=True, timeout=timeout, env=apt_environment()
+    )
+    if result.returncode == 0:
+        _APT_INDEX_UPDATED_AT = time.monotonic()
+    return result
+
+
+def apt_install(packages: list[str], timeout: int = 900) -> subprocess.CompletedProcess:
+    """Install trusted OS packages with a clean system environment, not a session sandbox."""
+    if not is_root() or not shutil.which("apt-get"):
+        raise RuntimeError("APT install requires root and apt-get in this Studio.")
+    if not packages:
+        return subprocess.CompletedProcess(["apt-get", "install"], 0, "", "")
+    return subprocess.run(
+        ["apt-get", "install", "-y", "--no-install-recommends", *packages],
+        capture_output=True, text=True, timeout=timeout, env=apt_environment()
+    )
 
 
 PLAYBOOK = """YOUR COMPUTER - how to work fast
@@ -274,20 +377,62 @@ def ensure_home(session: str) -> Path:
 
 
 def install_egress_rules() -> str:
-    """Best effort, once: refuse private / metadata destinations to the unprivileged users. Reported, never assumed."""
+    """Best-effort firewall for private, link-local, and cloud metadata destinations.
+
+    Rules are scoped to the UID range allocated to computer sessions. The Studio
+    application itself and model/media services run under different UIDs.
+    Existing rules are detected so app restarts do not append duplicates.
+    """
     with _LOCK:
         if STATE["egress"] != "not checked":
             return STATE["egress"]
         if not is_root() or not shutil.which("iptables"):
             STATE["egress"] = "not available (no iptables or not root): commands can reach the host's private network"
             return STATE["egress"]
+
         owner = f"{UID_BASE}-{UID_BASE + UID_SPAN}"
+        destinations = {
+            "iptables": (
+                "100.100.100.200",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16",
+                "100.64.0.0/10",
+            ),
+            "ip6tables": ("::1/128", "fc00::/7", "fe80::/10"),
+        }
         failed = 0
-        for dest in ("100.100.100.200", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"):
-            r = subprocess.run(["iptables", "-w", "-A", "OUTPUT", "-m", "owner", "--uid-owner", owner, "-d", dest, "-j", "REJECT"],
-                               capture_output=True, text=True, timeout=15)
-            failed += 1 if r.returncode else 0
-        STATE["egress"] = "private ranges and the metadata address are blocked for commands" if not failed else f"partly blocked ({failed} rules refused by the host)"
+        unavailable = []
+        for binary, ranges in destinations.items():
+            if not shutil.which(binary):
+                if binary == "ip6tables":
+                    unavailable.append("IPv6 firewall command unavailable")
+                    continue
+                failed += len(ranges)
+                continue
+            for dest in ranges:
+                rule = [binary, "-w", "-m", "owner", "--uid-owner", owner, "-d", dest, "-j", "REJECT"]
+                check = subprocess.run(
+                    [binary, "-w", "-C", "OUTPUT", *rule[2:]],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if check.returncode == 0:
+                    continue
+                added = subprocess.run(
+                    [binary, "-w", "-A", "OUTPUT", *rule[2:]],
+                    capture_output=True, text=True, timeout=15,
+                )
+                failed += 1 if added.returncode else 0
+
+        if failed or unavailable:
+            reasons = []
+            if failed:
+                reasons.append(f"{failed} firewall rules refused by the host")
+            reasons.extend(unavailable)
+            STATE["egress"] = "partly blocked (" + "; ".join(reasons) + ")"
+        else:
+            STATE["egress"] = "private IPv4/IPv6 ranges and metadata addresses blocked for computer sessions"
         return STATE["egress"]
 
 
@@ -490,25 +635,34 @@ def _kill_group(pid: int) -> None:
 
 
 # ---------------------------------------------------------------- the toolchain (installed once, in the background, when we are root)
-WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl"}
+WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl", "iptables": "iptables"}
 
 
 def ensure_toolchain() -> str:
-    missing = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
+    missing = list(dict.fromkeys(pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)))
     if not missing:
         STATE["toolchain"] = "ready"
         return "ready"
     if not is_root():
         STATE["toolchain"] = "missing without root: " + ", ".join(missing)
         return STATE["toolchain"]
-    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
     try:
-        u = subprocess.run(["apt-get", "update"], capture_output=True, text=True, timeout=300, env=env)
-        r = subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", *missing], capture_output=True, text=True, timeout=600, env=env)
+        update = apt_update(timeout=420)
+        if update.returncode != 0:
+            detail = (update.stderr or update.stdout or "APT returned no diagnostic").strip()
+            STATE["toolchain"] = f"apt update failed rc={update.returncode}: {detail[-900:]}"
+            return STATE["toolchain"]
+        install = apt_install(missing, timeout=900)
         left = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
-        STATE["toolchain"] = "ready" if not left else f"missing after apt ({', '.join(left)}): update rc={u.returncode}, install rc={r.returncode}: " + " | ".join(((r.stderr or u.stderr or "").strip().splitlines() or [""])[-2:])[:240]
+        if not left:
+            STATE["toolchain"] = "ready"
+        else:
+            detail = (install.stderr or install.stdout or "APT returned no diagnostic").strip()
+            STATE["toolchain"] = (
+                f"missing after apt ({', '.join(left)}): install rc={install.returncode}: {detail[-900:]}"
+            )
     except Exception as exc:  # noqa: BLE001
-        STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:120]}"
+        STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:240]}"
     return STATE["toolchain"]
 
 
@@ -876,7 +1030,7 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked")}
+             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(dir_size(home) / 1024 ** 2, 1) if home.exists() else 0

@@ -25,6 +25,38 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
+def open_with_retry(
+    url: str,
+    headers: dict[str, str],
+    data: bytes | None,
+    method: str,
+    timeout: int,
+    label: str,
+):
+    """Retry transient ModelScope gateway throttling and edge errors."""
+    retryable = {403, 429, 500, 502, 503, 504}
+    for attempt in range(6):
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in retryable or attempt == 5:
+                raise
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            try:
+                delay = max(1.0, min(45.0, float(retry_after))) if retry_after else min(30.0, 6.0 * (attempt + 1))
+            except (TypeError, ValueError):
+                delay = min(30.0, 6.0 * (attempt + 1))
+            print(
+                f"ModelScope gateway HTTP {exc.code} for {label}; retry {attempt + 1}/5 in {delay:.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+            exc.close()
+            time.sleep(delay)
+    raise RuntimeError(f"{label}: retry loop exited unexpectedly")
+
+
 def request_json(
     method: str,
     url: str,
@@ -39,9 +71,8 @@ def request_json(
         "Content-Type": "application/json",
         "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0",
     }
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with open_with_retry(url, headers, data, method, timeout, url.rsplit("/", 1)[-1]) as response:
             raw = response.read(3_000_000)
             if response.status < 200 or response.status >= 300:
                 fail(f"{method} {url.rsplit('/', 1)[-1]} returned HTTP {response.status}")
@@ -118,7 +149,12 @@ def gradio_call(
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        sse_headers = {
+            "Authorization": "Bearer " + token,
+            "Accept": "text/event-stream",
+            "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0",
+        }
+        with open_with_retry(url, sse_headers, None, "GET", timeout, name + " result") as response:
             chunks: list[str] = []
             size = 0
             while True:
@@ -166,6 +202,18 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
         fail("computer home is not backed by the persistent Studio workspace")
     if status.get("tools", {}).get("python3") is not True:
         fail("python3 is not installed in the selected Studio computer")
+    capacity = status.get("capacity") or {}
+    limits = status.get("limits") or {}
+    available_mb = capacity.get("available_mb")
+    minimum_mb = limits.get("minimum_available_mb")
+    if not isinstance(available_mb, (int, float)) or available_mb < 2048:
+        fail(f"terminal requires at least 2048 MB available; reported {available_mb} MB")
+    if not isinstance(minimum_mb, (int, float)) or minimum_mb < 2048:
+        fail(f"terminal admission limit is too low or missing: {minimum_mb} MB")
+    if limits.get("global_jobs") != 1:
+        fail(f"2-vCPU Studio must enforce one global execution job; reported {limits.get('global_jobs')}")
+    print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
+    print("Network egress isolation:", status.get("egress", "not reported"), flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):
         # The computer can still execute commands, but never claim network egress is protected.
         print("WARNING: Studio reports an incomplete private-network egress block", flush=True)
@@ -248,11 +296,18 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
     assert_ok(status, "desktop status")
     if status.get("phase") == "busy":
         fail("desktop Studio is already assigned to another session")
+    available_mb = status.get("available_mb")
+    minimum_mb = status.get("minimum_available_mb")
+    if not isinstance(available_mb, (int, float)) or available_mb < 3072:
+        fail(f"graphical desktop requires at least 3072 MB available; reported {available_mb} MB")
+    if not isinstance(minimum_mb, (int, float)) or minimum_mb < 3072:
+        fail(f"desktop admission limit is too low or missing: {minimum_mb} MB")
     if status.get("can_start") is not True:
         fail(
             "desktop start admission refused: "
-            + str(status.get("error") or f"available memory {status.get('available_mb')} MB")
+            + str(status.get("error") or f"available memory {available_mb} MB")
         )
+    print(f"Desktop capacity: {available_mb} MB available; desktop floor {minimum_mb} MB", flush=True)
 
     start = desktop_call(api, token, {"action": "start", "session": session}, timeout=55)
     assert_ok(start, "desktop start request")
@@ -296,11 +351,28 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         assert_ok(stopped, "desktop stop")
 
 
+def check_browser(api: str, token: str, session: str) -> None:
+    opened = gradio_call(
+        api,
+        "browser_do",
+        {"action": "open", "url": "https://example.com", "session": session},
+        token,
+        timeout=180,
+    )
+    assert_ok(opened, "headless browser open")
+    url = str(opened.get("url") or "")
+    title = str(opened.get("title") or "")
+    page_text = str(opened.get("text") or "")
+    if "example.com" not in url.lower() or not title or not page_text:
+        fail("headless browser did not return the expected public page URL, title and text")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", required=True, help="ModelScope Studio inference API base URL")
-    parser.add_argument("--model-id", required=True, choices=("coder", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
+    parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
     parser.add_argument("--no-gui", action="store_true", help="Run only persistent terminal/file/job smoke tests")
+    parser.add_argument("--browser", action="store_true", help="Also open a public page in the isolated headless browser")
     args = parser.parse_args()
     token = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
     if not token:
@@ -321,6 +393,10 @@ def main() -> int:
             print(f"[{args.model_id}] checking X11 desktop and terminal coexistence", flush=True)
             check_gui(api, token, session, marker)
             print(f"[{args.model_id}] PASS: X11 screenshot and terminal while GUI is running", flush=True)
+        if args.browser:
+            print(f"[{args.model_id}] checking the isolated Chromium browser", flush=True)
+            check_browser(api, token, session)
+            print(f"[{args.model_id}] PASS: Chromium opened a real public page", flush=True)
         print(f"[{args.model_id}] PASS: selected Studio computer smoke test complete", flush=True)
         return 0
     except Exception as exc:

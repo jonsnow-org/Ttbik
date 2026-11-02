@@ -1,7 +1,9 @@
-"""A free headless browser for one model: an interactive web browser with JavaScript, clicking and typing.
+"""A free headless browser on the dedicated computer hub: JavaScript, clicking and typing.
 
-Runs inside the model's OWN media Studio (free 2 vCPU / 8 GB CPU): nothing is shared with another model, nothing is paid, nothing leaves the account.
-The app server calls it through the Studio's Gradio API (`browser_do`, `browser_status`); a session is one user of one model (the app derives the id).
+Runs inside the private 2-vCPU / 16-GB computer-only Studio. Browser processes
+are shared for efficiency, but every user+model gets a separate BrowserContext,
+cookie store and persistent session directory. The app server calls it through
+the Studio's Gradio API (`browser_do`, `browser_status`).
 
 How it gets a browser on a Studio (measured on a real ModelScope Studio, 2026-11-01: we are root, apt works through the Aliyun mirror, but Playwright's own
 download host did not answer in 900 s - the Studio is in China):

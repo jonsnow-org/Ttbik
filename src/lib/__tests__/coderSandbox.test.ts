@@ -146,12 +146,12 @@ describe("sandbox", () => {
     expect(await runSandboxTool("sandbox_read_file", { path: "e.ts" }, ctx)).toMatch(/a = 9\nb = 3\nb = 3/);
     expect(await runSandboxTool("sandbox_search", {}, ctx)).toMatch(/give a pattern/);
   });
-  it("falls back to the selected model's own ModelScope Studio and keeps the task session private", async () => {
+  it("uses the shared 16 GB computer hub and keeps the selected model's task session private", async () => {
     const priorToken = process.env.MODELSCOPE_API_TOKEN;
     const priorBackend = process.env.SANDBOX_BACKEND;
     const priorLight = process.env.CODER_LIGHT;
     process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
-    process.env.SANDBOX_BACKEND = "off";          // no Oracle VM; test the model-owned Linux fallback directly
+    process.env.SANDBOX_BACKEND = "off";          // no Oracle VM; test the dedicated computer-hub fallback directly
     process.env.CODER_LIGHT = "off";
     const events = new Map<string, any>();
     const calls: { url: string; payload: any }[] = [];
@@ -185,10 +185,10 @@ describe("sandbox", () => {
       const out = await runSandboxTool("sandbox_exec", { command: "echo model-scope" }, {
         chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "minicpmo45", userId: "42", fetchImpl,
       });
-      expect(out).toContain("new sandbox (model-owned ModelScope Linux workspace");
+      expect(out).toContain("new sandbox (private ModelScope computer-hub task workspace");
       expect(out).toContain("exit code 0\nModelScope task output");
       expect(calls.length).toBeGreaterThanOrEqual(4);
-      expect(calls.every((c) => c.url.includes("sham-donor-minicpmo45-media"))).toBe(true);
+      expect(calls.every((c) => c.url.includes("nova-inference-server"))).toBe(true);
       expect(calls.every((c) => c.payload.session.startsWith("task:"))).toBe(true);
       expect(calls.some((c) => c.payload.action === "job_start")).toBe(true);
       expect(calls.some((c) => c.payload.action === "status")).toBe(true);
