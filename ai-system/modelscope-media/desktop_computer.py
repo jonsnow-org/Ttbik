@@ -29,8 +29,8 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1280"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "800"))))
+WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1024"))))
+HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "768"))))
 MAX_TYPE = 1200
 MAX_FRAME_BYTES = 450_000
 PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm")
