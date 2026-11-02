@@ -110,7 +110,7 @@ export type Backend = { id: string; driver: SbxDriver };
  * Metered and personal-credit desktop providers remain disabled.
  */
 export const VM_BACKENDS = ["oracle"] as const;
-export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
+export const DISABLED_METERED_BACKENDS = ["vercel", "codesandbox", "codespaces", "e2b"] as const;
 const RUNNER_BACKENDS = new Set(["oracle"]);
 export function backendConfigured(id: string): boolean {
   return id === "oracle" && oracleConfigured();
@@ -386,7 +386,7 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
     const { sb, fresh, backend } = opened;
     const home = sb.home || HOME;
     const label = backend === "modelscope" ? "model-owned ModelScope Linux workspace (capacity-gated)" :
-      backend === "vercel" ? "Vercel Linux microVM" : backend === "daytona" ? "Daytona Linux sandbox" : backend === "e2b" ? "E2B Linux microVM"
+      backend === "vercel" ? "Vercel Linux microVM" : backend === "e2b" ? "E2B Linux microVM"
       : backend === "oracle" ? "capped Linux container on Oracle" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
     const note = fresh ? `[new sandbox (${label}): node + python3 + git, home ${home}, auto-stops after ${timeoutMin()} min]\n` : "";
     switch (name) {
