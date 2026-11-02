@@ -273,7 +273,13 @@ class OriginalVideoToolArguments(unittest.TestCase):
             preserve("generate_video", {"prompt": "boat", "seconds": 9}, "make a 2-second clip")["seconds"],
             9,
         )
-        # The media endpoint clamps any explicit number to its supported 1–5 second range.
-        media = load("_requested_video_seconds", "_generate_candidate_media") if False else None
         self.assertEqual(preserve("generate_audio", {"text": "hello"}, "speak for 5 seconds"), {"text": "hello"})
+
+    def test_video_duration_is_clamped_to_supported_range(self):
+        clamp = load("_clamp_video_seconds")["_clamp_video_seconds"]
+        self.assertEqual(clamp(9), 5)
+        self.assertEqual(clamp(4), 4)
+        self.assertEqual(clamp(0), 1)
+        self.assertEqual(clamp(None), 3)
+        self.assertEqual(clamp("invalid"), 3)
 
