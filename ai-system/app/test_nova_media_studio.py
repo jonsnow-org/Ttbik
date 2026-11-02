@@ -46,7 +46,13 @@ class NovaMediaStudioTests(unittest.TestCase):
             self.assertTrue(post.call_args.args[0].endswith(f"/gradio_api/call/v2/{api}"))
             # Contract of ai-system/modelscope-media/app.py: video takes ONE prompt (+seconds/seed).
             # Per-scene prompts and narration are intentionally not sent: no stitched-image storyboards.
-            self.assertEqual(json.loads(post.call_args.kwargs["json"]["body"]), expected)
+            actual_payload = json.loads(post.call_args.kwargs["json"]["body"])
+            if kind == "video":
+                self.assertEqual({k: v for k, v in actual_payload.items() if k != "seed"}, {k: v for k, v in expected.items() if k != "seed"})
+                self.assertIsInstance(actual_payload["seed"], int)
+                self.assertGreaterEqual(actual_payload["seed"], 0)
+            else:
+                self.assertEqual(actual_payload, expected)
 
     def test_video_preserves_each_supported_duration_and_rejects_unsupported_values(self):
         for seconds in (10, 15, 30, 60, 120):

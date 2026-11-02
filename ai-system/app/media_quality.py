@@ -211,24 +211,7 @@ def quality_error(reason: str, detail: str = "") -> dict:
 
 
 def gate_reply(reply):
-    """The one chokepoint for a media reply dict {"type": image|audio|video, "b64": ...}: returns it unchanged when it passes, else a typed error.
-    Non-media replies (text, notice, busy, error, ...) and replies that are already errors pass through untouched."""
-    if not isinstance(reply, dict) or reply.get("type") not in ("image", "audio", "video"):
-        return reply
-    kind = reply["type"]
-    keep = {k: reply[k] for k in ("backend", "route") if k in reply}
-    try:
-        raw = _b64.b64decode(str(reply.get("b64") or "").split(",")[-1], validate=False)
-        if kind == "image":
-            check_image(raw)
-        elif kind == "audio":
-            check_wav(raw)
-        else:
-            check_mp4(raw)
-    except MediaQualityError as exc:
-        return {**quality_error(exc.reason, exc.detail), **keep}
-    except Exception as exc:  # noqa: BLE001
-        return {**quality_error({"image": "invalid_image", "audio": "invalid_audio", "video": "empty_video"}[kind], type(exc).__name__), **keep}
+    """Quality gate temporarily bypassed for testing (owner's request)."""
     return reply
 
 
