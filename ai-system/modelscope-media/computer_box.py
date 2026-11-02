@@ -420,7 +420,7 @@ def install_egress_rules() -> str:
                 if check.returncode == 0:
                     continue
                 added = subprocess.run(
-                    [binary, "-w", "-A", "OUTPUT", *rule[4:]],
+                    [binary, "-w", "-A", "OUTPUT", *rule[2:]],
                     capture_output=True, text=True, timeout=15,
                 )
                 failed += 1 if added.returncode else 0
