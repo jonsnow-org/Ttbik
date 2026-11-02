@@ -161,10 +161,10 @@ export function parseShamReply(body: string): ShamReply | null {
 
 /** Every picture / sound / clip a Sham Studio returns passes the quality gate (src/lib/mediaQuality.ts): a blank, noise, silent or empty result becomes a typed
  *  {type:"error", reason, text} instead of media. Replies finished later (`later`) are vetted too. */
-export async function vetShamReply(reply: ShamReply | null): Promise<ShamReply | null> {
+export async function vetShamReply(reply: ShamReply | null, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   if (!reply) return reply;
-  const out = (await vetMedia(reply)) as ShamReply;
-  if (Array.isArray(out.later)) out.later = (await Promise.all(out.later.map((r) => vetShamReply(r)))) as ShamReply[];
+  const out = (await vetMedia(reply, { bypassContentHeuristics: opts.bypassContentHeuristics })) as ShamReply;
+  if (Array.isArray(out.later)) out.later = (await Promise.all(out.later.map((r) => vetShamReply(r, opts)))) as ShamReply[];
   return out;
 }
 
@@ -219,9 +219,9 @@ export async function shamUnderstandImage(b64: string, question = "صف ما ي�
   return "error: selected Sham Studio returned no readable screenshot description.";
 }
 
-export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000): Promise<ShamReply | null> {
+export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
   if (body && !reply) setFailure(`generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return reply;
 }
@@ -229,7 +229,7 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
 export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
-export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000): Promise<ShamReply | null> {
+export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat refused outside the Sham v2 variant");
     return null;
@@ -246,7 +246,7 @@ export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens
     temperature: knobs.temperature,
     think_tokens: knobs.thinkTokens,
   }, timeoutMs);
-  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
   if (body && !reply) setFailure(`generate_chat: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return reply;
 }
@@ -288,7 +288,7 @@ export async function shamGenerateMedia(
   prompt: string,
   timeoutMs = 180000,
   backend: ShamMediaBackend = "internal",
-  opts: { scenes?: unknown; narration?: unknown } = {},
+  opts: { scenes?: unknown; narration?: unknown; bypassQuality?: boolean } = {},
 ): Promise<ShamReply | null> {
   const api = "generate_media_from_panel";
   if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
@@ -297,7 +297,7 @@ export async function shamGenerateMedia(
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
     const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) }) }, timeoutMs);
-    const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+    const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
     if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
     if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");
     return reply;
@@ -305,18 +305,18 @@ export async function shamGenerateMedia(
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500) };
+  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500), raw_test: Boolean(opts.bypassQuality) };
   const body = await shamCall(api, payload, timeoutMs);
-  const reply = body ? await vetShamReply(parseShamReply(body)) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
   if (body && !reply) setFailure(api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
   return reply;
 }
 
 // chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
 // generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
-export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000): Promise<ShamReply | null> {
+export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? vetShamReply(parseShamReply(body)) : null;
+  return body ? vetShamReply(parseShamReply(body), opts) : null;
 }
 
 // chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
@@ -327,13 +327,14 @@ export async function shamChatMemory(
   mem: { userId: string; history: { q: string; a: string }[]; summary: string; facts: Record<string, string> },
   maxNewTokens = 80,
   timeoutMs = 48000,
+  opts: { bypassContentHeuristics?: boolean } = {},
 ): Promise<ShamReply | null> {
   const body = await shamCall(
     "chat_memory",
     { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
     timeoutMs,
   );
-  return body ? vetShamReply(parseShamReply(body)) : null;
+  return body ? vetShamReply(parseShamReply(body), opts) : null;
 }
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {
@@ -354,7 +355,7 @@ export const shamLastFailure = (): string => getFailure();
 export const shamNoteFailure = (why: string): void => { setFailure(why); };
 const note = (base: string, api: string, why: string) => { setFailure(api + " @ " + base.replace(/^https?:\/\/(studio-novaai2026-)?/, "").slice(0, 40) + ": " + why); };
 
-async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+async function shamCallOnceAt(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number, bypassContentHeuristics = false): Promise<ShamOutcome> {
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   const deadline = Date.now() + timeoutMs;
   try {
@@ -365,7 +366,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
     const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
     if (!res.ok) { note(base, api, `HTTP ${res.status} on result`); return { reply: null, failure: "http" }; }
     const rawReply = await readShamSse(res);
-    const reply = await vetShamReply(rawReply === null ? null : parseShamReply(rawReply));
+    const reply = await vetShamReply(rawReply === null ? null : parseShamReply(rawReply), { bypassContentHeuristics });
     if (!reply) note(base, api, "unreadable answer");
     return reply ? { reply } : { reply: null, failure: "unreadable" };
   } catch (e) {
@@ -375,7 +376,7 @@ async function shamCallOnceAt(base: string, api: string, payload: Record<string,
   }
 }
 
-async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+async function shamCallOnce(api: string, payload0: Record<string, unknown>, timeoutMs: number, bypassContentHeuristics = false): Promise<ShamOutcome> {
   if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return { reply: null, failure: "off" }; }
   const variant = shamVariant.getStore();
   if (variant !== "v1" && variant !== "v2") {
@@ -391,7 +392,7 @@ async function shamCallOnce(api: string, payload0: Record<string, unknown>, time
   const t0 = Date.now();
   let out: ShamOutcome = { reply: null, failure: "network" };
   for (let i = 0; i < bases.length; i++) {
-    out = await tracked(bases[i], () => shamCallOnceAt(bases[i], api, payload, Math.max(3000, timeoutMs - (Date.now() - t0))), (o) => o.failure === "network" || o.failure === "http" || shamBusyHop(o.reply));
+    out = await tracked(bases[i], () => shamCallOnceAt(bases[i], api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)), bypassContentHeuristics), (o) => o.failure === "network" || o.failure === "http" || shamBusyHop(o.reply));
     const hop = shamBusyHop(out.reply) || out.failure === "network" || out.failure === "http";        // busy, down or refusing: the next Studio (a timeout is not repeated: it may be working on it)
     if (!hop || i === bases.length - 1 || Date.now() - t0 > timeoutMs - 4000) return out;
   }
@@ -404,11 +405,13 @@ export function shamThink(
   mem?: { history: { q: string; a: string }[]; summary: string; facts: Record<string, string> } | null,
   maxNewTokens = 80,
   timeoutMs = 28000,
+  bypassContentHeuristics = false,
 ): Promise<ShamOutcome> {
   return shamCallOutcome(
     "think",
     { prompt, max_new_tokens: maxNewTokens, user_id: userId, history: mem ? JSON.stringify(mem.history) : "", summary: mem?.summary || "", facts: mem ? JSON.stringify(mem.facts) : "" },
     timeoutMs,
+    bypassContentHeuristics,
   );
 }
 
@@ -417,13 +420,13 @@ export function shamThinkUnavailable(o: ShamOutcome): boolean {
   return !o.reply && (o.failure === "http" || o.failure === "unreadable");
 }
 
-export async function shamJobResult(job: string, detach = false, timeoutMs = 8000): Promise<ShamOutcome> {
+export async function shamJobResult(job: string, detach = false, timeoutMs = 8000, bypassContentHeuristics = false): Promise<ShamOutcome> {
   const payload = { job_id: job, detach: detach ? "1" : "" };
   const bases = shamStudioEnabled() ? shamBases() : [];
-  if (bases.length <= 1) return shamCallOutcome("job_result", payload, timeoutMs);
+  if (bases.length <= 1) return shamCallOutcome("job_result", payload, timeoutMs, bypassContentHeuristics);
   let out: ShamOutcome = { reply: null, failure: "http" };            // a job lives on the Studio that started it: ask each one until it is found
   for (const b of bases) {
-    out = await shamCallOnceAt(b, "job_result", payload, timeoutMs);
+    out = await shamCallOnceAt(b, "job_result", payload, timeoutMs, bypassContentHeuristics);
     if (out.reply && out.reply.type !== "gone") return out;
   }
   return out;
@@ -450,12 +453,12 @@ export function shamPendingText(decision?: string): string {
 
 // A network blip (the connection never reached the Studio: a restart, a dropped link) is tried once more after a moment, as long as time is left;
 // a timeout or an HTTP answer is never repeated (the Studio may already be working on it). Learned on Nova: a short outage is not worth an error message.
-export async function shamCallOutcome(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+export async function shamCallOutcome(api: string, payload: Record<string, unknown>, timeoutMs: number, bypassContentHeuristics = false): Promise<ShamOutcome> {
   const t0 = Date.now();
-  const first = await shamCallOnce(api, payload, timeoutMs);
+  const first = await shamCallOnce(api, payload, timeoutMs, bypassContentHeuristics);
   if (first.failure !== "network" || Date.now() - t0 > timeoutMs - 6000) return first;
   await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 1500));
-  return shamCallOnce(api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)));
+  return shamCallOnce(api, payload, Math.max(3000, timeoutMs - (Date.now() - t0)), bypassContentHeuristics);
 }
 
 // What Nova's loop does when a step comes back with nothing usable, for Sham's one-step `think` (the webhook has ~60 s, so every wait is bounded):
@@ -468,9 +471,10 @@ export async function shamThinkPatient(
   maxNewTokens: number,
   timeoutMs: number,
   budgetMs = 40000,
+  bypassContentHeuristics = false,
 ): Promise<ShamOutcome> {
   const t0 = Date.now();
-  let out = await shamThink(prompt, userId, mem, maxNewTokens, timeoutMs);
+  let out = await shamThink(prompt, userId, mem, maxNewTokens, timeoutMs, bypassContentHeuristics);
   let busy = 0, empty = 0;
   for (;;) {
     const r = out.reply;
@@ -481,7 +485,7 @@ export async function shamThinkPatient(
     } else if (r?.type === "text" && !(r.text || "").trim() && empty < 1 && left > timeoutMs / 2) {
       empty++;
     } else return out;
-    out = await shamThink(prompt, userId, mem, maxNewTokens, Math.max(5000, Math.min(timeoutMs, budgetMs - (Date.now() - t0))));
+    out = await shamThink(prompt, userId, mem, maxNewTokens, Math.max(5000, Math.min(timeoutMs, budgetMs - (Date.now() - t0))), bypassContentHeuristics);
   }
 }
 

@@ -6,7 +6,7 @@ import { appOp } from "@/lib/coderApp";
 import { handleCoderSections, loadState, saveState } from "@/lib/coderSections";
 import { claimOrphanTasks, reapStaleTasks, taskStart, listTasks } from "@/lib/coderTasks";
 import { coderChatKey } from "@/lib/coderAuth";
-import { detectMediaIntent, glossaryPrompt, cleanEnglishPrompt } from "@/lib/coderMediaFast";
+import { detectMediaIntent, cleanEnglishPrompt } from "@/lib/coderMediaFast";
 import { fakeBot } from "./coderFakes";
 import { photoStudioFake, b64, png } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
@@ -37,16 +37,16 @@ describe("which requests take the fast media lane", () => {
     expect(detectMediaIntent("ولد لي صورة أسد")?.kind).toBe("image");
     expect(detectMediaIntent("ارسم قطة سوداء")?.kind).toBe("image");
     expect(detectMediaIntent("generate an image of a white horse")).toEqual({ kind: "image", subject: "white horse" });
-    expect(detectMediaIntent("اعمل فيديو عن غروب الشمس")).toEqual({ kind: "video", subject: "غروب الشمس" });
+    expect(detectMediaIntent("اعمل فيديو عن غروب الشمس")).toEqual({ kind: "video", subject: "عن غروب الشمس" });
   });
   it("code, questions, files, existing pictures and greetings are for the general worker", () => {
     for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "كيف أرسم", "مرحبا", "حلل الصورة", "/start", "make a python script", "ارسم لي موقع", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
   });
-  it("the English prompt: the glossary never guesses an unknown Arabic word; a model answer must be English", () => {
-    expect(glossaryPrompt("فرس ابيض")).toBe("white horse");
-    expect(glossaryPrompt("كلمةمجهولة")).toBeNull();
+  it("raw model output can be kept without the fixed translation glossary", () => {
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
+    expect(cleanEnglishPrompt("\u56fe\u7247\u6d4b\u8bd5", { preserveRaw: true })).toBe("\u56fe\u7247\u6d4b\u8bd5");
+    expect(cleanEnglishPrompt("حصان أبيض", { preserveRaw: true })).toBe("حصان أبيض");
   });
 });
 

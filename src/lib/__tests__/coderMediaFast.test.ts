@@ -29,10 +29,10 @@ describe("Arabic subject-only media follow-ups", () => {
 
 describe("Media intent without an excluded-word dictionary", () => {
   it.each([
-    ["قم بتوليد صورة لكود Python على شاشة", "لكود python علي شاشه"],
-    ["أنشئ صورة لموقع شركة وتطبيق الهاتف", "لموقع شركه وتطبيق الهاتف"],
-    ["اصنع صورة لمستودع GitHub وملف PDF", "لمستودع github وملف pdf"],
-    ["أنشئ صورة تشرح تحويل SVG إلى PNG", "تشرح تحويل svg الي png"],
+    ["قم بتوليد صورة لكود Python على شاشة", "لكود Python على شاشة"],
+    ["أنشئ صورة لموقع شركة وتطبيق الهاتف", "لموقع شركة وتطبيق الهاتف"],
+    ["اصنع صورة لمستودع GitHub وملف PDF", "لمستودع GitHub وملف PDF"],
+    ["أنشئ صورة تشرح تحويل SVG إلى PNG", "تشرح تحويل SVG إلى PNG"],
   ])("accepts the user's natural subject words in '%s'", (prompt, subject) => {
     expect(detectMediaIntent(prompt)).toEqual({ kind: "image", subject });
   });
@@ -42,6 +42,10 @@ describe("Media intent without an excluded-word dictionary", () => {
       previousUser: "قم بتوليد صورة",
       previousAssistant: "ما الذي تريد أن يظهر في الصورة؟",
     })).toEqual({ kind: "image", subject: "كود Python داخل موقع" });
+  });
+
+  it("does not delete request words that used to be in the filler dictionary", () => {
+    expect(detectMediaIntent("قم بتوليد صورة من فضلك قطة جميلة")).toEqual({ kind: "image", subject: "من فضلك قطة جميلة" });
   });
 
   it("keeps ordinary non-media messages in the normal chat path", () => {
@@ -64,7 +68,7 @@ describe("Nova video duration intent", () => {
   });
 
   it("does not add duration words or numbers to the visual subject", () => {
-    expect(detectMediaIntent("قم بتوليد فيديو أسد لمدة 30 ثانية")).toMatchObject({ kind: "video", subject: "اسد", seconds: 30 });
+    expect(detectMediaIntent("قم بتوليد فيديو أسد لمدة 30 ثانية")).toMatchObject({ kind: "video", subject: "أسد", seconds: 30 });
     expect(detectMediaIntent("أنشئ فيديو حصان لمدة 15 ثانيه")).toMatchObject({ kind: "video", subject: "حصان", seconds: 15 });
   });
 });

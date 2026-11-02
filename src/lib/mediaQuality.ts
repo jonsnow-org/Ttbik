@@ -39,7 +39,7 @@ function corr(a: Float64Array, b: Float64Array): number {
 }
 
 /** Throws MediaQualityError unless the picture has real content. */
-export async function checkImage(buf: Buffer, opts: { rejectNoise?: boolean } = {}): Promise<{ mean: number; std: number; min: number; max: number; neighbourCorr?: number }> {
+export async function checkImage(buf: Buffer, opts: { rejectNoise?: boolean; allowBlank?: boolean } = {}): Promise<{ mean: number; std: number; min: number; max: number; neighbourCorr?: number }> {
   let data: Buffer, w: number, h: number;
   try {
     const out = await sharp(buf).removeAlpha().greyscale().resize(256, 256, { fit: "inside", kernel: "nearest", withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
@@ -55,7 +55,7 @@ export async function checkImage(buf: Buffer, opts: { rejectNoise?: boolean } = 
   for (let i = 0; i < data.length; i++) ss += (data[i] - mean) ** 2;
   const std = Math.sqrt(ss / data.length);
   const stats = { mean: Math.round(mean * 10) / 10, std: Math.round(std * 10) / 10, min: lo, max: hi } as { mean: number; std: number; min: number; max: number; neighbourCorr?: number };
-  if (std < MIN_STD || hi - lo < MIN_RANGE) throw new MediaQualityError("blank_image", `std=${std.toFixed(1)} range=${hi - lo} mean=${mean.toFixed(0)}`);
+  if (!opts.allowBlank && (std < MIN_STD || hi - lo < MIN_RANGE)) throw new MediaQualityError("blank_image", `std=${std.toFixed(1)} range=${hi - lo} mean=${mean.toFixed(0)}`);
   if (opts.rejectNoise !== false && w >= 8 && h >= 8) {
     const hA = new Float64Array(h * (w - 1)), hB = new Float64Array(h * (w - 1)), vA = new Float64Array((h - 1) * w), vB = new Float64Array((h - 1) * w);
     let k = 0;
@@ -70,7 +70,7 @@ export async function checkImage(buf: Buffer, opts: { rejectNoise?: boolean } = 
 }
 
 /** PCM WAV: audible and not constant. */
-export function checkWav(buf: Buffer): { seconds: number; peak: number } {
+export function checkWav(buf: Buffer, opts: { allowSilent?: boolean } = {}): { seconds: number; peak: number } {
   if (!buf || buf.length < 64) throw new MediaQualityError("silent_audio", "empty audio");
   if (buf.toString("latin1", 0, 4) !== "RIFF" || buf.toString("latin1", 8, 12) !== "WAVE") throw new MediaQualityError("invalid_audio", "not a RIFF/WAVE file");
   let fmt: { ch: number; rate: number; bits: number; tag: number } | null = null;
@@ -97,7 +97,7 @@ export function checkWav(buf: Buffer): { seconds: number; peak: number } {
     peak = Math.max(peak, Math.abs(v)); sum += v; sumSq += v * v;
   }
   const std = Math.sqrt(Math.max(0, sumSq / n - (sum / n) ** 2));
-  if (peak < MIN_AUDIO_PEAK || std < MIN_AUDIO_PEAK / 4) throw new MediaQualityError("silent_audio", `peak=${peak.toFixed(4)} std=${std.toFixed(5)}`);
+  if (!opts.allowSilent && (peak < MIN_AUDIO_PEAK || std < MIN_AUDIO_PEAK / 4)) throw new MediaQualityError("silent_audio", `peak=${peak.toFixed(4)} std=${std.toFixed(5)}`);
   return { seconds: Math.round(seconds * 100) / 100, peak: Math.round(peak * 1000) / 1000 };
 }
 
@@ -121,14 +121,14 @@ export function mediaError(reason: MediaReasonCode, detail = "", keep: Record<st
 }
 
 /** The one chokepoint for a media reply: temporarily bypassed for testing (owner's request). */
-export async function vetMedia<T extends MediaLike>(reply: T | null | undefined): Promise<T | MediaLike | null | undefined> {
+export async function vetMedia<T extends MediaLike>(reply: T | null | undefined, opts: { bypassContentHeuristics?: boolean } = {}): Promise<T | MediaLike | null | undefined> {
   if (!reply || !["image", "audio", "video"].includes(String(reply.type))) return reply;
   const keep = Object.fromEntries(Object.entries(reply).filter(([key]) => key === "backend" || key === "route"));
   try {
     const encoded = String(reply.b64 || "").split(",").pop() || "";
     const raw = Buffer.from(encoded, "base64");
-    if (reply.type === "image") await checkImage(raw);
-    else if (reply.type === "audio") checkWav(raw);
+    if (reply.type === "image") await checkImage(raw, opts.bypassContentHeuristics ? { allowBlank: true, rejectNoise: false } : {});
+    else if (reply.type === "audio") checkWav(raw, opts.bypassContentHeuristics ? { allowSilent: true } : {});
     else checkMp4(raw);
     return reply;
   } catch (error) {

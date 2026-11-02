@@ -10,13 +10,12 @@ const norm = (s: string): string =>
   s.toLowerCase().replace(/ڤ/g, "ف").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/\s+/g, " ").trim();
 
 const set = (xs: string) => new Set(xs.split(/\s+/));
-const VERBS = set("ولد ولدي ولدلي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع اصنعلي سوي سويلي سويلى انشئ انشئلي انشاء انتج انتاج اعمل اعملي اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اظهر هات generate create draw make produce render imagine give show want need");
+const VERBS = set("قم قومي ولد ولدي ولدلي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع اصنعلي سوي سويلي سويلى انشئ انشئلي انشاء انتج انتاج اعمل اعملي اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اظهر هات generate create draw make produce render imagine give show want need");
 const DRAW = set("ارسم ارسمي رسم draw imagine");
 const IMAGES = set("صوره صور رسمه لوحه لوغو لوجو شعار image picture photo pic logo wallpaper illustration");
 const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو فدو فيديوا فيديوه فديوه كليب انيميشن video videos clip animation");
 /** Any spelling of "video" (فيديو / فديو / فيدو / ڤيديو / فيديوهات ...): after norm(), a word of the shape ف-ي?-د-ي?-و-ه?. */
 const VIDEO_SHAPE = /^ف[يا]?د[يا]?[وؤ][هو]?(?:ات|ا)?$/;
-const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن لمده");
 const bare = (w: string): string => w.replace(/^(ال|ب|ل|و|ف)(?=.{3,})/, "");
 const inSet = (w: string, s: Set<string>): boolean => s.has(w) || s.has(bare(w));
 const words = (t: string): string[] => t.split(/[^\p{L}\p{N}:/.]+/u).filter(Boolean);
@@ -30,7 +29,8 @@ export type MediaFollowupContext = { previousUser?: string; previousAssistant?: 
 export function detectMediaIntent(text: string, context: MediaFollowupContext = {}): MediaIntent | null {
   const raw = String(text || "").trim();
   if (!raw || raw.length > 300 || raw.startsWith("/")) return null;
-  const ws = words(norm(raw));
+  const rawWords = words(raw);
+  const ws = rawWords.map((word) => norm(word));
   if (ws.some((w) => /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
   const verb = ws.some((w) => inSet(w, VERBS));
   const draw = ws.some((w) => inSet(w, DRAW));
@@ -54,41 +54,21 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
     || digits.match(/([12])\s*(?:دقيقة|دقائق|دقايق)/i);
   const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
     : /دقيقتين/i.test(raw) ? 120 : /(?:^|[\s،])دقيقة(?:$|[\s،])/i.test(raw) ? 60 : undefined;
-  const durationWords = /^(?:ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
-  const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER) && !/^\d+$/.test(w) && !durationWords.test(w)).join(" ").trim();
+  const durationWords = /^(?:لمدة|لمده|مدة|مده|ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
+  let subject = rawWords.filter((_word, i) => !inSet(ws[i], VERBS) && !inSet(ws[i], IMAGES) && !inSet(ws[i], VIDEOS) && !VIDEO_SHAPE.test(ws[i]) && !VIDEO_SHAPE.test(bare(ws[i])) && !/^\d+$/.test(ws[i]) && !durationWords.test(ws[i])).join(" ").trim();
+  // For English commands, isolate the complete visual noun phrase after the media type.
+  if (/^[\x00-\x7f]+$/.test(raw)) {
+    const visual = raw.match(/\b(?:image|picture|photo|logo|wallpaper|illustration|video|clip|animation)\b\s+(?:of|showing|depicting)?\s*(.+)$/i);
+    if (visual?.[1]) subject = visual[1].trim().replace(/\s+(?:for\s+)?(?:10|15|30|60|120)\s*(?:seconds?|secs?|s|minutes?|mins?|m)\s*$/i, "").trim();
+  }
   return { kind: video ? "video" : "image", subject: subject || norm(raw), ...(video && requestedSeconds ? { seconds: requestedSeconds } : {}) };
 }
 
-// A last resort when the tiny model call is not answered in time: common words only. Unknown words are not guessed (the caller gives up honestly).
-const GLOSSARY: Record<string, string> = {
-  فرس: "horse", حصان: "horse", خيل: "horse", ابيض: "white", بيضاء: "white", اسود: "black", سوداء: "black", احمر: "red", حمراء: "red", ازرق: "blue", زرقاء: "blue", اخضر: "green", خضراء: "green", اصفر: "yellow", ذهبي: "golden", وردي: "pink",
-  اسد: "lion", قطه: "cat", قط: "cat", كلب: "dog", طائر: "bird", عصفور: "bird", نسر: "eagle", سمكه: "fish", جمل: "camel", فيل: "elephant", ذئب: "wolf", نمر: "tiger", دب: "bear", ارنب: "rabbit", حصانا: "horse", فراشه: "butterfly",
-  بحر: "sea", شاطئ: "beach", جبل: "mountain", غروب: "sunset", شروق: "sunrise", صحراء: "desert", غابه: "forest", نهر: "river", سماء: "sky", قمر: "moon", شمس: "sun", نجوم: "stars", ورده: "flower", زهره: "flower", شجره: "tree", مدينه: "city", بيت: "house", قلعه: "castle", سياره: "car", طائره: "airplane", سفينه: "ship", قارب: "boat", رجل: "man", امراه: "woman", طفل: "child", فتاه: "girl", ولد: "boy", روبوت: "robot", تنين: "dragon", فضاء: "space", مطر: "rain", ثلج: "snow", نار: "fire", كتاب: "book", قهوه: "coffee", طعام: "food",
-  في: "in", على: "on", و: "and", مع: "with", جميل: "beautiful", كبير: "big", صغير: "small", قديم: "old", ليلا: "at night", نهارا: "in daylight",
-};
-export function glossaryPrompt(subject: string): string | null {
-  const words = norm(subject).split(" ").filter(Boolean);
-  const out: string[] = [];
-  let known = 0;
-  for (const w of words) {
-    const bare = w.replace(/^(ال|و|ب|ل)(?=.{2,})/, "");
-    const hit = GLOSSARY[w] || GLOSSARY[bare];
-    if (hit) { out.push(hit); known++; }
-    else if (/^[\x00-\x7f]+$/.test(w)) out.push(w);
-    else return null;                                                  // an unknown Arabic word: do not guess
-  }
-  if (!known && !out.length) return null;
-  // adjectives of the Arabic phrase follow the noun ("horse white"): put colours / adjectives first
-  const adj = new Set(["white", "black", "red", "blue", "green", "yellow", "golden", "pink", "beautiful", "big", "small", "old"]);
-  const a = out.filter((w) => adj.has(w));
-  const rest = out.filter((w) => !adj.has(w));
-  const phrase = [...a, ...rest].join(" ").replace(/\b(horse|lion|cat|dog|bird|eagle|fish|camel|elephant|wolf|tiger|bear|rabbit|butterfly|robot|dragon|car|house|castle|ship|boat)\b/, "a $1").replace(/^(a )?((white|black|red|blue|green|yellow|golden|pink|beautiful|big|small|old) )+a /, (m) => m.replace(/ a $/, " ").replace(/^a /, "a "));
-  return phrase.trim() || null;
-}
-
 /** The text the Studio gets: short, English, only the picture itself. Never a caption, never shown to the user. */
-export function cleanEnglishPrompt(text: string): string | null {
-  const first = String(text || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+export function cleanEnglishPrompt(text: string, opts: { preserveRaw?: boolean } = {}): string | null {
+  const raw = String(text || "").trim();
+  if (opts.preserveRaw) return raw ? raw.slice(0, 1800) : null;
+  const first = raw.split("\n").map((l) => l.trim()).find(Boolean) || "";
   const t = first.replace(/^(prompt|english prompt)\s*[:\-]\s*/i, "").replace(/^["'`“”«»]+|["'`“”«»]+$/g, "").trim().slice(0, 300);
   if (t.length < 3) return null;
   const non = (t.match(/[^\x00-\x7f]/g) || []).length;
@@ -107,10 +87,5 @@ export function looksLikeToolPlan(text: string): boolean {
   return arrows || mostlyTools || /^\s*(tool|call|plan|الأداة|أستخدم)\b/i.test(t);
 }
 
-/** The model's own invented excuse "this feature is for owners only": media is open to every user within a daily quota (owner unlimited), so such a sentence is never shown. */
-const OWNERS_ONLY = /(?:للمالك(?:ين)?\s*فقط|متاح(?:ة)?\s*فقط\s*(?:لل|ل)?مالك|خاص(?:ة)?\s*(?:بال|لل)?مالك(?:ين)?|مقتصر(?:ة)?\s*على\s*(?:ال)?مالك|owners?[\s-]*only|only\s+(?:for\s+)?(?:the\s+)?owners?)/i;
-export const OWNERS_ONLY_FIX = "توليد الصور والفيديو والصوت متاح لجميع المستخدمين ضمن حصة يومية (للمالك بلا حد). اكتب الطلب مباشرةً، مثل: «قم بتوليد فيديو أرنب يلعب في الحديقة»، وسأنفّذه.";
-export function stripOwnersExcuse(text: string): string {
-  const t = String(text || "");
-  return OWNERS_ONLY.test(t) && /(?:فيديو|فديو|مقطع|صور[ةه]?|صوت|توليد|وسائط|video|image|media|generat)/i.test(t) ? OWNERS_ONLY_FIX : t;
-}
+/** Compatibility shim: preserve the model's wording exactly. */
+export function stripOwnersExcuse(text: string): string { return String(text || ""); }
