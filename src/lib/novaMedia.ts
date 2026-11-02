@@ -3,6 +3,7 @@
 // Env: NOVA_MEDIA_STUDIO_URL (off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio).
 import { pressureOn, pressureMedia } from "@/lib/pressureMode";
 import { vetMedia } from "@/lib/mediaQuality";
+import { requestedVideoSeconds } from "@/lib/mediaDuration";
 export type MediaReply = { type: string; b64?: string; text?: string; reason?: string };
 
 /** Nova's own media Studio. The env var overrides it ("off" switches media off); without it the known Studio is used, so a runtime that lacks the variable (2026-10-28 15:33: Nova said
@@ -67,7 +68,7 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
 export async function novaMakeMedia(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string } = {},
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; attempts?: number; onWait?: (attempt: number) => void; base?: string; seconds?: number } = {},
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
@@ -93,7 +94,7 @@ export async function novaMakeMedia(
 async function novaMakeMediaOnce(
   kind: "image" | "audio" | "video",
   prompt: string,
-  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string },
+  opts: { scenes?: unknown; narration?: unknown; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string; seconds?: number },
   seed = 0,
 ): Promise<MediaReply | null> {
   const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();          // a candidate passes ITS OWN media Studio here (never Nova's)
@@ -102,7 +103,7 @@ async function novaMakeMediaOnce(
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
   const scenes = Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
   const payload =
-    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: pressureMedia().videoSeconds, seed };   // modelscope-media/app.py api_video reads "prompt"
+    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: Math.max(1, Math.min(5, Math.round(opts.seconds ?? requestedVideoSeconds(prompt, pressureMedia().videoSeconds)))), seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
   if (tok) headers.Authorization = `Bearer ${tok}`;
