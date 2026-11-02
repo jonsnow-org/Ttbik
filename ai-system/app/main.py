@@ -1376,7 +1376,7 @@ def _enqueue_real_video(
         if not native_prompt:
             native_prompt = council.expand_media_prompt(prompt, "video") or prompt
         video_bytes = nova_media_studio.generate_media(
-            "video", native_prompt, seconds=max(1, min(int(seconds or 2), 2)), timeout=900
+            "video", native_prompt, seconds=max(1, min(int(seconds or 3), 5)), timeout=900
         )
         if video_bytes is None:
             quota.refund_quota(user_id, "IMAGE")
