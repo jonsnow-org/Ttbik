@@ -493,6 +493,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         } : {}),
       };
     }
+    case "model_health": {
+      const { modelHealth } = await import("@/lib/modelHealth");
+      return { health: await modelHealth() };
+    }
     case "donor_test_select": {
       // Backward-compatible client op; selection now changes the main model, never a parallel "trial" mode.
       if (user.tier !== "owner") throw new AppError(403, "owner only");

@@ -443,8 +443,19 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
   const [switching, setSwitching] = useState(false);
   const switchingRef = useRef(false);
   useEffect(() => (at !== null ? bindBack(true, onClose) : undefined), [at, onClose]);
+  const [health, setHealth] = useState<Record<string, "ok" | "busy" | "down">>({});
+  useEffect(() => {
+    if (at === null) return;
+    let stop = false;
+    const tick = () => { api<{ health?: Record<string, "ok" | "busy" | "down"> }>("model_health").then((r) => { if (!stop && r.health) setHealth(r.health); }).catch(() => undefined); };
+    tick();
+    const timer = setInterval(tick, 15000);
+    return () => { stop = true; clearInterval(timer); };
+  }, [at]);
   if (at === null) return null;
   const list = d ? d.owner || d.models : [];
+  const dotColor = { ok: "#22c55e", busy: "#eab308", down: "#ef4444" } as const;
+  const dotLabel = { ok: lang === "ar" ? "يعمل" : "Working", busy: lang === "ar" ? "مشغول بشدة" : "Heavily loaded", down: lang === "ar" ? "متوقف" : "Down" } as const;
   const pick = async (id: string) => {
     if (switchingRef.current) return;
     switchingRef.current = true;
@@ -468,6 +479,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
   return (
     <>
       <div className="n-scrim" style={{ background: "transparent" }} onClick={onClose} />
+      <style>{"@keyframes ndotpulse{0%,100%{opacity:1}50%{opacity:.35}}"}</style>
       <div className="n-pop" role="listbox" aria-label={n.modelPick} style={at}>
         {pickError && <p role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{pickError}</p>}
         {!d ? <Loading /> : list.map((m) => {
@@ -475,7 +487,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
           return (
             <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
               <span className="n-body">
-                <span className="n-t">{m.name[lang]}{m.price_stars ? <span className="n-pro">{n.pro}</span> : null}{o && !o.visible ? <span className="n-chip">{n.hidden}</span> : null}</span>
+                <span className="n-t">{health[m.id] ? <span title={dotLabel[health[m.id]]} aria-label={dotLabel[health[m.id]]} style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: dotColor[health[m.id]], marginInlineEnd: 8, boxShadow: `0 0 6px ${dotColor[health[m.id]]}`, animation: health[m.id] === "down" ? "none" : "ndotpulse 2s ease-in-out infinite" }} /> : null}{m.name[lang]}{m.price_stars ? <span className="n-pro">{n.pro}</span> : null}{o && !o.visible ? <span className="n-chip">{n.hidden}</span> : null}</span>
                 <span className="n-s">{m.desc[lang]}</span>
               </span>
               {m.selected && <span className="n-check" aria-hidden="true">✓</span>}
