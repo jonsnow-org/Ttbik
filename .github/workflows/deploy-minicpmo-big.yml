@@ -1,0 +1,80 @@
+name: Deploy MiniCPM-o 4.5 to the spare 16 GB Studio (nova-inference-server)
+# Owner order 2026-11-02: the old empty 16 GB Studio gets the omni MiniCPM-o 4.5 brain (code, long tasks, image/video/audio input) for building and testing.
+# Manual only. Reuses the donor app + llama.cpp server; long context and long outputs; no output filter of ours.
+on:
+  workflow_dispatch:
+concurrency:
+  group: deploy-minicpmo-big
+  cancel-in-progress: false
+env:
+  MS: https://www.modelscope.cn
+  OWNER: novaai2026
+  REPO: nova-inference-server
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate the app and manifest
+        run: |
+          python3 -m py_compile experiments/donor-bakeoff/app.py experiments/donor-bakeoff/tool_parsing.py
+          python3 -c "import json;d=json.load(open('experiments/donor-bakeoff/candidates/minicpm-o45-big.json'));assert d['repo_id'] and d['filename'] and d['mmproj_filename'];print(d['context_tokens'],d['max_output_tokens'])"
+      - name: Studio state and hardware (read-only)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | head -c 1500; echo
+      - name: Push the app
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          git config --global user.name "minicpmo big CI"
+          git config --global user.email "ci@minicpmo.local"
+          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
+          cp experiments/donor-bakeoff/app.py experiments/donor-bakeoff/tool_parsing.py experiments/donor-bakeoff/requirements.txt ms/
+          cp experiments/donor-bakeoff/candidates/minicpm-o45-big.json ms/candidate.json
+          mkdir -p ms/vendor && cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiments/donor-bakeoff/vendor/LICENSE.md ms/vendor/
+          cd ms
+          git add -A
+          git diff --cached --quiet && echo "no change" || git commit -m "MiniCPM-o 4.5 big (${GITHUB_SHA::8})"
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Give the Studio its private model-read token
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi(); token = os.environ["T"]; api.login(token)
+          studio = "novaai2026/" + os.environ["REPO"]
+          try:
+              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          except Exception as exc:
+              if not any(x in str(exc).lower() for x in ("exist", "already", "duplicate")): raise
+              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          print("token configured")
+          PY
+      - name: Deploy and wait until the model is ready
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 800; echo
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          for i in $(seq 1 120); do
+            sleep 30
+            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
+            echo "$(date -u +%H:%M:%S) studio: $st"
+            case "$st" in
+              *ail*|*rror*)
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 4000; echo
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+                exit 1;;
+              Running|running)
+                out=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+                echo "$out" | head -c 600; echo
+                echo "$out" | grep -q 'phase[^,]*ready' && exit 0;;
+            esac
+          done
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
+          exit 1
