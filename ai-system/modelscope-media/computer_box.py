@@ -50,7 +50,7 @@ _LOCK = threading.RLock()
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
-_ACTIVE_DESKTOPS: set[str] = set()  # a graphical desktop reserves the Studio's single execution slot
+_ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
 STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
 
 
@@ -373,7 +373,13 @@ def _global_counts_locked() -> tuple[int, int, int]:
 
 
 def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
-    """Reserve this Studio's single execution slot for one private graphical desktop."""
+    """Reserve one private GUI per Studio without blocking its model-owned shell tools.
+
+    A desktop is a long-lived base process, not a queued computer task. It may
+    coexist with one model command/job; each new task still passes the global
+    single-task admission check and a fresh memory check. A second GUI is never
+    admitted on the same Studio.
+    """
     ensure_home(session)
     key = digest(session)[:24]
     required = max(MIN_AVAILABLE_MB, min(6000, int(min_available_mb)))
@@ -381,9 +387,11 @@ def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
         if key in _ACTIVE_DESKTOPS:
             return {"ok": True, "already_reserved": True, "available_mb": _mem_available_mb()}
         active_jobs, active_commands, active_desktops = _global_counts_locked()
-        active = active_jobs + active_commands + active_desktops
+        if active_desktops:
+            return {"ok": False, "error": "this model's Studio already has a graphical desktop session"}
+        active = active_jobs + active_commands
         if active >= MAX_GLOBAL_JOBS:
-            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot)"}
+            return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} shell-task slot)"}
         available = _mem_available_mb()
         if available is None:
             return {"ok": False, "error": "the Studio could not report available memory; graphical desktop start was refused"}
@@ -400,10 +408,14 @@ def release_desktop(session: str) -> None:
 
 
 def _capacity_reason_locked() -> str:
-    active_jobs, active_commands, active_desktops = _global_counts_locked()
-    active = active_jobs + active_commands + active_desktops
+    active_jobs, active_commands, _active_desktops = _global_counts_locked()
+    # The GUI is a long-lived display/input service, not a model task. Keeping
+    # it out of this count lets computer_run / computer_job work while the
+    # user watches or controls the same desktop. Commands/jobs remain mutually
+    # exclusive and every task rechecks currently available memory below.
+    active = active_jobs + active_commands
     if active >= MAX_GLOBAL_JOBS:
-        return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} execution slot); retry after the active task finishes"
+        return f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} shell-task slot); retry after the active task finishes"
     available = _mem_available_mb()
     if available is None:
         return "the Studio could not report available memory; refusing a new task rather than risk the model process"
