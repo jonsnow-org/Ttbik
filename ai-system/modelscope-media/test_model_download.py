@@ -76,8 +76,8 @@ class ModelDownloadTests(unittest.TestCase):
                 required_files=("manifest.json",),
                 allow_git_fallback=False,
             )
-        self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}")
-        self.assertEqual(calls, [("owner/exact-photo-model", "https://modelscope.ai", "private-token")])
+            self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}")
+            self.assertEqual(calls, [("owner/exact-photo-model", "https://modelscope.ai", "private-token")])
 
     def test_git_lfs_fallback_uses_same_exact_repo_and_model_scope_token(self):
         def broken_snapshot(*args, **kwargs):
@@ -97,15 +97,15 @@ class ModelDownloadTests(unittest.TestCase):
                 required_files=("manifest.json",),
                 timeout_seconds=17,
             )
-        self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}; repo_calls={repository.calls}")
-        self.assertEqual(repository.calls[0]["clone_from"], "models/owner/exact-photo-model")
-        self.assertEqual(repository.calls[0]["git_token"], "private-token")
-        self.assertEqual(repository.calls[0]["endpoint"], "https://modelscope.ai")
-        commands = [call.args[0] for call in git_run.call_args_list]
-        self.assertEqual(commands[0], ["git", "lfs", "pull"])
-        self.assertEqual(commands[1], ["git", "remote", "set-url", "origin", "https://modelscope.ai/models/owner/exact-photo-model.git"])
-        self.assertNotIn("private-token", " ".join(commands[1]))
-        self.assertEqual(git_run.call_args_list[0].kwargs["timeout"], 17)
+            self.assertTrue((result / "manifest.json").is_file(), f"result={result}; files={list(result.rglob('*'))}; repo_calls={repository.calls}")
+            self.assertEqual(repository.calls[0]["clone_from"], "models/owner/exact-photo-model")
+            self.assertEqual(repository.calls[0]["git_token"], "private-token")
+            self.assertEqual(repository.calls[0]["endpoint"], "https://modelscope.ai")
+            commands = [call.args[0] for call in git_run.call_args_list]
+            self.assertEqual(commands[0], ["git", "lfs", "pull"])
+            self.assertEqual(commands[1], ["git", "remote", "set-url", "origin", "https://modelscope.ai/models/owner/exact-photo-model.git"])
+            self.assertNotIn("private-token", " ".join(commands[1]))
+            self.assertEqual(git_run.call_args_list[0].kwargs["timeout"], 17)
 
     def test_download_failure_redacts_private_token_and_never_changes_model_id(self):
         secret = "secret-token-should-not-leak"
