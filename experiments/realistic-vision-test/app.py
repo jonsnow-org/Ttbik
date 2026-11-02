@@ -52,6 +52,41 @@ _PIPE = None
 _MANIFEST = None
 
 
+def _cpu_has_bf16() -> bool:
+    """Enable fast CPU autocast only on processors with native AVX512-BF16 or AMX-BF16 support."""
+    if os.environ.get("PHOTO_FAST", "1") == "0":
+        return False
+    try:
+        flags = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
+        return "amx_bf16" in flags or "avx512_bf16" in flags
+    except Exception:
+        return False
+
+
+FAST = _cpu_has_bf16()
+
+
+def _fast_ok(pipe) -> bool:
+    """A short disposable render verifies BF16 before it is enabled for user generation."""
+    if not FAST:
+        return False
+    try:
+        import numpy as np
+        import torch
+        with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16):
+            image = pipe(
+                "a red apple on a wooden table, natural light, photo",
+                num_inference_steps=3,
+                width=256,
+                height=256,
+                generator=torch.Generator(device="cpu").manual_seed(1),
+            ).images[0].convert("RGB")
+        gray = np.asarray(image, dtype=np.float32).mean(axis=2)
+        return float(gray.std()) >= 8.0 and float(gray.max() - gray.min()) >= 24.0
+    except Exception:
+        return False
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -104,7 +139,7 @@ def _verify_package(root: Path) -> dict:
 
 
 def _load_pipeline():
-    global _PIPE, _MANIFEST
+    global _PIPE, _MANIFEST, FAST
 
     started = time.monotonic()
     _set_state(phase="downloading", error="")
@@ -164,7 +199,9 @@ def _load_pipeline():
         use_karras_sigmas=True,
     )
     pipe.set_progress_bar_config(disable=True)
-    pipe.enable_attention_slicing("max")
+    FAST = FAST and _fast_ok(pipe)
+    if not FAST:
+        pipe.enable_attention_slicing("max")
     pipe.enable_vae_slicing()
     try:
         pipe.enable_vae_tiling()
@@ -182,6 +219,8 @@ def _load_pipeline():
         sampler="DPM++ SDE Karras",
         scheduler="DPMSolverMultistepScheduler / sde-dpmsolver++ / Karras sigmas",
         cpu_threads=threads,
+        precision="bfloat16 autocast" if FAST else "float32 with attention slicing",
+        fast_bf16_verified=FAST,
         modelscope_model_repo=MODEL_REPO,
         checkpoint_sha256=manifest["checkpoint_sha256"],
         vae_sha256=manifest["vae_sha256"],
@@ -236,19 +275,34 @@ def generate_image(
         raise gr.Error("يوجد توليد آخر جارٍ على معالج CPU؛ انتظر حتى ينتهي.")
     _set_state(phase="generating", last_prompt=prompt[:240])
     try:
-        generator = torch.Generator(device="cpu").manual_seed(seed)
-        with torch.inference_mode():
-            result = _PIPE(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=width,
-                height=height,
-                num_inference_steps=steps,
-                guidance_scale=guidance,
-                generator=generator,
-            ).images[0]
+        def run_once(fast: bool):
+            generator = torch.Generator(device="cpu").manual_seed(seed)
+            with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16, enabled=fast):
+                result = _PIPE(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    generator=generator,
+                ).images[0]
+            image = result.convert("RGB")
+            gray_values = np.asarray(image, dtype=np.float32).mean(axis=2)
+            return image, float(gray_values.std()), float(gray_values.max() - gray_values.min())
 
-        image = result.convert("RGB")
+        used_fast = FAST
+        try:
+            image, fast_std, fast_range = run_once(FAST)
+            if FAST and (fast_std < 8.0 or fast_range < 24.0):
+                raise ValueError("BF16 path produced a blank or low-contrast image")
+        except Exception:
+            if not FAST:
+                raise
+            used_fast = False
+            image, _, _ = run_once(False)
+
+        image = image.convert("RGB")
         gray = np.asarray(image, dtype=np.float32).mean(axis=2)
         stats = {
             "width": image.width,
@@ -278,6 +332,7 @@ def generate_image(
             "seed": seed,
             "resolution": f"{width}x{height}",
             "device": "CPU only",
+            "precision": "bfloat16 autocast" if used_fast else "float32",
             "seconds": elapsed,
             "basic_image_checks": stats,
             "saved_file": str(output_path),
