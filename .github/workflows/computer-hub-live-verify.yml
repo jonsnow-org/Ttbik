@@ -1,0 +1,49 @@
+name: Live verify the dedicated 16 GB computer Studio
+
+# Read-only app inspection plus an isolated smoke session. This can verify the
+# current deployment independently of the deployment workflow's long poll.
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "scripts/ops/modelscope_computer_hub_preflight.py"
+      - ".github/workflows/computer-hub-live-verify.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computer-hub-live-verify
+  cancel-in-progress: false
+
+env:
+  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Inspect computer-only runtime, actual memory and bootstrap
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ops/modelscope_computer_hub_preflight.py scripts/ops/modelscope_computer_smoke.py
+          python3 scripts/ops/modelscope_computer_hub_preflight.py --api "$API" --bootstrap-minutes 45 --browser-minutes 20
+      - name: Run live persistent terminal, files, jobs, X11 and Chromium tests
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          BROWSER_READY: ${{ env.BROWSER_READY }}
+        run: |
+          set -euo pipefail
+          if [ "$BROWSER_READY" = "1" ]; then
+            python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id computer_hub --browser
+          else
+            python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id computer_hub
+          fi
