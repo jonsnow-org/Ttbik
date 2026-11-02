@@ -25,6 +25,38 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
+def open_with_retry(
+    url: str,
+    headers: dict[str, str],
+    data: bytes | None,
+    method: str,
+    timeout: int,
+    label: str,
+):
+    """Retry transient ModelScope gateway throttling and edge errors."""
+    retryable = {403, 429, 500, 502, 503, 504}
+    for attempt in range(6):
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in retryable or attempt == 5:
+                raise
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            try:
+                delay = max(1.0, min(45.0, float(retry_after))) if retry_after else min(30.0, 6.0 * (attempt + 1))
+            except (TypeError, ValueError):
+                delay = min(30.0, 6.0 * (attempt + 1))
+            print(
+                f"ModelScope gateway HTTP {exc.code} for {label}; retry {attempt + 1}/5 in {delay:.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+            exc.close()
+            time.sleep(delay)
+    raise RuntimeError(f"{label}: retry loop exited unexpectedly")
+
+
 def request_json(
     method: str,
     url: str,
@@ -39,9 +71,8 @@ def request_json(
         "Content-Type": "application/json",
         "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0",
     }
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with open_with_retry(url, headers, data, method, timeout, url.rsplit("/", 1)[-1]) as response:
             raw = response.read(3_000_000)
             if response.status < 200 or response.status >= 300:
                 fail(f"{method} {url.rsplit('/', 1)[-1]} returned HTTP {response.status}")
@@ -118,7 +149,12 @@ def gradio_call(
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        sse_headers = {
+            "Authorization": "Bearer " + token,
+            "Accept": "text/event-stream",
+            "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0",
+        }
+        with open_with_retry(url, sse_headers, None, "GET", timeout, name + " result") as response:
             chunks: list[str] = []
             size = 0
             while True:
