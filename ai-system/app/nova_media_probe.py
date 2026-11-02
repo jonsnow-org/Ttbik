@@ -199,7 +199,7 @@ def main() -> int:
     steps = [
         ("image", "image", {"prompt": os.environ.get("PROBE_PROMPT", "").strip() or "a small red apple on a clean white table, natural light", "size": 512, "seed": int(os.environ.get("PROBE_SEED", "17") or 17)}, verify_image, "probe.png", "image"),
         ("speech", "audio", {"text": "مرحبا، هذا اختبار صوت نوفا العربي."}, verify_audio, "probe.wav", "speech"),
-        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 1, "seed": 17}, verify_video, "probe.mp4", "video"),
+        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 2, "seed": 17}, verify_video, "probe.mp4", "video"),
     ]
     for api, kind, payload, verify, fname, label in steps:
         t0 = time.time()
