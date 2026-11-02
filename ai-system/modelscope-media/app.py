@@ -606,7 +606,7 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
         _MODELS["pipe"] = None
         import gc
         gc.collect()
-    return cv_generate(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    return cv_generate(MODEL_STORE, prompt, seconds, seed, ())
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -669,7 +669,7 @@ def _disk() -> dict:
 
 
 def api_status() -> str:
-    ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
+    ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ()))
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning + FreeNoise", "ready": ready, "pipeline_ready": _CV["pipe"] is not None, "free_noise": bool(_CV.get("free_noise")), "weights_phase": _VIDEO_ASSET_STATE["phase"], "weights_error": _VIDEO_ASSET_STATE["error"][:180], "device": "cpu", "gpu_required": False, "profile": cv_profile(),
