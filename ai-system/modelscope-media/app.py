@@ -585,16 +585,15 @@ def _warm_video_assets() -> None:
                 cv_fetch_weights(MODEL_STORE)
                 _VIDEO_ASSET_STATE["phase"] = "ready"
                 _VIDEO_ASSET_STATE["error"] = ""
-                return
+                break
             except Exception as exc:  # noqa: BLE001
                 _VIDEO_ASSET_STATE["error"] = f"{type(exc).__name__}: {str(exc)[:220]}"
                 traceback.print_exc()
                 if attempt < 3:
                     time.sleep(30 * attempt)
-        _VIDEO_ASSET_STATE["phase"] = "error"
+        if _VIDEO_ASSET_STATE["phase"] != "ready":
+            _VIDEO_ASSET_STATE["phase"] = "error"
         _VIDEO_ASSET_READY.set()
-        return
-    _VIDEO_ASSET_READY.set()
 
 
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
