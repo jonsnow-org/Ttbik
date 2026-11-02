@@ -547,7 +547,11 @@ def api_desktop_do(body: str) -> str:
                 if executable is None:
                     raise RuntimeError("Chromium is not installed in this Studio yet. The model's headless browser can still be used in the Browser tab.")
                 profile = box.session_home(session) / ".desktop" / "chrome-profile"
-                profile.mkdir(parents=True, exist_ok=True)
+                profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if box.is_root():
+                    os.chown(profile.parent, box.session_uid(session), box.session_uid(session))
+                    os.chown(profile, box.session_uid(session), box.session_uid(session))
+                os.chmod(profile, 0o700)
                 cmd = [
                     str(executable), "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
                     "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
