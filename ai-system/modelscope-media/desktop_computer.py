@@ -48,6 +48,7 @@ _PROCESSES: list[subprocess.Popen] = []
 _ENV: dict[str, str] = {}
 _UID: int | None = None
 _INSTALL_THREAD: threading.Thread | None = None
+DISPLAY_BASE = 91      # each desktop slot (a separate copy of this module, see computer_studio_app.py) gets its own range of X display numbers
 _CANCEL_INSTALL = False
 
 
@@ -111,7 +112,7 @@ def _install_packages() -> None:
 def _display_number() -> int:
     # Single display per Studio; choose a free high display number and avoid
     # the platform's own X sockets.
-    for number in range(91, 190):
+    for number in range(DISPLAY_BASE, DISPLAY_BASE + 30):
         if not Path(f"/tmp/.X11-unix/X{number}").exists() and not Path(f"/tmp/.X{number}-lock").exists():
             return number
     raise RuntimeError("No free X display number is available in this Studio.")

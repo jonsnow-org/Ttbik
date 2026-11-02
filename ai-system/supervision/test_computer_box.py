@@ -82,9 +82,19 @@ class Capacity(Box):
             self.assertTrue(other_user_command.get("ok"), other_user_command)
             self.assertEqual(other_user_command.get("output").strip(), "other-user-ok")
 
-            second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
-            self.assertFalse(second.get("ok"))
-            self.assertIn("already has a graphical desktop", second.get("error", ""))
+            # The number of desktops at the same time is a limit, not "one": at the limit a new user is refused, below it a second user gets their own desktop.
+            old_max = cb.MAX_DESKTOPS
+            try:
+                cb.MAX_DESKTOPS = 1
+                second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
+                self.assertFalse(second.get("ok"))
+                self.assertIn("desktop slots", second.get("error", ""))
+                cb.MAX_DESKTOPS = 2
+                second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
+                self.assertTrue(second.get("ok"), second)
+                cb.release_desktop("other:model-x")
+            finally:
+                cb.MAX_DESKTOPS = old_max
 
             # One real background task is also admitted while the GUI exists.
             job = cb.job_start("owner:model-x", "echo background-ok", "background")

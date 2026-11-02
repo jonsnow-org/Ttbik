@@ -35,6 +35,7 @@ MAX_TIMEOUT = 90                    # longer work belongs in a background job: t
 MAX_READ = 60000
 MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
+MAX_DESKTOPS = max(1, int(os.environ.get("COMPUTER_MAX_DESKTOPS", "3")))   # graphical desktops at the same time, one per user+model session (the free-memory gate still applies to each)
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
 QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
@@ -532,8 +533,8 @@ def reserve_desktop(session: str, min_available_mb: int = 3072) -> dict:
         if key in _ACTIVE_DESKTOPS:
             return {"ok": True, "already_reserved": True, "available_mb": _mem_available_mb()}
         active_jobs, active_commands, active_desktops = _global_counts_locked()
-        if active_desktops:
-            return {"ok": False, "error": "this model's Studio already has a graphical desktop session"}
+        if active_desktops >= MAX_DESKTOPS:
+            return {"ok": False, "error": f"all {MAX_DESKTOPS} graphical desktop slots of this Studio are in use"}
         active = active_jobs + active_commands
         if active >= MAX_GLOBAL_JOBS:
             return {"ok": False, "error": f"this model's Studio is busy ({active}/{MAX_GLOBAL_JOBS} shell-task slot)"}

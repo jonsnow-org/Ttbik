@@ -138,8 +138,35 @@ def api_browser_bootstrap():
             _BROWSER_THREAD.start()
     return json.dumps({"ok":True,"phase":"installing"})
 
+import importlib.util
+DESKTOP_SLOTS=max(1,min(4,int(os.environ.get("DESKTOP_SLOTS","3"))))
+_DISPATCH_LOCK=threading.Lock()
+
+def _desktop_slot(i):
+    if i==0: return desktop_computer
+    spec=importlib.util.spec_from_file_location(f"desktop_computer_slot{i}",Path(desktop_computer.__file__))
+    mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    mod.DISPLAY_BASE=91+30*i
+    return mod
+
+SLOTS=[_desktop_slot(i) for i in range(DESKTOP_SLOTS)]
+
 def api_desktop_do(body):
-    return desktop_computer.api_desktop_do(body)
+    """Several users work on their own graphical desktops at the same time: each user+model session owns one slot (an independent copy of the desktop module with its own X displays)."""
+    try:
+        job=json.loads(computer_box.unwrap_body(body) or "{}")
+        session=str(job.get("session") or "").strip(); action=str(job.get("action") or "").lower()
+    except Exception:
+        return desktop_computer.api_desktop_do(body)
+    if not session: return desktop_computer.api_desktop_do(body)
+    with _DISPATCH_LOCK:
+        own=[m for m in SLOTS if m.any_active() and m._same_session(session)]
+        if own: return own[0].api_desktop_do(body)
+        free=[m for m in SLOTS if not m.any_active()]
+        if not free:
+            if action=="start": return json.dumps({"ok":False,"phase":"busy","error":f"all {len(SLOTS)} desktop slots are in use; try again when another desktop is stopped"})
+            return SLOTS[0].api_desktop_do(body)
+        return free[0].api_desktop_do(body)
 
 def main():
     global LEGACY_CACHE_CLEANUP

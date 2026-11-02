@@ -1,19 +1,8 @@
 name: Deploy dedicated computer to the spare 16 GB ModelScope Studio
 
-# The 16 GB nova-inference-server is computer-only after this workflow.
+# OLD 16 GB computer hub, MANUAL ONLY since 2026-11-03: the computer moved to the 8 GB hub (deploy-computer-hub-8gb.yml) and the 16 GB Studio hosts a big model (deploy-big-model-16gb.yml). A push must never put the computer app back here.
 # MiniCPM-o 4.5 remains in its separate candidate Studio; no model/media weights are used here.
 on:
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - ".github/workflows/deploy-minicpmo-big.yml"
-      - "ai-system/modelscope-media/computer_studio_app.py"
-      - "ai-system/modelscope-media/requirements-computer.txt"
-      - "ai-system/modelscope-media/computer_box.py"
-      - "ai-system/modelscope-media/desktop_computer.py"
-      - "ai-system/modelscope-media/browser_computer.py"
-      - "scripts/ops/modelscope_computer_smoke.py"
   workflow_dispatch:
 
 permissions:
