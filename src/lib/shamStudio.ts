@@ -298,7 +298,7 @@ export async function shamGenerateMedia(
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
     const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) }) }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
-    if (body && !reply) setFailure("generate_video: unreadable answer ( + body.slice(0, 120).replace(/\s+/g, " ") + ")");
+    if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
     if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");
     return reply;
   }
