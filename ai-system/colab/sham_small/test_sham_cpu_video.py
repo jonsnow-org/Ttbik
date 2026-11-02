@@ -90,6 +90,7 @@ class RequestedDuration(unittest.TestCase):
 class LongGenerationPlan(unittest.TestCase):
     def test_ten_seconds_uses_three_real_temporal_passes_and_one_join(self):
         import media_quality
+        original_keep = os.environ.get("CPU_VIDEO_KEEP")
         with (
             patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b", b"part-c"]) as generate,
             patch("cpu_video.cv_concat_mp4", return_value=b"joined") as join,
@@ -100,7 +101,7 @@ class LongGenerationPlan(unittest.TestCase):
         self.assertEqual(result, b"joined")
         self.assertEqual([call.args[2] for call in generate.call_args_list], [4.0, 4.0, 2.0])
         self.assertEqual(join.call_args.args, ([b"part-a", b"part-b", b"part-c"], 10))
-        self.assertEqual(os.environ["CPU_VIDEO_KEEP"], "1")
+        self.assertEqual(os.environ.get("CPU_VIDEO_KEEP"), original_keep)
 
     def test_two_seconds_is_one_real_pass_without_a_join(self):
         import media_quality
