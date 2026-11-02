@@ -27,34 +27,27 @@ describe("Arabic subject-only media follow-ups", () => {
   });
 });
 
-describe("Media intent without a blocked-word dictionary", () => {
-  it("keeps the old Sham exclusion behavior unless explicitly bypassed", () => {
-    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة")).toBeNull();
-    expect(detectMediaIntent("أنشئ صورة لموقع شركة")).toBeNull();
+describe("Media intent without an excluded-word dictionary", () => {
+  it.each([
+    ["قم بتوليد صورة لكود Python على شاشة", "لكود python علي شاشه"],
+    ["أنشئ صورة لموقع شركة وتطبيق الهاتف", "لموقع شركه وتطبيق الهاتف"],
+    ["اصنع صورة لمستودع GitHub وملف PDF", "لمستودع github وملف pdf"],
+    ["أنشئ صورة تشرح تحويل SVG إلى PNG", "تشرح تحويل svg الي png"],
+  ])("accepts the user's natural subject words in '%s'", (prompt, subject) => {
+    expect(detectMediaIntent(prompt)).toEqual({ kind: "image", subject });
   });
 
-  it("accepts an image request whose subject contains code and programming words", () => {
-    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة", {}, { ignoreExcludedWords: true })).toEqual({
-      kind: "image",
-      subject: "لكود python علي شاشه",
-    });
-  });
-
-  it("accepts an image request describing a website or application", () => {
-    expect(detectMediaIntent("أنشئ صورة لموقع شركة وتطبيق الهاتف", {}, { ignoreExcludedWords: true })).toEqual({
-      kind: "image",
-      subject: "لموقع شركه وتطبيق الهاتف",
-    });
-  });
-
-  it("accepts a subject-only follow-up containing words previously on the exclusion list", () => {
+  it("accepts the same formerly excluded terms in a short subject-only follow-up", () => {
     expect(detectMediaIntent("كود Python داخل موقع", {
       previousUser: "قم بتوليد صورة",
       previousAssistant: "ما الذي تريد أن يظهر في الصورة؟",
-    }, { ignoreExcludedWords: true })).toEqual({
-      kind: "image",
-      subject: "كود Python داخل موقع",
-    });
+    })).toEqual({ kind: "image", subject: "كود Python داخل موقع" });
+  });
+
+  it("keeps ordinary non-media messages in the normal chat path", () => {
+    expect(detectMediaIntent("اكتب كود بايثون")).toBeNull();
+    expect(detectMediaIntent("اشرح كيف يعمل الموقع")).toBeNull();
+    expect(detectMediaIntent("مرحبا")).toBeNull();
   });
 });
 
