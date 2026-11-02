@@ -1,4 +1,4 @@
-"""A free persistent Linux computer for one model: what Daytona's paid sandbox gave (a shell, files that stay, long jobs), built on what the model's OWN Studio already has.
+"""A free persistent Linux computer for one model: a private Linux work environment (a shell, persistent files and long jobs), built on what the model's OWN Studio already has.
 
 Measured on a real ModelScope Studio (2026-11-01): we are root, 2 vCPU / 8 GB, /mnt/workspace persists, apt and pip work through mirrors. So a "computer" is:
   - a home folder per session (a session = one user of one model) under /mnt/workspace/computer, kept between chats and Studio restarts;
