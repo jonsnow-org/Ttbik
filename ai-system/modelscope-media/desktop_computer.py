@@ -93,27 +93,16 @@ def _install_packages() -> None:
         return
     if not box.is_root() or not shutil.which("apt-get"):
         raise RuntimeError("This Studio image has no X11 desktop packages and cannot install them without root.")
-    # ModelScope Studio's existing package mirror is used by the computer_box
-    # runtime; apt runs only after an owner explicitly starts the desktop.
-    update = subprocess.run(
-        ["apt-get", "update"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=box.clean_env("desktop-bootstrap"),
-    )
+    # Use the same repaired Ubuntu repositories as the terminal toolchain. APT
+    # needs the system /tmp and root HOME, not clean_env()'s per-session TMPDIR.
+    update = box.apt_update(timeout=420)
     if update.returncode != 0:
-        raise RuntimeError("Desktop package index update failed: " + (update.stderr or update.stdout)[-240:])
-    packages = ["xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm"]
-    result = subprocess.run(
-        ["apt-get", "install", "-y", "--no-install-recommends", *packages],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env=box.clean_env("desktop-bootstrap"),
-    )
+        detail = (update.stderr or update.stdout or "APT returned no diagnostic").strip()
+        raise RuntimeError("Desktop package index update failed: " + detail[-700:])
+    result = box.apt_install(missing, timeout=900)
     if result.returncode != 0:
-        raise RuntimeError("Desktop packages could not be installed: " + (result.stderr or result.stdout)[-300:])
+        detail = (result.stderr or result.stdout or "APT returned no diagnostic").strip()
+        raise RuntimeError("Desktop packages could not be installed: " + detail[-900:])
     still_missing = [name for name in ("Xvfb", "xauth", "openbox", "xterm", "xdotool") if not shutil.which(name)]
     if still_missing:
         raise RuntimeError("Desktop packages remain unavailable: " + ", ".join(still_missing))

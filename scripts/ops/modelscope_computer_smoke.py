@@ -166,6 +166,17 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
         fail("computer home is not backed by the persistent Studio workspace")
     if status.get("tools", {}).get("python3") is not True:
         fail("python3 is not installed in the selected Studio computer")
+    capacity = status.get("capacity") or {}
+    limits = status.get("limits") or {}
+    available_mb = capacity.get("available_mb")
+    minimum_mb = limits.get("minimum_available_mb")
+    if not isinstance(available_mb, (int, float)) or available_mb < 2048:
+        fail(f"terminal requires at least 2048 MB available; reported {available_mb} MB")
+    if not isinstance(minimum_mb, (int, float)) or minimum_mb < 2048:
+        fail(f"terminal admission limit is too low or missing: {minimum_mb} MB")
+    if limits.get("global_jobs") != 1:
+        fail(f"2-vCPU Studio must enforce one global execution job; reported {limits.get('global_jobs')}")
+    print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):
         # The computer can still execute commands, but never claim network egress is protected.
         print("WARNING: Studio reports an incomplete private-network egress block", flush=True)
@@ -248,11 +259,18 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
     assert_ok(status, "desktop status")
     if status.get("phase") == "busy":
         fail("desktop Studio is already assigned to another session")
+    available_mb = status.get("available_mb")
+    minimum_mb = status.get("minimum_available_mb")
+    if not isinstance(available_mb, (int, float)) or available_mb < 3072:
+        fail(f"graphical desktop requires at least 3072 MB available; reported {available_mb} MB")
+    if not isinstance(minimum_mb, (int, float)) or minimum_mb < 3072:
+        fail(f"desktop admission limit is too low or missing: {minimum_mb} MB")
     if status.get("can_start") is not True:
         fail(
             "desktop start admission refused: "
-            + str(status.get("error") or f"available memory {status.get('available_mb')} MB")
+            + str(status.get("error") or f"available memory {available_mb} MB")
         )
+    print(f"Desktop capacity: {available_mb} MB available; desktop floor {minimum_mb} MB", flush=True)
 
     start = desktop_call(api, token, {"action": "start", "session": session}, timeout=55)
     assert_ok(start, "desktop start request")

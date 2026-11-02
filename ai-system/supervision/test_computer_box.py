@@ -420,5 +420,52 @@ class WireTests(unittest.TestCase):
         self.assertEqual(json.loads(cb.unwrap_body("b64:" + base64.b64encode(job.encode()).decode()))["command"], "echo hello; echo world")
         self.assertEqual(cb.unwrap_body(job), job)
 
+class AptSources(unittest.TestCase):
+    def test_x86_ubuntu_mirror_is_replaced_but_other_repositories_are_untouched(self):
+        source = (
+            "Types: deb\n"
+            "URIs: http://mirrors.aliyun.com/ubuntu\n"
+            "Suites: jammy jammy-updates jammy-backports\n"
+            "Components: main universe\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+            "deb https://packages.example.test/ubuntu stable main\n"
+        )
+        rewritten = cb.rewrite_ubuntu_apt_sources_text(source, "x86_64")
+        self.assertIn("URIs: https://archive.ubuntu.com/ubuntu", rewritten)
+        self.assertIn("deb https://packages.example.test/ubuntu stable main", rewritten)
+        self.assertNotIn("mirrors.aliyun.com/ubuntu", rewritten)
+        self.assertIn("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg", rewritten)
+
+    def test_arm64_uses_the_official_ubuntu_ports_archive(self):
+        source = "deb http://mirrors.aliyun.com/ubuntu-ports jammy main\n"
+        rewritten = cb.rewrite_ubuntu_apt_sources_text(source, "aarch64")
+        self.assertEqual(rewritten, "deb https://ports.ubuntu.com/ubuntu-ports jammy main\n")
+
+    def test_source_editor_changes_only_standard_non_symlink_ubuntu_files_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            parts = root / "sources.list.d"
+            parts.mkdir()
+            main = root / "sources.list"
+            main.write_text("deb http://mirrors.aliyun.com/ubuntu jammy main\n", encoding="utf-8")
+            deb822 = parts / "ubuntu.sources"
+            deb822.write_text("URIs: http://mirrors.aliyun.com/ubuntu\nSuites: jammy-backports\n", encoding="utf-8")
+            third_party = parts / "third-party.list"
+            third_party.write_text("deb https://packages.example.test stable main\n", encoding="utf-8")
+            external = root / "external.list"
+            external.write_text("deb http://mirrors.aliyun.com/ubuntu jammy main\n", encoding="utf-8")
+            link = parts / "linked.list"
+            link.symlink_to(external)
+
+            changed = cb.prepare_ubuntu_apt_sources(root, "x86_64")
+            self.assertEqual(set(changed["changed"]), {str(main), str(deb822)})
+            self.assertIn("archive.ubuntu.com", main.read_text(encoding="utf-8"))
+            self.assertIn("archive.ubuntu.com", deb822.read_text(encoding="utf-8"))
+            self.assertIn("packages.example.test", third_party.read_text(encoding="utf-8"))
+            self.assertIn("mirrors.aliyun.com", external.read_text(encoding="utf-8"))
+            again = cb.prepare_ubuntu_apt_sources(root, "x86_64")
+            self.assertEqual(again["changed"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

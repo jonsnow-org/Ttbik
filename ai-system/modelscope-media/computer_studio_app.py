@@ -83,6 +83,8 @@ def _bootstrap_core():
         BOOTSTRAP["phase"] = "installing"
     try:
         BOOTSTRAP["toolchain"] = computer_box.ensure_toolchain()
+        if BOOTSTRAP["toolchain"] != "ready":
+            raise RuntimeError("Terminal prerequisites failed: " + str(BOOTSTRAP["toolchain"])[:500])
         desktop_computer._install_packages()
         BOOTSTRAP["desktop"] = "ready" if desktop_computer._package_status().get("ready") else "missing"
         if BOOTSTRAP["toolchain"] != "ready" or BOOTSTRAP["desktop"] != "ready":

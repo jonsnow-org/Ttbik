@@ -54,7 +54,107 @@ _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
 _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
-STATE: dict = {"egress": "not checked", "toolchain": "not checked"}
+STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
+_APT_INDEX_UPDATED_AT = 0.0
+
+
+def rewrite_ubuntu_apt_sources_text(text: str, architecture: str | None = None) -> str:
+    """Use the canonical Ubuntu archive when the Studio image points at Aliyun's stale mirror.
+
+    Only Ubuntu mirror URLs are rewritten; PPAs and unrelated package sources remain
+    exactly as configured. ARM and other non-x86 architectures use Ubuntu Ports.
+    """
+    machine = (architecture or (os.uname().machine if hasattr(os, "uname") else "x86_64")).lower()
+    is_x86 = machine in ("x86_64", "amd64", "i386", "i486", "i586", "i686")
+    ubuntu_uri = "https://archive.ubuntu.com/ubuntu" if is_x86 else "https://ports.ubuntu.com/ubuntu-ports"
+    rewritten = str(text)
+    for scheme in ("http", "https"):
+        for suffix in ("ubuntu-ports", "ubuntu"):
+            pattern = rf"{scheme}://mirrors\.aliyun\.com/{suffix}(?=$|[/\s,])"
+            rewritten = re.sub(pattern, ubuntu_uri, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def prepare_ubuntu_apt_sources(sources_root: str | Path | None = None, architecture: str | None = None) -> dict:
+    """Repair only stale Aliyun Ubuntu entries in apt's standard source files."""
+    root = Path(sources_root or "/etc/apt")
+    candidates = [root / "sources.list"]
+    parts = root / "sources.list.d"
+    if parts.is_dir():
+        candidates.extend(sorted(parts.glob("*.list")))
+        candidates.extend(sorted(parts.glob("*.sources")))
+    changed = []
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            continue
+        original = path.read_text(encoding="utf-8", errors="replace")
+        updated = rewrite_ubuntu_apt_sources_text(original, architecture)
+        if updated == original:
+            continue
+        mode = path.stat().st_mode & 0o777
+        temporary = path.with_name(path.name + ".computer-apt.tmp")
+        try:
+            temporary.write_text(updated, encoding="utf-8")
+            os.chmod(temporary, mode)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        changed.append(str(path))
+    machine = (architecture or (os.uname().machine if hasattr(os, "uname") else "x86_64")).lower()
+    is_x86 = machine in ("x86_64", "amd64", "i386", "i486", "i586", "i686")
+    result = {
+        "changed": changed,
+        "ubuntu_archive": "https://archive.ubuntu.com/ubuntu" if is_x86 else "https://ports.ubuntu.com/ubuntu-ports",
+    }
+    STATE["apt_sources"] = result
+    if changed:
+        print("Updated stale Ubuntu APT mirror entries: " + ", ".join(changed), flush=True)
+    return dict(result)
+
+
+def apt_environment() -> dict[str, str]:
+    """Minimal system package-manager environment; never use a model session's HOME/TMPDIR."""
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": "/root" if is_root() else os.environ.get("HOME", "/tmp"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TERM": "xterm",
+        "TMPDIR": "/tmp",
+        "DEBIAN_FRONTEND": "noninteractive",
+    }
+    for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
+def apt_update(timeout: int = 420) -> subprocess.CompletedProcess:
+    """Refresh Ubuntu indexes once per Studio boot, using its repaired source configuration."""
+    global _APT_INDEX_UPDATED_AT
+    if _APT_INDEX_UPDATED_AT and time.monotonic() - _APT_INDEX_UPDATED_AT < 900:
+        return subprocess.CompletedProcess(["apt-get", "update"], 0, "reused fresh APT indexes", "")
+    if not is_root() or not shutil.which("apt-get"):
+        raise RuntimeError("APT update requires root and apt-get in this Studio.")
+    prepare_ubuntu_apt_sources()
+    result = subprocess.run(
+        ["apt-get", "update"], capture_output=True, text=True, timeout=timeout, env=apt_environment()
+    )
+    if result.returncode == 0:
+        _APT_INDEX_UPDATED_AT = time.monotonic()
+    return result
+
+
+def apt_install(packages: list[str], timeout: int = 900) -> subprocess.CompletedProcess:
+    """Install trusted OS packages with a clean system environment, not a session sandbox."""
+    if not is_root() or not shutil.which("apt-get"):
+        raise RuntimeError("APT install requires root and apt-get in this Studio.")
+    if not packages:
+        return subprocess.CompletedProcess(["apt-get", "install"], 0, "", "")
+    return subprocess.run(
+        ["apt-get", "install", "-y", "--no-install-recommends", *packages],
+        capture_output=True, text=True, timeout=timeout, env=apt_environment()
+    )
 
 
 PLAYBOOK = """YOUR COMPUTER - how to work fast
@@ -504,14 +604,23 @@ def ensure_toolchain() -> str:
     if not is_root():
         STATE["toolchain"] = "missing without root: " + ", ".join(missing)
         return STATE["toolchain"]
-    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
     try:
-        u = subprocess.run(["apt-get", "update"], capture_output=True, text=True, timeout=300, env=env)
-        r = subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", *missing], capture_output=True, text=True, timeout=600, env=env)
+        update = apt_update(timeout=420)
+        if update.returncode != 0:
+            detail = (update.stderr or update.stdout or "APT returned no diagnostic").strip()
+            STATE["toolchain"] = f"apt update failed rc={update.returncode}: {detail[-900:]}"
+            return STATE["toolchain"]
+        install = apt_install(missing, timeout=900)
         left = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
-        STATE["toolchain"] = "ready" if not left else f"missing after apt ({', '.join(left)}): update rc={u.returncode}, install rc={r.returncode}: " + " | ".join(((r.stderr or u.stderr or "").strip().splitlines() or [""])[-2:])[:240]
+        if not left:
+            STATE["toolchain"] = "ready"
+        else:
+            detail = (install.stderr or install.stdout or "APT returned no diagnostic").strip()
+            STATE["toolchain"] = (
+                f"missing after apt ({', '.join(left)}): install rc={install.returncode}: {detail[-900:]}"
+            )
     except Exception as exc:  # noqa: BLE001
-        STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:120]}"
+        STATE["toolchain"] = f"failed: {type(exc).__name__}: {str(exc)[:240]}"
     return STATE["toolchain"]
 
 
@@ -879,7 +988,7 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked")}
+             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(dir_size(home) / 1024 ** 2, 1) if home.exists() else 0
