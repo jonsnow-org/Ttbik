@@ -152,8 +152,10 @@ def apt_install(packages: list[str], timeout: int = 900) -> subprocess.Completed
         raise RuntimeError("APT install requires root and apt-get in this Studio.")
     if not packages:
         return subprocess.CompletedProcess(["apt-get", "install"], 0, "", "")
+    # lowest CPU / disk priority: after every restart the tools are installed again, and at normal priority that starved the 2 vCPUs for many minutes (users' calls answered slowly or with nothing)
+    prefix = ["nice", "-n", "19"] + (["ionice", "-c3"] if shutil.which("ionice") else []) if shutil.which("nice") else []
     return subprocess.run(
-        ["apt-get", "install", "-y", "--no-install-recommends", *packages],
+        [*prefix, "apt-get", "install", "-y", "--no-install-recommends", *packages],
         capture_output=True, text=True, timeout=timeout, env=apt_environment()
     )
 
