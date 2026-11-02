@@ -104,13 +104,9 @@ def _model_root() -> Path:
     if not token:
         raise RuntimeError("MODELSCOPE_API_TOKEN is not configured in this private Studio.")
 
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-
-    api = HubApi()
-    api.login(token)
+    from model_download import download_model_repo
     CACHE.mkdir(parents=True, exist_ok=True)
-    return Path(snapshot_download(MODEL_REPO, cache_dir=str(CACHE)))
+    return download_model_repo(MODEL_REPO, CACHE, token=token, required_files=("manifest.json",))
 
 
 def _verify_package(root: Path) -> dict:
