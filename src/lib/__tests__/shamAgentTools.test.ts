@@ -16,6 +16,7 @@ describe("the tool list the model is shown", () => {
     for (const t of tools) expect(block).toContain(`- ${t.function.name}(`);
     expect(block).toContain("- make_media(");
     expect(block).toContain("seconds");
+    expect(SHAM_TOOLS.find((t) => t.function.name === "make_media")?.function.parameters).toEqual(expect.objectContaining({ properties: expect.objectContaining({ seconds: expect.any(Object) }) }));
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
     expect(block).toContain("- computer_run(");
