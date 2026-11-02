@@ -1096,28 +1096,25 @@ export function researchQuestion(goal: string): string {
 }
 
 
-/** Search engines do not want commands: keywords from the request, without "go and search for…" fillers (fallback when the model cannot draft queries). */
-const FILLER = new Set(["اذهب", "وابحث", "ابحث", "بحث", "على", "عن", "في", "من", "قم", "بالقراءة", "والتحليل", "واحضر", "تلك", "الأفكار", "واخبرني", "اخبرني", "أخبرني", "بها", "كي", "ننفذها", "وكل", "ما", "مايتعلق", "يتعلق", "بهذا", "هذا", "هذه", "حلل", "وحلل", "لي", "الى", "إلى", "ثم", "و", "أو", "او", "التي", "الذي", "كيف", "قاموا", "بحل", "مشكلة", "go", "and", "search", "for", "find", "me", "the", "of", "to", "how", "please"]);
+/** Keep the complete user request in fallback search queries. */
 export function fallbackQueries(request: string): string[] {
-  const words = request.replace(/[^\p{L}\p{N}\s.+#-]/gu, " ").split(/\s+/).filter((w) => w.length > 1 && !FILLER.has(w.toLowerCase()));
-  const q = words.slice(0, 8).join(" ");
-  return q ? [q, `${words.slice(0, 5).join(" ")} github`.trim()] : [];
+  const query = String(request || "").trim().replace(/\s+/g, " ").slice(0, 500);
+  return query ? [query] : [];
 }
-/** The model's reply to "write 4 search queries" as clean query lines (3 to 6), or [] when it did not follow the format. */
+/** The model reply to a search-query drafting request; parse formatting only, never filter its words. */
 export function parseQueries(text: string): string[] {
   const out: string[] = [];
   for (const raw of String(text || "").split("\n")) {
-    const q = raw.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").replace(/^["'`“”]+|["'`“”]+$/g, "").trim();
-    if (q.length >= 6 && q.length <= 120 && !/[:؟?]\s*$/.test(q) && !out.includes(q)) out.push(q);
+    const q = raw.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+    if (q.length >= 2 && q.length <= 500 && !out.includes(q)) out.push(q);
     if (out.length >= 6) break;
   }
-  return out.length >= 2 ? out : [];
+  return out.length ? out : [];
 }
 export const queryDraftPrompt = (request: string): CoderMessage[] => [{
   role: "user",
-  content: `Turn this request into 4 short web-search queries (3 to 7 words each, keywords only, no commands or questions; mix English technical terms with the request's own terms; aim at GitHub projects, documentation and technical articles). Names of bots, products or people in the request are NOT search topics to translate or guess: never turn them into a different English word, and leave them out of the queries unless the request is about them. Output the queries only, one per line.\n\nRequest: ${request.slice(0, 500)}`,
+  content: "Turn this request into relevant web-search queries. Preserve Arabic wording, names, numbers, versions and technical terms exactly. Do not remove or translate words using a fixed dictionary. Output queries only, one per line.\n\nRequest: " + request.slice(0, 500),
 }];
-
 
 /** A GitHub repository-search query from a drafted web query: the word "GitHub" and generic filler match thousands of unrelated repos (seen: a search for Telegram AI bots returned politics repos), so keep the topic words, search names and descriptions only, and ask for a few stars. */
 const GH_FILLER = new Set(["github", "git", "project", "projects", "solution", "solutions", "issue", "issues", "problem", "problems", "optimization", "optimisation", "techniques", "handling", "stability", "delay", "size", "performance", "best", "practices", "how", "to", "for", "with", "using", "in", "of", "the", "a", "and", "on"]);
