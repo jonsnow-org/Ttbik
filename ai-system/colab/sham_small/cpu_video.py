@@ -171,11 +171,18 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
 CV_SUPPORTED_DURATIONS = (2, 4, 10, 15, 30, 60, 120)
 
 
-def cv_chunk_plan(seconds: int) -> list[int]:
+def cv_chunk_plan(seconds: int | float) -> list[int]:
     """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
-    if isinstance(seconds, bool) or int(seconds) not in CV_SUPPORTED_DURATIONS:
+    import math
+    if isinstance(seconds, bool):
         raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
-    remaining = int(seconds)
+    try:
+        requested = float(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
+    if not math.isfinite(requested) or not requested.is_integer() or int(requested) not in CV_SUPPORTED_DURATIONS:
+        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+    remaining = int(requested)
     chunks = []
     while remaining > 4:
         chunks.append(4)
@@ -292,11 +299,8 @@ def cv_generate_long(
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("native-video-unavailable: a text prompt is required")
-    try:
-        target = int(seconds)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
-    chunks = cv_chunk_plan(target)
+    chunks = cv_chunk_plan(seconds)
+    target = sum(chunks)
     old_keep = _os.environ.get("CPU_VIDEO_KEEP")
     _os.environ["CPU_VIDEO_KEEP"] = "0"
     clips: list[bytes] = []
