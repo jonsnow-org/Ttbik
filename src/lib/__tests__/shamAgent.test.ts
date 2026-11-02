@@ -280,7 +280,7 @@ describe("Sham's own agent loop", () => {
     const tools = shamToolDefs(false);
     const calls: unknown[] = [];
     const r = await runV1({
-      text: "اصنع فيديو لأرنب",
+      text: "اصنع فيديو لأرنب لمدة 5 ثوانٍ",
       ctx,
       tools,
       budgetMs: 60000,
@@ -294,8 +294,25 @@ describe("Sham's own agent loop", () => {
     expect(calls).toEqual([{
       kind: "video",
       prompt: "أرنب في حديقة",
-      opts: { scenes: ["لقطة واسعة", "لقطة قريبة"], narration: "الأرنب يقفز" },
+      opts: { scenes: ["لقطة واسعة", "لقطة قريبة"], narration: "الأرنب يقفز", seconds: 5 },
     }]);
+  });
+  it("prefers an explicit make_media seconds argument and clamps it to five", async () => {
+    const tools = shamToolDefs(false);
+    const calls: unknown[] = [];
+    const r = await runV1({
+      text: "اصنع فيديو",
+      ctx,
+      tools,
+      budgetMs: 60000,
+      media: async (kind, prompt, opts) => {
+        calls.push({ kind, prompt, opts });
+        return { type: "video", b64: "AAAA" } as any;
+      },
+      ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"video","prompt":"قارب يبحر","seconds":9}}</tool_call>')]),
+    });
+    expect(r.kind).toBe("reply");
+    expect(calls).toEqual([{ kind: "video", prompt: "قارب يبحر", opts: { scenes: undefined, narration: undefined, seconds: 5 } }]);
   });
   it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
     const tools = shamToolDefs(false);
