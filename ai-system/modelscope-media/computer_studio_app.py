@@ -140,7 +140,8 @@ def api_browser_bootstrap():
     return json.dumps({"ok":True,"phase":"installing"})
 
 import importlib.util
-DESKTOP_SLOTS=max(1,min(4,int(os.environ.get("DESKTOP_SLOTS","3"))))
+DESKTOP_SLOTS=max(1,min(6,int(os.environ.get("DESKTOP_SLOTS") or ("5" if (_mem_total_mb() or 0)>12000 else "3"))))      # more desktops at the same time on a 16 GB Studio
+computer_box.MAX_DESKTOPS=DESKTOP_SLOTS
 _DISPATCH_LOCK=threading.Lock()
 
 def _desktop_slot(i):
