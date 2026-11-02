@@ -70,6 +70,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("computer_edit", "Replace exact text in a file on your private computer; edits can be grouped atomically.", obj({ path: s("file"), old: s("exact text"), new: s("replacement"), replace_all: { type: "boolean" }, edits: { type: "array", items: obj({ old: s("exact text"), new: s("replacement") }, ["old", "new"]) } }, ["path"])),
   tool("computer_repo", "Clone a public GitHub repository into your own persistent computer in one call.", obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
   tool("computer_search", "Search files on your private computer using ripgrep.", obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
+  tool("computer_publish", "Publish all changed files from a computer_repo checkout on YOUR persistent computer to one GitHub commit. Nothing is sent until the user confirms; GitHub credentials stay in the app server, never in the terminal.", obj({ repo: REPO, branch: s("target branch; creates it from the default branch if missing"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
   tool("sandbox_clone", "Clone a GitHub repo into YOUR private Linux VM for this chat, to install, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run a shell command in the VM (bash, node, npm, python3, pip, git). A long command returns 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
@@ -89,7 +90,7 @@ export const SHAM_TOOLS: CoderTool[] = [
 ];
 
 /** Calls that change the user's repositories: they wait for the user's tap. */
-export const SHAM_NEEDS_OK = new Set(["sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"]);
+export const SHAM_NEEDS_OK = new Set(["computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"]);
 /** Does this call change something outside the chat? Those wait for the user's tap: the fixed write tools, an MCP call, and a connector call that is not a plain read. */
 export function shamNeedsOk(call: CoderToolCall): boolean {
   if (SHAM_NEEDS_OK.has(call.function.name)) return true;
@@ -98,7 +99,7 @@ export function shamNeedsOk(call: CoderToolCall): boolean {
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
 const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
-const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "sandbox_push"]);
+const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "computer_publish", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
@@ -131,6 +132,57 @@ async function gh(ctx: ShamCtx, method: string, path: string, body?: unknown): P
 const enc = (p: string) => p.split("/").map(encodeURIComponent).join("/");
 const repoOk = (r: unknown) => typeof r === "string" && /^[\w.-]+\/[\w.-]+$/.test(r);
 const defaultBranch = async (ctx: ShamCtx, repo: string) => String((await gh(ctx, "GET", `/repos/${repo}`)).data?.default_branch || "main");
+
+/** Commit persistent-computer changes in one Git-tree transaction. The GitHub token never enters the ModelScope Studio. */
+async function publishComputerChanges(
+  ctx: ShamCtx,
+  repo: string,
+  branch: string,
+  message: string,
+  files: { path: string; content: string | null }[],
+): Promise<Record<string, unknown>> {
+  if (!ctx.githubToken) return { error: "GitHub is not connected in this chat" };
+  if (!repoOk(repo)) return { error: "repo must be owner/name" };
+  if (!branch || !/^[A-Za-z0-9._\/-]{1,200}$/.test(branch)) return { error: "give a valid target branch" };
+  if (!files.length) return { error: "there are no changed files to publish" };
+  for (const file of files) {
+    const path = String(file.path || "");
+    if (!path || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) {
+      return { error: "the computer returned a file path outside the repository" };
+    }
+  }
+  let ref = await gh(ctx, "GET", `/repos/${repo}/git/ref/heads/${enc(branch)}`);
+  if (ref.status === 404) {
+    const base = await defaultBranch(ctx, repo);
+    const baseRef = await gh(ctx, "GET", `/repos/${repo}/git/ref/heads/${enc(base)}`);
+    if (baseRef.status >= 300) return { error: `base branch ${base}: HTTP ${baseRef.status}` };
+    const created = await gh(ctx, "POST", `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseRef.data.object.sha });
+    if (created.status >= 300) return { error: `create branch: HTTP ${created.status} ${String(created.data?.message || "").slice(0, 160)}` };
+    ref = await gh(ctx, "GET", `/repos/${repo}/git/ref/heads/${enc(branch)}`);
+  }
+  if (ref.status >= 300) return { error: `branch ${branch}: HTTP ${ref.status}` };
+  const parent = String(ref.data?.object?.sha || "");
+  if (!parent) return { error: "GitHub returned no parent commit for the target branch" };
+  const parentCommit = await gh(ctx, "GET", `/repos/${repo}/git/commits/${parent}`);
+  if (parentCommit.status >= 300 || !parentCommit.data?.tree?.sha) return { error: `read parent commit: HTTP ${parentCommit.status}` };
+  const tree: Record<string, unknown>[] = [];
+  for (const file of files) {
+    if (file.content === null) {
+      tree.push({ path: file.path, mode: "100644", type: "blob", sha: null });
+      continue;
+    }
+    const blob = await gh(ctx, "POST", `/repos/${repo}/git/blobs`, { content: file.content, encoding: "utf-8" });
+    if (blob.status >= 300 || !blob.data?.sha) return { error: `blob ${file.path}: HTTP ${blob.status} ${String(blob.data?.message || "").slice(0, 120)}` };
+    tree.push({ path: file.path, mode: "100644", type: "blob", sha: blob.data.sha });
+  }
+  const nextTree = await gh(ctx, "POST", `/repos/${repo}/git/trees`, { base_tree: parentCommit.data.tree.sha, tree });
+  if (nextTree.status >= 300 || !nextTree.data?.sha) return { error: `create Git tree: HTTP ${nextTree.status} ${String(nextTree.data?.message || "").slice(0, 160)}` };
+  const commit = await gh(ctx, "POST", `/repos/${repo}/git/commits`, { message: message.slice(0, 500) || "update", tree: nextTree.data.sha, parents: [parent] });
+  if (commit.status >= 300 || !commit.data?.sha) return { error: `create Git commit: HTTP ${commit.status} ${String(commit.data?.message || "").slice(0, 160)}` };
+  const updated = await gh(ctx, "PATCH", `/repos/${repo}/git/refs/heads/${enc(branch)}`, { sha: commit.data.sha, force: false });
+  if (updated.status >= 300) return { error: `update branch: HTTP ${updated.status} ${String(updated.data?.message || "").slice(0, 160)}` };
+  return { ok: true, repo, branch, commit: commit.data.sha, files: files.map((file) => file.path) };
+}
 
 async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): Promise<string> {
   if (!ctx.githubToken) return "error: GitHub is not connected in this chat";
@@ -304,6 +356,25 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       return await S.create(ctx.chatId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events }, ctx.db);
     }
     const H0 = await host();
+    if (name === "computer_publish") {
+      if (!ctx.githubToken) return "error: GitHub is not connected in this chat";
+      if (!repoOk(a.repo)) return "error: repo must be owner/name";
+      const branch = String(a.branch || "").trim();
+      if (!branch || !/^[A-Za-z0-9._\/-]{1,200}$/.test(branch)) return "error: give a valid target branch";
+      const { boxCollect } = await import("@/lib/computerBox");
+      const collected = await boxCollect(ctx.modelId, `${ctx.chatId}:${ctx.modelId}`, { repo: String(a.repo), dir: typeof a.dir === "string" ? a.dir : undefined }, ctx.fetchImpl);
+      if (!collected.ok) return `error: ${collected.error}`;
+      if (!collected.files.length && !collected.deleted.length) {
+        return `nothing to publish: no changed files${collected.skipped.length ? ` (skipped: ${collected.skipped.map((x) => `${x.path} [${x.why}]`).join(", ")})` : ""}`;
+      }
+      const files = [
+        ...collected.files.map((file) => ({ path: file.path, content: file.content as string | null })),
+        ...collected.deleted.map((path) => ({ path, content: null as string | null })),
+      ];
+      const result = await publishComputerChanges(ctx, String(a.repo), branch, String(a.message || "update"), files);
+      if (result.error) return `error: ${result.error}`;
+      return clip({ published: `${collected.files.length} file(s) changed, ${collected.deleted.length} deleted in ONE commit on ${branch}`, ...result, ...(collected.skipped.length ? { skipped: collected.skipped } : {}) });
+    }
     if (name.startsWith("computer_")) {
       return clip(await H0.computer.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, name, a));
     }
@@ -357,7 +428,8 @@ export async function shamTakePending(chatId: number, id: string, db: Db = prism
 /** One line telling the user what they are about to allow. */
 export function shamConfirmText(call: CoderToolCall): string {
   const a = parse(call);
-  const what = call.function.name === "sandbox_push" ? `رفع التعديلات من الجهاز الافتراضي إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
+  const what = call.function.name === "computer_publish" ? `نشر التعديلات من الحاسوب الدائم إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
+    : call.function.name === "sandbox_push" ? `رفع التعديلات من مساحة العمل المؤقتة إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
     : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
     : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
