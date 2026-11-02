@@ -1606,6 +1606,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       telegram_id: tgUserId,
       chat_id: String(chatId),
       prompt,
+      seconds: requestedVideoSeconds(text),
     });
     if (!videoOk) {
       await bot.api.sendMessage(chatId, videoData?.detail || "تعذر جدولة توليد الفيديو — حاول مرة أخرى.");
