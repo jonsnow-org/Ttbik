@@ -110,9 +110,9 @@ def unwrap_result(frame: str) -> dict[str, Any] | None:
         if isinstance(value, str):
             value = json.loads(value)
     except (ValueError, TypeError):
-        fail("Studio RPC completed without a valid result")
+        fail("Studio RPC completed without a valid result: " + raw[:200].replace("\n", " "))
     if not isinstance(value, dict):
-        fail("Studio RPC result was not an object")
+        fail("Studio RPC result was not an object: " + raw[:200].replace("\n", " "))
     return value
 
 
