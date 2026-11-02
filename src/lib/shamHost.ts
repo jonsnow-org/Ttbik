@@ -12,7 +12,7 @@ import * as S from "@/lib/coderSchedules";
 import { prismaDb as shamDb } from "@/lib/shamDb";
 import type { ShamHost } from "@/lib/shamExec";
 import { boxActionFor, boxDo } from "@/lib/computerBox";
-import { browserDo } from "@/lib/browserComputer";
+import { browserDo, type BrowserArgs } from "@/lib/browserComputer";
 
 /** Sham's own db handle stands for the platform's real one, so the platform creates its tables as usual; a test double passes through. */
 const d = (db: unknown): PlatformDb => (db === shamDb ? platformDb : (db as PlatformDb));
@@ -37,7 +37,7 @@ export const shamHost: ShamHost = {
     },
   },
   browser: {
-    run: (c, args) => browserDo(c.modelId, `${c.chatId}:${c.modelId}`, args),
+    run: (c, args) => browserDo(c.modelId, `${c.chatId}:${c.modelId}`, args as BrowserArgs),
   },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
