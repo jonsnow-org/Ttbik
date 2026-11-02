@@ -17,8 +17,8 @@ describe("the tool list the model is shown", () => {
     expect(block).toContain("- make_media(");
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
-    expect(block).toContain("- cloud_computer_execute(");
-    expect(block).toContain("- cloud_computer_screenshot(");
+    expect(block).toContain("- computer_run(");
+    expect(block).toContain("- browser(");
     expect(block.length).toBeLessThan(6500);                               // the new body's prompt window is small
   });
   it("without GitHub there is no GitHub tool, but delegate and the VM stay", () => {
@@ -27,8 +27,8 @@ describe("the tool list the model is shown", () => {
     expect(names).not.toContain("github_ci");
     expect(names).toContain("delegate");
     expect(names).toContain("sandbox_exec");
-    expect(names).toContain("cloud_computer_execute");
-    expect(names).toContain("cloud_computer_screenshot");
+    expect(names).toContain("computer_run");
+    expect(names).toContain("browser");
   });
   it("the parallel GitHub batch reader is v2-only", () => {
     const v1 = shamVariant.run("v1", () => shamTools(true, true).map((t) => t.function.name));
