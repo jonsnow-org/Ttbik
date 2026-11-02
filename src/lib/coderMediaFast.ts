@@ -39,7 +39,7 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   const image = ws.some((w) => inSet(w, IMAGES));
   if (!verb || !(video || image || draw)) {
     const previous = String(context.previousAssistant || "");
-    const clarification = /(?:اكتب|اذكر|صف).{0,70}(?:الوصف|ما الذي يظهر|ماذا يظهر)|(?:الوصف|description).{0,60}(?:الصورة|الفيديو|المقطع|image|picture|video)|(?:what should appear|describe the subject).{0,70}(?:image|picture|video)/i.test(previous);
+    const clarification = /(?:اكتب|اذكر|صف).{0,70}(?:الوصف|ما الذي يظهر|ماذا يظهر)|ما الذي تريد أن يظهر.{0,45}(?:الصورة|الفيديو|المقطع)|ما المشهد الذي تريد أن يظهر.{0,45}(?:الفيديو|المقطع)|(?:الوصف|description).{0,60}(?:الصورة|الفيديو|المقطع|image|picture|video)|(?:what should appear|describe the subject).{0,70}(?:image|picture|video)/i.test(previous);
     if (!clarification || !raw || ws.some((w) => inSet(w, NOT_WORDS) || /^https?:/.test(w))) return null;
     const priorIntent = detectMediaIntent(String(context.previousUser || ""));
     const previousKind = /(?:فيديو|فديو|مقطع|video|clip)/i.test(previous) ? "video" : undefined;
