@@ -1,34 +1,52 @@
-# Ttbik Cloud Computer
+# The model-owned graphical computer and distributed task workers
 
-## Current production state — zero-cost policy
+## Architecture
 
-The persistent graphical desktop feature (VNC, browser, PTY, file manager) was originally implemented on Daytona. Daytona is a metered provider with finite promotional credits; it is not a permanent free compute resource. Under the current zero-cost policy:
+The application has one authenticated computer surface, but its work is split between three different execution resources. These are not treated as interchangeable live machines:
 
-- The production application does not provision or resume Daytona machines.
-- The computer feature is hidden from the production Mini App, so users are not offered a desktop that the app cannot safely provide for free.
-- computer_open, desktop actions, terminal-in-desktop and file operations are blocked in production before any provider call.
-- computer_status reports that the Daytona desktop provider is disabled. For an existing row that is still marked started, the status check attempts a stop operation; it reports cleanup_pending if the stop cannot be confirmed.
-- The explicit computer_stop action remains available so an owner can release a previously created VM. A stopped Daytona VM may retain its filesystem and storage; stopping compute does not necessarily remove all provider storage charges.
-- The one-minute production heartbeat still runs the legacy in-app usage meter for rows already marked started. That meter is not a guarantee that provider compute has stopped. The owner maintenance panel checks and attempts to stop the selected account/model's legacy VM, and its owner-only Stop all legacy desktops action enumerates up to 50 active database rows per request and calls the stop API in batches of five. The action reports stopped and pending counts; run it again if more than 50 rows existed or any stop remains pending. Do not infer that all old VMs have been shut down until the action succeeds and the provider account confirms there are no running machines. Stopped disks/snapshots may still have storage charges, so review the provider dashboard before deciding whether to delete old machines.
+1. **ModelScope Studio — the selected model's private computer and graphical desktop.** Each model is routed only to its own media Studio. Its computer shell, headless browser, graphical desktop and model media service share that Studio, but only one heavy execution mode may occupy it at a time.
+2. **Oracle Linux runner — primary task-scoped Linux worker.** It runs isolated containers for build, code execution, repository work and tests when its health and memory gates pass. It does not carry the user's live desktop session.
+3. **GitHub Actions — ephemeral batch worker.** It handles CI, repository clone/build/test and artifact-producing jobs. It is not a persistent shell or an interactive desktop.
 
-The Daytona API credential remains stored in the deployment configuration for legacy compatibility and the safe stop path; it is not used to create or resume a desktop in production.
+The application may move a task between workers only after saving its files, logs and next step. A live process, browser window, in-memory state or open graphical session is never claimed to have migrated between hosts.
 
-## Available free computer execution
+## ModelScope computer
 
-The free task-computer chain in the isolated branch `infra/three-tier-computer-2026-11-02` is being expanded; this branch is not production until separately reviewed and deployed. It is a task-scoped execution chain, not a persistent GUI desktop:
+Each supported model uses its own Studio URL and its own copy of the media/computer runtime. A session identifier is derived on the server from the verified user ID and selected model ID. It is not accepted from an arbitrary client locator.
 
-1. **Oracle runner (primary):** one isolated Docker container per task on the existing Oracle Always Free VM. It remains the first choice while the authenticated health check, free-memory floor and single-box limit pass.
-2. **ModelScope runner (same-model fallback):** if Oracle cannot accept a new task, the app may use the selected model's own Media Studio computer only. Nova is mapped to Nova media; Sham v2 to its dedicated video Studio; each donor to its own candidate media Studio. It never switches a task to another model's Studio or weights. It checks Studio-wide active jobs and available RAM before starting.
-3. **Light JavaScript runner (last resort):** an in-process QuickJS/WebAssembly runtime with a per-task file store. It can run limited JavaScript code without shell, npm, network access or host access. It is not represented as a Linux computer.
-4. **GitHub Actions (batch lane):** ephemeral runners are suitable for repository clone/build/test/export jobs that can be packaged as inputs and outputs. They are not an interactive shell, persistent computer, or a transparent mid-process failover target. A task must checkpoint files and logs before it can be resubmitted there.
+### The three functions inside the model's Studio
 
-The application does not automatically use Vercel Sandbox, CodeSandbox VMs, GitHub Codespaces, Daytona or E2B. Their VM access is either metered, dependent on finite credit balances, or dependent on an account-specific free quota that has not been verified for this project. An API key in an environment variable is not evidence that usage is free.
+- **Persistent Linux workspace** (computer_box.py): shell commands, file read/write, repository checkout, local search and background jobs. Each user/model session has a hashed workspace, a separate unprivileged Unix UID and a private home under /mnt/workspace/computer.
+- **Headless browser** (browser_computer.py): JavaScript-capable Chromium controlled through bounded browser actions. It is separate from the graphical screen session, and the same Studio-wide lock prevents simultaneous use when memory is constrained.
+- **Graphical desktop** (desktop_computer.py): Xvfb display server, Openbox window manager, terminal, file manager and an optional visible Chromium window. It returns JPEG screen frames through the existing authenticated Gradio API and accepts bounded mouse, keyboard and scroll actions. It does not open a public VNC port or require a Docker socket.
 
-### Oracle runner limits
+The Mini App exposes the graphical desktop in its own tab. The old headless-browser tab remains a separate automation surface. The terminal and files views use the same private workspace as the model.
 
-The production profile is intentionally conservative:
+### Admission and isolation controls
 
-| Resource | Production default |
+- Start is refused unless /proc/meminfo reports at least **3072 MB MemAvailable**. Unknown memory is a refusal, not an assumed pass.
+- A single execution slot is reserved at Studio scope. The desktop, shell jobs, headless browser and media generation do not run concurrently when the lock is held.
+- The desktop can be assigned to only one user session in a Studio at a time. Other users receive a busy state without seeing the session ID, display or screenshot.
+- Child applications run under that session's Unix UID, with a clean environment that does not pass Studio secrets into the desktop process.
+- The desktop will not start a network-capable session unless the Studio confirms its UID-scoped private-network and metadata egress rules.
+- Input is restricted to named desktop actions. Mouse coordinates, text length, scroll count and keyboard key names are bounded server-side.
+- Idle desktop sessions are stopped after the configured inactivity window. The workspace files remain in the persistent Studio directory.
+
+The display is intentionally lightweight: the Mini App refreshes screen images approximately every two seconds. This is an interactive remote desktop surface, not a 60-fps GPU workstation or a full video-streaming protocol. Large graphical workloads, GPU-dependent applications and high-frame-rate media editing are outside the CPU-only Studio profile.
+
+## First start
+
+The first graphical start installs the small X11 package set through the Studio's configured package mirror, then starts Xvfb and Openbox. If the Studio does not have root access, a package mirror, enough free memory or a working egress firewall, start fails closed and reports the reason. A failed start does not claim that a desktop is running.
+
+The visible browser reuses Chromium only when a non-headless executable is present in that model's Studio. If only the automation browser is installed, the desktop reports that the visible browser is unavailable; the headless browser remains a separate option.
+
+## Oracle task runner
+
+Oracle is the primary external Linux worker for task-scoped execution. The configured runner endpoint is served behind the existing Caddy route /coder-sbx/* and authenticated with x-runner-key. The secret remains on the server and never enters the guest container or browser.
+
+The production profile remains conservative:
+
+| Resource | Limit |
 |---|---:|
 | Container CPU | 1 core |
 | Container memory | 1 GiB, no swap |
@@ -39,59 +57,39 @@ The production profile is intentionally conservative:
 | Task lifetime | 30 minutes maximum |
 | Host free-memory floor | 1.8 GiB (hard minimum 1.2 GiB) |
 
-The container has a read-only root filesystem, a dedicated bridge with inter-container traffic disabled, no host mounts, dropped Linux capabilities and no-new-privileges. Expired containers are reaped. New boxes are refused while the SHAM_ON flag is present, the host free-memory floor is breached, or the active-box limit is reached.
+The container uses a read-only root filesystem, no host mounts, dropped Linux capabilities, no-new-privileges and an isolated network. New boxes are refused while the SHAM memory-protection flag is active, host memory falls below its floor, the runner is unhealthy or the box limit is reached.
 
-The runner endpoint is exposed by the existing Oracle Caddy route at /coder-sbx/*. The application authenticates with x-runner-key; when CODER_SANDBOX_ORACLE_SECRET is not explicitly set, both sides derive the same key from the existing bot token. The secret is never sent to the browser or the guest container.
+If Oracle refuses a new task, the task dispatcher may use only the selected model's own ModelScope computer, provided that Studio's own health, free-memory and execution-slot checks pass. If neither Linux worker can accept the task, a limited JavaScript runtime can handle only supported JavaScript operations; it is not presented as Linux.
 
-### ModelScope computer admission controls
+## GitHub Actions batch lane
 
-The branch version of `ai-system/modelscope-media/computer_box.py` introduces:
-- persistent collision-free Unix UID allocation under an OS file lock; only a SHA-256 session digest and assigned UID are stored;
-- a Studio-wide execution slot (default one active command/job across all users of that Studio), not merely four jobs per account;
-- a default 2 GiB MemAvailable floor before new work is accepted;
-- a default 1.5 GiB process-group memory kill threshold, leaving more headroom for the model and media engine;
-- explicit capacity data in `status`, so the app fails closed if the Studio cannot report memory or capacity.
+GitHub Actions provides a short-lived runner for independent batch work. The input package must include the repository/ref, required files and command. The result package returns artifacts, logs and the exit status. This lane is suitable for CI, build, tests and export.
 
-These limits are per Studio. They do not combine RAM from separate Studios, and no model is moved to another model's worker. The values can be adjusted with `COMPUTER_MAX_GLOBAL_JOBS`, `COMPUTER_MIN_AVAILABLE_MB` and `COMPUTER_MEMORY_KILL_MB`, but raising them requires live load testing.
+It does not provide a permanent per-user home, a persistent browser session or a graphical display. It is not a transparent fallback for an interactive Linux task. A task can be resubmitted there only after a checkpoint has been saved.
 
-## Important distinction: task runner vs persistent desktop
+## Routing and failover contract
 
-Oracle's current runner gives the agent a temporary isolated Linux task container. It does not provide a user-facing VNC desktop, a persistent graphical browser session, or a persistent per-account filesystem after the task ends. The ModelScope fallback has a persistent per-task workspace inside that model's Studio, but it shares the Studio's CPU/RAM with the model and is capacity-gated. GitHub Actions is an ephemeral batch worker, not a desktop. The Light runner is even more limited.
+- Oracle receives new task-scoped Linux work first while its authenticated health and capacity gates pass.
+- The selected model's own ModelScope Studio is the Linux fallback. It never borrows another model's Studio or weights.
+- GitHub Actions is selected for discrete artifact-based batch jobs, not as a generic terminal fallback.
+- The limited JavaScript runner is last for simple code that fits its restricted runtime.
+- Only files, logs, task metadata and the next action are checkpointed. No active process, browser tab, terminal process or X11 display is described as migrated.
 
-We will not call either of these a complete replacement for the old graphical desktop. A genuine free desktop alternative would require a separately provisioned Oracle desktop environment with a GUI/VNC service, model/account-specific filesystem isolation, resource arbitration with Sham and the media services, and independent security tests. The current Oracle VM's spare memory is limited, so adding a second desktop workload without live capacity measurements could destabilize Sham or the bots.
+## Acceptance checks before enabling a model's desktop
 
-## Historical Daytona architecture (not active for new production use)
+A model's desktop should be enabled only after that exact Studio passes live checks for:
 
-The former implementation used one Daytona Linux VM per verified Telegram account and canonical model ID. Identity was derived on the server from the salted account key and model ID. The browser never supplied a sandbox ID or provider locator. It used short-lived signed previews for VNC/Toolbox, with provider credentials remaining server-side.
+1. Correct model-to-Studio routing and no cross-model URL/weight reuse.
+2. Free memory above the admission threshold while the model and its media engine are ready.
+3. Xvfb startup, Openbox startup, screenshot capture and a successful mouse/keyboard action.
+4. Persistent file read/write under the same user/model workspace used by its shell.
+5. A visible browser launch where Chromium is installed, plus a separate headless browser probe.
+6. Memory refusal, second-user busy response, stop during startup and idle cleanup.
+7. Media generation and shell/browser requests are serialized while the graphical session holds the Studio slot.
+8. No Studio secret appears in the child environment, logs, UI payload or guest files.
 
-That design had per-model isolation, a persistent disk, a graphical desktop, an interactive PTY and file manager. It also incurred provider compute charges while running, with storage potentially charged while stopped. Those capabilities remain documented for historical context only; they are not an active free production feature.
+A passing CI mock proves the software contract only. It does not prove that a particular ModelScope Studio has deployed the latest runtime or that the GUI packages are available there. The live deployment and screen-control checks must succeed on the selected Studio before it is described as ready.
 
-## API behavior
+## Background tasks
 
-The authenticated Mini App API still recognizes:
-- computer_status
-- computer_open
-- computer_refresh
-- computer_stop
-- computer_cleanup_all (owner-only legacy cleanup sweep; up to 50 active rows per request)
-- computer_self_test (owner only)
-
-In production, status/stop are kept for legacy resource cleanup; provisioning and interactive operations are disabled by the zero-cost policy. The model tool layer uses server-derived account/model identity and never accepts a client-supplied sandbox ID.
-
-## Acceptance gates before restoring a persistent desktop
-
-Do not turn on a graphical desktop until all of these conditions are met:
-
-1. A genuinely zero-cost Oracle compute allocation is proven from the actual OCI tenancy, not assumed from the free-tier label.
-2. A dedicated desktop process (VNC/noVNC or equivalent), browser and PTY are deployed on that Oracle VM.
-3. One isolated workspace is provisioned per account and model; no filesystem or process is shared between models or users.
-4. Capacity tests demonstrate adequate free RAM/CPU while Sham, media engine and bots are active.
-5. Host firewall, reverse proxy, short-lived session credentials and guest egress controls are tested.
-6. Stop/start persistence, recovery after runner restart, concurrent users, quota exhaustion and memory-pressure refusal are tested.
-7. The owner verifies the real VNC session from Telegram and an external browser on the live Oracle host.
-
-A CI fake provider is not proof that an Oracle GUI desktop exists or that an Oracle task endpoint is healthy. A passing ModelScope mock test is not proof that the live Studio code has been deployed. The current branch must pass CI, the code-only Studio deployment must complete for the selected Studios, and live `status` / `run` probes must pass before this chain is described as active. Production remains untouched until a separate deployment decision.
-
-## Background task execution
-
-The coder agent already uses persisted task/run state, event logs, short execution legs, a signed continuation endpoint and the Oracle one-minute sweeper to resume orphaned tasks. This remains separate from the computer workspace. It is not a queue-based persistent GUI session, and it does not make the task runner's temporary filesystem permanent.
+Long-running model work keeps its own task/run state and event log. The durable state contains checkpoints and the next step; the worker may resume after an application function or Studio process restarts. This is separate from the graphical desktop session. A task restart does not silently restore a prior open browser window or an in-memory process.
