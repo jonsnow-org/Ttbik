@@ -168,7 +168,7 @@ MEDIA_TOOLS = {
         "type": "function",
         "function": {
             "name": "generate_video",
-            "description": "Make a short real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. Takes a few minutes. Do not claim success without a returned video file.",
+            "description": "Make a real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. When the user's request specifies a duration, pass that original duration in seconds (1-5); default 3. Takes a few minutes. Do not claim success without a returned video file.",
             "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 5}}, "required": ["prompt"], "additionalProperties": False},
         },
     },
@@ -1005,6 +1005,42 @@ def _media_profile() -> dict | None:
     return {"base": base, "media_repo": str(conf.get("media_repo") or "")}
 
 
+def _requested_video_seconds(text: str, fallback: int = 3) -> int:
+    """Read duration from the original user request (Arabic/English) before model prompt rewriting."""
+    value = str(text or "").lower().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    value = re.sub(r"[أإآ]", "ا", value)
+    value = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", value)
+    numeric = re.search(r"(\d{1,2}(?:\.\d+)?)\s*-?\s*(?:seconds?|secs?|sec|s\b|ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)", value)
+    if numeric:
+        return max(1, min(5, round(float(numeric.group(1)))))
+    words = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "واحد": 1, "واحده": 1, "وحده": 1, "اثنين": 2, "اثنتين": 2,
+        "ثنتين": 2, "ثانيتين": 2, "ثلاث": 3, "ثلاثه": 3,
+        "اربع": 4, "اربعه": 4, "خمس": 5, "خمسه": 5,
+    }
+    match = re.search(
+        r"\b(one|two|three|four|five)\s*-?\s*(?:seconds?|secs?|sec|s)\b|"
+        r"(واحده?|وحده|اثنين|اثنتين|ثنتين|ثانيتين|ثلاثه?|اربع(?:ه)?|خمسه?)\s*"
+        r"(?:ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)",
+        value,
+    )
+    if match:
+        token = match.group(1) or match.group(2)
+        return words.get(token, max(1, min(5, int(fallback))))
+    if "ثانيتين" in value:
+        return 2
+    if re.search(r"(?:خمس|خمسه).*ثوان", value):
+        return 5
+    if re.search(r"(?:اربع|اربعه).*ثوان", value):
+        return 4
+    if re.search(r"(?:ثلاث|ثلاثه).*ثوان", value):
+        return 3
+    if re.search(r"(?:واحد|واحده|وحده).*ثوان", value):
+        return 1
+    return max(1, min(5, int(fallback)))
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1349,7 +1385,9 @@ def infer(
             prefetched = _run_reads_in_parallel(calls, tool_bridge)
             for call_index, call in enumerate(calls):
                 name = str(call.get("name") or "")
-                arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+                arguments = dict(call.get("arguments")) if isinstance(call.get("arguments"), dict) else {}
+                if name == "generate_video" and arguments.get("seconds") is None:
+                    arguments["seconds"] = _requested_video_seconds(prompt)
                 call_id = "call_" + uuid.uuid4().hex[:16]
                 tool_result = prefetched.get(call_index) or _execute_tool(name, arguments, tool_bridge)
                 generated = tool_result.pop("_generated_media", None) if isinstance(tool_result, dict) else None
