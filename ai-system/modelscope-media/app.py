@@ -527,16 +527,16 @@ def _run(kind: str, payload: dict) -> dict:
         STATE["phase"] = f"making {kind}"
         if kind == "image":
             img = _make_image(str(payload.get("prompt", "")), payload.get("size", 512), payload.get("seed", 0))
-            # check_image(img)  — quality gate temporarily bypassed for testing
+            check_image(img)
             out = {"type": "image", "b64": base64.b64encode(_png(img)).decode()}
         elif kind == "speech":
             wav = _speech_wav(str(payload.get("text", "")))
-            # check_wav(wav)  — quality gate temporarily bypassed for testing
+            check_wav(wav)
             out = {"type": "audio", "b64": base64.b64encode(wav).decode()}
         else:
             prompt = str(payload.get("prompt", "")).strip()
-            clip = _make_video(prompt, payload.get("seconds", 3), payload.get("seed", 0))
-            # check_mp4(clip)  — quality gate temporarily bypassed for testing
+            clip = _make_video(prompt, payload.get("seconds", 2), payload.get("seed", 0))
+            check_mp4(clip)
             out = {"type": "video", "b64": base64.b64encode(clip).decode(), "text": prompt[:120]}
         STATE[{"image": "images", "speech": "speech", "video": "videos"}[kind]] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
