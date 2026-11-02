@@ -1116,11 +1116,9 @@ export const queryDraftPrompt = (request: string): CoderMessage[] => [{
   content: "Turn this request into relevant web-search queries. Preserve Arabic wording, names, numbers, versions and technical terms exactly. Do not remove or translate words using a fixed dictionary. Output queries only, one per line.\n\nRequest: " + request.slice(0, 500),
 }];
 
-/** A GitHub repository-search query from a drafted web query: the word "GitHub" and generic filler match thousands of unrelated repos (seen: a search for Telegram AI bots returned politics repos), so keep the topic words, search names and descriptions only, and ask for a few stars. */
-const GH_FILLER = new Set(["github", "git", "project", "projects", "solution", "solutions", "issue", "issues", "problem", "problems", "optimization", "optimisation", "techniques", "handling", "stability", "delay", "size", "performance", "best", "practices", "how", "to", "for", "with", "using", "in", "of", "the", "a", "and", "on"]);
+/** Keep all drafted words when adding the GitHub search scope. */
 export function githubQuery(q: string): string {
-  if (/[a-z]+:\S/i.test(q)) return q;              // the model already used GitHub qualifiers
-  const words = q.toLowerCase().replace(/[^\p{L}\p{N}\s+#.-]/gu, " ").split(/\s+/).filter((w) => w.length > 1 && !GH_FILLER.has(w));
-  const topic = [...new Set(words)].slice(0, 4).join(" ");
-  return topic ? `${topic} in:name,description stars:>20` : q;
+  if (/[a-z]+:\\S/i.test(q)) return q;
+  const topic = String(q || "").trim().replace(/\s+/g, " ").slice(0, 180);
+  return topic ? topic + " in:name,description stars:>20" : q;
 }
