@@ -75,6 +75,14 @@ class Capacity(Box):
             self.assertEqual(command.get("exit_code"), 0)
             self.assertEqual(command.get("output"), "model-terminal-ok")
 
+            other_user_command = cb.run_command("other:model-x", "echo must-stay-blocked")
+            self.assertFalse(other_user_command.get("ok"))
+            self.assertIn("another user's graphical desktop", other_user_command.get("error", ""))
+            owner_status = cb.status("owner:model-x")
+            other_status = cb.status("other:model-x")
+            self.assertTrue(owner_status["capacity"]["can_accept"])
+            self.assertFalse(other_status["capacity"]["can_accept"])
+
             second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
             self.assertFalse(second.get("ok"))
             self.assertIn("already has a graphical desktop", second.get("error", ""))
@@ -83,8 +91,16 @@ class Capacity(Box):
             job = cb.job_start("owner:model-x", "echo background-ok", "background")
             self.assertTrue(job.get("ok"), job)
             log = cb.job_log("owner:model-x", job["id"])
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and "background-ok" not in log.get("output", ""):
+                time.sleep(0.05)
+                log = cb.job_log("owner:model-x", job["id"])
             self.assertTrue(log.get("ok"), log)
             self.assertIn("background-ok", log.get("output", ""))
+            if log.get("running"):
+                cb.job_stop("owner:model-x", job["id"])
+                log = cb.job_log("owner:model-x", job["id"])
+            self.assertFalse(log.get("running"), log)
 
             cb.release_desktop("owner:model-x")
             self.assertFalse(cb._ACTIVE_DESKTOPS)
