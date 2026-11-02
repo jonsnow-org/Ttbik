@@ -213,6 +213,7 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
     if limits.get("global_jobs") != 1:
         fail(f"2-vCPU Studio must enforce one global execution job; reported {limits.get('global_jobs')}")
     print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
+    print("Network egress isolation:", status.get("egress", "not reported"), flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):
         # The computer can still execute commands, but never claim network egress is protected.
         print("WARNING: Studio reports an incomplete private-network egress block", flush=True)

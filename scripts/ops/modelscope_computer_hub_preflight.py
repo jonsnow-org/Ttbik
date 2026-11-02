@@ -96,6 +96,7 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
                     "hardware": hardware,
                     "terminal_limits": limits,
                     "terminal_capacity": capacity,
+                    "network_egress": computer.get("egress"),
                     "desktop_packages": status.get("desktop"),
                     "apt_sources": computer.get("apt_sources"),
                     "bootstrap": bootstrap,

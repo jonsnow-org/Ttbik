@@ -2,6 +2,8 @@
 import importlib.util
 import json
 import os
+import subprocess
+from unittest.mock import patch
 import tempfile
 import time
 import unittest
@@ -465,6 +467,52 @@ class AptSources(unittest.TestCase):
             self.assertIn("mirrors.aliyun.com", external.read_text(encoding="utf-8"))
             again = cb.prepare_ubuntu_apt_sources(root, "x86_64")
             self.assertEqual(again["changed"], [])
+
+
+class EgressRules(unittest.TestCase):
+    def setUp(self):
+        self.old_state = cb.STATE.get("egress", "not checked")
+        cb.STATE["egress"] = "not checked"
+
+    def tearDown(self):
+        cb.STATE["egress"] = self.old_state
+
+    def test_private_network_rules_are_scoped_to_computer_uids_for_ipv4_and_ipv6(self):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            if "-C" in args:
+                return subprocess.CompletedProcess(args, 1, "", "rule absent")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(cb, "is_root", return_value=True), \
+             patch.object(cb.shutil, "which", side_effect=lambda name: "/usr/sbin/" + name), \
+             patch.object(cb.subprocess, "run", side_effect=fake_run):
+            result = cb.install_egress_rules()
+
+        self.assertIn("IPv4/IPv6", result)
+        adds = [args for args in calls if "-A" in args]
+        self.assertEqual(len(adds), 9)
+        self.assertTrue(all("--uid-owner" in args for args in adds))
+        self.assertTrue(all(f"{cb.UID_BASE}-{cb.UID_BASE + cb.UID_SPAN}" in args for args in adds))
+        self.assertTrue(any("100.100.100.200" in args for args in adds))
+        self.assertTrue(any("169.254.0.0/16" in args for args in adds))
+        self.assertTrue(any("fc00::/7" in args for args in adds))
+        self.assertTrue(all(args[args.index("-j") + 1] == "REJECT" for args in adds))
+
+    def test_host_rejection_is_reported_as_partial_not_as_success(self):
+        def fake_run(args, **kwargs):
+            code = 1 if "-C" in args else 1
+            return subprocess.CompletedProcess(args, code, "", "operation not permitted")
+
+        with patch.object(cb, "is_root", return_value=True), \
+             patch.object(cb.shutil, "which", side_effect=lambda name: "/usr/sbin/" + name), \
+             patch.object(cb.subprocess, "run", side_effect=fake_run):
+            result = cb.install_egress_rules()
+
+        self.assertTrue(result.startswith("partly blocked"))
+        self.assertIn("refused by the host", result)
 
 
 if __name__ == "__main__":

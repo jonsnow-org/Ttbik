@@ -377,20 +377,62 @@ def ensure_home(session: str) -> Path:
 
 
 def install_egress_rules() -> str:
-    """Best effort, once: refuse private / metadata destinations to the unprivileged users. Reported, never assumed."""
+    """Best-effort firewall for private, link-local, and cloud metadata destinations.
+
+    Rules are scoped to the UID range allocated to computer sessions. The Studio
+    application itself and model/media services run under different UIDs.
+    Existing rules are detected so app restarts do not append duplicates.
+    """
     with _LOCK:
         if STATE["egress"] != "not checked":
             return STATE["egress"]
         if not is_root() or not shutil.which("iptables"):
             STATE["egress"] = "not available (no iptables or not root): commands can reach the host's private network"
             return STATE["egress"]
+
         owner = f"{UID_BASE}-{UID_BASE + UID_SPAN}"
+        destinations = {
+            "iptables": (
+                "100.100.100.200",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16",
+                "100.64.0.0/10",
+            ),
+            "ip6tables": ("::1/128", "fc00::/7", "fe80::/10"),
+        }
         failed = 0
-        for dest in ("100.100.100.200", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"):
-            r = subprocess.run(["iptables", "-w", "-A", "OUTPUT", "-m", "owner", "--uid-owner", owner, "-d", dest, "-j", "REJECT"],
-                               capture_output=True, text=True, timeout=15)
-            failed += 1 if r.returncode else 0
-        STATE["egress"] = "private ranges and the metadata address are blocked for commands" if not failed else f"partly blocked ({failed} rules refused by the host)"
+        unavailable = []
+        for binary, ranges in destinations.items():
+            if not shutil.which(binary):
+                if binary == "ip6tables":
+                    unavailable.append("IPv6 firewall command unavailable")
+                    continue
+                failed += len(ranges)
+                continue
+            for dest in ranges:
+                rule = [binary, "-w", "-m", "owner", "--uid-owner", owner, "-d", dest, "-j", "REJECT"]
+                check = subprocess.run(
+                    [binary, "-w", "-C", "OUTPUT", *rule[2:]],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if check.returncode == 0:
+                    continue
+                added = subprocess.run(
+                    [binary, "-w", "-A", "OUTPUT", *rule[4:]],
+                    capture_output=True, text=True, timeout=15,
+                )
+                failed += 1 if added.returncode else 0
+
+        if failed or unavailable:
+            reasons = []
+            if failed:
+                reasons.append(f"{failed} firewall rules refused by the host")
+            reasons.extend(unavailable)
+            STATE["egress"] = "partly blocked (" + "; ".join(reasons) + ")"
+        else:
+            STATE["egress"] = "private IPv4/IPv6 ranges and metadata addresses blocked for computer sessions"
         return STATE["egress"]
 
 
@@ -593,11 +635,11 @@ def _kill_group(pid: int) -> None:
 
 
 # ---------------------------------------------------------------- the toolchain (installed once, in the background, when we are root)
-WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl"}
+WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl", "iptables": "iptables"}
 
 
 def ensure_toolchain() -> str:
-    missing = [pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)]
+    missing = list(dict.fromkeys(pkg for exe, pkg in WANTED_TOOLS.items() if not shutil.which(exe)))
     if not missing:
         STATE["toolchain"] = "ready"
         return "ready"
