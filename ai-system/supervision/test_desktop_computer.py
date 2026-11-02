@@ -1,6 +1,7 @@
 """Offline tests for the optional graphical desktop in a ModelScope Studio."""
 from __future__ import annotations
 
+import base64
 import importlib
 import json
 import sys
@@ -75,6 +76,14 @@ class Desktop(unittest.TestCase):
         unknown = self.call(action="run-shell", session="user-a:model-x")
         self.assertFalse(unknown["ok"])
         self.assertIn("unknown desktop action", unknown["error"])
+
+        # The production Studio client uses the same b64: envelope as box_do.
+        wire = base64.b64encode(json.dumps({
+            "action": "run-shell", "session": "user-a:model-x",
+        }).encode("utf-8")).decode("ascii")
+        encoded = json.loads(desktop.api_desktop_do("b64:" + wire))
+        self.assertFalse(encoded["ok"])
+        self.assertIn("unknown desktop action", encoded["error"])
         key = self.call(action="key", session="user-a:model-x", key="Return")
         self.assertFalse(key["ok"])
         self.assertIn("not running", key["error"])
