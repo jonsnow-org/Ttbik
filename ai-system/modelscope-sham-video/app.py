@@ -101,8 +101,9 @@ def generate_video(body: str) -> str:
         if not prompt:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
-        clip = cpu_video.cv_generate(HERE, prompt, float(payload.get("seconds", 2) or 2), int(payload.get("seed", 0) or 0), ENVS)
-        check_mp4(clip)                                        # an empty / frozen / black video is an error, never a reply
+        requested_seconds = int(payload.get("seconds", 4) or 4)
+        clip = cpu_video.cv_generate_long(HERE, prompt, requested_seconds, int(payload.get("seed", 0) or 0), ENVS)
+        check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
         STATE["videos"] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
         STATE["error"] = ""
@@ -122,7 +123,7 @@ def generate_video(body: str) -> str:
 def status() -> str:
     ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(HERE, ENVS))
     return json.dumps({**STATE, "cpus": os.cpu_count(), "ram": _ram(), "disk": _disk(),
-                       "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "profile": cpu_video.cv_profile()}})
+                       "video": {"engine": "AnimateDiff-Lightning (segmented)", "ready": ready, "device": "cpu", "profile": cpu_video.cv_profile(), "supported_seconds": list(cpu_video.CV_SUPPORTED_DURATIONS), "segment_seconds": [2, 3, 4]}})
 
 
 def _warm() -> None:
