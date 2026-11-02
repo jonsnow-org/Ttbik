@@ -756,8 +756,9 @@ async function fastMedia(
           raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000 });
         } else {
           const nm = await import("@/lib/novaMedia");
+          const { requestedVideoSeconds } = await import("@/lib/mediaDuration");
           const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
-          raw = await nm.novaMakeMedia("video", prompt, { timeoutMs: 300000, ...(own ? { base: own.base } : {}) });
+          raw = await nm.novaMakeMedia("video", prompt, { timeoutMs: 420000, seconds: requestedVideoSeconds(content), ...(own ? { base: own.base } : {}) });
         }
         const media = (await vetMedia(raw)) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
