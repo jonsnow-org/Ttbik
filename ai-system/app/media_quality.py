@@ -1,5 +1,21 @@
-"""Media quality gate for Nova (byte-identical block with ai-system/colab/sham_small/media_quality.py and ai-system/modelscope-media/app.py; a unit test keeps them in sync).
-See the Sham copy for the reason codes."""
+"""
+Media quality gate: never hand a user a blank / constant / noise image, silent or empty audio, or an empty / frozen video.
+
+Used by every place that RETURNS generated media (Sham Studio, Sham v2 ready path, smoke tests). A failed check raises MediaQualityError (or, through
+gate_reply, becomes {"type": "error", "reason": <code>, "text": <Arabic + English message>}), so the caller shows a clear error instead of a black picture.
+
+Reason codes (stable; the clients map them to messages):
+  blank_image      constant / near-constant picture (black, white, any single colour, or std < MIN_STD)
+  noise_image      uncorrelated pixel noise: what an untrained image decoder produces for random tokens
+  invalid_image    not a decodable image / NaN or Inf pixels
+  silent_audio     empty, too short, or silent / constant WAV
+  invalid_audio    not a readable WAV
+  empty_video      empty / truncated / not an MP4, or (when it can be decoded) fewer than 2 frames
+  static_video     decodable, but every frame is blank or all frames are identical
+
+This file is stdlib + numpy (+ Pillow for images). Nova's media Studio carries a byte-identical copy of the block between the BEGIN / END markers
+(ai-system/modelscope-media/app.py) because it is deployed on its own and must not import Sham code; a unit test keeps the two in sync.
+"""
 # --- media_quality BEGIN (identical copy in ai-system/modelscope-media/app.py; keep in sync) ---
 import base64 as _b64
 import io as _io
@@ -211,7 +227,24 @@ def quality_error(reason: str, detail: str = "") -> dict:
 
 
 def gate_reply(reply):
-    """Quality gate temporarily bypassed for testing (owner's request)."""
+    """The one chokepoint for a media reply dict {"type": image|audio|video, "b64": ...}: returns it unchanged when it passes, else a typed error.
+    Non-media replies (text, notice, busy, error, ...) and replies that are already errors pass through untouched."""
+    if not isinstance(reply, dict) or reply.get("type") not in ("image", "audio", "video"):
+        return reply
+    kind = reply["type"]
+    keep = {k: reply[k] for k in ("backend", "route") if k in reply}
+    try:
+        raw = _b64.b64decode(str(reply.get("b64") or "").split(",")[-1], validate=False)
+        if kind == "image":
+            check_image(raw)
+        elif kind == "audio":
+            check_wav(raw)
+        else:
+            check_mp4(raw)
+    except MediaQualityError as exc:
+        return {**quality_error(exc.reason, exc.detail), **keep}
+    except Exception as exc:  # noqa: BLE001
+        return {**quality_error({"image": "invalid_image", "audio": "invalid_audio", "video": "empty_video"}[kind], type(exc).__name__), **keep}
     return reply
 
 

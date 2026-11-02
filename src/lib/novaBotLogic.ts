@@ -949,7 +949,15 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
  */
 export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: string, botId?: string): Promise<boolean> {
   const mf = await import("@/lib/coderMediaFast");
-  const intent = mf.detectMediaIntent(text);
+  let intent = mf.detectMediaIntent(text);
+  if (!intent) {
+    // A user may reply to our previous request for an image/video description with
+    // only the subject (for example: "حصان أبيض"). Reuse only the immediately
+    // preceding turn in this Sham variant's own thread; never cross to Nova/other Sham.
+    const memory = await loadChatMemory(chatId, text).catch(() => null);
+    const previous = [...(memory?.history || [])].reverse().find((turn) => String(turn.a || "").trim());
+    if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a });
+  }
   if (!intent) return false;
   await refreshPressure().catch(() => false);
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
@@ -962,6 +970,14 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     await saveChatTurn(chatId, text, msg);
     return true;
   };
+  const askForDescription = async () => {
+    const message = intent!.kind === "video" ? "ما المشهد الذي تريد أن يظهر في الفيديو؟" : "ما الذي تريد أن يظهر في الصورة؟";
+    await taskEvent(runId, "info", "بانتظار وصف المشهد من المستخدم.").catch(() => null);
+    await taskStatus(runId, "waiting").catch(() => null);
+    if (!(await cardSay(bot, chatId, card, message))) await bot.api.sendMessage(chatId, message).catch(() => null);
+    await saveChatTurn(chatId, text, message);
+    return true;
+  };
   try {
     await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
     // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
@@ -972,7 +988,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
       prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
-    if (!prompt) return await fail("تعذّر فهم وصف الصورة بما يكفي لإنشائها. اكتب الوصف بجملة أوضح (مثلاً: «حصان أبيض على شاطئ عند الغروب») وأعد المحاولة.", "no English prompt");
+    if (!prompt) return await askForDescription();
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));

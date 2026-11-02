@@ -75,31 +75,62 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
   if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
   try {
-    const start = await fetchImpl(base + "/gradio_api/call/browser_do", {
-      method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
-      body: JSON.stringify({ data: [JSON.stringify({ ...clean, session })] }),
-    });
-    if (!start.ok) return "error: browser Studio HTTP " + start.status;
-    const { event_id } = (await start.json()) as { event_id?: string };
-    if (!event_id) return "error: the browser Studio gave no request id";
-    const done = await fetchImpl(base + "/gradio_api/call/browser_do/" + encodeURIComponent(event_id), { headers, cache: "no-store", signal: AbortSignal.timeout(100_000) });
-    if (!done.ok) return "error: browser Studio HTTP " + done.status;
-    return renderBrowserReply((await readComplete(done)) as Record<string, any>);
+    // Use the same authenticated b64 envelope and bounded gateway retry path as
+    // desktop_do and box_do. This keeps every computer action on one transport.
+    const reply = await studioCall(base, "browser_do", { ...clean, session }, fetchImpl, 100_000);
+    return renderBrowserReply(reply);
   } catch (error) {
-    return "error: " + String((error as Error)?.message || error).slice(0, 240);
+    return "error: " + String((error as Error)?.message || error).slice(0, 360);
   }
+}
+
+function safeStudioBody(raw: string): string {
+  if (!raw) return "";
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const parts = ["code", "error", "detail", "message", "request_id", "requestId"]
+      .map((key) => value[key])
+      .filter((item) => typeof item === "string" || typeof item === "number")
+      .map((item) => String(item));
+    if (parts.length) raw = parts.join(" | ");
+  } catch {
+    // A gateway may return an HTML error page; strip markup before displaying a short hint.
+  }
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\bms-[A-Za-z0-9_-]{12,}\b/g, "ms-[redacted]")
+    .replace(/[A-Za-z0-9+/]{120,}={0,2}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
+async function studioHttpError(response: Response, api: string, stage: string): Promise<string> {
+  const requestId = response.headers.get("x-request-id") || response.headers.get("x-requestid")
+    || response.headers.get("cf-ray") || response.headers.get("x-trace-id") || "";
+  const detail = safeStudioBody(await response.text().catch(() => ""));
+  const statusLabel = response.status === 412 ? " (precondition failed)" : "";
+  return "Studio HTTP " + response.status + statusLabel + " at " + api + " " + stage
+    + (detail ? ": " + detail : "")
+    + (requestId ? " [request " + requestId.slice(0, 80) + "]" : "");
+}
+
+function isTransientStudio412(detail: string, retryAfter: string | null): boolean {
+  return Boolean(retryAfter) || /deploy(?:ing|ment)|starting|warming(?: up)?|temporarily unavailable|runtime not ready|studio not ready/i.test(detail);
 }
 
 /** One call of a Studio's hidden Gradio API (`/gradio_api/call/<api>`): start, then read the complete event. Shared by the browser and the computer box. */
 async function studioCallPlain(base: string, api: string, wire: string, headers: Record<string, string>, fetchImpl: typeof fetch, readMs: number): Promise<Record<string, any>> {
   const start = await fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [wire] }) });
-  if (!start.ok) throw new Error("Studio HTTP " + start.status);
+  if (!start.ok) throw new Error(await studioHttpError(start, api, "submit"));
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no request id");
   const done = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(readMs) });
-  if (!done.ok) throw new Error("Studio HTTP " + done.status);
+  if (!done.ok) throw new Error(await studioHttpError(done, api, "result"));
   return (await readComplete(done)) as Record<string, any>;
 }
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
@@ -108,13 +139,19 @@ export async function studioCall(base: string, api: string, payload: Record<stri
   const encode = api === "box_do" || api === "browser_do" || api === "desktop_do";
   let wire = encode ? "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64") : JSON.stringify(payload);
   const submit = () => fetchImpl(`${base}/gradio_api/call/${api}`, { method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000), body: JSON.stringify({ data: [wire] }) });
-  // the Studio gateway answers 403/429/502-504 now and then even when the Studio is healthy: ask again a few times before giving up
+  // Retry transient gateway responses. HTTP 412 is not retried blindly:
+  // it is retried only when the response identifies an in-progress deploy/start,
+  // or explicitly supplies Retry-After. Other precondition failures surface.
   let start = await submit();
-  for (let i = 0; !start.ok && [403, 429, 502, 503, 504].includes(start.status) && i < 3; i++) {
+  for (let i = 0; !start.ok && i < 3; i++) {
+    const transientGateway = [403, 429, 502, 503, 504].includes(start.status);
+    const detail412 = start.status === 412 ? safeStudioBody(await start.clone().text().catch(() => "")) : "";
+    const transient412 = start.status === 412 && isTransientStudio412(detail412, start.headers.get("retry-after"));
+    if (!transientGateway && !transient412) break;
     await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : 1500 * (i + 1)));
     start = await submit();
   }
-  if (!start.ok) throw new Error("Studio HTTP " + start.status);
+  if (!start.ok) throw new Error(await studioHttpError(start, api, "submit"));
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no request id");
   const done = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(readMs) });

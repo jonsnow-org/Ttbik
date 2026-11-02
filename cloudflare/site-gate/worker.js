@@ -13,6 +13,8 @@
 const DEFAULT_PRIMARY = "https://89-168-89-15.sslip.io";
 const DEFAULT_SECONDARY = "https://ttbik.vercel.app";
 const MODES = ["auto", "oracle", "vercel"];
+const BLIP_PAUSE_MS = 400;            // one quick second try on Oracle before failing over (see proxy)
+const isBlip = (st) => [502, 503, 504].includes(st) || (st >= 520 && st <= 530);
 const DOWN_MS = 30_000;                 // after a failure, the primary is skipped for this long, then tried again
 const MODE_TTL_MS = 15_000;             // each server instance re-reads the mode from KV at most this often
 const BUFFER_LIMIT = 5 * 1024 * 1024;   // request bodies up to this size can be replayed on the standby
@@ -132,7 +134,19 @@ async function proxy(request, env, ctx) {
     const timeout = safe ? 20_000 : 50_000;
     try {
       const extra = isAsset ? { cf: { cacheEverything: true, cacheTtl: 31536000 } } : undefined;
-      const r = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, name === "vercel" && mode === "auto" && state.downUntil > Date.now());
+      const fo = name === "vercel" && mode === "auto" && state.downUntil > Date.now();
+      let r;
+      // A one-second blip (sslip.io's DNS answering late = Cloudflare 1016/530, a refused connection while Caddy reloads) must not flip the whole site to the standby and message the owner:
+      // for a read-only request ask Oracle once more after a short pause before giving up on it. Writes are never replayed.
+      try { r = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, fo); } catch (e) {
+        if (!(safe && name === "oracle" && more && !(e && e.name === "AbortError"))) throw e;
+        await new Promise((ok) => setTimeout(ok, BLIP_PAUSE_MS));
+        r = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, fo);
+      }
+      if (safe && name === "oracle" && more && isBlip(r.status)) {
+        await new Promise((ok) => setTimeout(ok, BLIP_PAUSE_MS));
+        try { const again = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, fo); if (!isBlip(again.status)) r = again; } catch { /* keep the first answer and fail over */ }
+      }
       // a static file the other build does not have (the two servers can be on different builds): ask the other server
       if (isAsset && r.status === 404 && more) { last = r; continue; }
       // the server answered but is down behind its proxy (Caddy answers 502/503/504 when the app is not running), or Cloudflare itself could not reach it and answers with

@@ -122,5 +122,28 @@ export function mediaError(reason: MediaReasonCode, detail = "", keep: Record<st
 
 /** The one chokepoint for a media reply: temporarily bypassed for testing (owner's request). */
 export async function vetMedia<T extends MediaLike>(reply: T | null | undefined): Promise<T | MediaLike | null | undefined> {
-  return reply;
+  if (!reply || !["image", "audio", "video"].includes(String(reply.type))) return reply;
+  const keep = Object.fromEntries(Object.entries(reply).filter(([key]) => key === "backend" || key === "route"));
+  try {
+    const encoded = String(reply.b64 || "").split(",").pop() || "";
+    const raw = Buffer.from(encoded, "base64");
+    if (reply.type === "image") await checkImage(raw);
+    else if (reply.type === "audio") checkWav(raw);
+    else checkMp4(raw);
+    return reply;
+  } catch (error) {
+    if (error instanceof MediaQualityError) {
+      return {
+        type: "error",
+        reason: error.reason,
+        text: MEDIA_MESSAGES[error.reason],
+        ...(error.detail ? { detail: error.detail.slice(0, 160) } : {}),
+        ...keep,
+      };
+    }
+    const reason: MediaReasonCode =
+      reply.type === "image" ? "invalid_image" :
+      reply.type === "audio" ? "invalid_audio" : "empty_video";
+    return { type: "error", reason, text: MEDIA_MESSAGES[reason], ...keep };
+  }
 }
