@@ -147,6 +147,29 @@ export async function executeDonorTool(input: {
     const asked = Array.isArray(input.arguments?.groups) ? (input.arguments.groups as unknown[]).map(String) : [];
     return { ok: true, result: JSON.stringify(candidateToolsFor(asked, hasGithub, hasConnectors)) };
   }
+  if (input.name === "desktop") {
+    const { desktopDo } = await import("@/lib/desktopComputer");
+    const raw = await desktopDo(input.model, `${ticket.chatId}:${input.model}`, input.arguments as any, fetchImpl);
+    const screenshot = String(raw?.screenshot_b64 || "");
+    const { screenshot_b64: _discard, ...metadata } = raw || {};
+    const resultText = JSON.stringify({
+      ...metadata,
+      ...(screenshot ? { screenshot_attached: true, note: "The desktop screenshot is attached to the model's next multimodal turn. Inspect it before clicking again." } : {}),
+    });
+    return {
+      ok: raw?.ok === true,
+      result: resultText.slice(0, 5000),
+      ...(screenshot && /^[A-Za-z0-9+/=]+$/.test(screenshot) ? {
+        vision: {
+          mimeType: "image/jpeg",
+          b64: screenshot,
+          width: Number.isFinite(Number(raw.width)) ? Number(raw.width) : null,
+          height: Number.isFinite(Number(raw.height)) ? Number(raw.height) : null,
+        },
+      } : {}),
+    };
+  }
+
   const allowedSchemas = candidateToolsFor(CANDIDATE_GROUPS, hasGithub, hasConnectors);
   if (!allowedSchemas.some((tool) => tool.function.name === input.name)) {
     return { ok: false, result: "DENIED: this tool is not enabled for this model or for the services connected to the current account." };

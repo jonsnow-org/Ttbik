@@ -72,12 +72,12 @@ def _ffmpeg():
 
 @unittest.skipUnless(_ffmpeg(), "ffmpeg not installed: frame-level video checks are skipped (the Studio has imageio-ffmpeg)")
 class RealVideoDecode(unittest.TestCase):
-    def clip(self, source: str) -> bytes:
+    def clip(self, source: str, seconds: float = 1.0) -> bytes:
         import subprocess
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "c.mp4"
-            subprocess.run([_ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", source, "-t", "1", "-pix_fmt", "yuv420p", "-c:v", "libx264", str(out)], check=True, timeout=60)
+            subprocess.run([_ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", source, "-t", str(seconds), "-pix_fmt", "yuv420p", "-c:v", "libx264", str(out)], check=True, timeout=60)
             return out.read_bytes()
 
     def test_moving_clip_passes_black_and_frozen_clips_fail(self):
@@ -91,10 +91,33 @@ class RealVideoDecode(unittest.TestCase):
             mq.check_mp4(self.clip("color=c=red:size=128x128:rate=8,drawbox=x=20:y=20:w=60:h=60:color=white:t=fill"))
         self.assertEqual(c.exception.reason, "static_video")
 
+    def test_requested_duration_and_real_resolution_are_enforced(self):
+        two_sec = self.clip("testsrc=size=640x360:rate=8", seconds=2)
+        info = mq.check_mp4(two_sec, expected_seconds=2, min_width=480, min_height=270)
+        self.assertEqual((info["width"], info["height"], info["duration_seconds"]), (640, 360, 2.0))
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(self.clip("testsrc=size=640x360:rate=8"), expected_seconds=2)
+        self.assertEqual(c.exception.reason, "duration_mismatch")
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(self.clip("testsrc=size=256x256:rate=8"), min_width=480, min_height=270)
+        self.assertEqual(c.exception.reason, "low_resolution")
+
     def test_garbage_that_looks_like_mp4_is_rejected_by_the_decoder(self):
         with self.assertRaises(mq.MediaQualityError) as c:
             mq.check_mp4(fx.mp4_shell())
         self.assertEqual(c.exception.reason, "empty_video")
+
+    def test_decoder_unavailable_is_not_treated_as_a_pass(self):
+        import sys
+        with patch.dict(sys.modules, {"imageio_ffmpeg": None}), patch("shutil.which", return_value=None):
+            with self.assertRaises(mq.MediaQualityError) as c:
+                mq.check_mp4(fx.mp4_shell())
+        self.assertEqual(c.exception.reason, "video_validation_unavailable")
+
+    def test_metadata_checks_cannot_be_bypassed_with_decode_false(self):
+        with self.assertRaises(mq.MediaQualityError) as c:
+            mq.check_mp4(fx.mp4_shell(), decode=False, expected_seconds=2)
+        self.assertEqual(c.exception.reason, "video_validation_unavailable")
 
 
 class GateReply(unittest.TestCase):

@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-01-r15"
+APP_REVISION = "donor-bakeoff-2026-11-02-r16"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
@@ -168,8 +168,8 @@ MEDIA_TOOLS = {
         "type": "function",
         "function": {
             "name": "generate_video",
-            "description": "Make a short real video clip (text-to-video diffusion, not stitched pictures) from a description, ONLY with this candidate's own dedicated media Studio. Takes a few minutes. Do not claim success without a returned video file.",
-            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows (English works best)"}, "seconds": {"type": "integer", "minimum": 1, "maximum": 3}}, "required": ["prompt"], "additionalProperties": False},
+            "description": "Generate a real text-to-video diffusion clip using only this candidate's own media Studio and its own local copy of the media weights. User-selectable durations: 2 seconds (fast/pressure), 4 seconds (normal), 10, 15, 30, 60 or 120 seconds. For durations above 4 seconds the current engine runs multiple short temporal passes and joins them; it verifies the resulting MP4 duration, dimensions and motion. Do not claim seamless long-form continuity without visual review.",
+            "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "what the clip shows; describe subject, action, environment and camera movement"}, "seconds": {"type": "integer", "enum": [2, 4, 10, 15, 30, 60, 120], "default": 4, "description": "Choose exactly: 2 fast, 4 normal, 10, 15, 30, 60 or 120 seconds"}}, "required": ["prompt"], "additionalProperties": False},
         },
     },
 }
@@ -985,12 +985,26 @@ def _load_tool_groups(arguments: dict, tool_bridge: dict | None) -> dict:
             headers={"Cache-Control": "no-store"},
             timeout=(10, 30),
         )
+        response.raise_for_status()
         payload = response.json() if response.content else {}
-        loaded = json.loads(str(payload.get("result") or "[]")) if isinstance(payload, dict) and payload.get("ok") else []
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            detail = str(payload.get("error") or "the app bridge refused the requested tool group") if isinstance(payload, dict) else "invalid app bridge response"
+            return {"ok": False, "error": detail[:300]}
+        try:
+            loaded = json.loads(str(payload.get("result") or "[]"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "The app bridge returned invalid tool schemas."}
         if not isinstance(loaded, list) or not loaded:
-            return {"ok": False, "error": "No tools exist for those groups on this account (github needs a linked GitHub account)."}
-        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], loaded)
-        return {"ok": True, "loaded": [t["function"]["name"] for t in loaded], "note": "These tools are available from your next step."}
+            return {"ok": False, "error": "No tools exist for those groups on this account (GitHub needs a linked GitHub account)."}
+        valid = [
+            item for item in loaded
+            if isinstance(item, dict) and isinstance(item.get("function"), dict)
+            and isinstance(item["function"].get("name"), str) and isinstance(item["function"].get("parameters"), dict)
+        ]
+        if len(valid) != len(loaded) or not valid:
+            return {"ok": False, "error": "The app bridge returned an incomplete tool schema."}
+        tool_bridge["tools"] = _merge_tool_schemas(tool_bridge.get("tools") or [], valid)
+        return {"ok": True, "loaded": [t["function"]["name"] for t in valid], "note": "These tools are available from your next step."}
     except Exception as exc:
         return {"ok": False, "error": "Could not load the tool groups: " + str(exc)[:300]}
 
@@ -1003,6 +1017,18 @@ def _media_profile() -> dict | None:
     if not (base.startswith("https://studio-novaai2026-sham-donor-") and base.endswith("-media.api-inference.modelscope.net")):
         return None
     return {"base": base, "media_repo": str(conf.get("media_repo") or "")}
+
+
+def _video_duration_seconds(value=4) -> int:
+    """Accept only the owner's explicit duration choices; never round or silently truncate."""
+    supported = (2, 4, 10, 15, 30, 60, 120)
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("اختر مدة الفيديو: 2 أو 4 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية.") from exc
+    if not seconds.is_integer() or int(seconds) not in supported:
+        raise ValueError("مدة الفيديو غير مدعومة. الخيارات هي 2، 4، 10، 15، 30، 60، أو 120 ثانية.")
+    return int(seconds)
 
 
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
@@ -1022,8 +1048,11 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         prompt = str(arguments.get("prompt") or "").strip()
         if len(prompt) < 4 or len(prompt) > 800:
             return {"ok": False, "error": "Prompt must be between 4 and 800 characters."}
-        seconds = int(arguments.get("seconds") or 2)
-        api, payload = "video", {"prompt": prompt, "seconds": max(1, min(3, seconds)), "seed": int(time.time()) % 2147483647}
+        try:
+            seconds = _video_duration_seconds(arguments.get("seconds", 4))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
         submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
@@ -1047,6 +1076,7 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         raw_bytes = base64.b64decode(str(item["b64"]), validate=True)
         if len(raw_bytes) < 1000 or len(raw_bytes) > 2_600_000:
             raise RuntimeError("the " + kind + " file is empty or larger than the delivery limit (" + str(len(raw_bytes)) + " bytes)")
+        video_info = _check_candidate_video(raw_bytes, seconds) if kind == "video" else None
         return {
             "ok": True,
             "message": kind + " made by this candidate's own dedicated media Studio.",
@@ -1054,10 +1084,68 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
                 "kind": kind, "mime": MEDIA_MIME[kind], "b64": str(item["b64"]), "bytes": len(raw_bytes),
                 "candidate": CONFIG.get("route_id"), "media_repo": profile["media_repo"], "media_studio": profile["base"],
                 "prompt": str(payload.get("text") or payload.get("prompt") or "")[:200],
+                **({"seconds": seconds, "video_info": video_info} if kind == "video" else {}),
             },
         }
     except Exception as exc:
         return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
+
+
+def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
+    """Preload only the owner's own computer/GitHub schemas for tasks that clearly need them.
+    This removes an unnecessary model round-trip to call load_tools before the first real action."""
+    if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
+        return []
+    text = str(prompt or "").lower()
+    groups = []
+    computer_words = (
+        "computer", "desktop", "terminal", "bash", "shell", "browser", "file", "folder", "run code",
+        "execute", "install", "build", "test", "debug", "repository", "repo", "كمبيوتر", "حاسوب",
+        "الحاسوب", "طرفية", "ترمينال", "متصفح", "ملف", "ملفات", "مجلد", "نفذ", "شغل", "اختبر",
+        "ثبت", "ابن", "اصلح", "أصلح", "كود", "برمج", "مشروع",
+    )
+    github_words = (
+        "github", "git hub", "pull request", "commit", "branch", "مستودع", "مستودعي", "ريبو",
+        "جيت هب", "جيتهوب", "فرع", "طلب سحب",
+    )
+    if any(word in text for word in computer_words):
+        groups.append("computer")
+    connected = tool_bridge.get("connectors") if isinstance(tool_bridge.get("connectors"), list) else []
+    if any(word in text for word in github_words) and "github" in connected:
+        groups.append("github")
+    return groups
+
+
+def _requires_computer_execution(prompt: str) -> bool:
+    """True only when the request combines an actionable verb with a computer/file/repository target."""
+    text = str(prompt or "").lower()
+    has_target = bool(re.search(
+        r"\b(computer|desktop|terminal|shell|browser|file|files|folder|repository|repo|project|source code)\b|"
+        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|ملف|ملفات|مجلد|مستودع|ريبو|المشروع|الكود",
+        text,
+    ))
+    has_action = bool(re.search(
+        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
+        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|ابحث|استخدم|استعمل|انقر",
+        text,
+    ))
+    return has_target and has_action
+
+
+def _has_computer_tools(tools: list) -> bool:
+    """A computer group is usable only when it exposes at least one real execution/read path."""
+    if not isinstance(tools, list):
+        return False
+    names = {
+        str((item.get("function") or {}).get("name") or "")
+        for item in tools if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    }
+    return bool(names.intersection({"computer_run", "computer_read", "computer_repo", "browser", "desktop"}))
+
+
+def _should_fallback_text_tools(status_code: int) -> bool:
+    """Some GGUF chat templates reject OpenAI tools with 400/422, while others fail with 5xx."""
+    return int(status_code) in {400, 422, 500, 501, 502, 503}
 
 
 def _bridge_read_timeout(name: str) -> int:
@@ -1287,6 +1375,17 @@ def infer(
                     "Never claim a tool ran unless its returned result confirms it."
                 ),
             })
+        if use_tools and isinstance(tool_bridge, dict) and str(tool_bridge.get("url") or "").startswith("https://"):
+            messages.insert(0, {
+                "role": "system",
+                "content": (
+                    "You have access to this selected model's own persistent Linux computer and browser, plus the owner's linked GitHub tools when connected. "
+                    "For a request to run code, inspect or edit project files, install dependencies, build, test, debug, or operate the computer, CALL the provided computer_* or browser tool and use its real result. "
+                    "For GitHub repository work, call the GitHub tool for the requested repository; do not substitute a different account or model. "
+                    "If a required group is not yet loaded, call load_tools with [computer], [github], or both. "
+                    "Do not merely describe commands you intend to run, do not repeat the user's request as the answer, and never claim a command succeeded without its returned output."
+                ),
+            })
         messages.insert(0, {"role": "system", "content": "Reply in the language of the user's last message."})
         messages.append({"role": "user", "content": content})
         options = {
@@ -1295,7 +1394,34 @@ def infer(
             "temperature": float(max(0.0, min(CONFIG.get("temperature", 0.2) if temperature is None else temperature, 1.2))),
             "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
+        computer_required = bool(use_tools and _requires_computer_execution(prompt))
         if use_tools:
+            # Preload tools before inference; never let a missing bridge masquerade as a completed computer task.
+            if computer_required and not (
+                isinstance(tool_bridge, dict) and str(tool_bridge.get("url") or "").startswith("https://")
+            ):
+                return {
+                    "error": "computer_tool_bridge_unavailable",
+                    "detail": "المهمة تتطلب تنفيذ إجراء على الحاسوب، لكن جسر أدوات النموذج المختار غير متاح. لم يُنفّذ أي إجراء.",
+                    "tool_execution": "not_invoked",
+                }
+            requested_groups = _requested_tool_groups(prompt, tool_bridge)
+            if computer_required and "computer" not in requested_groups:
+                requested_groups.insert(0, "computer")
+            for group in requested_groups:
+                loaded = _load_tool_groups({"groups": [group]}, tool_bridge)
+                if not loaded.get("ok") and (computer_required or group == "github"):
+                    return {
+                        "error": "tool_group_load_failed",
+                        "detail": str(loaded.get("error") or ("Could not load " + group + " tools."))[:500],
+                        "tool_execution": "not_invoked",
+                    }
+            if computer_required and not _has_computer_tools((tool_bridge or {}).get("tools") or []):
+                return {
+                    "error": "computer_tools_missing",
+                    "detail": "تعذّر تحميل أدوات تنفيذ الحاسوب الفعلية للنموذج المختار. لم يُنفّذ أي إجراء.",
+                    "tool_execution": "not_invoked",
+                }
             by_name = {item["function"]["name"]: item for item in TOOLS}
             if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
                 by_name["generate_image"] = IMAGE_GENERATION_TOOL
@@ -1316,18 +1442,19 @@ def infer(
         computer_vision_frames = []
         pending_calls = []
         text_tool_mode = False
+        computer_tool_retry_used = False
         choice_item = {}
         choice = {}
         # The model chooses when and which tool to call. Only allowlisted read-only
         # tools execute here; their real results are fed back to the model.
         read_timeout = _inference_read_timeout(int(options.get("max_tokens") or MAX_OUTPUT))
-        for tool_round in range(4):
+        for tool_round in range(8):
             response = requests.post(
                 SERVER_BASE + "/v1/chat/completions",
                 json=_text_tool_payload(options, messages) if text_tool_mode else {**options, "messages": _one_system_message(messages)},
                 timeout=(10, read_timeout),
             )
-            if response.status_code >= 500 and options.get("tools") and not text_tool_mode:
+            if _should_fallback_text_tools(response.status_code) and options.get("tools") and not text_tool_mode:
                 text_tool_mode = True      # this runtime's chat template cannot take a tools list: describe the tools in text instead
                 response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, read_timeout))
             response.raise_for_status()
@@ -1337,10 +1464,32 @@ def infer(
             calls = _parse_tool_calls(choice)
             usage = data.get("usage") or {}
             token_count += int(usage.get("completion_tokens") or 0)
+            if not calls and computer_required and not computer_tool_retry_used and not executed_tools:
+                # A valid HTTP 200 with plain prose is not a computer action. Re-ask once before
+                # any tool has run, so this cannot duplicate a side effect.
+                computer_tool_retry_used = True
+                available = [
+                    str((item.get("function") or {}).get("name") or "")
+                    for item in (options.get("tools") or [])
+                    if isinstance(item, dict) and isinstance(item.get("function"), dict)
+                ]
+                available = [name for name in available if name.startswith("computer_") or name in {"browser", "desktop"}]
+                messages.append({"role": "assistant", "content": str(choice.get("content") or "")})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "لم تنفذ المهمة بعد: لم تستدعِ أي أداة حاسوب. نفّذ الإجراء المطلوب الآن فعلياً "
+                        "باستدعاء أداة واحدة مناسبة من هذه الأسماء فقط: " + ", ".join(available) +
+                        ". استخدم صيغة <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>. "
+                        "لا تصف ما ستفعله ولا تدّعِ التنفيذ قبل استلام نتيجة الأداة."
+                    ),
+                })
+                text_tool_mode = True
+                continue
             if not calls or not use_tools:
                 pending_calls = []
                 break
-            if tool_round == 3:
+            if tool_round == 7:
                 pending_calls = calls
                 break
             assistant_calls = []
@@ -1415,8 +1564,25 @@ def infer(
         output = str(choice.get("content") or "")
         if pending_calls or executed_tools:
             output = strip_tool_call_markup(output)
+        successful_tools = sum(
+            1 for item in executed_tools
+            if isinstance(item, dict) and isinstance(item.get("result"), dict) and item["result"].get("ok") is True
+        )
+        tool_execution = (
+            "not_invoked" if not executed_tools
+            else "completed" if successful_tools == len(executed_tools)
+            else "partial" if successful_tools
+            else "failed"
+        )
+        if computer_required and tool_execution == "not_invoked":
+            output = "لم يُنفّذ أي إجراء على الحاسوب؛ لم يستدعِ النموذج أداة تنفيذ فعلية، لذلك لا أستطيع تأكيد إنجاز المهمة."
+            if choice.get("content"):
+                output += "\n" + str(choice.get("content"))
+        elif computer_required and tool_execution == "failed":
+            output = "حاول النموذج استدعاء أدوات الحاسوب، لكن جميع محاولات التنفيذ فشلت؛ لم يثبت إنجاز المهمة.\n" + output
         return {
             "text": output,
+            "tool_execution": tool_execution if use_tools else "not_requested",
             "tool_calls": pending_calls,
             "executed_tools": executed_tools,
             "generated_media": generated_media,
@@ -1694,6 +1860,58 @@ def _make_video_fixture() -> str:
         raise RuntimeError("Could not create the video smoke fixture: " + run.stderr.decode("utf-8", "replace")[-600:])
     return str(path)
 
+def _check_candidate_video(data: bytes, expected_seconds: int) -> dict:
+    """Decode and verify the real MP4: duration, dimensions, nonblank frames and temporal motion."""
+    import tempfile
+    import subprocess
+    import numpy as np
+    import imageio_ffmpeg
+
+    exe = imageio_ffmpeg.get_ffmpeg_exe()
+    if not exe:
+        raise RuntimeError("video_validation_unavailable: local ffmpeg decoder is unavailable")
+    with tempfile.TemporaryDirectory(prefix="donor-video-check-") as directory:
+        source = Path(directory) / "candidate.mp4"
+        source.write_bytes(data)
+        probe = subprocess.run(
+            [exe, "-hide_banner", "-i", str(source)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25,
+        )
+        diagnostic = (probe.stderr or b"").decode("utf-8", "replace")
+        duration = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", diagnostic)
+        video_line = next((line for line in diagnostic.splitlines() if "Video:" in line), "")
+        dimensions = re.search(r"(\d{2,5})x(\d{2,5})", video_line)
+        if not duration or not dimensions:
+            raise RuntimeError("video_validation_unavailable: ffmpeg could not read duration or dimensions")
+        actual_seconds = int(duration.group(1)) * 3600 + int(duration.group(2)) * 60 + float(duration.group(3))
+        width, height = int(dimensions.group(1)), int(dimensions.group(2))
+        if abs(actual_seconds - float(expected_seconds)) > 0.30:
+            raise RuntimeError(f"duration_mismatch: requested={expected_seconds}s actual={actual_seconds:.2f}s")
+        if width < 480 or height < 270:
+            raise RuntimeError(f"low_resolution: actual={width}x{height}; minimum=480x270")
+        side = 64
+        decoded = subprocess.run(
+            [exe, "-v", "error", "-i", str(source), "-vf", "fps=8,scale=64:64:flags=area",
+             "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+        )
+        if decoded.returncode != 0 or not decoded.stdout or len(decoded.stdout) % (side * side):
+            raise RuntimeError("empty_video: ffmpeg could not decode complete video frames")
+        frames = np.frombuffer(decoded.stdout, dtype=np.uint8).reshape(-1, side, side)
+        if len(frames) < expected_seconds * 6:
+            raise RuntimeError(f"empty_video: only {len(frames)} decodable frames")
+        blank = [frame for frame in frames if float(frame.std()) < 2.0 or int(frame.max()) - int(frame.min()) < 12]
+        if len(blank) == len(frames):
+            raise RuntimeError("static_video: all decoded frames are blank")
+        motion = float(np.abs(frames[1:].astype(np.float32) - frames[:-1].astype(np.float32)).mean())
+        if motion < 0.05:
+            raise RuntimeError("static_video: decoded frames contain no measurable motion")
+        return {
+            "duration_seconds": round(actual_seconds, 2), "width": width, "height": height,
+            "decoded_frames": int(len(frames)), "motion_score": round(motion, 3),
+        }
+
+
 def _run_direct_tool(test: dict) -> dict:
     """Runs one generation tool by itself (no model turns): the call to the candidate's OWN image / media Studio is what is checked, so a slow
     model cannot push the test past the gateway's stream limit. The file must be real: a valid image, a WAV with sound, an MP4 with motion."""
@@ -1725,8 +1943,7 @@ def _run_direct_tool(test: dict) -> dict:
                 if w.getnframes() / max(1, w.getframerate()) < 0.5 or not any(frames[:200000]):
                     problem = "audio is shorter than 0.5 s or silent"
         elif kind == "video":
-            if raw[4:8] != b"ftyp":
-                problem = "not an MP4 file"
+            _check_candidate_video(raw, int(generated.get("seconds") or (test.get("direct_args") or {}).get("seconds") or 4))
     except Exception as exc:
         problem = f"file could not be checked: {type(exc).__name__}: {str(exc)[:120]}"
     out["generated_media"] = [generated]
