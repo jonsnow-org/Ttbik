@@ -27,6 +27,32 @@ describe("Arabic subject-only media follow-ups", () => {
   });
 });
 
+describe("Media intent without a blocked-word dictionary", () => {
+  it("accepts an image request whose subject contains code and programming words", () => {
+    expect(detectMediaIntent("قم بتوليد صورة لكود Python على شاشة")).toEqual({
+      kind: "image",
+      subject: "لكود python علي شاشه",
+    });
+  });
+
+  it("accepts an image request describing a website or application", () => {
+    expect(detectMediaIntent("أنشئ صورة لموقع شركة وتطبيق الهاتف")).toEqual({
+      kind: "image",
+      subject: "لموقع شركه وتطبيق الهاتف",
+    });
+  });
+
+  it("accepts a subject-only follow-up containing words previously on the exclusion list", () => {
+    expect(detectMediaIntent("كود Python داخل موقع", {
+      previousUser: "قم بتوليد صورة",
+      previousAssistant: "ما الذي تريد أن يظهر في الصورة؟",
+    })).toEqual({
+      kind: "image",
+      subject: "كود Python داخل موقع",
+    });
+  });
+});
+
 describe("Nova video duration intent", () => {
   it.each([
     ["قم بتوليد فيديو أسد لمدة 10 ثواني", 10],
