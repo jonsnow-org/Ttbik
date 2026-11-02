@@ -19,14 +19,6 @@ export interface ShamHost {
   /** What this run already read (a file, a scan, CI logs, a page): kept per run so a later step can look it up again. Sham's own rows (`sham-<chat>` / `sham:<chat>`). */
   bank: { add(runId: string, chatKey: string, step: number, tool: string, label: string, body: string, db: Db): Promise<void>; recall(runId: string, chatKey: string, query: string, n: number, db: Db): Promise<string> };
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
-  computer: {
-    status(c: { chatId: number; modelId: string; owner: boolean; db: Db }): Promise<Record<string, unknown>>;
-    execute(c: { chatId: number; modelId: string; owner: boolean; db: Db }, command: string, cwd?: string, timeoutMs?: number): Promise<Record<string, unknown>>;
-    writeFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string, content: string): Promise<Record<string, unknown>>;
-    readFile(c: { chatId: number; modelId: string; owner: boolean; db: Db }, path: string): Promise<{ path: string; bytes: Buffer } | null>;
-    action(c: { chatId: number; modelId: string; owner: boolean; db: Db }, action: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>;
-    screenshot(c: { chatId: number; modelId: string; owner: boolean; db: Db }, options?: { region?: { x: number; y: number; width: number; height: number }; compressed?: boolean; format?: "png" | "jpeg"; quality?: number; scale?: number }): Promise<{ path: string; bytes: Buffer } | null>;
-  };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
