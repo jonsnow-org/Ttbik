@@ -9,7 +9,7 @@ from pathlib import Path
 
 os.environ.setdefault("BOX_STORE", "/mnt/workspace/computer")
 os.environ.setdefault("BROWSER_STORE", "/mnt/workspace/browser")
-os.environ.setdefault("COMPUTER_MAX_GLOBAL_JOBS", "1")  # 2 vCPU
+os.environ.setdefault("COMPUTER_MAX_GLOBAL_JOBS", "6")  # several users at once, each private; the free-memory gate protects the Studio
 os.environ.setdefault("COMPUTER_MIN_AVAILABLE_MB", "2048")
 os.environ.setdefault("COMPUTER_MEMORY_KILL_MB", "8192")
 os.environ.setdefault("COMPUTER_QUOTA_GB", "8")
