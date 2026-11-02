@@ -107,28 +107,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
-  const cloudComputerContext = async (allowRevoked = false) => {
-    const st = await loadStateStrict(chatId, db);
-    const currentModel = canonModelId(st.model) || "coder";
-    const requestedInput = typeof body.model === "string" ? body.model : currentModel;
-    const requestedModel = canonModelId(requestedInput);
-    if (!requestedModel) throw new AppError(400, "نموذج الحاسوب المحدد غير معروف.");
-    const requested: string = requestedModel;
-    // Revoked/expired users may inspect or stop only the machine for their server-stored current model.
-    if (allowRevoked && requested !== currentModel) throw new AppError(403, "لا يمكن إيقاف حاسوب نموذج آخر.");
-    const model = (await listModels(db)).find((item) => item.id === requested);
-    if (!model || (!modelUsableBy(model, user.tier === "owner") && !(allowRevoked && requested === currentModel))) {
-      throw new AppError(403, "الحاسوب غير متاح لهذا النموذج في حسابك.");
-    }
-    return { chatId, modelId: requested, tier: user.tier, db, fetchImpl: deps.fetchImpl };
-  };
-  const computerCall = async (fn: (ctx: Awaited<ReturnType<typeof cloudComputerContext>>) => Promise<Json>, allowRevoked = false) => {
-    try { return await fn(await cloudComputerContext(allowRevoked)); }
-    catch (error) {
-      if (error instanceof AppError) throw error;
-      throw new AppError(503, String((error as Error)?.message || "Cloud computer operation failed").slice(0, 320));
-    }
-  };
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
@@ -678,33 +656,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { panelAction } = await import("@/lib/coderPanel");
       return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
     }
-    case "computer_cleanup_all": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const rows = await db.query<{ chat_id: number | string; model_id: string }>(
-        "SELECT chat_id, model_id FROM cloud_computers WHERE state NOT IN ('stopped', 'deleted', 'archived') ORDER BY updated_at LIMIT $1",
-        50,
-      );
-      const { cloudComputerStop } = await import("@/lib/cloudComputer");
-      let stopped = 0;
-      const errors: string[] = [];
-      for (let i = 0; i < rows.length; i += 5) {
-        const batch = await Promise.all(rows.slice(i, i + 5).map(async (row) => {
-          const chatId = Number(row.chat_id);
-          if (!Number.isFinite(chatId) || !row.model_id) return { ok: false, detail: "invalid legacy computer identity" };
-          try {
-            await cloudComputerStop({ chatId, modelId: row.model_id, tier: "owner", db });
-            return { ok: true, modelId: row.model_id };
-          } catch (error) {
-            return { ok: false, modelId: row.model_id, detail: String((error as Error)?.message || error).slice(0, 160) };
-          }
-        }));
-        for (const item of batch) {
-          if (item.ok) stopped++;
-          else errors.push((item.modelId || "unknown") + ": " + (item.detail || "stop failed"));
-        }
-      }
-      return { ok: errors.length === 0, examined: rows.length, stopped, pending: errors.length, errors };
-    }
     case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const model = String(body.model || "coder");
@@ -730,43 +681,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       try { return await studioCall(base, "browser_do", { ...clean, session: `${chatId}:${model}`, screenshot: true }, deps.fetchImpl || globalThis.fetch, 100_000) as Json; }
       catch (error) { return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) } as Json; }
     }
-    case "computer_status":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStatus(ctx)), true);
-    case "computer_open":
-    case "computer_refresh":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => op === "computer_open" ? m.cloudComputerOpen(ctx) : m.cloudComputerRefreshPreview(ctx)));
-    case "computer_stop":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerStop(ctx)), true);
-    case "computer_self_test":
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerSelfTest(ctx)));
-    case "computer_terminal_open":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalOpen(ctx)));
-    case "computer_terminal_execute": {
-      const command = String(body.command || "");
-      if (!command.trim()) throw new AppError(400, "shell command is required");
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalExecute(ctx, command)));
-    }
-    case "computer_terminal_poll":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalPoll(ctx, String(body.sessionId || ""), typeof body.cursor === "string" ? body.cursor : undefined)));
-    case "computer_terminal_input":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalInput(ctx, String(body.sessionId || ""), String(body.data || ""))));
-    case "computer_terminal_ticket":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalTicket(ctx, String(body.sessionId || ""), typeof body.cursor === "string" ? body.cursor : undefined)));
-    case "computer_files_list":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerListFiles(ctx, String(body.path || "/home/daytona"), Number(body.depth) || 1)));
-    case "computer_files_mkdir":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerCreateFolder(ctx, String(body.path || ""))));
-    case "computer_files_delete":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerDeleteFile(ctx, String(body.path || ""), body.recursive === true)));
-    case "computer_files_download":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileDownload(ctx, String(body.path || ""))));
-    case "computer_files_upload":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerFileUpload(ctx, String(body.path || ""), String(body.base64 || ""))));
-    case "computer_files_write_text":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerWriteFile(ctx, String(body.path || ""), String(body.content ?? ""))));
-    case "computer_terminal_resize":
-      return await computerCall((ctx) => import("@/lib/cloudComputer").then((m) => m.cloudComputerTerminalResize(ctx, String(body.sessionId || ""), Number(body.cols), Number(body.rows))));
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
