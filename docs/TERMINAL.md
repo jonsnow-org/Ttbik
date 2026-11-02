@@ -28,7 +28,7 @@ only the neutral shell modules (`coderApp.ts`, `coderChats.ts`, `coderTasks.ts`,
 
 The Mini App has one **Computer / حاسوبي** tab. It contains three views inside the same model-specific machine:
 - **Desktop:** signed VNC preview and Computer Use.
-- **Terminal:** an interactive PTY session created inside that same Daytona VM; it shares the same filesystem and installed software as the desktop.
+- **Terminal:** an interactive terminal session created inside that model's private Linux workspace; it shares the same filesystem and installed software as the graphical desktop.
 - **Activity:** persisted task events filtered to the selected model. It is not a second terminal or a second execution environment.
 
 The previous standalone Terminal tab has been removed from the tab bar. Legacy links to \`terminal\` route to Computer. The shell session has its own id, output polling and input channel. The session is recreated after a VM stop/start; files and packages survive on the persistent disk.
