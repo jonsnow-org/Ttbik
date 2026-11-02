@@ -502,7 +502,9 @@ def _reaper() -> None:
 def api_desktop_do(body: str) -> str:
     """Gradio entry point: start/status/frame/stop/launch/click/type/key/scroll."""
     try:
-        job = json.loads(body or "{}")
+        # Match the computer_box wire contract: the Studio gateway rejects
+        # some raw JSON payloads, so the app client sends b64:<JSON>.
+        job = json.loads(box.unwrap_body(body) or "{}")
         if not isinstance(job, dict):
             raise ValueError("request must be an object")
         session = str(job.get("session") or "").strip()
