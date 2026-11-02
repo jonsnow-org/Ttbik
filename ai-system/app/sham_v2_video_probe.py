@@ -1,4 +1,4 @@
-"""Live probe of Sham v2's own video Studio (ai-system/modelscope-sham-video/app.py): waits for ready, then asks for a real clip and checks it (frames > 1, motion).
+"""Live probe of Sham v2's own video Studio (ai-system/modelscope-sham-video/app.py): waits for ready, then asks for a 5-second clip and verifies the actual MP4 duration, decoded frames and motion.
 
 Reuses the Studio client and content checks of nova_media_probe (same protocol, no shared Studio). Env: SHAM_V2_VIDEO_URL, MODELSCOPE_TOKEN, PROBE_PROMPT, PROBE_OUT, READY_TIMEOUT.
 """
@@ -31,10 +31,13 @@ def main() -> int:
     prompt = os.environ.get("PROBE_PROMPT", "").strip() or "a red apple slowly rotating on a white table, camera slowly orbiting"
     t0 = time.time()
     try:
-        raw = _bytes(st.call("generate_video", {"prompt": prompt, "seconds": 2, "seed": 17}, timeout=900), "video", "video")
+        raw = _bytes(st.call("generate_video", {"prompt": prompt, "seconds": 5, "seed": 17}, timeout=900), "video", "video")
         with open(os.path.join(os.environ.get("PROBE_OUT", "."), "sham_v2_video.mp4"), "wb") as fh:
             fh.write(raw)
-        print(f"PASS video: {len(raw)} bytes in {time.time() - t0:.0f}s {json.dumps(verify_video(raw))}")
+        metrics = verify_video(raw)
+        if metrics.get("seconds", 0) < 4.8 or metrics.get("frames", 0) < 40:
+            raise ProbeError(f"video: requested 5 seconds but decoded only {metrics.get('seconds')}s / {metrics.get('frames')} frames")
+        print(f"PASS 5-second video: {len(raw)} bytes in {time.time() - t0:.0f}s {json.dumps(metrics)}")
         print("status after:", json.dumps(st.status())[:400])
         return 0
     except ProbeError as exc:
