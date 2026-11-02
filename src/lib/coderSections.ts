@@ -718,7 +718,7 @@ async function fastMedia(
   bot: TelegramBot,
   chatId: number,
   runId: string,
-  intent: { kind: "image" | "video"; subject: string },
+  intent: { kind: "image" | "video"; subject: string; seconds?: number },
   content: string,
   modelId: string,
   db: Db,
