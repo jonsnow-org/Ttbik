@@ -16,7 +16,7 @@ const IMAGES = set("صوره صور رسمه لوحه لوغو لوجو شعار
 const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو فدو فيديوا فيديوه فديوه كليب انيميشن video videos clip animation");
 /** Any spelling of "video" (فيديو / فديو / فيدو / ڤيديو / فيديوهات ...): after norm(), a word of the shape ف-ي?-د-ي?-و-ه?. */
 const VIDEO_SHAPE = /^ف[يا]?د[يا]?[وؤ][هو]?(?:ات|ا)?$/;
-const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن");
+const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن لمده");
 const NOT_WORDS = set("كود برمج code script html css python javascript موقع website تطبيق app ملف file github repo حلل اشرح كيف how explain describe عدل edit حول convert ترجم translate تحويل png jpg svg pdf رابط http ماذا وصف هذه هذي تلك this");
 const bare = (w: string): string => w.replace(/^(ال|ب|ل|و|ف)(?=.{3,})/, "");
 const inSet = (w: string, s: Set<string>): boolean => s.has(w) || s.has(bare(w));
