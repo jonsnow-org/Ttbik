@@ -648,7 +648,7 @@ def _kill_group(pid: int) -> None:
 
 
 # ---------------------------------------------------------------- the toolchain (installed once, in the background, when we are root)
-WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl", "iptables": "iptables"}
+WANTED_TOOLS = {"git": "git", "rg": "ripgrep", "jq": "jq", "unzip": "unzip", "curl": "curl", "iptables": "iptables", "gh": "gh"}
 
 
 def ensure_toolchain() -> str:

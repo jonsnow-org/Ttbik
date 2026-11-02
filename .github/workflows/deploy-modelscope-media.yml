@@ -8,8 +8,8 @@ on:
     branches:
       - claude/free-services-marketplace-h6rwk2
     paths:
-      - ai-system/modelscope-media/**
-      - scripts/ops/modelscope_computer_smoke.py
+      - ai-system/modelscope-media/app.py
+      - ai-system/modelscope-media/requirements.txt
       - .github/workflows/deploy-modelscope-media.yml
   workflow_dispatch:
     inputs:

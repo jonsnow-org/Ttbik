@@ -9,10 +9,6 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-sham-video/**
-      - scripts/ops/modelscope_computer_smoke.py
-      - ai-system/modelscope-media/computer_box.py
-      - ai-system/modelscope-media/browser_computer.py
-      - ai-system/modelscope-media/desktop_computer.py
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/sham_v2_video_probe.py
