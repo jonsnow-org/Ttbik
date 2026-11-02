@@ -5,6 +5,16 @@ name: "Candidate media Studios: each candidate gets its OWN speech + video Studi
 # Nothing is shared at run time: a candidate asks only ITS Studio. Free 8 GB CPU hardware only. Nothing secret is printed; nothing is deleted.
 
 on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - ai-system/modelscope-media/app.py
+      - ai-system/modelscope-media/browser_computer.py
+      - ai-system/modelscope-media/computer_box.py
+      - ai-system/modelscope-media/desktop_computer.py
+      - ai-system/modelscope-media/requirements.txt
+      - .github/workflows/deploy-candidate-media.yml
   workflow_dispatch: {}
 
 concurrency:
