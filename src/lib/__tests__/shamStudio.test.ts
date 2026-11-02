@@ -67,6 +67,29 @@ describe("shamStudio", () => {
     expect(await shamGenerateAny("ارسم قطة")).toBeNull();
     expect(await shamGenerateMedia("image", "قطة")).toBeNull();
   });
+  it("sends the requested duration to Sham v2's own video Studio", async () => {
+    const real = global.fetch;
+    const previousToken = process.env.MODELSCOPE_API_TOKEN;
+    const previousUrl = process.env.SHAM_V2_VIDEO_URL;
+    process.env.MODELSCOPE_API_TOKEN = "test-token";
+    process.env.SHAM_V2_VIDEO_URL = "https://sham-v2-video.example";
+    let submitted: Record<string, unknown> | null = null;
+    global.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/gradio_api/call/v2/generate_video")) {
+        submitted = JSON.parse(String(init?.body || "{}"));
+        return Response.json({ event_id: "video-event" });
+      }
+      return new Response('event: complete\\ndata: [' + JSON.stringify(JSON.stringify({ type: "text", text: "done" })) + ']\\n');
+    }) as typeof fetch;
+    try {
+      await shamVariant.run("v2", () => shamGenerateMedia("video", "a rabbit in a garden", 10000, "ready", { seconds: 5 }));
+      expect(JSON.parse(String(submitted?.body || "{}"))).toEqual({ prompt: "a rabbit in a garden", seconds: 5, seed: 0 });
+    } finally {
+      global.fetch = real;
+      if (previousToken === undefined) delete process.env.MODELSCOPE_API_TOKEN; else process.env.MODELSCOPE_API_TOKEN = previousToken;
+      if (previousUrl === undefined) delete process.env.SHAM_V2_VIDEO_URL; else process.env.SHAM_V2_VIDEO_URL = previousUrl;
+    }
+  });
   it("reads a video reply and the chat_auto route; chat_auto sends nothing without a token", async () => {
     const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
     const v = parseShamReply(body({ type: "video", mime: "video/mp4", b64: "CCCC", text: "🎬", route: "video" }));
