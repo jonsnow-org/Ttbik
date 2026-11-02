@@ -117,6 +117,37 @@ class CandidateToolRouting(unittest.TestCase):
             self.assertFalse(f(code), code)
 
 
+
+class ComputerExecutionContract(unittest.TestCase):
+    def test_actionable_arabic_and_english_computer_requests_are_detected(self):
+        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        self.assertTrue(f("افحص ملف package.json على الحاسوب وشغّل الاختبارات"))
+        self.assertTrue(f("Open the browser and click the Settings button"))
+        self.assertTrue(f("Run the build in the terminal and inspect the failing file"))
+
+    def test_capability_questions_are_not_mistaken_for_execution_requests(self):
+        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        self.assertFalse(f("ما الذي يمكنك فعله على الحاسوب؟"))
+        self.assertFalse(f("What computer tools are available?"))
+
+    def test_preload_must_expose_a_real_computer_tool(self):
+        f = load("_has_computer_tools")["_has_computer_tools"]
+        self.assertFalse(f([{"function": {"name": "load_tools"}}]))
+        self.assertTrue(f([{"function": {"name": "computer_run"}}]))
+        self.assertTrue(f([{"function": {"name": "desktop"}}]))
+
+
+class CandidateVideoDurationContract(unittest.TestCase):
+    def test_only_the_real_two_and_four_second_profiles_are_accepted(self):
+        f = load("_video_duration_seconds")["_video_duration_seconds"]
+        self.assertEqual(f(), 4)
+        self.assertEqual(f(2), 2)
+        self.assertEqual(f(4), 4)
+        for unsupported in (1, 3, 5, 10, 15, 30, 60, 120, "4.5"):
+            with self.assertRaises(ValueError, msg=str(unsupported)):
+                f(unsupported)
+
+
 class TextToolFallback(unittest.TestCase):
     def test_payload_has_no_tools_field_and_turns_become_text(self):
         s = load("_one_system_message", "_text_tools_system", "_text_tool_payload")
