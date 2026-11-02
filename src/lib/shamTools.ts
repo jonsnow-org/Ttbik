@@ -17,7 +17,7 @@ export function shamToolsEnabled(): boolean {
 
 const FORMAT_BASE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.';
 const FORMAT_ASK = " إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة.";
-const FORMAT_CODE = " وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.";
+const FORMAT_CODE = " وإذا كتبت كوداً أو عدّلت مشروعاً فاعمل في حاسوبك الدائم: اكتب الملف بـ computer_write أو computer_edit، ثم شغّله فعلياً بـ computer_run. للأوامر التي تتجاوز 90 ثانية استخدم computer_job وانتظر نتيجته. لا تستخدم مساحة sandbox المؤقتة للعمل العادي.";
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
 /** Which tool fits which request (measured on the new body: it read a GitHub file with the VM tool, did not save a memory, and opened a PR instead of pushing). Shown only for tools that are loaded. */
@@ -31,9 +31,9 @@ const EXAMPLES: [string, string][] = [
   ["mcp_call", "استدعاء أداة MCP بعد التأكيد ← mcp_call(server, tool, arguments)"],
   ["github_read_file", "قراءة ملف من مستودع GitHub ← github_read_file(repo, path)"],
   ["memory_save", "«تذكّر أن…» ← memory_save(text)"],
-  ["sandbox_push", "رفع التعديلات إلى GitHub ← sandbox_push(repo, branch, message)"],
+  ["computer_publish", "نشر التعديلات من الحاسوب الدائم إلى GitHub بعد تأكيد المستخدم ← computer_publish(repo, branch, message)"],
   ["web_search", "معلومة حديثة ← web_search(query)"],
-  ["sandbox_write_file", "كود يُكتب ويُجرَّب ← sandbox_write_file ثم sandbox_exec"],
+  ["computer_write", "كتابة ملف في الحاسوب الدائم ← computer_write ثم computer_run لتشغيله"],
   ["make_media", "صورة أو صوت أو فيديو ← make_media(kind, prompt)"],
   ["delegate", "عدة تحقيقات مستقلة (قراءة/بحث/CI) تتم معاً ← delegate(tasks)"],
   ["github_ci", "لماذا فشل الاختبار ← github_ci(repo)"],
@@ -59,11 +59,11 @@ export function shamToolBlock(tools: CoderTool[], maxChars = 2600): string {
   const ex = EXAMPLES.filter(([n]) => has.has(n)).map(([, text]) => text);
   // the new body (room for ~1200 prompt tokens) also gets the two details its real CPU run got wrong; the old 384-token body has no spare room
   if (shamVariant.getStore() === "v2") {
-    const i = ex.findIndex((t) => t.includes("github_read_file")), j = ex.findIndex((t) => t.includes("sandbox_write_file"));
+    const i = ex.findIndex((t) => t.includes("github_read_file")), j = ex.findIndex((t) => t.includes("computer_write"));
     if (i >= 0) ex[i] += ' (repo="owner/name")';
     if (j >= 0) ex[j] += "؛ الاختبارات: python3 -m unittest -v f (اسم الوحدة بلا .py)";
   }
-  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_BASE}${has.has("ask_user") ? FORMAT_ASK : ""}${has.has("sandbox_exec") && has.has("sandbox_write_file") ? FORMAT_CODE : ""}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
+  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_BASE}${has.has("ask_user") ? FORMAT_ASK : ""}${has.has("computer_run") && has.has("computer_write") ? FORMAT_CODE : ""}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
 }
 
 /** Harmless spelling of an argument the model gets "almost" right is fixed here instead of failing the call: a GitHub URL / `.git` / trailing slash in `repo`. */
@@ -180,10 +180,10 @@ const CODE_FENCE = /```(?:python|py|js|javascript|ts|typescript|bash|sh|java|c|c
 export function codeNotTried(text: string, messages: CoderMessage[], tools: CoderTool[]): boolean {
   if (!CODE_FENCE.test(text)) return false;
   const names = new Set(tools.map((t) => t.function.name));
-  if (!names.has("sandbox_exec") || !names.has("sandbox_write_file")) return false;
+  if (!names.has("computer_run") || !names.has("computer_write")) return false;
   let i = messages.length - 1;
   while (i >= 0 && !(messages[i].role === "user" && !String((messages[i] as { content?: string }).content || "").startsWith("[harness]"))) i--;
-  return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "sandbox_exec");
+  return !messages.slice(Math.max(0, i)).some((m) => m.role === "tool" && (m as { name?: string }).name === "computer_run");
 }
 
-export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه، وكتابة الكود في الرد لا تُشغّله. اكتب سطراً واحداً بالصيغة الحرفية هكذا ثم انتظر: <tool_call>{\"name\": \"sandbox_write_file\", \"arguments\": {\"path\": \"main.py\", \"content\": \"...الكود...\"}}</tool_call> وبعده شغّله بـ sandbox_exec وأصلح ما يفشل، ثم أجب.";
+export const SHAM_CODE_NOTE = "[تصحيح من المحرك] كتبتَ كوداً ولم تجرّبه. استخدم الحاسوب الدائم نفسه: اكتب الملف بـ computer_write أو عدّله بـ computer_edit، ثم نفّذ أمراً حقيقياً بـ computer_run (وللمهام الأطول استخدم computer_job). بعد التنفيذ اقرأ النتيجة وأصلح أي فشل قبل الإجابة. لا تنقل العمل إلى sandbox مؤقت.";
