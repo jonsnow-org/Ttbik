@@ -28,14 +28,11 @@ function safeEqual(a: string, b: string): boolean {
 // Each candidate receives GitHub, its own isolated computer namespace, web and linked services through the shared app executor.
 // The 16 GB host is common; the selected model id remains part of the session key, so homes, UIDs and browser contexts do not overlap.
 // The temporary sandbox_* task-worker tools are intentionally not offered to candidates: normal work uses their own persistent namespace.
-export const CANDIDATE_GROUPS = ["github", "computer", "web", "connectors"] as const;
+// Owner order 2026-11-03: candidates work with the SAME tools as Nova, without hidden restrictions (an earlier session had blocked media, memory, schedules, view_*, send_file, plan, ask_user, delegate and computer_publish).
+// Consequential actions still go through guardCall, which asks the owner to approve.
+export const CANDIDATE_GROUPS = ["github", "computer", "web", "connectors", "media", "memory", "schedule", "worker"] as const;
 export type CandidateGroup = (typeof CANDIDATE_GROUPS)[number];
-const BLOCKED_FOR_CANDIDATES = new Set([
-  "make_media", "delegate", "schedule_create", "schedule_list", "schedule_delete",
-  "memory_note", "memory_save", "memory_search", "memory_forget", "recall", "plan",
-  "send_file", "ask_user", "view_image", "view_video",
-  "computer_publish",                       // candidates keep read-only GitHub: nothing they do commits to a repository
-]);
+const BLOCKED_FOR_CANDIDATES = new Set<string>();
 const LOAD_TOOLS_DEF = {
   type: "function" as const,
   function: {

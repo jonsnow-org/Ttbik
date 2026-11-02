@@ -3,16 +3,15 @@ import { CANDIDATE_GROUPS, candidateToolsFor } from "@/lib/donorToolBridge";
 const names = (groups: readonly string[], gh = true, conn = true) => candidateToolsFor(groups, gh, conn).map((t) => t.function.name);
 
 describe("candidate tool groups", () => {
-  test("the four groups give a candidate GitHub, one persistent computer, the web and linked services", () => {
+  test("the groups give a candidate GitHub, a persistent computer, the web and linked services", () => {
     const all = names(CANDIDATE_GROUPS);
     expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "computer_run", "computer_read", "browser", "desktop", "web_search", "fetch_page", "connector_api"]));
-    expect(all).not.toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
   });
 
-  test("nothing that would reach into another model is ever offered", () => {
+  test("candidates have the same tool groups as Nova: media, memory, schedules, publish and viewing are offered too", () => {
     const all = names(CANDIDATE_GROUPS);
-    for (const blocked of ["make_media", "delegate", "schedule_create", "schedule_list", "memory_save", "memory_search", "recall", "send_file", "ask_user"]) {
-      expect(all).not.toContain(blocked);
+    for (const wanted of ["make_media", "view_image", "view_video", "send_file", "plan", "memory_save", "memory_search", "recall", "schedule_create", "schedule_list", "computer_publish", "sandbox_exec"]) {
+      expect(all).toContain(wanted);
     }
   });
 
@@ -23,7 +22,7 @@ describe("candidate tool groups", () => {
   });
 
   test("an unknown group gives nothing and schemas stay short", () => {
-    expect(names(["media", "memory", "schedule", "../etc"])).toEqual([]);
+    expect(names(["../etc", "nothing"])).toEqual([]);
     for (const t of candidateToolsFor(CANDIDATE_GROUPS, true, true)) expect(t.function.description.length).toBeLessThanOrEqual(170);
   });
 });
@@ -51,8 +50,7 @@ describe("computer tools under the zero-cost policy (production)", () => {
     withEnv("production", () => {
       const all = names(["computer"]);
       expect(all).toEqual(expect.arrayContaining(["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]));
-      expect(all).not.toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
-      expect(all.every((n) => !n.startsWith("cloud_"))).toBe(true);
+        expect(all.every((n) => !n.startsWith("cloud_"))).toBe(true);
     });
   });
 });
