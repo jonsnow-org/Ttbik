@@ -31,3 +31,6 @@ Nova, Sham v1, Sham v2 and all three candidate inference/media paths remain sepa
 ## Tests
 
 The deployment verifies private visibility and 16 GB hardware before changing the Studio, stops the previous MiniCPM runtime, removes only its model cache, and waits for the computer-only app revision. It then tests Bash, persistent file read/write, a background job, a real X11 screenshot, and Bash while the desktop is running. Chromium is tested separately after bootstrap; if its bootstrap cannot complete, that status is reported as unverified rather than treating the browser test as passed.
+
+## Difficulty routing (fast / strong model)
+`src/lib/coderTier.ts`: when `OPEN_CODER_FAST_STUDIOS` (comma list of Studio addresses) names Nova Studios that run a fast model, greetings and short plain questions go to those Studios and code, agent, planning, pictures and every tool step go to the others. Unset = no change. A request is never refused because of its tier (if no Studio of the tier is available, all are used). Tests: `coderTier.test.ts`. Only a model family with two kinds of Studio can use it; today that is Nova (replica 4 runs the fast trial model).

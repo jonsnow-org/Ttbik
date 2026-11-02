@@ -6,6 +6,7 @@
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
 const PROVIDER_JOB_PREFIX = "p~";   // jobs of the removed "Sham inside Nova" provider: a run saved before that was removed gets "gone" instead of being polled
@@ -102,7 +103,7 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
   const now = Date.now();
   return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
 }
-export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false): Promise<CoderOutcome> {
+export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier): Promise<CoderOutcome> {
   const bases = coderStudioUrls();
   if (pressureOn()) avoidHome = true;                                       // pressure mode (owner switch): the least-queued Studio, not the conversation's cache-holding one
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
@@ -127,6 +128,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
         ord = ord.filter((x) => visionBases.has(x.b));
         if (!ord.length) return null;
       }
+      ord = filterByTier(ord, tier);                                                          // fast model for greetings and short questions, strong model for the rest (only when fast Studios are configured)
       if (fresh) {
         ord = ord.filter((x) => Date.now() - (heldAt.get(x.b) || 0) > HELD_MS);
         if (!ord.length) return null;
@@ -305,7 +307,7 @@ export async function coderChat(
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
   };
-  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages));
+  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools));
   if (!(opts.priority && opts.priority > 0)) return call(base);                       // no field at all: the payload is what every Studio already understands
   const o = await call({ ...base, priority: 1 });                                     // Pro / owner: ahead in the Studio's queue
   return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it
