@@ -123,8 +123,12 @@ def _mp4_boxes(data: bytes) -> set:
     return names
 
 
-def check_mp4(data: bytes, *, decode: bool = True) -> dict:
-    """Structure check always (ftyp + moov + mdat, not tiny); when ffmpeg is available also decode a few frames and require real, non-blank, changing frames."""
+def check_mp4(
+    data: bytes, *, decode: bool = True, expected_seconds: float | None = None,
+    min_width: int = 0, min_height: int = 0,
+) -> dict:
+    """Validate the MP4 container, requested runtime, actual resolution, decodable frames and real motion."""
+
     if not data or len(data) < MIN_VIDEO_BYTES:
         raise MediaQualityError("empty_video", f"{len(data or b'')} bytes")
     boxes = _mp4_boxes(data)
@@ -148,8 +152,27 @@ def check_mp4(data: bytes, *, decode: bool = True) -> dict:
             with open(src, "wb") as fh:
                 fh.write(data)
             side = 64
-            out = _sp.run([exe, "-v", "error", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
-                          capture_output=True, timeout=90).stdout
+            decoded = _sp.run([exe, "-hide_banner", "-i", src, "-vf", f"scale={side}:{side}", "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+                              capture_output=True, timeout=90)
+        diagnostic = (decoded.stderr or b"").decode("utf-8", "replace")
+        meta_duration = __import__("re").search(r"Duration:\s*(\d+):(\d+):([\d.]+)", diagnostic)
+        video_line = next((line for line in diagnostic.splitlines() if "Video:" in line), "")
+        meta_size = __import__("re").search(r"(\d{2,5})x(\d{2,5})", video_line)
+        if expected_seconds is not None:
+            if not meta_duration:
+                raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video duration")
+            actual_seconds = int(meta_duration.group(1)) * 3600 + int(meta_duration.group(2)) * 60 + float(meta_duration.group(3))
+            info["duration_seconds"] = round(actual_seconds, 2)
+            if abs(actual_seconds - float(expected_seconds)) > 0.30:
+                raise MediaQualityError("duration_mismatch", f"requested={float(expected_seconds):g}s actual={actual_seconds:.2f}s")
+        if min_width or min_height:
+            if not meta_size:
+                raise MediaQualityError("video_validation_unavailable", "ffmpeg could not read the video dimensions")
+            width, height = int(meta_size.group(1)), int(meta_size.group(2))
+            info.update(width=width, height=height)
+            if width < int(min_width) or height < int(min_height):
+                raise MediaQualityError("low_resolution", f"actual={width}x{height} minimum={int(min_width)}x{int(min_height)}")
+        out = decoded.stdout
         frames = np.frombuffer(out, dtype="u1").reshape(-1, side, side).astype("float64") if len(out) >= side * side else None
     except Exception:  # noqa: BLE001  (a broken decoder is not proof the clip is bad: the structure check above stands)
         return info
@@ -172,6 +195,9 @@ _MESSAGES = {
     "invalid_audio": "الصوت الناتج غير صالح. / The generated audio is invalid.",
     "empty_video": "لم يُنشئ النموذج فيديو صالحاً (فارغ/غير مكتمل). / The model produced an empty or incomplete video.",
     "static_video": "الفيديو الناتج فارغ أو ثابت بلا حركة. / The video is blank or has no motion.",
+    "duration_mismatch": "مدة الفيديو الناتج لا تطابق المدة المطلوبة؛ لم يتم إرسال المقطع. / Generated video duration did not match the requested duration.",
+    "low_resolution": "دقة الفيديو الناتج أقل من الحد المطلوب؛ لم يتم إرسال المقطع. / Generated video resolution is below the required minimum.",
+    "video_validation_unavailable": "تعذّر التحقق من مدة الفيديو ودقته؛ لم يتم إرسال المقطع. / Video duration and resolution could not be verified."
 }
 
 
