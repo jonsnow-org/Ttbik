@@ -189,7 +189,7 @@ export function codeNotTried(text: string, messages: CoderMessage[], tools: Code
     if (name === "computer_run") return true;
     if (name !== "computer_job") return false;
     const output = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-    return /finished with exit -?\\d+/.test(output);
+    return /finished with exit -?\d+/.test(output);
   });
   return !executed;
 }
