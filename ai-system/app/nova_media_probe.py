@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 MIN_PIXEL_STD = 8.0
 MIN_MOTION = 0.05          # mean absolute grey-level change between consecutive frames (0..255)
-ENGINE = "AnimateDiff-Lightning"
+ENGINE = "AnimateDiff-Lightning + FreeNoise"
 
 
 class ProbeError(RuntimeError):
@@ -78,7 +78,7 @@ def verify_video(raw: bytes) -> dict:
             fh.write(raw)
         info = subprocess.run([exe, "-hide_banner", "-i", src], capture_output=True, text=True, timeout=30)
         probe_text = (info.stderr or "") + (info.stdout or "")
-        duration_match = re.search(r"Duration:\\s*(\\d+):(\\d+):([0-9.]+)", probe_text)
+        duration_match = re.search(r"Duration:\s*(\d+):(\d+):([0-9.]+)", probe_text)
         if not duration_match:
             raise ProbeError("video: ffmpeg could not read a valid MP4 duration")
         duration = int(duration_match.group(1)) * 3600 + int(duration_match.group(2)) * 60 + float(duration_match.group(3))
@@ -206,15 +206,18 @@ def main() -> int:
     steps = [
         ("image", "image", {"prompt": os.environ.get("PROBE_PROMPT", "").strip() or "a small red apple on a clean white table, natural light", "size": 512, "seed": int(os.environ.get("PROBE_SEED", "17") or 17)}, verify_image, "probe.png", "image"),
         ("speech", "audio", {"text": "مرحبا، هذا اختبار صوت نوفا العربي."}, verify_audio, "probe.wav", "speech"),
-        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 1, "seed": 17}, verify_video, "probe.mp4", "video"),
+        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 5, "seed": 17}, verify_video, "probe.mp4", "video"),
     ]
     for api, kind, payload, verify, fname, label in steps:
         t0 = time.time()
         try:
-            raw = _bytes(st.call(api, payload), kind, label)
+            raw = _bytes(st.call(api, payload, timeout=1500 if kind == "video" else 900), kind, label)
             with open(os.path.join(outdir, fname), "wb") as fh:
                 fh.write(raw)
-            print(f"PASS {label}: {len(raw)} bytes in {time.time() - t0:.0f}s {json.dumps(verify(raw))}")
+            metrics = verify(raw)
+            if kind == "video" and (metrics.get("seconds", 0) < 4.8 or metrics.get("frames", 0) < 40):
+                raise ProbeError(f"video: requested 5 seconds but decoded only {metrics.get('seconds')}s / {metrics.get('frames')} frames")
+            print(f"PASS {label}: {len(raw)} bytes in {time.time() - t0:.0f}s {json.dumps(metrics)}")
         except ProbeError as exc:
             failures.append(label)
             print(f"FAIL {label}: {exc}")
