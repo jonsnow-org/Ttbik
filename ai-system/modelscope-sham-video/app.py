@@ -34,7 +34,7 @@ STATE = {"phase": "starting", "error": "", "videos": 0, "last_s": 0.0}
 import cpu_video  # noqa: E402  (copied next to app.py by the deploy workflow)
 from media_quality import MediaQualityError, check_mp4  # noqa: E402
 
-ENVS = ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")
+ENVS = ()  # this Studio uses only its own persistent VIDEO_STORE; no external/shared model path
 
 # Sham v2's own free computer (shell, files, jobs, headless browser) lives in this Studio: Sham v2's own, never shared with Nova or a candidate.
 try:
