@@ -1008,7 +1008,7 @@ def _media_profile() -> dict | None:
 def _requested_video_seconds(text: str, fallback: int = 3) -> int:
     """Read duration from the original user request (Arabic/English) before model prompt rewriting."""
     value = str(text or "").lower().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
-    value = re.sub(r"[أإآ]", "ا", value)
+    value = re.sub(r"[أإآ]", "ا", value).replace("ة", "ه").replace("ى", "ي")
     value = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", value)
     numeric = re.search(r"(\d{1,2}(?:\.\d+)?)\s*-?\s*(?:seconds?|secs?|sec|s\b|ثانية|ثانيه|ثانيتين|ثوان(?:ي)?)", value)
     if numeric:
