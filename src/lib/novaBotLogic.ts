@@ -949,14 +949,15 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
  */
 export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: string, botId?: string): Promise<boolean> {
   const mf = await import("@/lib/coderMediaFast");
-  let intent = mf.detectMediaIntent(text);
+  const allowExcludedWords = shamVariant.getStore() === "v2";
+  let intent = mf.detectMediaIntent(text, {}, { ignoreExcludedWords: allowExcludedWords });
   if (!intent) {
     // A user may reply to our previous request for an image/video description with
     // only the subject (for example: "حصان أبيض"). Reuse only the immediately
     // preceding turn in this Sham variant's own thread; never cross to Nova/other Sham.
     const memory = await loadChatMemory(chatId, text).catch(() => null);
     const previous = [...(memory?.history || [])].reverse().find((turn) => String(turn.a || "").trim());
-    if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a });
+    if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a }, { ignoreExcludedWords: allowExcludedWords });
   }
   if (!intent) return false;
   await refreshPressure().catch(() => false);
