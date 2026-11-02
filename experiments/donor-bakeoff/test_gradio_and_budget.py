@@ -229,3 +229,25 @@ class ComputerAndToolSpeed(unittest.TestCase):
         self.assertEqual(sorted(out), [0, 2, 3])                   # the write-capable call is left to the ordered loop
         self.assertEqual(out[2]["name"], "fetch_page")
         self.assertEqual(scope["_run_reads_in_parallel"]([{"name": "github_read_file"}], None), {})   # one read: nothing to parallelise
+
+class OriginalVideoDuration(unittest.TestCase):
+    def seconds(self, prompt, fallback=3):
+        helper = load("_requested_video_seconds", "re")["_requested_video_seconds"]
+        return helper(prompt, fallback)
+
+    def test_arabic_and_english_numeric_durations(self):
+        self.assertEqual(self.seconds("اصنع فيديو لمدة 5 ثوانٍ"), 5)
+        self.assertEqual(self.seconds("فيديو مدته ٤ ثوان"), 4)
+        self.assertEqual(self.seconds("make a 2-second video"), 2)
+        self.assertEqual(self.seconds("create a 3 sec clip"), 3)
+
+    def test_arabic_and_english_word_durations(self):
+        self.assertEqual(self.seconds("فيديو لمدة ثانيتين"), 2)
+        self.assertEqual(self.seconds("اصنع فيديو لمدة خمس ثوان"), 5)
+        self.assertEqual(self.seconds("make a four seconds video"), 4)
+
+    def test_default_and_clamp(self):
+        self.assertEqual(self.seconds("a rabbit running in a garden"), 3)
+        self.assertEqual(self.seconds("a rabbit running in a garden", 4), 4)
+        self.assertEqual(self.seconds("make a 9-second video"), 5)
+
