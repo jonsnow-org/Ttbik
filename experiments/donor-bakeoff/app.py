@@ -1060,6 +1060,36 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
 
 
+def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
+    """Preload only the owner's own computer/GitHub schemas for tasks that clearly need them.
+    This removes an unnecessary model round-trip to call load_tools before the first real action."""
+    if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
+        return []
+    text = str(prompt or "").lower()
+    groups = []
+    computer_words = (
+        "computer", "desktop", "terminal", "bash", "shell", "browser", "file", "folder", "run code",
+        "execute", "install", "build", "test", "debug", "repository", "repo", "كمبيوتر", "حاسوب",
+        "الحاسوب", "طرفية", "ترمينال", "متصفح", "ملف", "ملفات", "مجلد", "نفذ", "شغل", "اختبر",
+        "ثبت", "ابن", "اصلح", "أصلح", "كود", "برمج", "مشروع",
+    )
+    github_words = (
+        "github", "git hub", "pull request", "commit", "branch", "مستودع", "مستودعي", "ريبو",
+        "جيت هب", "جيتهوب", "فرع", "طلب سحب",
+    )
+    if any(word in text for word in computer_words):
+        groups.append("computer")
+    connected = tool_bridge.get("connectors") if isinstance(tool_bridge.get("connectors"), list) else []
+    if any(word in text for word in github_words) and "github" in connected:
+        groups.append("github")
+    return groups
+
+
+def _should_fallback_text_tools(status_code: int) -> bool:
+    """Some GGUF chat templates reject OpenAI tools with 400/422, while others fail with 5xx."""
+    return int(status_code) in {400, 422, 500, 501, 502, 503}
+
+
 def _bridge_read_timeout(name: str) -> int:
     """How long the Studio waits for the app server to finish one tool. The route allows 180 s: a clone, an install or a test run on the task computer
     (and a screenshot, a deep research) legitimately take minutes, and a 38 s cut-off turned each of them into a 'bridge request failed' step."""
@@ -1287,6 +1317,17 @@ def infer(
                     "Never claim a tool ran unless its returned result confirms it."
                 ),
             })
+        if use_tools and isinstance(tool_bridge, dict) and str(tool_bridge.get("url") or "").startswith("https://"):
+            messages.insert(0, {
+                "role": "system",
+                "content": (
+                    "You have access to this selected model's own persistent Linux computer and browser, plus the owner's linked GitHub tools when connected. "
+                    "For a request to run code, inspect or edit project files, install dependencies, build, test, debug, or operate the computer, CALL the provided computer_* or browser tool and use its real result. "
+                    "For GitHub repository work, call the GitHub tool for the requested repository; do not substitute a different account or model. "
+                    "If a required group is not yet loaded, call load_tools with [computer], [github], or both. "
+                    "Do not merely describe commands you intend to run, do not repeat the user's request as the answer, and never claim a command succeeded without its returned output."
+                ),
+            })
         messages.insert(0, {"role": "system", "content": "Reply in the language of the user's last message."})
         messages.append({"role": "user", "content": content})
         options = {
@@ -1296,6 +1337,11 @@ def infer(
             "top_p": float(max(0.0, min(CONFIG.get("top_p", 0.9), 1.0))),
         }
         if use_tools:
+            # Do not make a small CPU model spend another generation round merely asking to load
+            # the tools that its task obviously needs. The selected model still chooses the actions.
+            requested_groups = _requested_tool_groups(prompt, tool_bridge)
+            if requested_groups:
+                _load_tool_groups({"groups": requested_groups}, tool_bridge)
             by_name = {item["function"]["name"]: item for item in TOOLS}
             if isinstance(CONFIG.get("image_generation"), dict) and CONFIG.get("image_generation", {}).get("for_candidate") == CONFIG.get("route_id"):
                 by_name["generate_image"] = IMAGE_GENERATION_TOOL
@@ -1321,13 +1367,13 @@ def infer(
         # The model chooses when and which tool to call. Only allowlisted read-only
         # tools execute here; their real results are fed back to the model.
         read_timeout = _inference_read_timeout(int(options.get("max_tokens") or MAX_OUTPUT))
-        for tool_round in range(4):
+        for tool_round in range(8):
             response = requests.post(
                 SERVER_BASE + "/v1/chat/completions",
                 json=_text_tool_payload(options, messages) if text_tool_mode else {**options, "messages": _one_system_message(messages)},
                 timeout=(10, read_timeout),
             )
-            if response.status_code >= 500 and options.get("tools") and not text_tool_mode:
+            if _should_fallback_text_tools(response.status_code) and options.get("tools") and not text_tool_mode:
                 text_tool_mode = True      # this runtime's chat template cannot take a tools list: describe the tools in text instead
                 response = requests.post(SERVER_BASE + "/v1/chat/completions", json=_text_tool_payload(options, messages), timeout=(10, read_timeout))
             response.raise_for_status()
@@ -1340,7 +1386,7 @@ def infer(
             if not calls or not use_tools:
                 pending_calls = []
                 break
-            if tool_round == 3:
+            if tool_round == 7:
                 pending_calls = calls
                 break
             assistant_calls = []
