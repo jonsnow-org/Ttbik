@@ -45,7 +45,3 @@ Why this note exists (2026-11-01): the sync PR `main -> claude/free-services-mar
 4. **Disk**: the watchdog prunes Docker build cache at 75% and tells the owner at 90%; a full disk is the usual reason a rebuild fails.
 5. After the cause is fixed, switch the gate back to Auto («تلقائي») so Oracle is tried first again.
 6. The gate worker deploys from `main` (Workers Builds on `cloudflare/site-gate`); run `node cloudflare/site-gate/selftest.mjs` before merging a change to it.
-=======
-# Working on two branches without surprises / العمل على فرعين بلا مفاجآت
-
-Why this note exists (2026-11-01): the sync PR `main -> claude/free-services-marketplace-h6rwk2` (#623) went red because the production branch carried three commits (#619-#621) that `main` did not have yet. CI tests the *merged result*, so the two sessions' work collided in a test. Nothing was lost; the steps below keep it from happening again.
