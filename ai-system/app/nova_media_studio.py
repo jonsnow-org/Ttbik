@@ -40,7 +40,7 @@ def generate_media(
     *,
     scenes: list[str] | None = None,
     narration: str = "",
-    seconds: int = 2,
+    seconds: int = 3,
     timeout: int = 900,
 ) -> bytes | None:
     """Generate media on Nova's own Studio; return bytes or None on a real error."""
@@ -60,7 +60,7 @@ def generate_media(
     else:
         payload = {
             "prompt": (prompt or "")[:800],
-            "seconds": max(1, min(int(seconds or 2), 2)),
+            "seconds": max(1, min(int(seconds or 3), 5)),
             "seed": 0,
         }
     try:
