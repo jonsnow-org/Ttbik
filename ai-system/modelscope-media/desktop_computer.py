@@ -471,7 +471,7 @@ def _desktop_status(session: str) -> dict:
         "display": _DISPLAY if own else "",
         "network_mode": _NETWORK_MODE if own else "not available",
         "network_restrictions": (
-            "Desktop apps have no network access; use the protected browser route for web pages."
+            "Desktop apps have no network access in this safe fallback; use the chat web tools for web pages."
             if own and _NETWORK_MODE == "network-namespace"
             else "Desktop apps are protected by the Studio UID-scoped firewall."
             if own and _NETWORK_MODE == "host-firewall"
