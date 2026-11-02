@@ -1,4 +1,4 @@
-import { requestedVideoSeconds } from "@/lib/mediaDuration";
+import { explicitVideoSeconds, requestedVideoSeconds } from "@/lib/mediaDuration";
 
 describe("requestedVideoSeconds", () => {
   it.each([
@@ -12,6 +12,13 @@ describe("requestedVideoSeconds", () => {
     ["make a 9-second video", 5],
   ] as Array<[string, number]>)("reads the requested duration from %s", (prompt, expected) => {
     expect(requestedVideoSeconds(prompt)).toBe(expected);
+  });
+
+  it("distinguishes a duration the user explicitly requested from the default", () => {
+    expect(explicitVideoSeconds("اصنع فيديو لمدة 5 ثوانٍ")).toBe(5);
+    expect(explicitVideoSeconds("فيديو لمدة خمس ثوان")).toBe(5);
+    expect(explicitVideoSeconds("make a four-second video")).toBe(4);
+    expect(explicitVideoSeconds("a rabbit running in a garden")).toBeNull();
   });
 
   it("uses the requested fallback when no duration is specified", () => {
