@@ -264,17 +264,20 @@ def _token() -> str:
 def _root() -> Path:
     if _MODELS["root"]:
         return _MODELS["root"]
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-    try:                                                    # the repo is public: anonymous first (a login can poison the download)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
-    except Exception:                                       # noqa: BLE001
-        tok = _token()
-        if tok:
-            HubApi().login(tok)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
+    from model_download import download_model_repo
+    required = (
+        "sdxs/model_index.json",
+        "piper/ar_JO-kareem-medium.onnx",
+        "piper/ar_JO-kareem-medium.onnx.json",
+    )
+    _MODELS["root"] = download_model_repo(
+        REPO,
+        MODEL_STORE,
+        token=_token(),
+        required_files=required,
+        allow_git_fallback=True,
+    )
     return _MODELS["root"]
-
 
 def _pipe():
     if _MODELS["pipe"] is None:
