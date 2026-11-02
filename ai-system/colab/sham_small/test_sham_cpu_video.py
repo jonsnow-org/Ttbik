@@ -90,10 +90,12 @@ class RequestedDuration(unittest.TestCase):
 class LongGenerationPlan(unittest.TestCase):
     def test_ten_seconds_uses_three_real_temporal_passes_and_one_join(self):
         import media_quality
-        with patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b", b"part-c"]) as generate, \\
-             patch("cpu_video.cv_concat_mp4", return_value=b"joined") as join, \\
-             patch.object(media_quality, "check_mp4", return_value={}), \\
-             patch.dict(os.environ, {"CPU_VIDEO_KEEP": "1"}):
+        with (
+            patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b", b"part-c"]) as generate,
+            patch("cpu_video.cv_concat_mp4", return_value=b"joined") as join,
+            patch.object(media_quality, "check_mp4", return_value={}),
+            patch.dict(os.environ, {"CPU_VIDEO_KEEP": "1"}),
+        ):
             result = cpu_video.cv_generate_long("/weights", "a moving car", 10, 42)
         self.assertEqual(result, b"joined")
         self.assertEqual([call.args[2] for call in generate.call_args_list], [4.0, 4.0, 2.0])
@@ -102,9 +104,11 @@ class LongGenerationPlan(unittest.TestCase):
 
     def test_two_seconds_is_one_real_pass_without_a_join(self):
         import media_quality
-        with patch("cpu_video.cv_generate", return_value=b"clip") as generate, \\
-             patch("cpu_video.cv_concat_mp4") as join, \\
-             patch.object(media_quality, "check_mp4", return_value={}):
+        with (
+            patch("cpu_video.cv_generate", return_value=b"clip") as generate,
+            patch("cpu_video.cv_concat_mp4") as join,
+            patch.object(media_quality, "check_mp4", return_value={}),
+        ):
             result = cpu_video.cv_generate_long("/weights", "a moving car", 2, 7)
         self.assertEqual(result, b"clip")
         self.assertEqual(generate.call_count, 1)
