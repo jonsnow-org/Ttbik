@@ -10,7 +10,7 @@ describe("requestedVideoSeconds", () => {
     ["make a 5 seconds video of a running rabbit", 5],
     ["create a 2 sec video", 2],
     ["make a 9-second video", 5],
-  ])("reads the requested duration from %s", (prompt, expected) => {
+  ] as Array<[string, number]>)("reads the requested duration from %s", (prompt, expected) => {
     expect(requestedVideoSeconds(prompt)).toBe(expected);
   });
 
