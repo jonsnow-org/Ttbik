@@ -16,8 +16,7 @@ const IMAGES = set("صوره صور رسمه لوحه لوغو لوجو شعار
 const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو فدو فيديوا فيديوه فديوه كليب انيميشن video videos clip animation");
 /** Any spelling of "video" (فيديو / فديو / فيدو / ڤيديو / فيديوهات ...): after norm(), a word of the shape ف-ي?-د-ي?-و-ه?. */
 const VIDEO_SHAPE = /^ف[يا]?د[يا]?[وؤ][هو]?(?:ات|ا)?$/;
-const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن");
-const NOT_WORDS = set("كود برمج code script html css python javascript موقع website تطبيق app ملف file github repo حلل اشرح كيف how explain describe عدل edit حول convert ترجم translate تحويل png jpg svg pdf رابط http ماذا وصف هذه هذي تلك this");
+const FILLER = set("قم قومي ممكن سمحت فضلك رجاء الرجاء لي لنا لو من مقطع please can could you me for a an the of i to some عن لمده");
 const bare = (w: string): string => w.replace(/^(ال|ب|ل|و|ف)(?=.{3,})/, "");
 const inSet = (w: string, s: Set<string>): boolean => s.has(w) || s.has(bare(w));
 const words = (t: string): string[] => t.split(/[^\p{L}\p{N}:/.]+/u).filter(Boolean);
@@ -32,7 +31,7 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   const raw = String(text || "").trim();
   if (!raw || raw.length > 300 || raw.startsWith("/")) return null;
   const ws = words(norm(raw));
-  if (ws.some((w) => inSet(w, NOT_WORDS) || /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
+  if (ws.some((w) => /^https?:/.test(w) || /^ما$/.test(w) && ws.includes("هي"))) return null;
   const verb = ws.some((w) => inSet(w, VERBS));
   const draw = ws.some((w) => inSet(w, DRAW));
   const video = ws.some((w) => inSet(w, VIDEOS) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)));
@@ -40,7 +39,7 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   if (!verb || !(video || image || draw)) {
     const previous = String(context.previousAssistant || "");
     const clarification = /(?:اكتب|اذكر|صف).{0,70}(?:الوصف|ما الذي يظهر|ماذا يظهر)|ما الذي تريد أن يظهر.{0,45}(?:الصورة|الفيديو|المقطع)|ما المشهد الذي تريد أن يظهر.{0,45}(?:الفيديو|المقطع)|(?:الوصف|description).{0,60}(?:الصورة|الفيديو|المقطع|image|picture|video)|(?:what should appear|describe the subject).{0,70}(?:image|picture|video)/i.test(previous);
-    if (!clarification || !raw || ws.some((w) => inSet(w, NOT_WORDS) || /^https?:/.test(w))) return null;
+    if (!clarification || !raw || ws.some((w) => /^https?:/.test(w))) return null;
     const priorIntent = detectMediaIntent(String(context.previousUser || ""));
     const previousKind = /(?:فيديو|فديو|مقطع|video|clip)/i.test(previous) ? "video" : undefined;
     const followupKind = priorIntent?.kind || previousKind || "image";
@@ -50,12 +49,12 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   }
   const digits = raw.replace(/[٠-٩۰-۹]/g, (d) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(d) % 10));
   const secondsMatch = digits.match(/\b(10|15|30|60|120)\s*(?:seconds?|secs?|s)\b/i)
-    || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثوان)/i);
+    || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثانيه|ثوان)/i);
   const minutesMatch = digits.match(/\b([12])\s*(?:minutes?|mins?|m)\b/i)
     || digits.match(/([12])\s*(?:دقيقة|دقائق|دقايق)/i);
   const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
     : /دقيقتين/i.test(raw) ? 120 : /(?:^|[\s،])دقيقة(?:$|[\s،])/i.test(raw) ? 60 : undefined;
-  const durationWords = /^(?:ثانية|ثواني|ثوان|دقيقة|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
+  const durationWords = /^(?:ثانيه|ثواني|ثوان|دقيقه|دقيقتين|دقائق|دقايق|second|seconds|sec|secs|minute|minutes|min|mins|s|m)$/i;
   const subject = ws.filter((w) => !inSet(w, VERBS) && !inSet(w, IMAGES) && !inSet(w, VIDEOS) && !VIDEO_SHAPE.test(w) && !VIDEO_SHAPE.test(bare(w)) && !inSet(w, FILLER) && !/^\d+$/.test(w) && !durationWords.test(w)).join(" ").trim();
   return { kind: video ? "video" : "image", subject: subject || norm(raw), ...(video && requestedSeconds ? { seconds: requestedSeconds } : {}) };
 }

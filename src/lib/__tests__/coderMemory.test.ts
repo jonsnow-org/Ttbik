@@ -1,5 +1,5 @@
 // Long-term memory: store with de-duplication and conflict updates, ranking, per-user isolation, extraction, tools, prompt, app ops.
-import { explicitMemories, extractMemories, extractionConvo, listMemories, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
+import { explicitMemories, extractMemories, extractionConvo, listMemories, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, memTerms, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
 import { appOp } from "@/lib/coderApp";
 import { classifyCall } from "@/lib/coderAgent";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -70,8 +70,10 @@ describe("ranking and prompt", () => {
     expect(r.indexOf(1)).toBeLessThan(r.indexOf(4));
   });
 
-  it("Arabic matching ignores the article and letter variants", () => {
-    expect(similarity("المستودع يستخدم إطار Next", "مستودع يستخدم اطار next")).toBeGreaterThan(0.7);
+  it("Arabic and English memories retain the original terms without stop-word or spelling rewrites", () => {
+    expect(memTerms("في من the a المستودع يستخدم إطار Next")).toEqual(["في", "من", "the", "a", "المستودع", "يستخدم", "إطار", "next"]);
+    expect(memTerms("مستودع يستخدم اطار next")).toEqual(["مستودع", "يستخدم", "اطار", "next"]);
+    expect(similarity("المستودع يستخدم إطار Next", "مستودع يستخدم اطار next")).toBeCloseTo(1 / 3);
   });
 
   it("the system-prompt block lists relevant memories with ids; empty when there are none", async () => {

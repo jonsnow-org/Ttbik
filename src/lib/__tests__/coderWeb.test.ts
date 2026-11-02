@@ -1,4 +1,4 @@
-import { checkUrl, decodeEntities, deepResearch, fetchPage, formatResearch, htmlToMarkdown, parseBing, parseBrave, parseDdg, passages, planQueries, privateIp, relevance, resetSearchHealth, safeGet, searchHealth, webSearch, parseDdgLite, parseSearx } from "@/lib/coderWeb";
+import { checkUrl, decodeEntities, deepResearch, fetchPage, formatResearch, htmlToMarkdown, parseBing, parseBrave, parseDdg, passages, planQueries, privateIp, relevance, resetSearchHealth, safeGet, searchHealth, webSearch, parseDdgLite, parseSearx, terms } from "@/lib/coderWeb";
 
 beforeEach(() => resetSearchHealth());
 import { runTool } from "@/lib/coderAgent";
@@ -142,6 +142,10 @@ npm test &amp;&amp; echo ok</code></pre>
 });
 
 describe("deep research", () => {
+  it("retains Arabic and English stop words and one-character technical terms", () => {
+    expect(terms("في من a x the GitHub")).toEqual(["في", "من", "a", "x", "the", "github"]);
+    expect(terms("C++ R 1")).toEqual(["c++", "r", "1"]);
+  });
   it("plans several query variants (or uses the model's own)", () => {
     const q = planQueries("How do I cache fetch results in Next.js app router?", [], new Date("2026-10-21T00:00:00Z"));
     expect(q.length).toBeGreaterThanOrEqual(4);
