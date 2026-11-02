@@ -26,14 +26,13 @@ The production backend selector ignores these provider integrations even when th
 - Vercel Sandbox
 - CodeSandbox VM forks
 - GitHub Codespaces
-- Daytona
 - E2B
 
 They use metered compute or time-/credit-limited allowances whose availability is not guaranteed for this project. The automatic runtime does not use them as backups, and the presence of a secret does not enable them. Do not add these providers to SANDBOX_BACKEND to bypass this policy.
 
 GitHub Actions standard runners remain available for CI on this public repository. They are build/test workers, not a persistent interactive Linux sandbox and not a per-user desktop. They cannot be described as a live replacement for the Oracle task runner or the graphical desktop.
 
-The former persistent cloud desktop was Daytona-only. Production desktop provisioning is disabled by the zero-cost policy; the GUI desktop must not be advertised as available until a separately implemented and live-tested Oracle GUI service is proven to fit within existing Always Free headroom.
+The graphical computer is provided by each model's own ModelScope Studio, not by a shared paid VM. It must remain capacity-gated and isolated by user and model; the shell/task runners remain separate from the persistent graphical session.
 
 ### Switches
 
