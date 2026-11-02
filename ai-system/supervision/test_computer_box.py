@@ -524,3 +524,28 @@ class EgressRules(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DevTools(unittest.TestCase):
+    def test_tiers_skip_when_disk_is_short_and_unknown_packages_are_not_fatal(self):
+        import subprocess as sp
+        calls: list[list[str]] = []
+        old_apt, old_free, old_root = cb.apt_install, cb._free_gb, cb.is_root
+        try:
+            cb.is_root = lambda: True
+            cb._free_gb = lambda: 10.0
+
+            def fake_apt(packages, timeout=0):
+                calls.append(list(packages))
+                bad = len(packages) > 1 or packages[0] == "no-such-package"
+                return sp.CompletedProcess(["apt"], 100 if (len(packages) > 1 or packages == ["no-such-package"]) else 0, "", "")
+            cb.apt_install = fake_apt
+            cb.DEV_TIERS[:] = [("core", ["gcc", "no-such-package"])]
+            result = cb.ensure_dev_tools()
+            self.assertIn("1 installed", result)
+            self.assertIn("no-such-package: not installable", result)
+            cb._free_gb = lambda: 0.5
+            cb.DEV_TIERS[:] = [("core", ["gcc"])]
+            self.assertIn("only 0.5 GB of disk left", cb.ensure_dev_tools())
+        finally:
+            cb.apt_install, cb._free_gb, cb.is_root = old_apt, old_free, old_root

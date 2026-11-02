@@ -679,6 +679,52 @@ def ensure_toolchain() -> str:
     return STATE["toolchain"]
 
 
+# Everything a programmer reaches for, installed in the background AFTER the computer is already usable (the required toolchain above stays small so a full disk can never keep the
+# computer down). Tiers are installed in order; a tier is skipped when free disk is short, and a package that does not exist is skipped, never fatal.
+DEV_TIERS = [
+    ("core", ["build-essential", "cmake", "pkg-config", "make", "python3-pip", "python3-venv", "python3-dev", "nodejs", "npm", "sqlite3", "vim", "nano", "tmux", "htop", "tree",
+              "less", "procps", "wget", "zip", "p7zip-full", "rsync", "openssh-client", "patch", "file", "bc", "git-lfs", "iputils-ping", "dnsutils", "net-tools", "netcat-openbsd",
+              "traceroute", "lsof", "strace", "man-db", "locales", "ca-certificates"]),
+    ("languages", ["golang-go", "default-jdk-headless", "ruby", "php-cli", "lua5.4", "perl", "rustc", "cargo"]),
+    ("tools", ["clang", "gdb", "valgrind", "ninja-build", "shellcheck", "fd-find", "fzf", "httpie", "postgresql-client", "redis-tools", "default-mysql-client", "universal-ctags",
+               "silversearcher-ag", "bat", "ffmpeg", "imagemagick", "pandoc", "graphviz"]),
+]
+DEV_MIN_FREE_GB = {"core": 1.5, "languages": 3.0, "tools": 3.0}
+
+
+def _free_gb() -> float:
+    return shutil.disk_usage("/").free / 1024 ** 3
+
+
+def ensure_dev_tools() -> str:
+    """Install the programmer's tools tier by tier; records what was installed and what was skipped in STATE["devtools"]."""
+    if not is_root():
+        STATE["devtools"] = "skipped: not root"
+        return STATE["devtools"]
+    installed: list[str] = []
+    skipped: list[str] = []
+    try:
+        STATE["devtools"] = "installing"
+        for tier, packages in DEV_TIERS:
+            if _free_gb() < DEV_MIN_FREE_GB.get(tier, 3.0):
+                skipped.append(f"{tier}: only {_free_gb():.1f} GB of disk left")
+                continue
+            result = apt_install(packages, timeout=1800)
+            if result.returncode == 0:
+                installed.extend(packages)
+                continue
+            for package in packages:                                  # one unknown package must not cancel the others
+                if _free_gb() < 1.0:
+                    skipped.append(f"{package}: disk full")
+                    break
+                single = apt_install([package], timeout=900)
+                (installed if single.returncode == 0 else skipped).append(package if single.returncode == 0 else f"{package}: not installable")
+        STATE["devtools"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:300]})" if skipped else "")
+    except Exception as exc:  # noqa: BLE001
+        STATE["devtools"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
+    return STATE["devtools"]
+
+
 # ---------------------------------------------------------------- files
 def write_file(session: str, path: str, content: str) -> dict:
     data = str(content or "")

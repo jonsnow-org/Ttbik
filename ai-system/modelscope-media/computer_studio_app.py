@@ -91,6 +91,7 @@ def _bootstrap_core():
             raise RuntimeError("computer toolchain or graphical desktop packages are incomplete")
         BOOTSTRAP["phase"] = "ready"
         BOOTSTRAP["error"] = ""
+        threading.Thread(target=computer_box.ensure_dev_tools, daemon=True, name="computer-devtools").start()      # the programmer's tools, installed in the background; the computer is already usable
     except Exception as exc:  # noqa: BLE001
         BOOTSTRAP["phase"] = "failed"
         BOOTSTRAP["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
@@ -107,7 +108,7 @@ def api_status():
             "mem_available_gb":round(float(computer.get("capacity",{}).get("available_mb") or 0)/1024,2),
             "mem_total_gb":round(float(_mem_total_mb())/1024,2) if _mem_total_mb() else None
         },
-        "computer":computer,"desktop":desktop_computer._package_status(),"browser":browser,
+        "computer":computer,"desktop":desktop_computer._package_status(),"devtools":computer_box.STATE.get("devtools","not started"),"browser":browser,
         "legacy_minicpm_cache_cleanup":LEGACY_CACHE_CLEANUP
     },ensure_ascii=False)
 
