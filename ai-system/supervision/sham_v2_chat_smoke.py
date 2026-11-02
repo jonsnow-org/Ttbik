@@ -168,7 +168,7 @@ def native_model_terminal_smoke() -> None:
     if not isinstance(args, dict):
         raise RuntimeError("Sham v2 computer_run arguments were malformed")
     generated_command = str(args.get("command") or "")
-    safe_command = re.fullmatch(r"\\s*printf\\s+(['\"])"+re.escape(marker)+r"\\1\\s*;\\s*id\\s+-u\\s*", generated_command)
+    safe_command = re.fullmatch(r"\s*printf\s+(['\"])"+re.escape(marker)+r"\1\s*;\s*id\s+-u\s*", generated_command)
     if not safe_command:
         raise RuntimeError("Sham v2 requested an unexpected terminal command; no generated command was executed")
     executed = call_computer_box({
