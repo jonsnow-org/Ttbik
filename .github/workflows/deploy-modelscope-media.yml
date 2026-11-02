@@ -157,3 +157,25 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
         run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id coder
+
+      - name: Install media validation tools
+        run: python3 -m pip install -q numpy pillow imageio-ffmpeg
+      - name: Live test Nova image, Arabic speech and five-second video
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          NOVA_MEDIA_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
+          PROBE_OUT: ${{ runner.temp }}
+          READY_TIMEOUT: "1800"
+        run: |
+          mkdir -p "$PROBE_OUT"
+          python ai-system/app/nova_media_probe.py
+      - name: Preserve Nova media outputs for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-own-media-live-smoke
+          path: |
+            ${{ runner.temp }}/probe.png
+            ${{ runner.temp }}/probe.wav
+            ${{ runner.temp }}/probe.mp4
+          if-no-files-found: ignore
