@@ -17,7 +17,8 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1280")
 os.environ.setdefault("DESKTOP_HEIGHT", "800")
 
-APP_REVISION = "computer-hub-16gb-2026-11-02-r1"
+APP_REVISION = "computer-hub-16gb-2026-11-02-r2"
+LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
 _BROWSER_LOCK = threading.Lock()
@@ -44,11 +45,12 @@ def _remove_exact_cache(path: Path, expected_parent: Path) -> bool:
 def remove_abandoned_minicpm_cache() -> dict:
     """Remove only the old minicpm-o45-big download cache; preserve computer/browser homes."""
     workspace = Path("/mnt/workspace")
-    parent = workspace / "donor-bakeoff" / "minicpmo45-big"
+    target = workspace / LEGACY_MINICPM_CACHE_RELATIVE
+    parent = target.parent
     local_parent = Path(__file__).resolve().parent
     removed = []
-    if parent.exists() and _remove_exact_cache(parent / "model_cache", parent):
-        removed.append(str(parent / "model_cache"))
+    if parent.exists() and _remove_exact_cache(target, parent):
+        removed.append(str(target))
     if _remove_exact_cache(local_parent / "model_cache", local_parent):
         removed.append(str(local_parent / "model_cache"))
     return {"removed":removed,"preserved":["/mnt/workspace/computer","/mnt/workspace/browser"]}
