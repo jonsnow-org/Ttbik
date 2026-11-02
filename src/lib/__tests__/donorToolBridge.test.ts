@@ -5,7 +5,7 @@ const names = (groups: readonly string[], gh = true, conn = true) => candidateTo
 describe("candidate tool groups", () => {
   test("the four groups give a candidate GitHub, one persistent computer, the web and linked services", () => {
     const all = names(CANDIDATE_GROUPS);
-    expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "computer_run", "computer_read", "browser", "web_search", "fetch_page", "connector_api"]));
+    expect(all).toEqual(expect.arrayContaining(["github_read_file", "github_write_files", "computer_run", "computer_read", "browser", "desktop", "web_search", "fetch_page", "connector_api"]));
     expect(all).not.toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_search"]));
   });
 
