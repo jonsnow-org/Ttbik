@@ -116,13 +116,21 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
 
 
 def warm_browser(api: str, token: str, minutes: int) -> bool:
+    def browser_payload(raw: Any) -> dict:
+        """ModelScope browser_status wraps its state under the browser key."""
+        if not isinstance(raw, dict):
+            return {}
+        nested = raw.get("browser")
+        return nested if isinstance(nested, dict) else raw
+
     try:
-        state = request_run(api, "browser_status", token)
-        if not isinstance(state, dict) or state.get("phase") != "ready":
+        raw_state = request_run(api, "browser_status", token)
+        state = browser_payload(raw_state)
+        if state.get("phase") != "ready":
             started = request_run(api, "browser_bootstrap", token)
             print("CHROMIUM_BOOTSTRAP", json.dumps(started, ensure_ascii=False)[:500], flush=True)
         else:
-            print("CHROMIUM_ALREADY_READY", flush=True)
+            print("CHROMIUM_ALREADY_READY", json.dumps(state, ensure_ascii=False)[:900], flush=True)
     except Exception as exc:
         print(f"WARNING: Chromium bootstrap could not be started: {type(exc).__name__}: {str(exc)[:180]}", flush=True)
         return False
@@ -132,11 +140,12 @@ def warm_browser(api: str, token: str, minutes: int) -> bool:
     while time.monotonic() < deadline:
         attempt += 1
         try:
-            state = request_run(api, "browser_status", token)
-            if isinstance(state, dict) and state.get("phase") == "ready":
+            raw_state = request_run(api, "browser_status", token)
+            state = browser_payload(raw_state)
+            if state.get("phase") == "ready":
                 print("CHROMIUM_READY", json.dumps(state, ensure_ascii=False)[:1200], flush=True)
                 return True
-            if isinstance(state, dict) and state.get("phase") == "failed":
+            if state.get("phase") == "failed":
                 print("WARNING: Chromium bootstrap failed: " + json.dumps(state, ensure_ascii=False)[:1200], flush=True)
                 return False
             if attempt % 3 == 0:

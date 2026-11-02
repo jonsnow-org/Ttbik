@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: computer-hub-live-verify
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
