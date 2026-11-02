@@ -46,36 +46,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy the ready media weights into this candidate's own model repo
+      # Media weights are already uploaded and validated in each candidate's
+      # own private MEDIA_MODEL_REPO. Do not copy them again during a runtime
+      # code update: this avoids needless multi-GB transfers and keeps each
+      # donor's independent tested weights untouched. The deployment health
+      # probe below confirms that this Studio can load its own repository.
+      - name: Preserve the candidate's existing private media weights
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           TARGET: novaai2026/${{ matrix.candidate.id }}-media-models
         run: |
-          pip install -q modelscope
-          python - <<'PY'
-          import os, shutil
-          from pathlib import Path
-          from modelscope import snapshot_download
-          from modelscope.hub.api import HubApi
-          from modelscope.hub.constants import Visibility
-
-          api = HubApi()
-          api.login(os.environ["MODELSCOPE_TOKEN"])
-          src = Path(snapshot_download("novaai2026/nova-media-models", cache_dir="src"))
-          need = [src / "sdxs" / "model_index.json", src / "piper" / "ar_JO-kareem-medium.onnx", src / "piper" / "ar_JO-kareem-medium.onnx.json"]
-          missing = [str(p.relative_to(src)) for p in need if not p.is_file()]
-          if missing:
-              raise SystemExit("source media weights incomplete: " + ", ".join(missing))
-          shutil.rmtree("stage", ignore_errors=True)
-          shutil.copytree(src, "stage", ignore=shutil.ignore_patterns(".git", ".git*", "._*"))
-          total = sum(p.stat().st_size for p in Path("stage").rglob("*") if p.is_file())
-          print("copy size: %.2f GiB" % (total / 2**30))
-          if total > 7.5 * 2**30:
-              raise SystemExit("refusing: the copy would not fit a Studio's disk")
-          api.push_model(model_id=os.environ["TARGET"], model_dir="stage", visibility=Visibility.PRIVATE, license="apache-2.0", commit_message="own copy of the ready media weights")
-          print("pushed", os.environ["TARGET"])
-          PY
-
+          echo "Using this candidate's previously validated private media repository: $TARGET"
+          echo "No source-model download or weight replacement is performed."
       - name: Account, free hardware and existing Studio (read-only)
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
