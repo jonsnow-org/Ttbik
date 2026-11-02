@@ -120,6 +120,18 @@ def _git_lfs_snapshot(
         text=True,
         timeout=timeout_seconds,
     )
+    # Repository may temporarily embed the private token in origin for LFS
+    # authentication. Remove it from the persistent local git config.
+    safe_remote = f"{endpoint.rstrip('/')}/{expected_repo}.git"
+    subprocess.run(
+        ["git", "remote", "set-url", "origin", safe_remote],
+        cwd=str(target),
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=15,
+    )
     return target
 
 
