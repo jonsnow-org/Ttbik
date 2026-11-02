@@ -90,9 +90,12 @@ def _load_model_package():
     token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
     if not token:
         raise RuntimeError("MODELSCOPE_API_TOKEN is not configured in this private Studio.")
-    from model_download import download_model_repo
+    from modelscope import snapshot_download
+    from modelscope.hub.api import HubApi
+    api = HubApi()
+    api.login(token)
     CACHE.mkdir(parents=True, exist_ok=True)
-    root = download_model_repo(MODEL_REPO, CACHE, token=token, required_files=("manifest.json",))
+    root = Path(snapshot_download(MODEL_REPO, cache_dir=str(CACHE)))
     manifest_path = root / "manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError("ModelScope model manifest is missing; refusing to load unverified FP8 weights.")
