@@ -47,14 +47,32 @@ class Profile(unittest.TestCase):
             for k in ("CPU_VIDEO_SIDE", "CPU_VIDEO_FRAMES"):
                 os.environ.pop(k, None)
             big, small = cpu_video.cv_profile(8), cpu_video.cv_profile(2)
-        self.assertEqual((big["side"], big["max_frames"]), (512, 16))
-        self.assertEqual((small["side"], small["max_frames"]), (256, 16))
-        self.assertTrue(all(p["side"] % 8 == 0 and 8 <= p["max_frames"] <= 16 for p in (big, small)))
+        self.assertEqual((big["side"], big["max_frames"]), (512, 32))
+        self.assertEqual((small["side"], small["max_frames"]), (512, 32))
+        self.assertTrue(all(p["side"] == 512 and 16 <= p["max_frames"] <= 32 for p in (big, small)))
 
     def test_overrides_are_clamped(self):
         with patch.dict(os.environ, {"CPU_VIDEO_SIDE": "9000", "CPU_VIDEO_FRAMES": "1"}):
             p = cpu_video.cv_profile(2)
-        self.assertEqual((p["side"], p["max_frames"]), (512, 8))
+        self.assertEqual((p["side"], p["max_frames"]), (512, 16))
+
+
+class RequestedDuration(unittest.TestCase):
+    def test_two_and_four_seconds_map_to_real_frame_counts(self):
+        profile = {"fps": 8, "max_frames": 32}
+        self.assertEqual(cpu_video.cv_requested_frames(2, profile), 16)
+        self.assertEqual(cpu_video.cv_requested_frames(4, profile), 32)
+
+    def test_one_second_near_still_and_silent_truncation_are_refused(self):
+        profile = {"fps": 8, "max_frames": 32}
+        for requested in (1, 10, 15, 30, 60, 120):
+            with self.assertRaises(ValueError) as caught:
+                cpu_video.cv_requested_frames(requested, profile)
+            self.assertIn("native-video-duration-limit", str(caught.exception))
+
+    def test_profile_smaller_than_requested_is_refused(self):
+        with self.assertRaises(ValueError):
+            cpu_video.cv_requested_frames(4, {"fps": 8, "max_frames": 16})
 
 
 class Weights(unittest.TestCase):
