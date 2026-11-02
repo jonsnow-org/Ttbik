@@ -1,4 +1,4 @@
-import { makePhotoMedia, photoWeightEndpoint, photoWeightProfile, PHOTO_WEIGHT_PROFILES } from "@/lib/photoWeightMedia";
+import { candidateMediaStudio, makePhotoMedia, photoWeightEndpoint, photoWeightProfile, PHOTO_WEIGHT_PROFILES } from "@/lib/photoWeightMedia";
 
 describe("per-model photo weight routing", () => {
   const savedToken = process.env.MODELSCOPE_API_TOKEN;
@@ -26,6 +26,16 @@ describe("per-model photo weight routing", () => {
     expect(photoWeightProfile("coder")?.modelRepo).toBe("novaai2026/epicrealism-image-test-models");
     expect(photoWeightProfile("sham_v2")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
     expect(new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"].map((id) => photoWeightProfile(id)?.modelRepo)).size).toBe(3);
+  });
+
+  it("maps each candidate media route to its own private Studio and never to Nova", () => {
+    for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+      const route = candidateMediaStudio(id);
+      expect(route?.base).toBe("https://studio-novaai2026-sham-donor-" + id + "-media.api-inference.modelscope.net");
+      expect(route?.repo).toBe("novaai2026/" + id + "-media-models");
+    }
+    expect(candidateMediaStudio("coder")).toBeNull();
+    expect(candidateMediaStudio("sham_v2")).toBeNull();
   });
 
   it("rejects an unknown model without making any HTTP request or trying a fallback", async () => {
