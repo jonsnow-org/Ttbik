@@ -1,5 +1,15 @@
+describe("Coder media tool contract", () => {
+  it("exposes an optional explicit video duration and the bot can default it from the original request", () => {
+    const tool = COMMON_TOOLS.find((entry) => entry.function.name === "make_media");
+    expect(tool?.function.parameters).toEqual(expect.objectContaining({
+      properties: expect.objectContaining({ seconds: expect.objectContaining({ type: "number" }) }),
+    }));
+    expect(tool?.function.parameters.required).toEqual(["kind", "prompt"]);
+  });
+});
+
 import { chunkRanges, parseCoderSse, renderRange, splitForTelegram, openFenceAt } from "@/lib/openCoderStudio";
-import { guardCall, githubClient, trimMessages, coderTools, coderSystemPrompt } from "@/lib/coderAgent";
+import { guardCall, githubClient, trimMessages, coderTools, coderSystemPrompt, COMMON_TOOLS } from "@/lib/coderAgent";
 import { drive, handleCoderSections, loadState, recordDonorAsyncDelivery, saveState, signContinue, verifyContinue, type Db } from "@/lib/coderSections";
 
 const CHAT = 4242;
