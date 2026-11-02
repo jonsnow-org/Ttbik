@@ -15,7 +15,8 @@ _CV_BASE_FILES = ["model_index.json", "scheduler/scheduler_config.json", "featur
 
 
 def cv_profile(cpus: int | None = None) -> dict:
-    """Frame size / frame count that a CPU can finish in about a minute or two: 512px x 16 frames with 6+ cores, 256px x 16 frames with fewer (16 frames is the length the motion model was trained on; 8 frames came out as a near-still clip). The clip is upscaled to out_side at encode time. CPU_VIDEO_SIDE / CPU_VIDEO_FRAMES override."""
+    """The installed CPU profile produces 16 frames for a 2 s clip or 32 frames for 4 s at 8 fps.
+    It keeps the diffusion grid at native 512x512; it does not claim longer durations or upscale a 256px generation."""
     import os as _os
     n = int(cpus or _os.cpu_count() or 2)
     # Keep the real generation grid at 512 px; upscaling a 256 px diffusion result hid detail rather than creating it.
@@ -25,7 +26,7 @@ def cv_profile(cpus: int | None = None) -> dict:
 
 
 def cv_dtype():
-    """bfloat16 when this CPU has native bf16 (AVX512-BF16 / AMX): half the RAM and ~3x faster; float32 otherwise."""
+    """Use BF16 when the CPU advertises native AVX512-BF16/AMX support; otherwise use FP32."""
     import torch
     try:
         flags = open("/proc/cpuinfo", encoding="utf-8").read()
@@ -177,7 +178,7 @@ def cv_requested_frames(seconds: float, profile: dict) -> int:
     fps = int(profile.get("fps") or 8)
     maximum = int(profile.get("max_frames") or 16)
     if not math.isfinite(requested) or requested not in (2.0, 4.0):
-        raise ValueError("native-video-duration-limit: the current CPU engine supports only 2 or 4 seconds; longer clips require the Wan GPU engine")
+        raise ValueError("native-video-duration-limit: the installed AnimateDiff CPU weights support only 2 or 4 seconds; no longer clip was generated")
     frames = int(round(requested * fps))
     if frames < 16 or frames > maximum or abs(frames / fps - requested) > 0.05:
         raise ValueError(f"native-video-duration-limit: {requested:g} seconds do not fit this Studio profile (maximum {maximum / fps:g} seconds)")
