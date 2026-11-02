@@ -48,7 +48,8 @@ describe("the model's own browser", () => {
     const out = await browserDo("gemma4-e4b", "42:gemma4-e4b", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
     expect(calls[0].url).toContain("sham-donor-gemma4-e4b-media");
-    expect(JSON.parse(calls[0].body.data[0])).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
+    expect(calls[0].body.data[0]).toMatch(/^b64:/);
+    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
     expect(await browserDo("sham", "1:x", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
   });
 });
