@@ -9,6 +9,7 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-sham-video/**
+      - scripts/ops/modelscope_computer_smoke.py
       - ai-system/modelscope-media/computer_box.py
       - ai-system/modelscope-media/browser_computer.py
       - ai-system/modelscope-media/desktop_computer.py
@@ -140,6 +141,13 @@ jobs:
           done
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
+
+
+      - name: Live test Sham v2's own persistent computer and graphical desktop
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
+        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id sham_v2
 
       - name: Install what the content checks need
         run: python3 -m pip install -q numpy pillow imageio-ffmpeg
