@@ -2,15 +2,19 @@
 """Live smoke test for Sham v2's native-role Qwen3 chat API."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 import time
+import uuid
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
+COMPUTER_BASE = (os.environ.get("SHAM_V2_COMPUTER_URL") or "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net").strip().rstrip("/")
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
@@ -80,6 +84,126 @@ def chat(messages: list[dict], max_new_tokens: int = 256) -> str:
     return answer
 
 
+
+
+def call_computer_box(payload: dict, timeout: int = 90):
+    if "sham-v2-video-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
+        raise RuntimeError("Refusing to send Sham v2 computer calls to a non-dedicated Studio")
+    wire = "b64:" + base64.b64encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    submitted = request_json(f"{COMPUTER_BASE}/gradio_api/call/box_do", "POST", {"data": [wire]}, timeout=40)
+    event_id = submitted.get("event_id")
+    if not event_id:
+        raise RuntimeError("Sham v2 computer Studio did not return an event id")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        req = Request(f"{COMPUTER_BASE}/gradio_api/call/box_do/{event_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+        try:
+            with urlopen(req, timeout=min(30, max(5, int(deadline - time.monotonic())))) as res:
+                while time.monotonic() < deadline:
+                    line = res.readline()
+                    if not line:
+                        break
+                    value = unwrap_line(line.decode("utf-8", errors="replace"))
+                    if value is not None:
+                        if isinstance(value, str):
+                            try:
+                                value = json.loads(value)
+                            except json.JSONDecodeError:
+                                pass
+                        if not isinstance(value, dict):
+                            raise RuntimeError("computer Studio returned an unreadable result")
+                        return value
+        except (TimeoutError, URLError, OSError):
+            pass
+        time.sleep(0.5)
+    raise TimeoutError(f"box_do: timed out after {timeout}s")
+
+
+def native_model_terminal_smoke() -> None:
+    """Have Sham v2 choose computer_run itself, then execute that exact safe call on its own Studio."""
+    marker = "SHAM_V2_MODEL_TERMINAL_TOOL_OK"
+    session = f"ci-sham-v2-agent:{os.environ.get('GITHUB_RUN_ID', 'manual')}:{uuid.uuid4().hex[:10]}"
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "computer_run",
+            "description": "Run a real Bash command in the selected model's persistent Linux computer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Bash command"},
+                    "cwd": {"type": "string"},
+                    "timeout": {"type": "number"},
+                },
+                "required": ["command"],
+            },
+        },
+    }]
+    command = f"printf '{marker}'; id -u"
+    prompt = (
+        "أنت وكيل يعمل على حاسوب Linux خاص بالنموذج المحدد.\n"
+        "الأدوات المتاحة لك:\n"
+        "- computer_run(command, cwd?, timeout?) — نفّذ أمراً حقيقياً في طرفيتك الدائمة.\n"
+        "طلب المستخدم: اختبر الطرفية الآن. استدعِ computer_run مرة واحدة فقط، "
+        "واجعل arguments.command يساوي حرفياً هذا الأمر الآمن: " + command + ". "
+        "لا تكتب إجابة نهائية قبل استدعاء الأداة."
+    )
+    response = call("agent_step", {
+        "prompt": prompt,
+        "tools_json": json.dumps(tools, ensure_ascii=False, separators=(",", ":")),
+        "max_new_tokens": 192,
+    }, timeout=240)
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except json.JSONDecodeError:
+            raise RuntimeError("agent_step did not return a structured result")
+    if not isinstance(response, dict) or response.get("type") != "tool_calls":
+        raise RuntimeError("Sham v2 did not choose a structured computer_run tool call: " + str(response)[:280])
+    calls = response.get("tool_calls") or []
+    if len(calls) != 1 or (calls[0].get("function") or {}).get("name") != "computer_run":
+        raise RuntimeError("Sham v2 selected a tool other than its own computer_run")
+    raw_args = calls[0]["function"].get("arguments")
+    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+    if not isinstance(args, dict):
+        raise RuntimeError("Sham v2 computer_run arguments were malformed")
+    generated_command = str(args.get("command") or "")
+    safe_command = re.fullmatch(r"\\s*printf\\s+(['\"])"+re.escape(marker)+r"\\1\\s*;\\s*id\\s+-u\\s*", generated_command)
+    if not safe_command:
+        raise RuntimeError("Sham v2 requested an unexpected terminal command; no generated command was executed")
+    executed = call_computer_box({
+        "action": "run",
+        "session": session,
+        "command": generated_command,
+        "timeout": 20,
+        "cwd": ".",
+    }, timeout=45)
+    output = str(executed.get("output") or "")
+    if executed.get("ok") is not True or executed.get("exit_code") != 0 or marker not in output:
+        raise RuntimeError("Sham v2's selected computer_run did not execute successfully: " + output[:180])
+    uid = output.splitlines()[-1].strip() if output.splitlines() else ""
+    if uid == "0":
+        raise RuntimeError("Sham v2 computer terminal unexpectedly executed as root")
+    print(f"PASS Sham v2 itself selected computer_run and executed it in its own persistent computer (uid={uid})")
+
+    final = call("agent_step", {
+        "prompt": (
+            "نتيجة أداة computer_run التي استدعيتها: " + output[:240] +
+            "\\nأخبر المستخدم باختصار أن الأمر نُفّذ بالفعل، واذكر الرمز " + marker + ". لا تستدع أي أداة."
+        ),
+        "tools_json": "[]",
+        "max_new_tokens": 96,
+    }, timeout=180)
+    if isinstance(final, str):
+        try:
+            final = json.loads(final)
+        except json.JSONDecodeError:
+            raise RuntimeError("Sham v2 did not return a final tool-result response")
+    if not isinstance(final, dict) or final.get("type") != "text" or marker not in str(final.get("text") or ""):
+        raise RuntimeError("Sham v2 did not correctly read the computer tool result")
+    print("PASS Sham v2 read the real terminal result and answered from it")
+
+
 def main() -> int:
     if not TOKEN:
         raise RuntimeError("MODELSCOPE_TOKEN is missing")
@@ -135,6 +259,8 @@ def main() -> int:
         {"role": "user", "content": "ما اسمي؟"},
     ], 128)
     print(f"PASS Sham v2 multi-turn response: {followup[:240]}")
+
+    native_model_terminal_smoke()
     return 0
 
 
