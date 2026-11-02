@@ -77,13 +77,10 @@ class Capacity(Box):
             self.assertEqual(command.get("exit_code"), 0)
             self.assertEqual(command.get("output"), "model-terminal-ok")
 
-            other_user_command = cb.run_command("other:model-x", "echo must-stay-blocked")
-            self.assertFalse(other_user_command.get("ok"))
-            self.assertIn("another user's graphical desktop", other_user_command.get("error", ""))
-            owner_status = cb.status("owner:model-x")
-            other_status = cb.status("other:model-x")
-            self.assertTrue(owner_status["capacity"]["can_accept"])
-            self.assertFalse(other_status["capacity"]["can_accept"])
+            # Another user's terminal is NOT blocked by someone else's desktop: each user has a private session and runs at the same time.
+            other_user_command = cb.run_command("other:model-x", "echo other-user-ok")
+            self.assertTrue(other_user_command.get("ok"), other_user_command)
+            self.assertEqual(other_user_command.get("output").strip(), "other-user-ok")
 
             second = cb.reserve_desktop("other:model-x", min_available_mb=3072)
             self.assertFalse(second.get("ok"))

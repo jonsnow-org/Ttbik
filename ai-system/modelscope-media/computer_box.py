@@ -35,7 +35,7 @@ MAX_TIMEOUT = 90                    # longer work belongs in a background job: t
 MAX_READ = 60000
 MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
-MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "1")))  # shared 2-vCPU Studio: one executing task at a time
+MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
 QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
@@ -558,8 +558,6 @@ def _capacity_reason_locked(session: str) -> str:
     # session may use the shell while the display is open; another user cannot
     # borrow the newly available shell slot.
     desktop_key = digest(session)[:24]
-    if active_desktops and desktop_key not in _ACTIVE_DESKTOPS:
-        return "this model's Studio is occupied by another user's graphical desktop session"
     # The long-lived display is not a shell task. Keep the one-task limit for
     # commands/jobs and check current free memory on each admission.
     active = active_jobs + active_commands
