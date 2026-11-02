@@ -314,6 +314,23 @@ describe("Sham's own agent loop", () => {
     expect(r.kind).toBe("reply");
     expect(calls).toEqual([{ kind: "video", prompt: "قارب يبحر", opts: { scenes: undefined, narration: undefined, seconds: 5 } }]);
   });
+  it("the duration from the user's Arabic request overrides make_media seconds chosen by the model", async () => {
+    const tools = shamToolDefs(false);
+    const calls: unknown[] = [];
+    const r = await runV1({
+      text: "اصنع فيديو لأرنب لمدة 5 ثوانٍ",
+      ctx,
+      tools,
+      budgetMs: 60000,
+      media: async (kind, prompt, opts) => {
+        calls.push({ kind, prompt, opts });
+        return { type: "video", b64: "AAAA" } as any;
+      },
+      ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"video","prompt":"أرنب يقفز","seconds":2}}</tool_call>')]),
+    });
+    expect(r.kind).toBe("reply");
+    expect(calls).toEqual([{ kind: "video", prompt: "أرنب يقفز", opts: { scenes: undefined, narration: undefined, seconds: 5 } }]);
+  });
   it("a long task hands over to the next leg with its conversation, and the next leg goes on from there", async () => {
     const tools = shamToolDefs(false);
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
