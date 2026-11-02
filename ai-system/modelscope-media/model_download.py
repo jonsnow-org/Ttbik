@@ -46,9 +46,6 @@ def _snapshot(
 ) -> Path:
     import inspect
 
-    # Set the endpoint before importing the SDK: older ModelScope versions read
-    # MODELSCOPE_ENDPOINT into module-level constants at import time.
-    os.environ["MODELSCOPE_ENDPOINT"] = endpoint
     from modelscope import snapshot_download
 
     signature = inspect.signature(snapshot_download)
@@ -58,15 +55,28 @@ def _snapshot(
         kwargs["cache_dir"] = str(cache_dir)
     if "endpoint" in params:
         kwargs["endpoint"] = endpoint
-    else:
-        os.environ["MODELSCOPE_ENDPOINT"] = endpoint
     if token and "token" in params:
         kwargs["token"] = token
     if allow_patterns and "allow_patterns" in params:
         kwargs["allow_patterns"] = allow_patterns
     if local_dir is not None and "local_dir" in params:
         kwargs["local_dir"] = str(local_dir)
-    result = snapshot_download(**kwargs)
+    if "endpoint" in params:
+        result = snapshot_download(**kwargs)
+    else:
+        # Legacy SDKs without an endpoint argument still need an endpoint
+        # override; restore the environment immediately so it cannot leak
+        # into another operation inside this Studio process.
+        marker = object()
+        previous = os.environ.get("MODELSCOPE_ENDPOINT", marker)
+        os.environ["MODELSCOPE_ENDPOINT"] = endpoint
+        try:
+            result = snapshot_download(**kwargs)
+        finally:
+            if previous is marker:
+                os.environ.pop("MODELSCOPE_ENDPOINT", None)
+            else:
+                os.environ["MODELSCOPE_ENDPOINT"] = str(previous)
     return Path(result)
 
 
@@ -101,7 +111,7 @@ def _git_lfs_snapshot(
             parsed = urlparse(remote)
             remote_host = (parsed.hostname or "").lower()
             remote_path = parsed.path.lstrip("/").lower().removesuffix(".git")
-            if remote_host != expected_host or expected_repo not in remote_path:
+            if remote_host != expected_host or remote_path != expected_repo:
                 # A partial clone from a different official endpoint must not be
                 # reused for this retry.
                 shutil.rmtree(target)
