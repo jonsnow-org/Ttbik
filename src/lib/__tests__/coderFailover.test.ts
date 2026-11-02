@@ -1,6 +1,6 @@
 import { runSandboxTool, sandboxHealth, setSandboxBackends, setSandboxDriver, backendOrder, type SbxDriver, type SbxHandle } from "@/lib/coderSandbox";
 import { parseNodeCommand, runJs } from "@/lib/coderSandboxLight";
-import { daytonaDriver, parseEnvelopes, setDriverFetch } from "@/lib/coderSandboxDrivers";
+import { parseEnvelopes, setDriverFetch } from "@/lib/coderSandboxDrivers";
 import { coderChat, coderJobResult, coderStudioUrls, splitJob } from "@/lib/openCoderStudio";
 
 const ctx = { chatKey: "k1", runId: "run1" };
@@ -41,15 +41,14 @@ describe("sandbox failover chain", () => {
   it("zero-cost mode selects Oracle only and never auto-falls back to metered VMs", () => {
     const save = { ...process.env };
     process.env.VERCEL = "1";
-    process.env.DAYTONA_API_KEY = "d";
     process.env.E2B_API_KEY = "e";
     process.env.CSB_API_KEY = "csb";
     expect(backendOrder("auto")).toEqual([]);
     process.env.CODER_SANDBOX_ORACLE_URL = "https://oracle.example/coder-sbx";
     process.env.CODER_SANDBOX_ORACLE_SECRET = "oracle-secret";
     expect(backendOrder("auto")).toEqual(["oracle"]);
-    expect(backendOrder("e2b,nope,vercel,daytona,codesandbox")).toEqual([]);
-    expect(backendOrder("oracle,daytona")).toEqual(["oracle"]);
+    expect(backendOrder("e2b,nope,vercel,codesandbox")).toEqual([]);
+    expect(backendOrder("oracle,e2b")).toEqual(["oracle"]);
     delete process.env.CODER_SANDBOX_ORACLE_SECRET;
     expect(backendOrder("auto")).toEqual([]);
     process.env = save;
@@ -58,7 +57,6 @@ describe("sandbox failover chain", () => {
     const log: string[] = [];
     setSandboxBackends([
       { id: "vercel", driver: failing("Sandbox creation paused: usage limit exceeded") },
-      { id: "daytona", driver: failing("fetch failed") },
       { id: "e2b", driver: okDriver("e2b", log) },
     ]);
     const a = await runSandboxTool("sandbox_exec", { command: "echo 1" }, ctx);
@@ -70,7 +68,6 @@ describe("sandbox failover chain", () => {
     expect(log).toEqual(["e2b:echo 1", "e2b:echo 2"]);
     const h = sandboxHealth();
     expect(h.find((x) => x.id === "vercel")!.ok).toBe(false);
-    expect(h.find((x) => x.id === "daytona")!.coolingUntil).not.toBeNull();
     expect(h.find((x) => x.id === "e2b")!.ok).toBe(true);
     expect(h[h.length - 1].id).toBe("light");
   });
@@ -100,29 +97,7 @@ describe("sandbox failover chain", () => {
   });
 });
 
-describe("daytona / e2b drivers (HTTP shape, fake fetch)", () => {
-  it("daytona: create waits for started, exec + files go through the toolbox proxy", async () => {
-    process.env.DAYTONA_API_KEY = "dk";
-    const calls: string[] = [];
-    let state = "creating";
-    setDriverFetch((async (u: any, init?: any) => {
-      const url = String(u);
-      calls.push(`${init?.method || "GET"} ${url}`);
-      expect(init?.headers?.Authorization).toBe("Bearer dk");
-      if (url.endsWith("/api/sandbox") && init?.method === "POST") return Response.json({ id: "sb1", state, toolboxProxyUrl: "https://proxy.x/toolbox" });
-      if (url.endsWith("/api/sandbox/sb1")) return Response.json({ id: "sb1", state: (state = "started"), toolboxProxyUrl: "https://proxy.x/toolbox" });
-      if (url.includes("/process/execute")) return Response.json({ exitCode: 0, result: JSON.parse(init.body).command });
-      if (url.includes("/files/download")) return new Response("content", { status: 200 });
-      return new Response("", { status: 404 });
-    }) as typeof fetch);
-    const d = daytonaDriver();
-    const h = await d.create("coder-x", { timeoutMs: 600000, vcpus: 2, tags: {} });
-    const r = await h.exec("echo", ["a b"], { timeoutMs: 1000 });
-    expect(r.stdout).toBe(`bash -c 'echo '\\''a b'\\'''`);
-    expect((await h.read("/x"))!.toString()).toBe("content");
-    expect(calls.some((c) => c.startsWith("POST https://proxy.x/toolbox/sb1/process/execute"))).toBe(true);
-    delete process.env.DAYTONA_API_KEY;
-  });
+describe("e2b driver (HTTP shape, fake fetch)", () => {
   it("e2b: Connect envelopes decode", () => {
     const enc = (o: unknown) => {
       const b = Buffer.from(JSON.stringify(o));
