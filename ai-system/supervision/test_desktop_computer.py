@@ -152,7 +152,8 @@ class Desktop(unittest.TestCase):
         desktop._PHASE = "running"
         desktop._DISPLAY = ":91"
         desktop._ENV = {"DESKTOP_NETWORK_MODE": "network-namespace"}
-        result = self.call(action="launch", session="alice:model-x", app="browser")
+        with patch.object(desktop, "_check_live"):
+            result = self.call(action="launch", session="alice:model-x", app="browser")
         self.assertFalse(result["ok"])
         self.assertIn("internet browsing is disabled", result["error"])
 
