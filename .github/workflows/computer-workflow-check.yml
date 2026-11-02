@@ -1,0 +1,24 @@
+name: Computer workflow check (what a model really does on the hub)
+# Fetches the public repository, searches it, reads and edits files, lists the changes it would publish, runs commands, starts a background job and lists the programmer tools.
+# Throw-away session "check:coder"; publishes nothing. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "hub Studio name under novaai2026"
+        default: "nova-inference-server"
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the check
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio }}
+        run: |
+          case "$STUDIO" in *[!a-z0-9-]*) echo "bad name"; exit 1;; esac
+          python3 scripts/ops/computer_workflow_check.py --api "https://studio-novaai2026-${STUDIO}.api-inference.modelscope.net"
