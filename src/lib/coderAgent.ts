@@ -81,6 +81,23 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
     obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
 ];
 
+/** The model's own graphical desktop: screenshots are returned to multimodal candidates as image input. */
+export const DESKTOP_TOOL_DEFS: CoderTool[] = [
+  tool("desktop", "Operate YOUR selected model's own graphical Linux desktop (not another model's). Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+    obj({
+      action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
+      app: { type: "string", enum: ["browser", "terminal", "files"] },
+      url: s("URL to open when launching the browser"),
+      x: n("horizontal pixel coordinate from the latest screenshot"),
+      y: n("vertical pixel coordinate from the latest screenshot"),
+      button: { type: "string", enum: ["left", "middle", "right"] },
+      text: s("text to type"),
+      key: s("key name, e.g. Enter, Tab, Ctrl+L"),
+      direction: { type: "string", enum: ["up", "down"] },
+      amount: n("scroll amount, 1-8"),
+    }, ["action"])),
+];
+
 /** The model's own persistent Linux computer (computerBox.ts): shell, files and background jobs in its Studio, free. Four small tools so a small context window pays little. */
 /** The working habits that make the computer fast (the Studio also writes this to ~/README.md and sends it with a session's first result). */
 export const COMPUTER_PLAYBOOK = [
@@ -115,6 +132,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   ...SANDBOX_TOOL_DEFS,
   ...COMPUTER_BOX_TOOL_DEFS,                               // the same computer tools the `computer` group offers, so the "every tool" mode (CODER_TOOL_GROUPS=off) has them too
   ...BROWSER_TOOL_DEFS,
+  ...DESKTOP_TOOL_DEFS,
   tool("view_image", "LOOK at a picture: from a public URL or from a file in the VM. You see it in your next step (a few seconds to a minute on this server). Use it for screenshots, photos, charts, scans. Small text in a picture may be misread: say so when it matters.", obj({ url: s("https URL of the picture"), path: s("or a file path in the VM"), cwd: s("base dir for path") })),
   tool("view_video", "LOOK at a video that is a file in the VM: it takes a few frames spread over the video (ffmpeg in the VM) and you see them in your next step, in order. Each frame costs about as much time as one picture.", obj({ path: s("video file path in the VM"), frames: n("how many frames, default 4, max 6"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "MAKE media using the selected model's own independent generator. image: use that model's assigned photorealistic checkpoint and private ModelScope Studio only; never switch to another model. audio/video are available only when that selected model has its own configured route; otherwise return a clear unavailable result without using Nova or another model. Respect the daily quota. If the tool reports an error, NOTHING was sent: tell the user plainly; never claim generation succeeded.", obj({ kind: s("image | audio | video"), prompt: s("what to make (image: description; audio: the text to speak; video: the scene and its motion)") }, ["kind", "prompt"])),
@@ -186,7 +204,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...DESKTOP_TOOL_DEFS, ...by(["send_file"])],
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
@@ -736,6 +754,13 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!mapped) return "error: computer_job action must be start, log, stop or list";
       // one computer per user AND model; the Studio is the model's own
       return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
+    }
+    if (name === "desktop") {
+      if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the graphical desktop";
+      const { desktopDo } = await import("@/lib/desktopComputer");
+      const result = await desktopDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, a as any, ctx.fetchImpl);
+      const { screenshot_b64, ...metadata } = result || {};
+      return clip({ ...metadata, ...(screenshot_b64 ? { screenshot: "captured; multimodal candidate bridge attaches the pixels to the model's next turn" } : {}) }, 1200);
     }
     if (name === "browser") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the browser";
