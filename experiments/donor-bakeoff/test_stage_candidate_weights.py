@@ -27,6 +27,14 @@ class CandidateMirrorAssignment(unittest.TestCase):
             path.write_text(json.dumps(config), encoding="utf-8")
             self.assertEqual(stage.validate_assignment(json.loads(path.read_text(encoding="utf-8"))), stage.EXPECTED_REPOSITORIES["qwen35-9b"])
 
+
+    def test_model_repository_creation_and_upload_use_numeric_model_visibility(self):
+        source = (Path(stage.__file__).with_name("stage_candidate_weights.py")).read_text(encoding="utf-8")
+        self.assertIn("from modelscope.hub.constants import ModelVisibility", source)
+        self.assertIn("api.create_model(destination, visibility=ModelVisibility.PRIVATE)", source)
+        self.assertIn("visibility=ModelVisibility.PRIVATE", source)
+        self.assertNotIn("visibility=Visibility.PRIVATE", source)
+
     def test_private_import_skip_requires_a_valid_source_commit_sha(self):
         self.assertTrue(stage.valid_commit_sha("a" * 40))
         self.assertFalse(stage.valid_commit_sha("not-a-commit"))

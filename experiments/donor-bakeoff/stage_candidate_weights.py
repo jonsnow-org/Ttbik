@@ -71,7 +71,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
 
     from modelscope import snapshot_download
     from modelscope.hub.api import HubApi
-    from modelscope.hub.constants import Visibility
+    from modelscope.hub.constants import ModelVisibility
 
     api = HubApi()
     api.login(token.strip())
@@ -134,7 +134,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         package = root / "package"
         (package / MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         try:
-            api.create_model(destination, visibility=Visibility.PRIVATE)
+            api.create_model(destination, visibility=ModelVisibility.PRIVATE)
             print(f"{route_id}: created private ModelScope repository {destination}.", flush=True)
         except Exception as exc:
             reason = str(exc).lower()
@@ -144,7 +144,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         api.push_model(
             model_id=destination,
             model_dir=str(package),
-            visibility=Visibility.PRIVATE,
+            visibility=ModelVisibility.PRIVATE,
             commit_message=f"Mirror exact {route_id} Q4_K_M checkpoint and projector ({REVISION})",
         )
     with tempfile.TemporaryDirectory(prefix="donor-weights-verify-") as verify_tmp:

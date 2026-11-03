@@ -111,7 +111,7 @@ jobs:
           # Candidate media Studios do not host computer/browser/desktop runtimes.
           # Remove old copies left by prior versions of this deployment workflow.
           git rm -f browser_computer.py computer_box.py desktop_computer.py >/dev/null 2>&1 || true
-          sed -i '/^playwright[<=>]/d' requirements.txt
+          sed -i '/^playwright$/d; /^playwright[<=>]/d' requirements.txt
           git add app.py requirements.txt media_quality.py
           git diff --cached --quiet && echo "no change" || git commit -m "media-only app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
