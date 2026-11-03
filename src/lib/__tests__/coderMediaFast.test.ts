@@ -48,6 +48,17 @@ describe("Media intent without an excluded-word dictionary", () => {
     expect(detectMediaIntent("قم بتوليد صورة من فضلك قطة جميلة")).toEqual({ kind: "image", subject: "من فضلك قطة جميلة" });
   });
 
+  it("routes past-tense Arabic image requests to the selected image Studio", () => {
+    expect(detectMediaIntent("طلبت صورة فتاة على البحر")).toEqual({
+      kind: "image",
+      subject: "فتاة على البحر",
+    });
+    expect(detectMediaIntent("طلبت صورة لامرأة على الشاطئ")).toEqual({
+      kind: "image",
+      subject: "لامرأة على الشاطئ",
+    });
+  });
+
   it("keeps ordinary non-media messages in the normal chat path", () => {
     expect(detectMediaIntent("اكتب كود بايثون")).toBeNull();
     expect(detectMediaIntent("اشرح كيف يعمل الموقع")).toBeNull();
