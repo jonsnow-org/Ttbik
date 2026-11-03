@@ -83,6 +83,12 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
                     and existing.get("modelscope_weights_revision") == REVISION
                     and existing.get("filename") == filenames[0]
                     and existing.get("mmproj_filename") == filenames[1]
+                    and all(
+                        isinstance((existing.get("files") or {}).get(name), dict)
+                        and len(str((existing.get("files") or {}).get(name, {}).get("sha256") or "")) == 64
+                        and int((existing.get("files") or {}).get(name, {}).get("size_bytes") or 0) > 1_000_000
+                        for name in filenames
+                    )
                 ):
                     print(f"{route_id}: private ModelScope weights manifest already matches {REVISION}; no external download or replacement needed.", flush=True)
                     return existing

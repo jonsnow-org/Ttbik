@@ -113,7 +113,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install -q "huggingface_hub>=0.30,<2" "modelscope>=1.35.0,<2"
+          python3 -m pip install -q "huggingface_hub>=0.30,<2" "modelscope==1.35.0"
           python3 experiments/donor-bakeoff/stage_candidate_weights.py --config "experiments/donor-bakeoff/candidates/$CANDIDATE_CONFIG"
       - name: Create or safely upgrade only this private candidate Studio
         env:

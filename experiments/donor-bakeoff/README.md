@@ -27,6 +27,9 @@ Images, audio, and video are sent as direct base64 payloads to the local model s
 - A media smoke "pass" means the runtime accepted the media and produced a response; it is **not** a semantic accuracy score. Human review of the answer against the uploaded media is still needed.
 - This round tests multimodal **input/understanding** and candidate-owned image output. Each candidate has exactly one pinned image-weight assignment and one private ModelScope image Studio: Qwen3.5-9B → CyberRealistic FINAL; Gemma 4 E4B → an independent private copy of Realistic Vision V6; MiniCPM-o 4.5 → Umranz (pending its successful readiness/generation test). The chat model chooses the generate_image tool; the selected candidate runtime verifies the private Studio repo and checkpoint SHA-256, calls only that Studio, and returns the generated file to the bot. There is no cross-candidate fallback. Audio/video output and speech synthesis are not enabled in this bake-off. MiniCPM-o separate speech/TTS weights are not loaded.
 
+
+**Initial import boundary:** the first mirror operation in GitHub Actions reads the two exact upstream files once so their bytes can be placed in the owner’s private ModelScope repository. This transfer is not part of Studio inference or media generation. Once the private manifest matches the pinned revision, subsequent deployments skip the upstream fetch entirely. Runtime Studios have no Hugging Face package, endpoint, or fallback.
+
 The one-time import is skipped when the private ModelScope manifest already matches the pinned source revision. Model Studio runtime code contains no Hugging Face client or endpoint; all model and projector downloads are from the candidate-specific private ModelScope repo. Each persistent workspace keeps only that candidate's own verified cache across Studio restarts.
 
 ## Evaluation
