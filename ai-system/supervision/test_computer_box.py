@@ -595,5 +595,34 @@ class PatchAndTests(Box):
         opts = cb.apt_cache_options()
         self.assertTrue(any(o.startswith("-oDir::Cache::Archives=") for o in opts))
 
+
+class Batch(Box):
+    """2026-11-04: several actions in ONE gateway round trip; order kept, first failure stops, a budget keeps the call inside the gateway's cut."""
+
+    def test_steps_run_in_order_and_stop_at_the_first_error(self):
+        s = "user-b:model-x"
+        r = self.run_box(session=s, action="batch", steps=[{"action": "write", "path": "q/a.txt", "content": "hi"}, {"action": "read", "path": "q/a.txt"},
+                                                          {"action": "run", "command": "exit 3"}, {"action": "nope"}, {"action": "run", "command": "echo NEVER_RAN"}])
+        self.assertTrue(r["ok"], r)
+        acts = [x["action"] for x in r["results"]]
+        self.assertEqual(acts, ["write", "read", "run"])          # the non-zero exit stopped the batch
+        self.assertEqual(r["results"][1]["text"], "hi")
+        self.assertNotIn("NEVER_RAN", json.dumps(r["results"]))
+
+    def test_no_nested_batch_and_budget_skips_the_rest(self):
+        s = "user-b2:model-x"
+        nested = self.run_box(session=s, action="batch", steps=[{"action": "batch", "steps": []}])
+        self.assertFalse(nested["results"][0]["ok"])
+        old = cb.BATCH_BUDGET_S
+        self.addCleanup(setattr, cb, "BATCH_BUDGET_S", old)
+        cb.BATCH_BUDGET_S = 0
+        r = self.run_box(session=s, action="batch", steps=[{"action": "run", "command": "sleep 0.2"}, {"action": "run", "command": "echo late"}])
+        self.assertTrue(r["results"][-1].get("skipped"), r)
+
+    def test_a_tip_failure_never_blanks_a_good_answer(self):
+        s = "user-b3:model-x"
+        with patch.object(cb, "welcome", side_effect=RuntimeError("boom")):
+            self.assertTrue(self.run_box(session=s, action="run", command="echo ok")["ok"])
+
 if __name__ == "__main__":
     unittest.main()
