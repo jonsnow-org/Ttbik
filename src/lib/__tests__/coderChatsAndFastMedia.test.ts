@@ -45,6 +45,8 @@ describe("which requests take the fast media lane", () => {
   it("raw model output can be kept without the fixed translation glossary", () => {
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
+    expect(cleanEnglishPrompt("I cannot help with that request")).toBeNull();
+    expect(cleanEnglishPrompt("a woman in a swimsuit on a beach at sunset")).toBe("a woman in a swimsuit on a beach at sunset");
     expect(cleanEnglishPrompt("\u56fe\u7247\u6d4b\u8bd5", { preserveRaw: true })).toBe("\u56fe\u7247\u6d4b\u8bd5");
     expect(cleanEnglishPrompt("حصان أبيض", { preserveRaw: true })).toBe("حصان أبيض");
   });
