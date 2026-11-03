@@ -22,7 +22,7 @@ class PrivateCandidateWeights(unittest.TestCase):
             "mmproj_filename": "mmproj.gguf",
         }
 
-    def _fake_snapshot(self, manifest_sha=None):
+    def _fake_snapshot(self, manifest_sha=None, source_revision='a' * 40):
         def snapshot(repo, local_dir, allow_patterns):
             self.assertEqual(repo, self.repo)
             self.assertEqual(set(allow_patterns), {MANIFEST_NAME, "candidate.gguf"})
@@ -31,6 +31,7 @@ class PrivateCandidateWeights(unittest.TestCase):
             manifest = {
                 "candidate_id": self.route,
                 "source_repo_id": self.config["repo_id"],
+                "source_revision": source_revision,
                 "modelscope_repo_id": self.repo,
                 "modelscope_weights_revision": "2026-11-03-r1",
                 "filename": "candidate.gguf",
@@ -77,6 +78,10 @@ class PrivateCandidateWeights(unittest.TestCase):
         self.assertNotIn("huggingface.co", app)
         self.assertNotIn("hf-mirror.com", app)
         self.assertNotIn("huggingface_hub", requirements)
+    def test_manifest_must_pin_a_valid_upstream_source_commit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(RuntimeError, "manifest does not match"):
+                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(source_revision="not-a-commit"), login_impl=lambda _: None)
     def test_runtime_config_cannot_change_to_an_unapproved_weights_revision(self):
         config = dict(self.config, modelscope_weights_revision="unreviewed")
         with tempfile.TemporaryDirectory() as folder:

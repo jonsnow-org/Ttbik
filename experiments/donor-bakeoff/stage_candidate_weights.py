@@ -83,6 +83,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
                     and existing.get("modelscope_weights_revision") == REVISION
                     and existing.get("filename") == filenames[0]
                     and existing.get("mmproj_filename") == filenames[1]
+                    and bool(existing.get("source_revision"))
                     and all(
                         isinstance((existing.get("files") or {}).get(name), dict)
                         and len(str((existing.get("files") or {}).get(name, {}).get("sha256") or "")) == 64
@@ -96,13 +97,16 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
             print(f"{route_id}: no matching private ModelScope manifest found; preparing first mirror ({type(exc).__name__}).", flush=True)
 
     # This one-time transfer preserves exact checkpoint bytes; no conversion or requantization occurs.
-    from huggingface_hub import hf_hub_download
+    from huggingface_hub import HfApi, hf_hub_download
+    source_revision = str(HfApi().model_info(source_repo).sha or "").strip()
+    if not source_revision:
+        raise RuntimeError("The source Hub did not provide a commit SHA; refusing to import unpinned checkpoint files.")
     with tempfile.TemporaryDirectory(prefix=f"donor-{route_id}-") as temp:
         root = Path(temp)
         file_entries = {}
         for filename in filenames:
             relative = safe_name(filename)
-            downloaded = Path(hf_hub_download(repo_id=source_repo, filename=filename, local_dir=str(root / "source")))
+            downloaded = Path(hf_hub_download(repo_id=source_repo, filename=filename, revision=source_revision, local_dir=str(root / "source")))
             if not downloaded.is_file() or downloaded.stat().st_size < 1_000_000:
                 raise RuntimeError(f"Source file is missing or unexpectedly small: {filename}")
             destination_file = root / "package" / relative
@@ -115,6 +119,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
             "schema_version": 1,
             "candidate_id": route_id,
             "source_repo_id": source_repo,
+            "source_revision": source_revision,
             "modelscope_repo_id": destination,
             "modelscope_weights_revision": REVISION,
             "filename": filenames[0],

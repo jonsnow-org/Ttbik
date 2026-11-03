@@ -40,6 +40,11 @@ def re_full_sha(value: object) -> bool:
     return len(text) == 64 and all(ch in "0123456789abcdef" for ch in text)
 
 
+def re_full_commit(value: object) -> bool:
+    text = str(value or "").lower()
+    return len(text) == 40 and all(ch in "0123456789abcdef" for ch in text)
+
+
 def download_candidate_file(
     config: dict,
     filename: str,
@@ -88,6 +93,7 @@ def download_candidate_file(
         not isinstance(manifest, dict)
         or manifest.get("candidate_id") != route_id
         or manifest.get("source_repo_id") != config.get("repo_id")
+        or not re_full_commit(manifest.get("source_revision"))
         or manifest.get("modelscope_repo_id") != repo_id
         or manifest.get("modelscope_weights_revision") != config.get("modelscope_weights_revision")
         or manifest.get("filename") != config.get("filename")
