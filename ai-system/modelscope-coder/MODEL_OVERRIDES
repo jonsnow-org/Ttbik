@@ -1,2 +1,4 @@
-# One line per Studio: "<studio> <model repo> <gguf file> [ctx]". That Studio downloads this model first (Qwen3.5-4B stays the fallback). Trial of a faster model on ONE replica.
-coder-inference-server-4 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+# One line per Studio: "<studio> <model repo> <gguf file> [ctx]". That Studio runs ONLY this model: if it cannot be loaded the Studio reports
+# the error phase; it never quietly serves another model (owner 2026-11-04: models are independent, no silent fallback).
+# LFM2.5-8B-A1B is its own model on its own Studio (src/lib/coderModels.ts "lfm25"; LFM_STUDIO_URLS). Nova's replicas carry no override.
+lfm25-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768

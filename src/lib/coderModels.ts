@@ -25,6 +25,9 @@ export const DEFAULT_MODELS: CoderModel[] = [
   { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد، بأدواته ووسائطه واستوديوهاته الخاصة: بحث وGitHub وحاسوب افتراضي وصور وصوت وفيديو.", en: "Sham with a new body, with its own tools, media and Studios: search, GitHub, a private computer, pictures, speech and video." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // Candidate weights are first-class model choices, owner-only until each passes real bot tests.
   // Each routes to its own private ModelScope Studio; histories and in-flight slots stay keyed by candidate id.
+  // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
+  // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
+  { id: "lfm25", name: { ar: "LFM2.5 (السريع)", en: "LFM2.5 (fast)" }, desc: { ar: "LFM2.5-8B-A1B: أسرع نموذج على المعالج، بأدوات GitHub والحاسوب الخاص، ويصنع الصور والصوت والفيديو من استوديوهاته الخاصة.", en: "LFM2.5-8B-A1B: the fastest model on CPU, with GitHub tools and its own computer; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "LFM_STUDIO_URLS", sort: 6 },
   { id: "qwen35-9b", name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" }, desc: { ar: "Qwen3.5-9B: عربية وكود وأدوات GitHub، ويصنع الصور والصوت والفيديو من استوديوهات خاصة به.", en: "Qwen3.5-9B: Arabic, code and GitHub tools; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 3 },
   { id: "gemma4-e4b", name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" }, desc: { ar: "Gemma 4 E4B: سريع، يفهم الصور والصوت والفيديو، ويصنع الوسائط من استوديوهات خاصة به.", en: "Gemma 4 E4B: fast; understands pictures, sound and video and makes media in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 4 },
   { id: "minicpmo45", name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" }, desc: { ar: "MiniCPM-o 4.5: يفهم الصور والفيديو ويصنع الوسائط من استوديوهات خاصة به.", en: "MiniCPM-o 4.5: understands pictures and video and makes media in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, lockedOwnerOnly: true, sort: 5 },
@@ -107,6 +110,7 @@ const MODEL_SCOPE_CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham" || m.id === "sham_v2" || MODEL_SCOPE_CANDIDATES.has(m.id)) return studioTokenSet();
+  if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => !m.lockedOwnerOnly && m.visible && modelReady(m);
