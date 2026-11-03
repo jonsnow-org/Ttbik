@@ -313,15 +313,15 @@ def _token() -> str:
 def _root() -> Path:
     if _MODELS["root"]:
         return _MODELS["root"]
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-    try:                                                    # the repo is public: anonymous first (a login can poison the download)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
-    except Exception:                                       # noqa: BLE001
-        tok = _token()
-        if tok:
-            HubApi().login(tok)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
+    from modelscope_hub.compat import snapshot_download
+    token = _token().strip() or None
+    try:
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE), token=token))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"ModelScope media repository access failed for {REPO}: "
+            f"{type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
     return _MODELS["root"]
 
 
@@ -427,9 +427,11 @@ def cv_fetch_weights(root):
     if free < CV_REQUIRED_FREE:
         raise RuntimeError(f"native-video-unavailable: this Studio needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
     try:
-        from modelscope import snapshot_download
-        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+        import os as _os
+        from modelscope_hub.compat import snapshot_download
+        token = (_os.environ.get("MODELSCOPE_API_TOKEN") or _os.environ.get("MODELSCOPE_TOKEN") or "").strip() or None
+        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES, token=token)
+        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE], token=token)
         found = cv_find_weights(root, ())
         if found:
             return found
