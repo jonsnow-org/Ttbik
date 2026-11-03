@@ -67,9 +67,22 @@ def download_candidate_file(
     if filename not in allowed_files or not filename:
         raise RuntimeError("Requested weight file is not assigned to this candidate.")
     relative = _relative_filename(filename)
-    auth = (token if token is not None else (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "")).strip()
+    if token is not None:
+        auth = str(token).strip()
+        token_source = "argument"
+    else:
+        auth = ""
+        token_source = ""
+        # A candidate-specific Studio secret must win over any stale shared
+        # ModelScope variables that may have been retained by a prior image.
+        for name in ("DONOR_MODEL_READ_TOKEN", "MODELSCOPE_API_TOKEN", "MODELSCOPE_TOKEN"):
+            candidate_token = str(os.environ.get(name) or "").strip()
+            if candidate_token:
+                auth = candidate_token
+                token_source = name
+                break
     if not auth:
-        raise RuntimeError("MODELSCOPE_API_TOKEN is required to read the candidate's private weight repository.")
+        raise RuntimeError("DONOR_MODEL_READ_TOKEN is required to read the candidate's private weight repository.")
     cache = Path(cache_dir).expanduser().resolve()
     cache.mkdir(parents=True, exist_ok=True)
     # Download exact file paths instead of enumerating the private repo.
@@ -80,13 +93,20 @@ def download_candidate_file(
         from modelscope_hub import HubApi
         hub_api_factory = HubApi
     api = hub_api_factory(token=auth)
-    api.download_file(
-        repo_id,
-        repo_type="model",
-        file_path=MANIFEST_NAME,
-        local_dir=str(cache),
-        force=True,
-    )
+    try:
+        api.download_file(
+            repo_id,
+            repo_type="model",
+            file_path=MANIFEST_NAME,
+            local_dir=str(cache),
+            force=True,
+        )
+    except Exception as exc:
+        # Report only the selected variable name; never expose its secret value.
+        raise RuntimeError(
+            f"ModelScope could not read {MANIFEST_NAME} from {repo_id}@master "
+            f"using {token_source}: {type(exc).__name__}: {str(exc)[:500]}"
+        ) from exc
     manifest_path = cache / MANIFEST_NAME
     if not manifest_path.is_file():
         raise RuntimeError("The private ModelScope weight repository is missing its integrity manifest.")

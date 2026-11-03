@@ -241,13 +241,16 @@ jobs:
           api = HubApi()
           api.login(token)
           studio = "novaai2026/" + os.environ["REPO"]
-          try:
-              api.add_secret(studio, "MODELSCOPE_API_TOKEN", token)
-          except Exception as exc:
-              message = str(exc).lower()
-              if not any(x in message for x in ("exist", "already", "duplicate")):
-                  raise
-              api.update_secret(studio, "MODELSCOPE_API_TOKEN", token)
+          # Keep a dedicated credential name for each isolated candidate Studio.
+          # Runtime prioritizes it over any stale shared ModelScope env variable.
+          for secret_name in ("MODELSCOPE_API_TOKEN", "DONOR_MODEL_READ_TOKEN"):
+              try:
+                  api.add_secret(studio, secret_name, token)
+              except Exception as exc:
+                  message = str(exc).lower()
+                  if not any(x in message for x in ("exist", "already", "duplicate")):
+                      raise
+                  api.update_secret(studio, secret_name, token)
           print("Private model-read token configured inside this candidate Studio only.")
           PY
       - name: Deploy isolated Studio and wait for the model
@@ -289,7 +292,7 @@ jobs:
           # merely because a GitHub Actions job was retried.
           READY=0
           STALE_RUNNING=0
-          studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \\
+          studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \
             -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
           state=""
           if [ "$studio_code" = "200" ]; then

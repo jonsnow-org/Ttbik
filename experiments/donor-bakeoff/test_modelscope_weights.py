@@ -1,8 +1,10 @@
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from modelscope_weights import EXPECTED_REPOSITORIES, MANIFEST_NAME, download_candidate_file
 
@@ -77,13 +79,39 @@ class PrivateCandidateWeights(unittest.TestCase):
 
     def test_missing_token_is_refused_before_any_download(self):
         with tempfile.TemporaryDirectory() as folder:
-            with self.assertRaisesRegex(RuntimeError, "MODELSCOPE_API_TOKEN"):
+            with self.assertRaisesRegex(RuntimeError, "DONOR_MODEL_READ_TOKEN"):
                 download_candidate_file(self.config, "candidate.gguf", folder, token="", hub_api_factory=self._fake_hub_api_factory())
 
     def test_hash_mismatch_refuses_to_return_a_model_path(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "SHA-256 mismatch"):
                 download_candidate_file(self.config, "candidate.gguf", folder, token="secret", hub_api_factory=self._fake_hub_api_factory("0" * 64))
+
+
+    def test_candidate_scoped_studio_token_wins_over_stale_shared_tokens(self):
+        env = {
+            "DONOR_MODEL_READ_TOKEN": "secret",
+            "MODELSCOPE_API_TOKEN": "stale-shared-token",
+            "MODELSCOPE_TOKEN": "older-token",
+        }
+        with patch.dict(os.environ, env, clear=False), tempfile.TemporaryDirectory() as folder:
+            path = download_candidate_file(
+                self.config,
+                "candidate.gguf",
+                folder,
+                hub_api_factory=self._fake_hub_api_factory(),
+            )
+        self.assertEqual(path.read_bytes(), self.payload)
+        self.assertEqual(self.downloaded_files, [MANIFEST_NAME, "candidate.gguf"])
+
+    def test_candidate_workflow_sets_dedicated_read_token_and_valid_shell_continuation(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "donor-bakeoff-modelscope.yml"
+        source = workflow.read_text(encoding="utf-8")
+        self.assertIn('api.add_secret(studio, "DONOR_MODEL_READ_TOKEN", token)', source)
+        self.assertIn('api.update_secret(studio, "DONOR_MODEL_READ_TOKEN", token)', source)
+        status_line = next(line for line in source.splitlines() if "studio_code=$(curl" in line)
+        self.assertTrue(status_line.endswith("\\"))
+        self.assertFalse(status_line.endswith("\\\\"))
 
     def test_runtime_downloads_exact_private_files_instead_of_enumerating_repository(self):
         source = Path(__file__).with_name("modelscope_weights.py").read_text(encoding="utf-8")
