@@ -61,6 +61,32 @@ def validate_assignment(config: dict) -> str:
     return destination
 
 
+def ensure_private_model_repo(api, destination: str) -> bool:
+    """Create this candidate's private model repo or verify the existing repo is private."""
+    if api.repo_exists(destination, "model"):
+        info = api.get_repo(destination, "model")
+        visibility = str(getattr(info, "visibility", "") or "").strip().lower()
+        if visibility not in {"private", "1", "visibility.private"}:
+            raise RuntimeError(
+                f"Candidate weights repository {destination} already exists but is not confirmed private; refusing to upload checkpoints."
+            )
+        return False
+
+    info = api.create_repo(
+        destination,
+        repo_type="model",
+        visibility="private",
+        license="apache-2.0",
+        description="Private, pinned GGUF checkpoint and multimodal projector for one isolated donor candidate.",
+    )
+    visibility = str(getattr(info, "visibility", "") or "").strip().lower()
+    if visibility not in {"private", "1", "visibility.private"}:
+        raise RuntimeError(
+            f"ModelScope did not confirm private visibility for {destination}; refusing to upload checkpoints."
+        )
+    return True
+
+
 def mirror_candidate(config_path: str | Path, token: str) -> dict:
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     destination = validate_assignment(config)
@@ -71,11 +97,9 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         raise RuntimeError("MODELSCOPE_TOKEN is required for the private ModelScope mirror.")
 
     from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-    from modelscope.hub.constants import Visibility
+    from modelscope_hub import HubApi
 
-    api = HubApi()
-    api.login(token.strip())
+    api = HubApi(token=token.strip())
     with tempfile.TemporaryDirectory(prefix="donor-weights-check-") as remote_tmp:
         try:
             snapshot_download(destination, local_dir=remote_tmp, allow_patterns=[MANIFEST_NAME])
@@ -134,19 +158,23 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         }
         package = root / "package"
         (package / MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        try:
-            api.create_model(destination, visibility=Visibility.PRIVATE)
-            print(f"{route_id}: created private ModelScope repository {destination}.", flush=True)
-        except Exception as exc:
-            reason = str(exc).lower()
-            if not any(word in reason for word in ("exist", "already", "duplicate")):
-                raise
-            print(f"{route_id}: private ModelScope repository already exists; updating only its pinned candidate files.", flush=True)
-        api.push_model(
-            model_id=destination,
-            model_dir=str(package),
-            visibility=Visibility.PRIVATE,
+        created = ensure_private_model_repo(api, destination)
+        print(
+            f"{route_id}: {'created' if created else 'verified existing'} private ModelScope repository {destination}.",
+            flush=True,
+        )
+        # The official Hub uploader supports resumable, parallel, per-file retry uploads.
+        # Keep the destination rooted at this candidate's unique private repo; never sync-delete
+        # remote files or write any other candidate's model repository.
+        api.upload_folder(
+            destination,
+            repo_type="model",
+            folder_path=str(package),
+            path_in_repo="",
             commit_message=f"Mirror exact {route_id} Q4_K_M checkpoint and projector ({REVISION})",
+            use_cache=True,
+            sync_remote_repo=False,
+            disable_tqdm=True,
         )
     with tempfile.TemporaryDirectory(prefix="donor-weights-verify-") as verify_tmp:
         remote_manifest = None
