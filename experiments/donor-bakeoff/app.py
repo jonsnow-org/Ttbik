@@ -85,6 +85,7 @@ STATE = {
     "started_at": time.time(),
     "candidate": CONFIG.get("label", CONFIG.get("id", "unknown")),
     "media": {"vision": False, "audio": False, "video": False},
+    "weight_manifest": None,
 }
 LOCK = threading.RLock()
 
@@ -435,6 +436,7 @@ def load_model() -> None:
         if not mmproj_filename:
             raise RuntimeError("This candidate has no configured multimodal projector.")
         mmproj_path = _download_file(mmproj_filename, "multimodal projector")
+        weight_manifest = json.loads((CACHE / "candidate-weights-manifest.json").read_text(encoding="utf-8"))
         _prepare_server_source()
         _write_server_config(model_path, mmproj_path)
         MEDIA_CAPS_FILE.unlink(missing_ok=True)
@@ -523,6 +525,7 @@ def load_model() -> None:
                 "model_path": model_path,
                 "mmproj_path": mmproj_path,
                 "media": media_caps,
+                "weight_manifest": weight_manifest,
                 "load_seconds": round(time.monotonic() - started, 2),
             })
         print("Candidate and MTMD server ready; detected media: " + json.dumps(media_caps), flush=True)
@@ -541,6 +544,7 @@ def load_model() -> None:
                 "error": error_detail[:7200],
                 "load_seconds": round(time.monotonic() - started, 2),
                 "media": {"vision": False, "audio": False, "video": False},
+                "weight_manifest": None,
             })
         print("Candidate load failed: " + error_detail[-6500:], flush=True)
         if process is not None and process.poll() is None:
@@ -564,6 +568,7 @@ def status() -> str:
             "candidate": STATE["candidate"],
             "repo_id": CONFIG.get("modelscope_repo_id"),
             "source_repo_id": CONFIG.get("repo_id"),
+            "weight_manifest": STATE.get("weight_manifest"),
             "filename": CONFIG.get("filename"),
             "mmproj_filename": CONFIG.get("mmproj_filename"),
             "backend": "llama.cpp MTMD / CPU only",
