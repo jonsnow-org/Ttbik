@@ -703,7 +703,9 @@ def _run(kind: str, payload: dict) -> dict:
             prompt = str(payload.get("prompt", "")).strip()
             requested_seconds = float(payload.get("seconds", 4))
             clip = _make_video(prompt, requested_seconds, payload.get("seed", 0))
-            # check_mp4(clip, ...)  - quality gate bypassed for testing
+            # Validate the final artifact at the Studio boundary as well as each
+            # temporal segment. Never send a malformed, static, short or low-res MP4.
+            check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
             out = {"type": "video", "b64": base64.b64encode(clip).decode(), "text": prompt[:120]}
         STATE[{"image": "images", "speech": "speech", "video": "videos"}[kind]] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
