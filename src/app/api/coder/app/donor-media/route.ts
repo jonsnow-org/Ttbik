@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Bot, InputFile } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { tierFor } from "@/lib/coderAuth";
-import { verifyDonorToolTicket } from "@/lib/donorToolBridge";
+import { candidateOpenTo, verifyDonorToolTicket } from "@/lib/donorToolBridge";
+import { mediaQuotaMessage, reserveMedia } from "@/lib/coderMedia";
+import { prismaDb } from "@/lib/coderAuth";
 import { candidateMediaStudio, photoWeightProfile } from "@/lib/photoWeightMedia";
 import { taskEvent, taskIsActive, taskStatus } from "@/lib/coderTasks";
 import { recordDonorAsyncDelivery } from "@/lib/coderSections";
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   const ticket = verifyDonorToolTicket(body.ticket);
-  if (!ticket || ticket.model !== body.model || ticket.runId !== body.run_id || ticket.botId !== body.bot_id || tierFor(ticket.chatId) !== "owner") {
+  if (!ticket || ticket.model !== body.model || ticket.runId !== body.run_id || ticket.botId !== body.bot_id || !(await candidateOpenTo(ticket.chatId, ticket.model, prismaDb))) {
     return NextResponse.json({ ok: false, error: "invalid, expired, or cross-model ticket" }, { status: 403 });
   }
   if (!(await taskIsActive(ticket.runId))) {
@@ -115,14 +117,30 @@ export async function POST(req: NextRequest) {
   if (!row) return NextResponse.json({ ok: false, error: "candidate Telegram bot is not active" }, { status: 503 });
   const bot = new Bot(row.token);
   const chatId = ticket.chatId;
+  const owner = tierFor(chatId) === "owner";
   try {
+    // a regular user (the owner showed this candidate to everyone) has the same daily media quota as on every other model; the owner has none
+    let quotaNote = "";
+    const allowed = async (kind: "image" | "audio" | "video"): Promise<boolean> => {
+      if (owner) return true;
+      const slot = await reserveMedia(chatId, kind);
+      if (!slot.ok && !quotaNote) quotaNote = mediaQuotaMessage(slot);
+      return slot.ok;
+    };
+    const keptImages: typeof prepared = [];
+    for (const image of prepared) if (await allowed("image")) keptImages.push(image);
+    const keptClips: typeof clips = [];
+    for (const clip of clips) if (await allowed(clip.kind)) keptClips.push(clip);
+    prepared.splice(0, prepared.length, ...keptImages);
+    clips.splice(0, clips.length, ...keptClips);
+    if (quotaNote) await bot.api.sendMessage(chatId, quotaNote);
     for (const piece of chunks(text)) {
       await bot.api.sendMessage(chatId, piece);
       await taskEvent(ticket.runId, "text", piece);
     }
     for (const [index, image] of prepared.entries()) {
       const file = new InputFile(image.bytes, ticket.model + "-generated-" + (index + 1) + "." + image.extension);
-      const caption = "🖼 صورة مولّدة بواسطة " + ticket.model +
+      const caption = !owner ? "🖼" : "🖼 صورة مولّدة بواسطة " + ticket.model +
         "\nالوزن المستقل: " + profile.sourceModel +
         "\nمستودع الوسائط: " + profile.modelRepo +
         (image.seed !== undefined ? "\nSeed: " + image.seed : "");

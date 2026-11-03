@@ -7,6 +7,13 @@ import type { CoderToolCall } from "@/lib/openCoderStudio";
 type TicketBody = { chatId: number; model: string; connectors: string[]; runId?: string; botId?: string; exp: number; nonce: string };
 const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 const isCandidate = (id: string) => CANDIDATES.has(id);
+/** The owner always; anyone else only while the owner's admin switch shows this candidate to everyone (and it is ready). */
+export async function candidateOpenTo(chatId: number, model: string, db: Db): Promise<boolean> {
+  if (tierFor(chatId) === "owner") return true;
+  const { listModels, modelUsableBy } = await import("@/lib/coderModels");
+  const m = (await listModels(db).catch(() => [])).find((x) => x.id === model);
+  return Boolean(m && modelUsableBy(m, false));
+}
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
 
 function encode(value: unknown): string {
@@ -86,8 +93,8 @@ export function verifyDonorToolTicket(ticket: string): TicketBody | null {
 
 /** Describe only services this owner has actually connected. Credentials remain in the app server. */
 export async function createDonorToolBridge(chatId: number, model: string, db: Db, runId?: string, botId?: string) {
-  if (tierFor(chatId) !== "owner") throw new Error("Candidate models are owner-only.");
   if (!isCandidate(model)) throw new Error("Unknown candidate model route.");
+  if (!(await candidateOpenTo(chatId, model, db))) throw new Error("This candidate model is hidden from users (the owner's switch).");
   if (runId && !botId) throw new Error("The originating bot ID is required for signed candidate media delivery.");
   const [connections, linked] = await Promise.all([resolveConnections(chatId, db), connectedIds(chatId, db)]);
   const available = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
@@ -114,7 +121,7 @@ export async function createDonorToolBridge(chatId: number, model: string, db: D
   return { url, ticket, model, run_id: runId || "", bot_id: botId || "", connectors: available, tools };
 }
 
-const ASK_HINT = (what: string) => "APPROVAL_REQUIRED: " + what + ". No change was made. Ask the owner in your reply (one short question saying exactly what will happen); only after the owner answers yes, call this same tool again with the same arguments plus user_confirmed:true.";
+const ASK_HINT = (what: string) => "APPROVAL_REQUIRED: " + what + ". No change was made. Ask the user in your reply (one short question saying exactly what will happen); only after the user answers yes, call this same tool again with the same arguments plus user_confirmed:true.";
 
 /** Execute one model-selected tool in the shared connector/terminal layer, scoped to the selected candidate. */
 export async function executeDonorTool(input: {
@@ -128,9 +135,10 @@ export async function executeDonorTool(input: {
   if (!ticket || ticket.model !== input.model || !isCandidate(input.model)) {
     return { ok: false, result: "DENIED: invalid, expired, or cross-model tool ticket." };
   }
-  if (tierFor(ticket.chatId) !== "owner") {
-    return { ok: false, result: "DENIED: candidate connector access is owner-only." };
+  if (!(await candidateOpenTo(ticket.chatId, input.model, db))) {
+    return { ok: false, result: "DENIED: this candidate model is hidden from this user (owner switch)." };
   }
+  const tier = tierFor(ticket.chatId);
   const [connections, linked] = await Promise.all([resolveConnections(ticket.chatId, db), connectedIds(ticket.chatId, db)]);
   const nowConnected = [...new Set([...(connections.github?.token ? ["github"] : []), ...linked.filter((id) => !id.startsWith("mcp:"))])];
   const allowed = ticket.connectors.filter((id) => nowConnected.includes(id));
@@ -204,7 +212,7 @@ export async function executeDonorTool(input: {
     }
   }
 
-  const guard = await guardCall(call, gh, "owner");
+  const guard = await guardCall(call, gh, tier);          // a regular user gets the regular user's confirmations and limits, never the owner's
   if (guard.confirm && !userConfirmed) {
     return { ok: false, approval_required: true, result: ASK_HINT(guard.reason + " — " + guard.summary) };
   }
@@ -218,7 +226,7 @@ export async function executeDonorTool(input: {
     githubToken: connections.github?.token || null,
     userId: ticket.chatId,
     db,
-    tier: "owner" as const,
+    tier,
   };
   const result = await runTool(call, ctx);
   return { ok: !/^error:|^DENIED:|^APPROVAL_REQUIRED:/i.test(result), result };
