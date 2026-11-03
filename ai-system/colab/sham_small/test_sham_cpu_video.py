@@ -190,10 +190,9 @@ class SmallDiskFetch(unittest.TestCase):
         ms = types.ModuleType("modelscope")
         ms.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append((repo, tuple(allow_patterns)))
         usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(free_gib * 1024 ** 3))
-        with tempfile.TemporaryDirectory() as d, patch.dict(sys.modules, {"modelscope": ms, "huggingface_hub": None}), \\
-                patch("shutil.disk_usage", return_value=usage), \\
-                patch.object(cpu_video, "cv_find_weights", side_effect=[None, ("base", "adapter")]):
-            found = cpu_video.cv_fetch_weights(d)
+        with tempfile.TemporaryDirectory() as d:
+            with patch.dict(sys.modules, {"modelscope": ms, "huggingface_hub": None}), patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[None, ("base", "adapter")]):
+                found = cpu_video.cv_fetch_weights(d)
         return found, calls
 
     def test_small_disk_uses_only_its_modelscope_base_and_adapter(self):
