@@ -21,21 +21,25 @@ The VM needs these environment variables. Only their names appear here; the valu
 
 Sizing: about 8 GB RAM at run time and 15 GB disk, so a free host needs at least 12 GB RAM.
 
-## Free hosts compared (CPU, free, no GPU)
-| Host | Free resources | Fits Sham v2? | Needs owner action |
+## Free hosts compared (permanently free; trials excluded)
+Facts checked 2026-11-04 against Oracle's Always Free documentation (docs.oracle.com, "Always Free Resources"):
+- Ampere A1 is now **1,500 OCPU-h and 9,000 GB-h a month**, i.e. **2 OCPU / 12 GB total**. The old 4 OCPU / 24 GB figure was halved in mid-2026.
+- Oracle may reclaim an Always Free VM as idle when, over 7 days, CPU p95 **and** network **and** memory (A1) are all below 20%.
+
+| Host | Permanently free resources | Fits Sham v2 (about 8 GB RAM, 15 GB disk)? | Needs owner action |
 |---|---|---|---|
-| **Oracle Cloud Always Free, a NEW tenancy** (recommended) | Ampere A1 ARM: 2 OCPU / 12 GB on accounts after the June 2026 change; 200 GB disk | Yes. Note the image is multi-arch: the python and torch CPU wheels exist for arm64. | **Yes: sign-up.** The current tenancy's free A1 quota is fully used by the site VM. |
-| ModelScope: a second Studio on the same account | 2 vCPU / 8 GB (platform/2v-cpu-8g-mem) | Tight. `sham-v2-server` and `sham-v2-overflow-server` already exist and both showed DeployFailed on Nov 2. A third Studio adds no diversity. | No |
-| Hugging Face Spaces, CPU basic | 2 vCPU / 16 GB; sleeps after 48 h idle | Yes, via the Docker SDK (this Dockerfile, port 7860). | **Yes: sign-up, plus an explicit owner OK.** Project rule: HF is used for downloads only. |
-| Render / Koyeb / Fly free tiers | 512 MB to 1 GB RAM | No | — |
-| AWS / GCP / Azure free tiers | 1 GB RAM micro VMs | No | — |
+| **Oracle Cloud Always Free, a NEW tenancy** (recommended) | Ampere A1 ARM: 2 OCPU / 12 GB, 200 GB block storage, 10 TB egress a month | **Yes.** The loaded model keeps memory near 65%, so it is never "idle" by Oracle's rule. arm64 CPU torch wheels exist, and `build.sh` builds natively on the VM. | **Yes: sign-up.** The site's tenancy already uses all its A1 quota (2/12) for the site VM. |
+| Hugging Face Spaces, CPU basic | 2 vCPU / 16 GB / 50 GB, free with no time limit; sleeps after 48 h without traffic | Yes, via the Docker SDK (this Dockerfile, port 7860). | **Yes: sign-up, plus an explicit owner OK.** Project rule: HF is used for downloads only. |
+| ModelScope: another free Studio on the same account | 2 vCPU / 8 GB | Tight. It also sits on the same platform as the first copy, so it adds no host diversity. | No |
+| Google Cloud / AWS / Azure always-free micro VMs | 1 GB RAM | No | — |
+| Render / Koyeb / Fly free tiers | 256 MB to 1 GB RAM | No | — |
 
 ## Owner steps for the recommended host (Oracle Always Free, new tenancy)
 1. **Owner only:** sign up at https://signup.cloud.oracle.com with a different email from the site's tenancy. Choose a home region with A1 capacity (for example Frankfurt or Amsterdam). Oracle asks for card verification but does not charge Always Free resources. Do not upgrade to Pay As You Go.
 2. **Owner only:** create the VM:
    - Compute → Instances → Create.
    - Image: Canonical Ubuntu 24.04 (aarch64).
-   - Shape: VM.Standard.A1.Flex with all free OCPU/RAM (2 / 12 GB).
+   - Shape: VM.Standard.A1.Flex, 2 OCPU / 12 GB (the whole free allowance).
    - Boot volume: 100 GB.
    - Paste an SSH public key.
 3. Send the agent the VM's public IP and SSH user (`ubuntu`). Do not send the private key in chat; the agent will use the box's own key, whose public half it can show.
