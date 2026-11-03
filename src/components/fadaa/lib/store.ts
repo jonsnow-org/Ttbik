@@ -21,56 +21,13 @@ function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
 }
 
-function seedSessions(now: number): Session[] {
-  return [
-    {
-      id: 's_demo1',
-      kind: 'knowledge',
-      title: 'فهم إدارة الوقت في العمل عن بُعد',
-      purpose: 'توضيح أساليب عملية لترتيب الأولويات دون إرهاق.',
-      durationHours: 24,
-      visibility: 'public',
-      plan: 'free',
-      status: 'open',
-      ownerId: 'u_owner',
-      ownerName: 'مالك تجريبي',
-      createdAt: now - 3600_000,
-      closesAt: now + 20 * 3600_000,
-      participantIds: ['u_owner'],
-      roles: { u_owner: 'أوضّح' },
-    },
-    {
-      id: 's_demo2',
-      kind: 'decision',
-      title: 'اختيار مسار تعلّم تقني',
-      purpose: 'حسم بين مسار ويب أو بيانات خلال أسبوعين.',
-      durationHours: 48,
-      visibility: 'public',
-      plan: 'upgraded',
-      status: 'open',
-      ownerId: 'u_owner',
-      ownerName: 'مالك تجريبي',
-      createdAt: now - 7200_000,
-      closesAt: now + 40 * 3600_000,
-      participantIds: ['u_owner'],
-      roles: { u_owner: 'صاحب القرار' },
-    },
-  ]
+function seedSessions(_now: number): Session[] {
+  // Live sessions are loaded from the authenticated server API. Never seed fake public activity.
+  return []
 }
 
 function seedContributions(): Contribution[] {
-  return [
-    {
-      id: 'c1',
-      sessionId: 's_demo1',
-      authorId: 'u_owner',
-      authorName: 'مالك تجريبي',
-      role: 'أوضّح',
-      kind: 'clarify',
-      text: 'ابدأ بثلاث مهام فقط في اليوم، ثم راجع في المساء.',
-      createdAt: Date.now() - 3000_000,
-    },
-  ]
+  return []
 }
 
 interface FadaaState {
@@ -79,6 +36,7 @@ interface FadaaState {
   theme: 'light' | 'dark'
   screen: Screen
   activeSessionId: string | null
+  draft: { kind: SessionKind; title: string; purpose: string } | null
   user: User
   sessions: Session[]
   contributions: Contribution[]
@@ -93,6 +51,7 @@ interface FadaaState {
   setLocale: (l: Locale) => void
   setTheme: (t: 'light' | 'dark') => void
   go: (s: Screen, sessionId?: string | null) => void
+  setDraft: (draft: { kind: SessionKind; title: string; purpose: string } | null) => void
   showToast: (msg: string) => void
 
   createSession: (input: {
@@ -145,6 +104,7 @@ export const useFadaa = create<FadaaState>()(
         theme: 'light',
         screen: 'home',
         activeSessionId: null,
+        draft: null,
         user: { id: 'u_me', name: 'زائر' },
         sessions: seedSessions(now),
         contributions: seedContributions(),
@@ -163,6 +123,7 @@ export const useFadaa = create<FadaaState>()(
             screen,
             activeSessionId: sessionId === undefined ? get().activeSessionId : sessionId,
           }),
+        setDraft: (draft) => set({ draft }),
         showToast: (msg) => {
           set({ toast: msg })
           setTimeout(() => set({ toast: null }), 2200)
@@ -372,24 +333,18 @@ export const useFadaa = create<FadaaState>()(
     },
     {
       name: 'fadaa-v1',
+      // Persist only harmless interface preferences. All account/session data comes from the authenticated server.
       partialize: (s) => ({
         locale: s.locale,
         theme: s.theme,
-        user: s.user,
-        sessions: s.sessions,
-        contributions: s.contributions,
-        payments: s.payments,
-        settings: s.settings,
-        entitlements: s.entitlements,
-        blockedUserIds: s.blockedUserIds,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<FadaaState>
+        // Ignore legacy local sessions, users, payments, PINs and entitlements from fadaa-v1.
         return {
           ...current,
-          ...p,
-          settings: mergeSettings(p.settings as AppSettings),
-          entitlements: { ...emptyEntitlements(), ...(p.entitlements ?? {}) },
+          locale: p.locale ?? current.locale,
+          theme: p.theme ?? current.theme,
           ready: false,
           supervisor: false,
           toast: null,

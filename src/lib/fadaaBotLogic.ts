@@ -6,30 +6,27 @@ import { startGuide } from "@/lib/botStartGuide";
 /**
  * FADAA_BOT — «فضاء»: جلسات مؤقتة لغرض واضح ثم تُغلق.
  * التشغيل على Vercel webhook فقط (بدون Render).
- * التطبيق المصغر: /fadaa — التخزين عبر Supabase (مجاني) مع احتياطي محلي في المتصفح.
+ * التطبيق المصغر: /fadaa — جلسات مشتركة مخزنة على Supabase مع توثيق Telegram.
  */
 
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
-function miniAppUrl(botId: string): string {
-  return `${SITE}/fadaa?bot=${encodeURIComponent(botId)}`;
+function miniAppUrl(botId: string, sessionId?: string): string {
+  const url = new URL(`${SITE}/fadaa`);
+  url.searchParams.set("bot", botId);
+  if (sessionId) url.searchParams.set("session", sessionId);
+  return url.toString();
 }
 
 function userMenu(botId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .webApp("🌌 فتح فضاء", miniAppUrl(botId))
-    .row()
-    .url("ℹ️ عن فضاء", `${SITE}/fadaa?about=1`);
+  return new InlineKeyboard().webApp("🌌 فتح فضاء", miniAppUrl(botId));
 }
 
 function ownerMenu(botId: string): InlineKeyboard {
   return new InlineKeyboard()
     .webApp("🌌 فتح فضاء", miniAppUrl(botId))
     .row()
-    .text("📊 إحصائيات", "fadaa_stats")
-    .text("📢 بث", "fadaa_broadcast")
-    .row()
-    .text("ℹ️ مساعدة المالك", "fadaa_owner_help");
+    .text("ℹ️ دليل المالك", "fadaa_owner_help");
 }
 
 export async function handleFadaaBotUpdate(
@@ -50,14 +47,14 @@ export async function handleFadaaBotUpdate(
     if (data === "fadaa_stats" && fromId === ownerId) {
       await bot.api.sendMessage(
         chatId,
-        "📊 إحصائيات فضاء\n\nالجلسات والمساهمات تُدار داخل التطبيق المصغر.\nافتح «🌌 فتح فضاء» لعرض الأرشيف ولوحة المشرف (PIN داخل التطبيق).",
+        "افتح التطبيق المصغر لعرض جلسات بوتك وإدارتها.",
       );
       return;
     }
     if (data === "fadaa_owner_help" && fromId === ownerId) {
       await bot.api.sendMessage(
         chatId,
-        "مساعدة المالك — فضاء\n\n• التطبيق المصغر يعمل على Vercel (لا يعتمد على Render).\n• التخزين السحابي عبر Supabase عند توفّر الجداول.\n• بدون جداول: يبقى التخزين محلياً على جهاز المستخدم.\n• PIN المشرف الافتراضي داخل التطبيق: 7042 (غيّره من لوحة الأدمن في فضاء).",
+        "دليل المالك — فضاء\n\n• افتح التطبيق المصغر من الزر أدناه.\n• الجلسات والإسهامات تُحفظ في قاعدة البيانات وتظهر للمشاركين.\n• يمكنك إغلاق الجلسة التي أنشأتها من داخل غرفتها.\n• لا تشارك بيانات حساب Telegram مع أي شخص.",
       );
       return;
     }
@@ -73,6 +70,17 @@ export async function handleFadaaBotUpdate(
   const text = String(msg.text || "").trim();
   const fromId = String(msg.from?.id || "");
   const isOwner = fromId && fromId === ownerId;
+
+  const invite = text.match(/^\/start(?:@\w+)?\s+join_([0-9a-f-]{36})$/i);
+  if (invite) {
+    const sessionId = invite[1];
+    await bot.api.sendMessage(
+      chatId,
+      "وصلتك دعوة للمشاركة في جلسة على فضاء. افتح الجلسة واختر دورك لتشارك في النقاش:",
+      { reply_markup: new InlineKeyboard().webApp("🌌 الانضمام إلى الجلسة", miniAppUrl(botRow.id, sessionId)) },
+    );
+    return;
+  }
 
   if (fromId) {
     try {
