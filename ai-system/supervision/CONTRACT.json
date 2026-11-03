@@ -781,6 +781,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "hf_account_inventory": {
+      "file": ".github/workflows/hf-account-inventory.yml",
+      "title": "جرد حساب HF (قراءة فقط: الخطة والمساحات الموجودة) لقرار مضيف شام v2 المجاني",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
