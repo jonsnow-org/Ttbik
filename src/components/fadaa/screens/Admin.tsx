@@ -18,7 +18,7 @@ const words = {
     isVisible: 'ظاهرة للمشاركين', failed: 'تعذّر تنفيذ الإجراء. حاول مجدداً.',
     openState: 'مفتوحة', closedState: 'مغلقة', participants: 'مشارك', contribution: 'إسهامة',
     unnamed: 'جلسة', denied: 'هذه الصفحة مخصصة لمالك البوت فقط.',
-    safe: 'الإجراءات تُحفظ مباشرة في قاعدة البيانات. لا توجد إعدادات أو مدفوعات تجريبية.',
+    safe: 'الأرقام تخص البيانات المحمّلة حالياً (حتى آخر 80 جلسة). إجراءات الإخفاء والحذف تُحفظ في قاعدة البيانات.',
   },
   en: {
     title: 'Fadaa administration', subtitle: 'Owner dashboard for sessions and contribution review.',
@@ -32,7 +32,7 @@ const words = {
     isVisible: 'Visible to participants', failed: 'The action failed. Please try again.',
     openState: 'Open', closedState: 'Closed', participants: 'participants', contribution: 'contributions',
     unnamed: 'Session', denied: 'This page is restricted to the bot owner.',
-    safe: 'Actions are saved directly to the database. No mock settings or payments are shown.',
+    safe: 'Counts cover the currently loaded data (up to the latest 80 sessions). Moderation actions are saved directly to the database.',
   },
   fr: {
     title: 'Administration de Fadaa', subtitle: 'Tableau du propriétaire pour suivre les sessions et modérer.',
@@ -46,7 +46,7 @@ const words = {
     isVisible: 'Visible aux participants', failed: 'Action impossible. Réessayez.',
     openState: 'Ouverte', closedState: 'Fermée', participants: 'participants', contribution: 'contributions',
     unnamed: 'Session', denied: 'Cette page est réservée au propriétaire du bot.',
-    safe: 'Les actions sont enregistrées dans la base. Aucun faux réglage ni paiement.',
+    safe: 'Les chiffres couvrent les données chargées (jusqu’aux 80 dernières sessions). La modération est enregistrée en base.',
   },
 } as const
 
@@ -62,7 +62,7 @@ export function AdminScreen() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const byId = new Map(sessions.map((session) => [session.id, session] as const))
 
   const openCount = sessions.filter((session) => session.status === 'open').length
   const closedCount = sessions.filter((session) => session.status === 'closed').length
