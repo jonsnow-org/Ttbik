@@ -402,7 +402,19 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
     timed("echo_2", {"action": "run", "command": "echo hi"})
     timed("write_200kb", {"action": "write", "path": "bench/big.txt", "content": "x" * 200_000})
     timed("read_dir", {"action": "read", "path": "bench"})
-    timed("repo_clone", {"action": "repo", "url": "https://github.com/psf/requests"}, 240)
+    t_repo = time.time()
+    repo = timed("repo_clone", {"action": "repo", "url": "https://github.com/psf/requests"}, 240)
+    job = str(repo.get("job") or "")
+    if job:                                   # still downloading when the call answered: time the whole clone through the job log
+        for _ in range(60):
+            try:
+                log = box_call(api, token, {"session": session, "action": "job_log", "id": job, "tail": 5}, 60)
+            except Exception:  # noqa: BLE001
+                break
+            if not log.get("running"):
+                out["repo_clone_total"] = {"s": round(time.time() - t_repo, 2), "ok": log.get("exit_code") == 0}
+                break
+            time.sleep(3)
     timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
     timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
     timed("write_src", {"action": "write", "path": "bench/p/a.txt", "content": "one\ntwo\n"})

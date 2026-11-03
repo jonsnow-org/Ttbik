@@ -1052,7 +1052,9 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     if not started.get("ok"):
         return started
     job_id = started["id"]
-    deadline = time.time() + 25          # the ModelScope gateway cuts a call after ~45 s: stay well under it; the download keeps running as a job
+    # the ModelScope gateway can end a long call with an empty (null) result well before 45 s (the bench saw it at ~30 s):
+    # answer within 12 s; the download keeps running as a job the model reads with computer_job action=log
+    deadline = time.time() + 12
     while time.time() < deadline:
         log = job_log(session, job_id, 60)
         if log.get("ok") and not log.get("running"):
@@ -1256,7 +1258,10 @@ def api_box_do(body: str) -> str:
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
     if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test"):
-        tips = welcome(session)                            # once per session, never repeated
+        try:
+            tips = welcome(session)                        # once per session, never repeated
+        except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error
+            tips = ""
         if tips:
             out["tips"] = tips
     return json.dumps(out, ensure_ascii=False)

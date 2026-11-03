@@ -104,3 +104,17 @@ describe("LFM2.5 in the registry", () => {
     expect(modelReady(m)).toBe(false);
   });
 });
+
+describe("computer hub is never a media host", () => {
+  it("drops an env that points a model's media at nova-inference-server", () => {
+    const old = process.env.LFM_MEDIA_STUDIO_URL;
+    process.env.LFM_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ownMediaBase } = require("../modelMedia");
+      expect(ownMediaBase("lfm25")).toBe("");
+    } finally {
+      if (old === undefined) delete process.env.LFM_MEDIA_STUDIO_URL; else process.env.LFM_MEDIA_STUDIO_URL = old;
+    }
+  });
+});
