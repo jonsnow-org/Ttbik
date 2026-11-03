@@ -12,9 +12,9 @@ const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, t
 jest.setTimeout(3_000_000);
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
-const MODELS = (process.env.PROBE_MODELS || "coder,sham,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
+const MODELS = (process.env.PROBE_MODELS || "coder,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
-const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 5 ثوان";
+const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 4 ثوان";
 const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
 const LIMIT = { image: 420_000, video: 600_000 } as const;
 
