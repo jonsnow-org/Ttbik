@@ -26,15 +26,15 @@ export function HomeScreen() {
 
   return (
     <div className="space-y-5 pb-3">
-      <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-gradient-to-br from-teal-950 via-slate-800 to-slate-900 p-5 text-white shadow-xl">
-        <div className="absolute -end-10 -top-12 h-40 w-40 rounded-full bg-teal-400/10 blur-2xl" />
+      <section className="fadaa-home-hero relative overflow-hidden rounded-3xl border border-white/10 p-5 text-white shadow-xl">
+        <div className="absolute -end-10 -top-12 h-44 w-44 rounded-full bg-teal-300/20 blur-3xl" />
         <div className="relative space-y-3">
           <span className="inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-300/10 px-3 py-1 text-[11px] font-bold text-teal-100">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             {locale === 'ar' ? 'مساحة تعاون حيّة' : locale === 'fr' ? 'Espace de collaboration' : 'Live collaboration space'}
           </span>
           <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold">فضاء</h1>
-          <p className="max-w-sm text-sm leading-7 text-slate-200">
+          <p className="max-w-sm text-sm leading-7 text-slate-100">
             {locale === 'ar'
               ? 'حوّل السؤال إلى جلسة واضحة. اختر دورك، أضف ما تعرفه، واترك خلاصة مفيدة تبقى بعد انتهاء الجلسة.'
               : locale === 'fr'
