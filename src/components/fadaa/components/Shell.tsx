@@ -20,6 +20,7 @@ export function Shell({ children }: { children: import('react').ReactNode }) {
   const locale = useFadaa((s) => s.locale)
   const toast = useFadaa((s) => s.toast)
   const announcement = useFadaa((s) => s.settings.announcement)
+  const supervisor = useFadaa((s) => s.supervisor)
   const setLocale = useFadaa((s) => s.setLocale)
   const setTheme = useFadaa((s) => s.setTheme)
 
@@ -48,9 +49,10 @@ export function Shell({ children }: { children: import('react').ReactNode }) {
           <div className="truncate font-[family-name:var(--font-display)] text-lg font-bold text-[var(--color-ink)]">
             فضاء
           </div>
-          <div className="truncate text-[10px] text-[var(--color-ink-soft)]">
+          <div className="truncate text-[10px] text-[var(--color-ink-muted)]">
             {t(locale, 'tagline')}
           </div>
+          {supervisor ? <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-soft)] px-2 py-0.5 text-[9px] font-bold text-[var(--color-primary-ink)]">✦ {locale === 'ar' ? 'مالك فضاء' : locale === 'fr' ? 'Propriétaire' : 'Owner'}</div> : null}
         </div>
 
         <select
