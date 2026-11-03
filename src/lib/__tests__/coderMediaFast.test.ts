@@ -53,9 +53,9 @@ describe("Media intent without an excluded-word dictionary", () => {
       kind: "image",
       subject: "فتاة على البحر",
     });
-    expect(detectMediaIntent("طلبت صورة لامرأة على الشاطئ")).toEqual({
+    expect(detectMediaIntent("طلبتي صورة امرأة على الشاطئ")).toEqual({
       kind: "image",
-      subject: "لامرأة على الشاطئ",
+      subject: "امرأة على الشاطئ",
     });
   });
 
