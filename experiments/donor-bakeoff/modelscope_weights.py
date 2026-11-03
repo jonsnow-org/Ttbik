@@ -51,7 +51,7 @@ def download_candidate_file(
     cache_dir: str | Path,
     *,
     token: str | None = None,
-    snapshot_download_impl: Callable | None = None,
+    hub_api_factory: Callable | None = None,
 ) -> Path:
     """Download and hash-check one selected GGUF/projector from its pinned private ModelScope repo."""
     if not isinstance(config, dict):
@@ -72,17 +72,20 @@ def download_candidate_file(
         raise RuntimeError("MODELSCOPE_API_TOKEN is required to read the candidate's private weight repository.")
     cache = Path(cache_dir).expanduser().resolve()
     cache.mkdir(parents=True, exist_ok=True)
-    # Pass the candidate token directly to the maintained ModelScope Hub downloader.
-    # The legacy SDK may report private repositories as a generic 403 after a
-    # successful Studio-secret injection; global cached credentials are not used.
-    if snapshot_download_impl is None:
-        from modelscope_hub.compat import snapshot_download
-        snapshot_download_impl = snapshot_download
-    snapshot_download_impl(
+    # Download exact file paths instead of enumerating the private repo.
+    # Some ModelScope Studio runtimes return an empty repo listing for a private
+    # repository even when the same token can read individual files. Direct
+    # per-file reads fail loudly on auth/404, and force=True avoids stale cache.
+    if hub_api_factory is None:
+        from modelscope_hub import HubApi
+        hub_api_factory = HubApi
+    api = hub_api_factory(token=auth)
+    api.download_file(
         repo_id,
+        repo_type="model",
+        file_path=MANIFEST_NAME,
         local_dir=str(cache),
-        allow_patterns=[MANIFEST_NAME, filename],
-        token=auth,
+        force=True,
     )
     manifest_path = cache / MANIFEST_NAME
     if not manifest_path.is_file():
@@ -106,6 +109,13 @@ def download_candidate_file(
     if not isinstance(entry, dict) or not re_full_sha(entry.get("sha256")):
         raise RuntimeError("The private ModelScope manifest has no valid SHA-256 for the requested file.")
     target = cache / relative
+    api.download_file(
+        repo_id,
+        repo_type="model",
+        file_path=filename,
+        local_dir=str(cache),
+        force=True,
+    )
     if not target.is_file():
         raise RuntimeError("The selected candidate's private ModelScope repository did not deliver " + filename)
     actual_size = target.stat().st_size

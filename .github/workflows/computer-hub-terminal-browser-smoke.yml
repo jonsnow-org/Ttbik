@@ -7,6 +7,13 @@ on:
     paths:
       - ".github/workflows/computer-hub-terminal-browser-smoke.yml"
       - "scripts/ops/modelscope_computer_smoke.py"
+  workflow_run:
+    workflows:
+      - "Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio"
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -17,6 +24,7 @@ concurrency:
 
 jobs:
   smoke:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
