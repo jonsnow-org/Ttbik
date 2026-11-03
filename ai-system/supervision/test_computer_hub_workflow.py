@@ -14,6 +14,9 @@ class ComputerHubWorkflowTests(unittest.TestCase):
     def test_real_browser_smoke_runs_after_a_successful_computer_deploy(self):
         source = (ROOT / ".github" / "workflows" / "computer-hub-terminal-browser-smoke.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", source)
+        self.assertIn("workflow_dispatch:", source)
+        self.assertIn("workflow_run.head_sha || github.sha", source)
+        self.assertNotIn("  push:", source)
         self.assertIn("Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio", source)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", source)
         self.assertIn("--browser", source)

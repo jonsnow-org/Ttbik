@@ -1,12 +1,7 @@
 name: Live terminal and Chromium smoke for computer hub
 
 on:
-  push:
-    branches:
-      - claude/free-services-marketplace-h6rwk2
-    paths:
-      - ".github/workflows/computer-hub-terminal-browser-smoke.yml"
-      - "scripts/ops/modelscope_computer_smoke.py"
+  workflow_dispatch:
   workflow_run:
     workflows:
       - "Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio"
@@ -29,6 +24,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
