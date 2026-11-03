@@ -382,12 +382,42 @@ def check_browser(api: str, token: str, session: str) -> None:
         fail("headless browser did not return the expected public page URL, title and text")
 
 
+def bench(api: str, token: str, session: str) -> dict[str, Any]:
+    """Wall-clock seconds of the operations models use most (each through the real Gradio RPC, so it includes the hub's round trip).
+    An action the deployed hub does not know yet is reported as unsupported, so the same script measures before and after an upgrade."""
+    out: dict[str, Any] = {}
+
+    def timed(name: str, payload: dict[str, Any], timeout: int = 150) -> dict[str, Any]:
+        t0 = time.time()
+        try:
+            r = box_call(api, token, {"session": session, **payload}, timeout)
+        except Exception as exc:  # noqa: BLE001
+            out[name] = {"ok": False, "error": str(exc)[:120]}
+            return {}
+        ok = bool(r.get("ok")) and (r.get("exit_code") in (None, 0))
+        out[name] = {"s": round(time.time() - t0, 2), "ok": ok, **({} if ok else {"error": str(r.get("error") or r.get("output") or "")[:120]})}
+        return r
+
+    timed("echo", {"action": "run", "command": "echo hi"})
+    timed("echo_2", {"action": "run", "command": "echo hi"})
+    timed("write_200kb", {"action": "write", "path": "bench/big.txt", "content": "x" * 200_000})
+    timed("read_dir", {"action": "read", "path": "bench"})
+    timed("repo_clone", {"action": "repo", "url": "https://github.com/psf/requests"}, 240)
+    timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
+    timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
+    timed("write_src", {"action": "write", "path": "bench/p/a.txt", "content": "one\ntwo\n"})
+    timed("patch", {"action": "patch", "cwd": "bench/p", "diff": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n"})
+    timed("tools", {"action": "tools"})
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", required=True, help="ModelScope Studio inference API base URL")
     parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
     parser.add_argument("--no-gui", action="store_true", help="Run only persistent terminal/file/job smoke tests")
     parser.add_argument("--browser", action="store_true", help="Also open a public page in the isolated headless browser")
+    parser.add_argument("--bench", action="store_true", help="Also time the common operations (prints one BENCH json line)")
     args = parser.parse_args()
     token = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
     if not token:
@@ -412,11 +442,13 @@ def main() -> int:
             print(f"[{args.model_id}] checking the isolated Chromium browser", flush=True)
             check_browser(api, token, session)
             print(f"[{args.model_id}] PASS: Chromium opened a real public page", flush=True)
+        if args.bench:
+            print("BENCH " + json.dumps(bench(api, token, session), separators=(",", ":")), flush=True)
         print(f"[{args.model_id}] PASS: selected Studio computer smoke test complete", flush=True)
         return 0
     except Exception as exc:
         # Keep secrets, prompts, file contents, and screenshots out of CI logs.
-        print(f"[{args.model_id}] FAIL: {str(exc)[:320]}", file=sys.stderr, flush=True)
+        print(f"[{args.model_id}] FAIL: {str(exc)[:1200]}", file=sys.stderr, flush=True)
         return 1
 
 

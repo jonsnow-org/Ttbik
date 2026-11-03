@@ -119,6 +119,11 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({ action: { type: "string", enum: ["start", "log", "stop", "list"] }, command: s("for start"), name: s("short label for start"), id: s("job id for log or stop"), tail: n("lines to show, default 60") }, ["action"])),
   tool("computer_edit", "Change a file on YOUR computer by replacing exact text (unique, or replace_all). Send ONLY the changed lines, never the whole file. `edits` = several changes in one call, all or none.",
     obj({ path: s("file"), old: s("exact text to replace"), new: s("replacement"), replace_all: { type: "boolean" }, edits: { type: "array", items: obj({ old: s("exact text"), new: s("replacement") }, ["old", "new"]) } }, ["path"])),
+  tool("computer_patch", "Apply a unified diff (git diff / diff -u format, paths relative to cwd) on YOUR computer: many changes in many files in ONE call, all or nothing (a patch that does not fit changes nothing).",
+    obj({ diff: s("the unified diff"), cwd: s("folder the paths are relative to, e.g. repos/owner-name; default .") }, ["diff"])),
+  tool("computer_test", "Run the project's tests on YOUR computer as a background job (runner detected: npm/pnpm/yarn test, pytest, go test, cargo test, make test). Read it with computer_job action=log.",
+    obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
+  tool("computer_tools", "List the tools installed on YOUR computer now (git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node go cargo java).", obj({})),
   tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
@@ -749,7 +754,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (res?.error) return `error: ${res.error}`;
       return clip({ published: `${got.files.length} file(s) changed, ${got.deleted.length} deleted in ONE commit on ${branch}`, ...res, ...(got.skipped.length ? { skipped: got.skipped } : {}) });
     }
-    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search" || name === "computer_edit") {
+    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search" || name === "computer_edit" || name === "computer_patch" || name === "computer_test" || name === "computer_tools") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
@@ -1079,7 +1084,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_patch: ["🩹", "تطبيق تعديلات على الملفات"], computer_test: ["🧪", "تشغيل الاختبارات"], computer_tools: ["🧰", "أدوات الحاسوب"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
