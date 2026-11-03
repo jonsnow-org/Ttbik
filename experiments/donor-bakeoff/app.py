@@ -723,6 +723,18 @@ def _walk_objects(value):
                 yield from _walk_objects(child)
 
 
+def _gateway_retry(method: str, url: str, **kwargs):
+    """requests.<method> with a bounded retry on the ModelScope gateway's burst answers (429 Too Many Requests, 502/503/504): the account allows few concurrent calls, a second request seconds later usually passes."""
+    last = None
+    for attempt, wait in enumerate((0, 4, 10, 20)):
+        if wait:
+            time.sleep(wait + (hash((url, attempt)) % 3))
+        last = requests.request(method, url, **kwargs)
+        if last.status_code not in (429, 502, 503, 504):
+            return last
+    return last
+
+
 def _photo_status(profile: dict, token: str) -> dict:
     base = str(profile.get("studio_api") or "").rstrip("/")
     repo = str(profile.get("model_repo") or "")
@@ -730,7 +742,7 @@ def _photo_status(profile: dict, token: str) -> dict:
         raise RuntimeError("Candidate image Studio address is not an approved private ModelScope endpoint.")
     if not repo.startswith("novaai2026/"):
         raise RuntimeError("Candidate image model repo is not in the private ModelScope namespace.")
-    start = requests.post(
+    start = _gateway_retry("POST",
         base + "/gradio_api/call/status",
         json={"data": []},
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
@@ -740,7 +752,7 @@ def _photo_status(profile: dict, token: str) -> dict:
     event_id = str((start.json() or {}).get("event_id") or "")
     if not event_id:
         raise RuntimeError("Image Studio status returned no event id.")
-    poll = requests.get(
+    poll = _gateway_retry("GET",
         base + "/gradio_api/call/status/" + event_id,
         headers={"Authorization": "Bearer " + token},
         timeout=(8, 45),
@@ -801,7 +813,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
             float(profile.get("cfg") or 5.5),
             seed,
         ]
-        submit = requests.post(
+        submit = _gateway_retry("POST",
             proof["base"] + "/gradio_api/call/image",
             json={"data": request_data},
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
@@ -811,7 +823,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
         event_id = str((submit.json() or {}).get("event_id") or "")
         if not event_id:
             raise RuntimeError("Image Studio returned no generation event id.")
-        result = requests.get(
+        result = _gateway_retry("GET",
             proof["base"] + "/gradio_api/call/image/" + event_id,
             headers={"Authorization": "Bearer " + token},
             timeout=(8, 540),
@@ -838,7 +850,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
         if not relative or ".." in Path(relative).parts or "\x00" in relative or relative.startswith("http"):
             raise RuntimeError("Image Studio returned an unsafe file path.")
         from urllib.parse import quote
-        file_response = requests.get(
+        file_response = _gateway_retry("GET",
             proof["base"] + "/gradio_api/file=/" + quote(relative, safe="/"),
             headers={"Authorization": "Bearer " + token},
             timeout=(8, 90),
