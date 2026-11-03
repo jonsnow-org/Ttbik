@@ -313,15 +313,15 @@ def _token() -> str:
 def _root() -> Path:
     if _MODELS["root"]:
         return _MODELS["root"]
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-    try:                                                    # the repo is public: anonymous first (a login can poison the download)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
-    except Exception:                                       # noqa: BLE001
-        tok = _token()
-        if tok:
-            HubApi().login(tok)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
+    from modelscope_hub.compat import snapshot_download
+    token = _token().strip() or None
+    try:
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE), token=token))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"ModelScope media repository access failed for {REPO}: "
+            f"{type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
     return _MODELS["root"]
 
 

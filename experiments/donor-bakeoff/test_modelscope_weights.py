@@ -23,8 +23,9 @@ class PrivateCandidateWeights(unittest.TestCase):
         }
 
     def _fake_snapshot(self, manifest_sha=None, source_revision='a' * 40):
-        def snapshot(repo, local_dir, allow_patterns):
+        def snapshot(repo, local_dir, allow_patterns, token=None):
             self.assertEqual(repo, self.repo)
+            self.assertEqual(token, "secret")
             self.assertEqual(set(allow_patterns), {MANIFEST_NAME, "candidate.gguf"})
             root = Path(local_dir)
             (root / "candidate.gguf").write_bytes(self.payload)
@@ -43,17 +44,15 @@ class PrivateCandidateWeights(unittest.TestCase):
 
     def test_downloads_only_from_the_selected_candidates_private_repo_and_checks_sha(self):
         with tempfile.TemporaryDirectory() as folder:
-            logins = []
-            path = download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(), login_impl=logins.append)
+            path = download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot())
             self.assertEqual(path, Path(folder) / "candidate.gguf")
             self.assertEqual(path.read_bytes(), self.payload)
-            self.assertEqual(logins, ["secret"])
 
     def test_wrong_candidate_repository_is_refused_before_any_network_call(self):
         config = dict(self.config, modelscope_repo_id=EXPECTED_REPOSITORIES["gemma4-e4b"])
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "cross-candidate"):
-                download_candidate_file(config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(), login_impl=lambda _: None)
+                download_candidate_file(config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot())
 
     def test_unassigned_projector_or_file_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:

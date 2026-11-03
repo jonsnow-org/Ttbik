@@ -187,11 +187,14 @@ class SmallDiskFetch(unittest.TestCase):
         import sys
         import types
         calls = []
-        ms = types.ModuleType("modelscope")
-        ms.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append((repo, tuple(allow_patterns)))
+        hub = types.ModuleType("modelscope_hub")
+        compat = types.ModuleType("modelscope_hub.compat")
+        def snapshot(repo, local_dir, allow_patterns, token=None):
+            calls.append((repo, tuple(allow_patterns), token))
+        compat.snapshot_download = snapshot
         usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(free_gib * 1024 ** 3))
         with tempfile.TemporaryDirectory() as d:
-            with patch.dict(sys.modules, {"modelscope": ms, "huggingface_hub": None}), patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[None, ("base", "adapter")]):
+            with patch.dict(sys.modules, {"modelscope_hub": hub, "modelscope_hub.compat": compat, "huggingface_hub": None}), patch.dict(os.environ, {"MODELSCOPE_API_TOKEN": "test-token"}), patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[None, ("base", "adapter")]):
                 found = cpu_video.cv_fetch_weights(d)
         return found, calls
 
@@ -200,6 +203,7 @@ class SmallDiskFetch(unittest.TestCase):
         self.assertEqual(found, ("base", "adapter"))
         self.assertEqual([item[0] for item in calls], [cpu_video.CV_MS_BASE, cpu_video.CV_MS_ADAPTER])
         self.assertTrue(all(item[1] for item in calls))
+        self.assertTrue(all(item[2] == "test-token" for item in calls))
 
     def test_big_disk_still_uses_the_same_private_modelscope_sources(self):
         found, calls = self._run(20)
@@ -216,6 +220,7 @@ class SmallDiskFetch(unittest.TestCase):
         source = (HERE / "cpu_video.py").read_text(encoding="utf-8")
         self.assertNotIn("huggingface_hub", source)
         self.assertNotIn("CV_HF_", source)
+        self.assertIn("modelscope_hub.compat", source)
 
 
 

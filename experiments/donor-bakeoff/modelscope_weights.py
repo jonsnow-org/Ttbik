@@ -52,7 +52,6 @@ def download_candidate_file(
     *,
     token: str | None = None,
     snapshot_download_impl: Callable | None = None,
-    login_impl: Callable | None = None,
 ) -> Path:
     """Download and hash-check one selected GGUF/projector from its pinned private ModelScope repo."""
     if not isinstance(config, dict):
@@ -73,15 +72,18 @@ def download_candidate_file(
         raise RuntimeError("MODELSCOPE_API_TOKEN is required to read the candidate's private weight repository.")
     cache = Path(cache_dir).expanduser().resolve()
     cache.mkdir(parents=True, exist_ok=True)
-    if login_impl is None:
-        from modelscope.hub.api import HubApi
-        HubApi().login(auth)
-    else:
-        login_impl(auth)
+    # Pass the candidate token directly to the maintained ModelScope Hub downloader.
+    # The legacy SDK may report private repositories as a generic 403 after a
+    # successful Studio-secret injection; global cached credentials are not used.
     if snapshot_download_impl is None:
-        from modelscope import snapshot_download
+        from modelscope_hub.compat import snapshot_download
         snapshot_download_impl = snapshot_download
-    snapshot_download_impl(repo_id, local_dir=str(cache), allow_patterns=[MANIFEST_NAME, filename])
+    snapshot_download_impl(
+        repo_id,
+        local_dir=str(cache),
+        allow_patterns=[MANIFEST_NAME, filename],
+        token=auth,
+    )
     manifest_path = cache / MANIFEST_NAME
     if not manifest_path.is_file():
         raise RuntimeError("The private ModelScope weight repository is missing its integrity manifest.")

@@ -68,9 +68,10 @@ def cv_fetch_weights(root):
     if free < CV_REQUIRED_FREE:
         raise RuntimeError(f"native-video-unavailable: this Studio needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
     try:
-        from modelscope import snapshot_download
-        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+        from modelscope_hub.compat import snapshot_download
+        token = (_os.environ.get("MODELSCOPE_API_TOKEN") or _os.environ.get("MODELSCOPE_TOKEN") or "").strip() or None
+        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES, token=token)
+        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE], token=token)
         found = cv_find_weights(root, ())
         if found:
             return found
