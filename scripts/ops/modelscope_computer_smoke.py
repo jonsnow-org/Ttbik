@@ -412,7 +412,7 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
             except Exception:  # noqa: BLE001
                 break
             if not log.get("running"):
-                out["repo_clone_total"] = {"s": round(time.time() - t_repo, 2), "ok": log.get("exit_code") == 0}
+                out["repo_clone_total"] = {"s": round(time.time() - t_repo, 2), "ok": log.get("exit_code") == 0, **({} if log.get("exit_code") == 0 else {"tail": str(log.get("output") or "")[-300:]})}
                 break
             time.sleep(3)
     timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
@@ -421,7 +421,7 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
     if job:
         try:
             fin = box_call(api, token, {"session": session, "action": "job_log", "id": job, "tail": 200}, 60)
-            out["repo_clone_markers"] = " | ".join(l for l in str(fin.get("output") or "").splitlines() if "fetched" in l or "baseline" in l)[:200]
+            out["repo_clone_markers"] = " | ".join(l for l in str(fin.get("output") or "").splitlines() if "fetched" in l or "baseline" in l or "failed at" in l)[:200]
         except Exception:  # noqa: BLE001
             pass
     timed("write_src", {"action": "write", "path": "bench/p/a.txt", "content": "one\ntwo\n"})
