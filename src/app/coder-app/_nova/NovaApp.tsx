@@ -334,7 +334,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false, model = "all" }: { 
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
-        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
+        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
         {selLive && lastNoise && <div style={{ color: "#64748b", padding: "4px 0" }}>⏳ {lastNoise.text}</div>}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
       </div>}
