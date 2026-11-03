@@ -993,16 +993,18 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
       prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
+    let aspect: "wide" | "tall" | "square" | undefined;
+    if (prompt) { const sp = mf.splitAspect(prompt); prompt = sp.prompt; aspect = sp.aspect; }
     if (!prompt) return await askForDescription();
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));
-    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 300000 : 420000, bypassContentHeuristics: rawTest });
+    const reply = await generateShamMediaThroughRoute(intent.kind, prompt, { timeoutMs: intent.kind === "video" ? 300000 : 420000, bypassContentHeuristics: rawTest, aspect });
     await cardStepDone(bot, chatId, card, Boolean(reply.type === intent.kind && reply.b64));
     if (reply.type === intent.kind && reply.b64) {
       await cardPhase(bot, chatId, card, "send", "جاري الإرسال");
       await cardDrop(bot, chatId, card);
-      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"), rawTest ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
       else await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"));
       await taskEvent(runId, "done", "").catch(() => null);
       await taskStatus(runId, "done", 1).catch(() => null);

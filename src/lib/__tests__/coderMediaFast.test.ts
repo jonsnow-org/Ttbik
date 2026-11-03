@@ -72,3 +72,22 @@ describe("Nova video duration intent", () => {
     expect(detectMediaIntent("أنشئ فيديو حصان لمدة 15 ثانيه")).toMatchObject({ kind: "video", subject: "حصان", seconds: 15 });
   });
 });
+
+describe("frame tag from the translator", () => {
+  it("splits [wide] / [tall] / [square] from the prompt and leaves untagged text alone", async () => {
+    const { splitAspect } = await import("@/lib/coderMediaFast");
+    expect(splitAspect("[wide] a girl and a man walking among flowers")).toEqual({ prompt: "a girl and a man walking among flowers", aspect: "wide" });
+    expect(splitAspect("[Tall] a woman on a beach")).toEqual({ prompt: "a woman on a beach", aspect: "tall" });
+    expect(splitAspect("white horse")).toEqual({ prompt: "white horse" });
+    expect(splitAspect("[wide]").prompt).toBeNull();
+    expect(splitAspect(null).prompt).toBeNull();
+  });
+  it("maps the frame to a resolution every image Studio offers", async () => {
+    const { frameFor } = await import("@/lib/photoWeightMedia");
+    expect(frameFor("512 × 512", "wide")).toBe("768 × 512");
+    expect(frameFor("512 × 768", "square")).toBe("512 × 512");
+    expect(frameFor("512 × 512", "tall")).toBe("512 × 768");
+    expect(frameFor("512 × 768 (author recommended)", "tall")).toBe("512 × 768 (author recommended)");
+    expect(frameFor("512 × 768")).toBe("512 × 768");
+  });
+});

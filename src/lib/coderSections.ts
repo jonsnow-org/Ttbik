@@ -740,7 +740,7 @@ async function fastMedia(
       const rbm = realBot(bot) as never;
       const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
       if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
-      const prompt = await englishMediaPrompt(intent.subject, content, modelId, rawTest);
+      const { prompt, aspect } = (await import("@/lib/coderMediaFast")).splitAspect(await englishMediaPrompt(intent.subject, content, modelId, rawTest));
       if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
       if (!prompt) {
         say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
@@ -752,7 +752,7 @@ async function fastMedia(
         let raw: any;
         if (kind === "image") {
           const photo = await import("@/lib/photoWeightMedia");
-          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest });
+          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest, aspect });
         } else {
           const nm = await import("@/lib/novaMedia");
           const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
@@ -762,7 +762,7 @@ async function fastMedia(
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
         if (media?.b64 && (media.type === "image" || media.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
         if (media?.b64 && media.type === "image" && kind === "image") {
-          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
           delivered = true;
         } else if (media?.b64 && media.type === "video" && kind === "video") {
           await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
