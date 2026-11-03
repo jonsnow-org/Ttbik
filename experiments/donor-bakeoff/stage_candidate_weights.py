@@ -97,8 +97,13 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         raise RuntimeError("MODELSCOPE_TOKEN is required for the private ModelScope mirror.")
 
     from modelscope import snapshot_download
+    from modelscope.hub.api import HubApi as LegacyHubApi
     from modelscope_hub import HubApi
 
+    # Uploads use the current Hub API, but snapshot_download is still provided by
+    # the legacy SDK. Authenticate that downloader explicitly too; otherwise a
+    # private repo is reported as HTTP 404 even after a successful private upload.
+    LegacyHubApi().login(token.strip())
     api = HubApi(token=token.strip())
     with tempfile.TemporaryDirectory(prefix="donor-weights-check-") as remote_tmp:
         try:

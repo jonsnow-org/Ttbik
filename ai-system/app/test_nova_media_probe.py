@@ -157,6 +157,16 @@ class Waiting(unittest.TestCase):
         self.assertEqual(st["phase"], "ready")
         self.assertEqual(http.n, 3)
 
+    def test_accepts_segmented_engine_descriptor(self):
+        http = FakeStudio([{"phase": "ready", "video": {"engine": "AnimateDiff-Lightning (segmented)", "ready": True}}])
+        st = self.studio(http).wait_ready(timeout=60)
+        self.assertEqual(st["phase"], "ready")
+        self.assertTrue(P.supports_video_engine(st["video"]["engine"]))
+
+    def test_rejects_unrelated_video_engine(self):
+        self.assertFalse(P.supports_video_engine("AnimateDiff-SomethingElse"))
+        self.assertFalse(P.supports_video_engine(None))
+
     def test_old_studio_without_the_video_engine_is_named_as_stale(self):
         http = FakeStudio([{"phase": "ready"}], apis=("image", "status"))     # the old slideshow Studio: no `video` block in its status
         with self.assertRaises(P.ProbeError) as c:

@@ -29,6 +29,12 @@ class ProbeError(RuntimeError):
     pass
 
 
+def supports_video_engine(value: object) -> bool:
+    """Accept the base engine identifier with an optional implementation descriptor."""
+    text = str(value or "").strip()
+    return text == ENGINE or text.startswith(ENGINE + " (")
+
+
 def verify_image(raw: bytes) -> dict:
     import numpy as np
     from PIL import Image
@@ -166,7 +172,7 @@ class Studio:
                 last = {"error": str(exc)[:120]}
             if last.get("phase") == "ready":
                 eng = (last.get("video") or {}).get("engine")
-                if eng == ENGINE:
+                if supports_video_engine(eng):
                     return last
                 if self.now() + 120 >= end:
                     raise ProbeError(f"the Studio is ready but runs OLD code: its status has no {ENGINE} video engine (engine={eng!r})")
