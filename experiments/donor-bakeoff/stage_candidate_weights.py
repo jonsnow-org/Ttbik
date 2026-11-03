@@ -87,6 +87,22 @@ def ensure_private_model_repo(api, destination: str) -> bool:
     return True
 
 
+def download_private_manifest(api, destination: str, local_dir: str | Path) -> Path:
+    """Read one exact file from a private candidate repo without relying on repo listing."""
+    root = Path(local_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    path = Path(api.download_file(
+        destination,
+        repo_type="model",
+        file_path=MANIFEST_NAME,
+        local_dir=str(root),
+        force=True,
+    ))
+    if not path.is_file():
+        raise FileNotFoundError(f"{MANIFEST_NAME} was not returned by ModelScope Hub")
+    return path
+
+
 def mirror_candidate(config_path: str | Path, token: str) -> dict:
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     destination = validate_assignment(config)
@@ -96,19 +112,14 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
     if not token.strip():
         raise RuntimeError("MODELSCOPE_TOKEN is required for the private ModelScope mirror.")
 
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi as LegacyHubApi
     from modelscope_hub import HubApi
 
-    # Uploads use the current Hub API, but snapshot_download is still provided by
-    # the legacy SDK. Authenticate that downloader explicitly too; otherwise a
-    # private repo is reported as HTTP 404 even after a successful private upload.
-    LegacyHubApi().login(token.strip())
+    # Use the same token-aware Hub client for reads and writes. Exact manifest
+    # downloads avoid repo-listing inconsistencies in private Studio runtimes.
     api = HubApi(token=token.strip())
     with tempfile.TemporaryDirectory(prefix="donor-weights-check-") as remote_tmp:
         try:
-            snapshot_download(destination, local_dir=remote_tmp, allow_patterns=[MANIFEST_NAME])
-            marker = Path(remote_tmp) / MANIFEST_NAME
+            marker = download_private_manifest(api, destination, remote_tmp)
             if marker.is_file():
                 existing = json.loads(marker.read_text(encoding="utf-8"))
                 if (
@@ -187,8 +198,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
         for attempt in range(1, 7):
             attempt_dir = Path(verify_tmp) / f"attempt-{attempt}"
             try:
-                snapshot_download(destination, local_dir=str(attempt_dir), allow_patterns=[MANIFEST_NAME])
-                marker = attempt_dir / MANIFEST_NAME
+                marker = download_private_manifest(api, destination, attempt_dir)
                 if not marker.is_file():
                     raise FileNotFoundError(f"{MANIFEST_NAME} is not visible in the private repository yet")
                 remote_manifest = json.loads(marker.read_text(encoding="utf-8"))
@@ -199,7 +209,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
                 last_error = exc
                 message = str(exc).lower()
                 retryable = isinstance(exc, FileNotFoundError) or any(
-                    marker in message for marker in ("404", "not found", "not_found", "429", "502", "503", "timeout", "temporar")
+                    marker in message for marker in ("404", "not found", "not_found", "not exist", "not_exist", "429", "502", "503", "timeout", "temporar")
                 ) or "just-uploaded revision" in message
                 if not retryable or attempt == 6:
                     raise RuntimeError(f"Private ModelScope manifest verification failed on attempt {attempt}/6: {type(exc).__name__}: {str(exc)[:300]}") from exc

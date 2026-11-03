@@ -306,7 +306,8 @@ jobs:
               try: value=json.loads(value)
               except Exception: value={}
           print("browser status:",value)
-          raise SystemExit(0 if isinstance(value,dict) and value.get("phase")=="ready" else 1)
+          browser=value.get("browser",value) if isinstance(value,dict) else {}
+          raise SystemExit(0 if isinstance(browser,dict) and browser.get("phase")=="ready" else 1)
           PY
             then browser_ready=1; break; fi
             sleep 20

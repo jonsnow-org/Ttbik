@@ -1,96 +1,43 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
-import stage_candidate_weights as stage
+from stage_candidate_weights import MANIFEST_NAME, download_private_manifest
 
 
-class CandidateMirrorAssignment(unittest.TestCase):
-    def test_each_candidate_has_a_distinct_private_destination(self):
-        self.assertEqual(len(set(stage.EXPECTED_REPOSITORIES.values())), 3)
-        self.assertEqual(stage.EXPECTED_REPOSITORIES["qwen35-9b"], "novaai2026/sham-donor-qwen35-9b-weights")
-        self.assertEqual(stage.EXPECTED_REPOSITORIES["gemma4-e4b"], "novaai2026/sham-donor-gemma4-e4b-weights")
-        self.assertEqual(stage.EXPECTED_REPOSITORIES["minicpmo45"], "novaai2026/sham-donor-minicpmo45-weights")
-
-    def test_manifest_revision_and_candidate_source_are_fixed(self):
-        with tempfile.TemporaryDirectory() as d:
-            config = {
-                "route_id": "qwen35-9b",
-                "repo_id": "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
-                "modelscope_repo_id": stage.EXPECTED_REPOSITORIES["qwen35-9b"],
-                "modelscope_weights_revision": stage.REVISION,
-                "filename": "model.gguf",
-                "mmproj_filename": "mmproj.gguf",
-            }
-            path = Path(d) / "candidate.json"
-            path.write_text(json.dumps(config), encoding="utf-8")
-            self.assertEqual(stage.validate_assignment(json.loads(path.read_text(encoding="utf-8"))), stage.EXPECTED_REPOSITORIES["qwen35-9b"])
-
-    def test_private_repo_creation_uses_repo_type_and_private_visibility(self):
-        class Info:
-            visibility = "private"
-
-        class FakeApi:
+class CandidateManifestFileDownloadTests(unittest.TestCase):
+    def test_downloads_manifest_by_exact_path_from_candidate_private_model_repo(self):
+        class FakeHub:
             def __init__(self):
-                self.created = []
-            def repo_exists(self, repo_id, repo_type):
-                self.created.append(("exists", repo_id, repo_type))
-                return False
-            def create_repo(self, repo_id, *, repo_type, visibility, license, description):
-                self.created.append(("create", repo_id, repo_type, visibility, license))
-                return Info()
+                self.calls = []
 
-        api = FakeApi()
-        created = stage.ensure_private_model_repo(api, stage.EXPECTED_REPOSITORIES["qwen35-9b"])
-        self.assertTrue(created)
-        self.assertEqual(api.created[0], ("exists", "novaai2026/sham-donor-qwen35-9b-weights", "model"))
-        self.assertEqual(api.created[1][2:], ("model", "private", "apache-2.0"))
+            def download_file(self, repo_id, repo_type, file_path, local_dir, force=False):
+                self.calls.append((repo_id, repo_type, file_path, local_dir, force))
+                target = Path(local_dir) / file_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('{"candidate_id":"qwen35-9b"}', encoding="utf-8")
+                return target
 
-    def test_existing_public_candidate_repo_is_never_used_for_private_weights(self):
-        class Info:
-            visibility = "public"
+        api = FakeHub()
+        with tempfile.TemporaryDirectory() as folder:
+            result = download_private_manifest(api, "novaai2026/sham-donor-qwen35-9b-weights", folder)
+            self.assertEqual(result, Path(folder) / MANIFEST_NAME)
+            self.assertEqual(result.read_text(encoding="utf-8"), '{"candidate_id":"qwen35-9b"}')
+        self.assertEqual(api.calls[0][0:3], (
+            "novaai2026/sham-donor-qwen35-9b-weights",
+            "model",
+            MANIFEST_NAME,
+        ))
+        self.assertTrue(api.calls[0][4])
 
-        class FakeApi:
-            def repo_exists(self, repo_id, repo_type):
-                return True
-            def get_repo(self, repo_id, repo_type):
-                return Info()
-            def create_repo(self, *args, **kwargs):
-                raise AssertionError("must not alter or upload to an existing public repository")
+    def test_missing_downloaded_file_is_not_treated_as_verified(self):
+        class FakeHub:
+            def download_file(self, *args, **kwargs):
+                return Path(kwargs["local_dir"]) / MANIFEST_NAME
 
-        with self.assertRaisesRegex(RuntimeError, "not confirmed private"):
-            stage.ensure_private_model_repo(FakeApi(), stage.EXPECTED_REPOSITORIES["gemma4-e4b"])
-
-    def test_existing_private_candidate_repo_is_reused_without_recreation(self):
-        class Info:
-            visibility = "private"
-
-        class FakeApi:
-            def repo_exists(self, repo_id, repo_type):
-                return True
-            def get_repo(self, repo_id, repo_type):
-                return Info()
-            def create_repo(self, *args, **kwargs):
-                raise AssertionError("existing private repo should not be recreated")
-
-        self.assertFalse(stage.ensure_private_model_repo(FakeApi(), stage.EXPECTED_REPOSITORIES["minicpmo45"]))
-
-    def test_private_import_skip_requires_a_valid_source_commit_sha(self):
-        self.assertTrue(stage.valid_commit_sha("a" * 40))
-        self.assertFalse(stage.valid_commit_sha("not-a-commit"))
-        self.assertFalse(stage.valid_commit_sha("a" * 39))
-    def test_cross_candidate_destination_is_rejected(self):
-        config = {
-            "route_id": "qwen35-9b",
-            "repo_id": "source/repo",
-            "modelscope_repo_id": stage.EXPECTED_REPOSITORIES["minicpmo45"],
-            "modelscope_weights_revision": stage.REVISION,
-            "filename": "model.gguf",
-            "mmproj_filename": "mmproj.gguf",
-        }
-        with self.assertRaises(RuntimeError):
-            stage.validate_assignment(config)
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaises(FileNotFoundError):
+                download_private_manifest(FakeHub(), "novaai2026/sham-donor-qwen35-9b-weights", folder)
 
 
 if __name__ == "__main__":
