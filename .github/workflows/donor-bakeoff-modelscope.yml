@@ -233,21 +233,21 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$T"
-          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 -m pip install -q "modelscope-hub==0.6.1"
           python3 - <<'PY'
           import os
-          from modelscope.hub.api import HubApi
-          api = HubApi()
+          from modelscope_hub import HubApi
           token = os.environ["T"]
+          api = HubApi()
           api.login(token)
           studio = "novaai2026/" + os.environ["REPO"]
           try:
-              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+              api.add_secret(studio, "MODELSCOPE_API_TOKEN", token)
           except Exception as exc:
               message = str(exc).lower()
               if not any(x in message for x in ("exist", "already", "duplicate")):
                   raise
-              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+              api.update_secret(studio, "MODELSCOPE_API_TOKEN", token)
           print("Private model-read token configured inside this candidate Studio only.")
           PY
       - name: Deploy isolated Studio and wait for the model

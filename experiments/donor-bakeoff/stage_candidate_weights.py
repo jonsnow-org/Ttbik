@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 EXPECTED_REPOSITORIES = {
@@ -148,10 +149,32 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
             commit_message=f"Mirror exact {route_id} Q4_K_M checkpoint and projector ({REVISION})",
         )
     with tempfile.TemporaryDirectory(prefix="donor-weights-verify-") as verify_tmp:
-        snapshot_download(destination, local_dir=verify_tmp, allow_patterns=[MANIFEST_NAME])
-        remote_manifest = json.loads((Path(verify_tmp) / MANIFEST_NAME).read_text(encoding="utf-8"))
+        remote_manifest = None
+        last_error = None
+        for attempt in range(1, 7):
+            attempt_dir = Path(verify_tmp) / f"attempt-{attempt}"
+            try:
+                snapshot_download(destination, local_dir=str(attempt_dir), allow_patterns=[MANIFEST_NAME])
+                marker = attempt_dir / MANIFEST_NAME
+                if not marker.is_file():
+                    raise FileNotFoundError(f"{MANIFEST_NAME} is not visible in the private repository yet")
+                remote_manifest = json.loads(marker.read_text(encoding="utf-8"))
+                if remote_manifest == manifest:
+                    break
+                raise RuntimeError("The remote manifest is not yet the just-uploaded revision.")
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                retryable = isinstance(exc, FileNotFoundError) or any(
+                    marker in message for marker in ("404", "not found", "not_found", "429", "502", "503", "timeout", "temporar")
+                ) or "just-uploaded revision" in message
+                if not retryable or attempt == 6:
+                    raise RuntimeError(f"Private ModelScope manifest verification failed on attempt {attempt}/6: {type(exc).__name__}: {str(exc)[:300]}") from exc
+                delay = min(30, 5 * attempt)
+                print(f"{route_id}: manifest not visible/matched yet ({type(exc).__name__}); retrying in {delay}s ({attempt}/6).", flush=True)
+                time.sleep(delay)
         if remote_manifest != manifest:
-            raise RuntimeError("Private ModelScope repository verification failed after upload.")
+            raise RuntimeError("Private ModelScope repository verification failed after bounded retries.")
     print(f"{route_id}: private ModelScope mirror verified: {destination}; candidate Studio runtime will use this repository only.", flush=True)
     return manifest
 
