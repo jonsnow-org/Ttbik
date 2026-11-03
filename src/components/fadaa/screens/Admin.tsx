@@ -1,370 +1,207 @@
-import { useState } from 'react'
-import { PACKAGE_IDS } from '../lib/settings'
-import { t } from '../lib/i18n'
+import { useMemo, useState } from 'react'
+import { Eye, EyeOff, Layers3, MessageSquareText, RefreshCw, Search, ShieldCheck, Trash2, Users } from 'lucide-react'
+import { fadaaAction, refreshFadaaSnapshot } from '../lib/api'
 import { useFadaa } from '../lib/store'
-import type { PaidPackageId } from '../lib/types'
 
-type Tab = 'overview' | 'payments' | 'sessions' | 'entries' | 'packages' | 'channels' | 'config'
+type Filter = 'all' | 'visible' | 'hidden'
+
+const words = {
+  ar: {
+    title: 'إدارة فضاء', subtitle: 'لوحة المالك لمتابعة الجلسات ومراجعة المشاركات.',
+    owner: 'مالك البوت · دخول موثّق', open: 'جلسات مفتوحة', closed: 'جلسات مكتملة',
+    contributions: 'الإسهامات', people: 'المشاركون', sessions: 'أحدث الجلسات',
+    review: 'مراجعة الإسهامات', search: 'ابحث في النص أو اسم المشارك أو الجلسة',
+    all: 'الكل', visible: 'ظاهرة', hidden: 'مخفية', hide: 'إخفاء',
+    restore: 'إعادة الإظهار', remove: 'حذف نهائي', confirm: 'سيُحذف المحتوى نهائياً. هل تريد المتابعة؟',
+    refresh: 'تحديث البيانات', refreshing: 'جارٍ التحديث…', noSessions: 'لا توجد جلسات بعد.',
+    noItems: 'لا توجد إسهامات تطابق البحث.', isHidden: 'مخفية عن المشاركين',
+    isVisible: 'ظاهرة للمشاركين', failed: 'تعذّر تنفيذ الإجراء. حاول مجدداً.',
+    openState: 'مفتوحة', closedState: 'مغلقة', participants: 'مشارك', contribution: 'إسهامة',
+    unnamed: 'جلسة', denied: 'هذه الصفحة مخصصة لمالك البوت فقط.',
+    safe: 'الأرقام تخص البيانات المحمّلة حالياً (حتى آخر 80 جلسة). إجراءات الإخفاء والحذف تُحفظ في قاعدة البيانات.',
+  },
+  en: {
+    title: 'Fadaa administration', subtitle: 'Owner dashboard for sessions and contribution review.',
+    owner: 'Bot owner · verified access', open: 'Open sessions', closed: 'Completed sessions',
+    contributions: 'Contributions', people: 'Participants', sessions: 'Recent sessions',
+    review: 'Contribution review', search: 'Search text, participant, or session',
+    all: 'All', visible: 'Visible', hidden: 'Hidden', hide: 'Hide',
+    restore: 'Restore', remove: 'Delete permanently', confirm: 'This contribution will be permanently deleted. Continue?',
+    refresh: 'Refresh data', refreshing: 'Refreshing…', noSessions: 'No sessions yet.',
+    noItems: 'No contributions match this search.', isHidden: 'Hidden from participants',
+    isVisible: 'Visible to participants', failed: 'The action failed. Please try again.',
+    openState: 'Open', closedState: 'Closed', participants: 'participants', contribution: 'contributions',
+    unnamed: 'Session', denied: 'This page is restricted to the bot owner.',
+    safe: 'Counts cover the currently loaded data (up to the latest 80 sessions). Moderation actions are saved directly to the database.',
+  },
+  fr: {
+    title: 'Administration de Fadaa', subtitle: 'Tableau du propriétaire pour suivre les sessions et modérer.',
+    owner: 'Propriétaire du bot · accès vérifié', open: 'Sessions ouvertes', closed: 'Sessions terminées',
+    contributions: 'Contributions', people: 'Participants', sessions: 'Sessions récentes',
+    review: 'Modération des contributions', search: 'Rechercher un texte, un participant ou une session',
+    all: 'Tout', visible: 'Visibles', hidden: 'Masquées', hide: 'Masquer',
+    restore: 'Restaurer', remove: 'Supprimer définitivement', confirm: 'Cette contribution sera supprimée définitivement. Continuer ?',
+    refresh: 'Actualiser', refreshing: 'Actualisation…', noSessions: 'Aucune session.',
+    noItems: 'Aucune contribution ne correspond.', isHidden: 'Masquée aux participants',
+    isVisible: 'Visible aux participants', failed: 'Action impossible. Réessayez.',
+    openState: 'Ouverte', closedState: 'Fermée', participants: 'participants', contribution: 'contributions',
+    unnamed: 'Session', denied: 'Cette page est réservée au propriétaire du bot.',
+    safe: 'Les chiffres couvrent les données chargées (jusqu’aux 80 dernières sessions). La modération est enregistrée en base.',
+  },
+} as const
 
 export function AdminScreen() {
   const locale = useFadaa((s) => s.locale)
-  const supervisor = useFadaa((s) => s.supervisor)
-  const settings = useFadaa((s) => s.settings)
+  const isOwner = useFadaa((s) => s.supervisor)
   const sessions = useFadaa((s) => s.sessions)
   const contributions = useFadaa((s) => s.contributions)
-  const payments = useFadaa((s) => s.payments)
-  const entitlements = useFadaa((s) => s.entitlements)
-  const setSupervisor = useFadaa((s) => s.setSupervisor)
-  const reviewPayment = useFadaa((s) => s.reviewPayment)
-  const closeSession = useFadaa((s) => s.closeSession)
-  const hideContribution = useFadaa((s) => s.hideContribution)
-  const deleteContribution = useFadaa((s) => s.deleteContribution)
-  const deleteSession = useFadaa((s) => s.deleteSession)
-  const extendSession = useFadaa((s) => s.extendSession)
-  const updateSettings = useFadaa((s) => s.updateSettings)
-  const changePin = useFadaa((s) => s.changePin)
-  const grantCredits = useFadaa((s) => s.grantCredits)
-  const reseedDemo = useFadaa((s) => s.reseedDemo)
-  const blockUser = useFadaa((s) => s.blockUser)
+  const go = useFadaa((s) => s.go)
+  const labels = words[locale]
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const byId = new Map(sessions.map((session) => [session.id, session] as const))
 
-  const [pin, setPin] = useState('')
-  const [tab, setTab] = useState<Tab>('overview')
-  const [announcement, setAnnouncement] = useState(settings.announcement)
-  const [newPin, setNewPin] = useState('')
+  const openCount = sessions.filter((session) => session.status === 'open').length
+  const closedCount = sessions.filter((session) => session.status === 'closed').length
+  const peopleCount = new Set(sessions.flatMap((session) => session.participantIds)).size
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase(locale)
+    return [...contributions]
+      .filter((item) => filter === 'all' || (filter === 'hidden' ? item.hidden : !item.hidden))
+      .filter((item) => {
+        if (!needle) return true
+        const session = sessions.find((candidate) => candidate.id === item.sessionId)
+        return [item.text, item.authorName, item.role, session?.title]
+          .some((value) => String(value || '').toLocaleLowerCase(locale).includes(needle))
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 40)
+  }, [contributions, filter, locale, query, sessions])
 
-  if (!supervisor) {
-    return (
-      <div className="space-y-4">
-        <h1 className="section-title">{t(locale, 'admin_title')}</h1>
-        <label className="block">
-          <span className="label">{t(locale, 'admin_pin')}</span>
-          <input
-            className="input"
-            type="password"
-            inputMode="numeric"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            maxLength={8}
-          />
-        </label>
-        <button
-          type="button"
-          className="btn btn-primary w-full"
-          onClick={() => {
-            if (pin === settings.pin) setSupervisor(true)
-            else setPin('')
-          }}
-        >
-          {t(locale, 'admin_enter')}
-        </button>
-      </div>
-    )
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setError(null)
+    try {
+      await refreshFadaaSnapshot()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : labels.failed)
+    } finally {
+      setRefreshing(false)
+    }
   }
 
-  const tabs: { id: Tab; label: Parameters<typeof t>[1] }[] = [
-    { id: 'overview', label: 'admin_overview' },
-    { id: 'payments', label: 'admin_payments' },
-    { id: 'sessions', label: 'admin_sessions' },
-    { id: 'entries', label: 'admin_entries' },
-    { id: 'packages', label: 'admin_packages' },
-    { id: 'channels', label: 'admin_channels' },
-    { id: 'config', label: 'admin_config' },
-  ]
+  const moderate = async (id: string, action: 'hide_contribution' | 'unhide_contribution' | 'delete_contribution') => {
+    if (busyId) return
+    if (action === 'delete_contribution' && !window.confirm(labels.confirm)) return
+    setBusyId(id)
+    setError(null)
+    try {
+      await fadaaAction(action, { contributionId: id })
+      await refreshFadaaSnapshot()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : labels.failed)
+    } finally {
+      setBusyId(null)
+    }
+  }
 
-  const openCount = sessions.filter((s) => s.status === 'open').length
-  const closedCount = sessions.filter((s) => s.status === 'closed').length
-  const pending = payments.filter((p) => p.status === 'pending')
+  if (!isOwner) return (
+    <section className="card space-y-3 border border-[var(--color-danger)]/40">
+      <p className="font-bold text-[var(--color-danger)]">{labels.denied}</p>
+      <button type="button" className="btn btn-secondary w-full" onClick={() => go('home')}>
+        {locale === 'ar' ? 'العودة للرئيسية' : locale === 'fr' ? 'Retour' : 'Back home'}
+      </button>
+    </section>
+  )
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="section-title !mb-0">{t(locale, 'admin_title')}</h1>
-        <button type="button" className="btn btn-ghost !min-h-9 !text-xs" onClick={() => setSupervisor(false)}>
-          {t(locale, 'back')}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {tabs.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            className={`btn !min-h-9 !px-2.5 !text-xs ${tab === x.id ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setTab(x.id)}
-          >
-            {t(locale, x.label)}
+    <div className="space-y-5 pb-4">
+      <section className="admin-hero relative overflow-hidden rounded-[1.7rem] p-5 text-white">
+        <div className="admin-hero-orb admin-hero-orb-one" />
+        <div className="admin-hero-orb admin-hero-orb-two" />
+        <div className="relative space-y-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-teal-50">
+            <ShieldCheck size={14} />{labels.owner}
+          </span>
+          <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold">{labels.title}</h1>
+          <p className="text-sm leading-6 text-slate-200">{labels.subtitle}</p>
+          <button type="button" className="btn admin-refresh-btn !min-h-10 !px-4 !text-xs" onClick={refresh} disabled={refreshing}>
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? labels.refreshing : labels.refresh}
           </button>
-        ))}
-      </div>
-
-      {tab === 'overview' ? (
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-2">
-            <div className="card text-center">
-              <div className="text-2xl font-bold text-[var(--color-primary-ink)]">{openCount}</div>
-              <div className="text-xs text-[var(--color-ink-soft)]">{t(locale, 'open_count')}</div>
-            </div>
-            <div className="card text-center">
-              <div className="text-2xl font-bold">{closedCount}</div>
-              <div className="text-xs text-[var(--color-ink-soft)]">{t(locale, 'closed_count')}</div>
-            </div>
-            <div className="card text-center">
-              <div className="text-2xl font-bold text-[var(--color-warn)]">{pending.length}</div>
-              <div className="text-xs text-[var(--color-ink-soft)]">{t(locale, 'pending_count')}</div>
-            </div>
-          </div>
-          <div className="card space-y-2">
-            <div className="font-semibold">{t(locale, 'credits')}</div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => grantCredits('advancedSummaryCredits', 1)}>
-                + {t(locale, 'pkg_advanced')}
-              </button>
-              <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => grantCredits('upgradeCredits', 1)}>
-                + {t(locale, 'pkg_upgrade')}
-              </button>
-              <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => grantCredits('archiveUnlocked', 1)}>
-                {t(locale, 'pkg_archive')}
-              </button>
-            </div>
-            <div className="text-xs text-[var(--color-ink-soft)]">
-              adv:{entitlements.advancedSummaryCredits} · up:{entitlements.upgradeCredits} · arch:{entitlements.archiveUnlocked ? '1' : '0'}
-            </div>
-          </div>
         </div>
-      ) : null}
+      </section>
 
-      {tab === 'payments' ? (
-        <div className="space-y-3">
-          {payments.length === 0 ? (
-            <div className="empty card">—</div>
-          ) : (
-            payments.map((p) => (
-              <div key={p.id} className="card space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="badge">{p.status}</span>
-                  <span className="font-semibold">{p.packageId}</span>
-                  <span>
-                    {p.amount} {p.currency}
-                  </span>
+      <section className="grid grid-cols-2 gap-3">
+        <div className="admin-stat-card"><span className="admin-stat-icon bg-emerald-400/15 text-emerald-300"><Layers3 size={19} /></span><strong>{openCount}</strong><span>{labels.open}</span></div>
+        <div className="admin-stat-card"><span className="admin-stat-icon bg-sky-400/15 text-sky-300"><Layers3 size={19} /></span><strong>{closedCount}</strong><span>{labels.closed}</span></div>
+        <div className="admin-stat-card"><span className="admin-stat-icon bg-amber-400/15 text-amber-300"><MessageSquareText size={19} /></span><strong>{contributions.length}</strong><span>{labels.contributions}</span></div>
+        <div className="admin-stat-card"><span className="admin-stat-icon bg-violet-400/15 text-violet-300"><Users size={19} /></span><strong>{peopleCount}</strong><span>{labels.people}</span></div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="section-title !mb-0">{labels.sessions}</h2>
+        {sessions.length === 0 ? <div className="empty card">{labels.noSessions}</div> : (
+          <div className="space-y-2">
+            {[...sessions].sort((a, b) => b.createdAt - a.createdAt).slice(0, 8).map((session) => (
+              <article key={session.id} className="card space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0"><h3 className="truncate text-sm font-bold">{session.title || labels.unnamed}</h3><p className="mt-1 text-[11px] text-[var(--color-ink-soft)]">{session.ownerName} · {session.participantIds.length} {labels.participants}</p></div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${session.status === 'open' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-slate-400/15 text-[var(--color-ink-muted)]'}`}>{session.status === 'open' ? labels.openState : labels.closedState}</span>
                 </div>
-                <div className="text-sm text-[var(--color-ink-muted)]">
-                  {p.userName} · {p.channel} · {p.reference}
-                </div>
-                {p.status === 'pending' ? (
-                  <div className="flex gap-2">
-                    <button type="button" className="btn btn-primary flex-1 !min-h-10" onClick={() => reviewPayment(p.id, true)}>
-                      {t(locale, 'approve')}
-                    </button>
-                    <button type="button" className="btn btn-danger flex-1 !min-h-10" onClick={() => reviewPayment(p.id, false)}>
-                      {t(locale, 'reject')}
-                    </button>
+                <p className="line-clamp-2 text-xs leading-5 text-[var(--color-ink-muted)]">{session.purpose}</p>
+                <div className="border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-ink-soft)]">{contributions.filter((item) => item.sessionId === session.id).length} {labels.contribution}</div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div><h2 className="section-title !mb-1">{labels.review}</h2><p className="text-[11px] leading-5 text-[var(--color-ink-soft)]">{labels.safe}</p></div>
+        <label className="relative block">
+          <Search size={17} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-soft)]" />
+          <input className="input !min-h-11 !ps-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={labels.search} />
+        </label>
+        <div className="flex gap-2">
+          {(['all', 'visible', 'hidden'] as const).map((item) => (
+            <button key={item} type="button" className={`btn !min-h-9 flex-1 !px-2 !text-xs ${filter === item ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter(item)}>{labels[item]}</button>
+          ))}
+        </div>
+        {error ? <div role="alert" className="card border border-[var(--color-danger)]/40 text-sm text-[var(--color-danger)]">{error}</div> : null}
+        {filtered.length === 0 ? <div className="empty card">{labels.noItems}</div> : (
+          <div className="space-y-2">
+            {filtered.map((item) => {
+              const session = byId.get(item.sessionId)
+              const busy = busyId === item.id
+              return (
+                <article key={item.id} className="card space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0"><div className="text-sm font-bold">{item.authorName}</div><div className="mt-1 truncate text-[10px] text-[var(--color-primary)]">{session?.title || labels.unnamed}</div></div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${item.hidden ? 'bg-amber-400/15 text-amber-300' : 'bg-emerald-400/15 text-emerald-300'}`}>{item.hidden ? labels.isHidden : labels.isVisible}</span>
                   </div>
-                ) : null}
-              </div>
-            ))
-          )}
-        </div>
-      ) : null}
-
-      {tab === 'sessions' ? (
-        <div className="space-y-3">
-          {sessions.map((s) => (
-            <div key={s.id} className="card space-y-2">
-              <div className="font-bold">{s.title}</div>
-              <div className="text-xs text-[var(--color-ink-soft)]">
-                {s.status} · {s.kind} · {s.participantIds.length}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {s.status === 'open' ? (
-                  <>
-                    <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => closeSession(s.id)}>
-                      {t(locale, 'close_session')}
-                    </button>
-                    <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => extendSession(s.id, 12)}>
-                      +12h
-                    </button>
-                  </>
-                ) : null}
-                <button type="button" className="btn btn-danger !min-h-9 !text-xs" onClick={() => deleteSession(s.id)}>
-                  {t(locale, 'delete')}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {tab === 'entries' ? (
-        <div className="space-y-3">
-          {contributions.slice().reverse().map((c) => (
-            <div key={c.id} className="card space-y-2">
-              <div className="text-sm">
-                <span className="badge me-2">{c.kind}</span>
-                <span className="font-semibold">{c.authorName}</span>
-                {c.hidden ? <span className="ms-2 text-xs text-[var(--color-danger)]">hidden</span> : null}
-              </div>
-              <p className="text-sm text-[var(--color-ink-muted)]">{c.text}</p>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => hideContribution(c.id)}>
-                  {t(locale, 'hide')}
-                </button>
-                <button type="button" className="btn btn-danger !min-h-9 !text-xs" onClick={() => deleteContribution(c.id)}>
-                  {t(locale, 'delete')}
-                </button>
-                <button type="button" className="btn btn-secondary !min-h-9 !text-xs" onClick={() => blockUser(c.authorId)}>
-                  block
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {tab === 'packages' ? (
-        <div className="space-y-3">
-          {PACKAGE_IDS.map((id) => {
-            const pack = settings.packages[id]
-            return (
-              <div key={id} className="card space-y-2">
-                <div className="font-bold">{id}</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    className="input !min-h-10"
-                    type="number"
-                    value={pack.price}
-                    onChange={(e) =>
-                      updateSettings({
-                        packages: {
-                          ...settings.packages,
-                          [id]: { ...pack, price: Number(e.target.value) || 0 },
-                        },
-                      })
-                    }
-                  />
-                  <button
-                    type="button"
-                    className={`btn !min-h-10 ${pack.enabled ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() =>
-                      updateSettings({
-                        packages: {
-                          ...settings.packages,
-                          [id]: { ...pack, enabled: !pack.enabled },
-                        },
-                      })
-                    }
-                  >
-                    {pack.enabled ? 'ON' : 'OFF'}
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : null}
-
-      {tab === 'channels' ? (
-        <div className="space-y-3">
-          <label className="card flex items-center justify-between gap-2">
-            <span>{t(locale, 'channel_payeer')}</span>
-            <button
-              type="button"
-              className={`btn !min-h-9 ${settings.payeerEnabled ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => updateSettings({ payeerEnabled: !settings.payeerEnabled })}
-            >
-              {settings.payeerEnabled ? 'ON' : 'OFF'}
-            </button>
-          </label>
-          <label className="block card space-y-1">
-            <span className="label">Payeer wallet</span>
-            <input
-              className="input"
-              value={settings.payeerWallet}
-              onChange={(e) => updateSettings({ payeerWallet: e.target.value })}
-            />
-          </label>
-          <label className="card flex items-center justify-between gap-2">
-            <span>{t(locale, 'channel_crypto')}</span>
-            <button
-              type="button"
-              className={`btn !min-h-9 ${settings.cryptoEnabled ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => updateSettings({ cryptoEnabled: !settings.cryptoEnabled })}
-            >
-              {settings.cryptoEnabled ? 'ON' : 'OFF'}
-            </button>
-          </label>
-          <label className="block card space-y-1">
-            <span className="label">USDT</span>
-            <input
-              className="input"
-              value={settings.cryptoUsdt}
-              onChange={(e) => updateSettings({ cryptoUsdt: e.target.value })}
-            />
-          </label>
-          <label className="block card space-y-1">
-            <span className="label">BTC</span>
-            <input
-              className="input"
-              value={settings.cryptoBtc}
-              onChange={(e) => updateSettings({ cryptoBtc: e.target.value })}
-            />
-          </label>
-        </div>
-      ) : null}
-
-      {tab === 'config' ? (
-        <div className="space-y-3">
-          {([
-            ['createEnabled', 'create'],
-            ['joinEnabled', 'join'],
-            ['writeEnabled', 'write'],
-          ] as const).map(([key, label]) => (
-            <label key={key} className="card flex items-center justify-between gap-2">
-              <span>{label}</span>
-              <button
-                type="button"
-                className={`btn !min-h-9 ${(settings as any)[key] ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => updateSettings({ [key]: !(settings as any)[key] })}
-              >
-                {(settings as any)[key] ? 'ON' : 'OFF'}
-              </button>
-            </label>
-          ))}
-          <label className="block card space-y-1">
-            <span className="label">{t(locale, 'announcement')}</span>
-            <textarea
-              className="input min-h-20"
-              value={announcement}
-              onChange={(e) => setAnnouncement(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn btn-primary !min-h-10"
-              onClick={() => updateSettings({ announcement })}
-            >
-              {t(locale, 'save')}
-            </button>
-          </label>
-          <label className="block card space-y-1">
-            <span className="label">{t(locale, 'admin_pin')}</span>
-            <input className="input" value={newPin} onChange={(e) => setNewPin(e.target.value)} />
-            <button
-              type="button"
-              className="btn btn-secondary !min-h-10"
-              onClick={() => {
-                if (newPin.length >= 4) {
-                  changePin(newPin)
-                  setNewPin('')
-                }
-              }}
-            >
-              {t(locale, 'save')}
-            </button>
-          </label>
-          <button type="button" className="btn btn-danger w-full" onClick={reseedDemo}>
-            {t(locale, 'reset_demo')}
-          </button>
-        </div>
-      ) : null}
+                  <p className="whitespace-pre-wrap break-words text-sm leading-7 text-[var(--color-ink-muted)]">{item.text}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-2">
+                    <time className="text-[10px] text-[var(--color-ink-soft)]" dateTime={new Date(item.createdAt).toISOString()}>{new Date(item.createdAt).toLocaleString(locale === 'ar' ? 'ar' : locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</time>
+                    <div className="flex gap-2">
+                      <button type="button" className="btn btn-secondary !min-h-9 !px-3 !text-[11px]" disabled={busy || Boolean(busyId)} onClick={() => void moderate(item.id, item.hidden ? 'unhide_contribution' : 'hide_contribution')}>
+                        {item.hidden ? <Eye size={14} /> : <EyeOff size={14} />}{item.hidden ? labels.restore : labels.hide}
+                      </button>
+                      <button type="button" className="btn btn-danger !min-h-9 !px-3 !text-[11px]" disabled={busy || Boolean(busyId)} onClick={() => void moderate(item.id, 'delete_contribution')}>
+                        <Trash2 size={14} />{labels.remove}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
     </div>
   )
 }
