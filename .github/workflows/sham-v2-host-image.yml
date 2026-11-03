@@ -1,0 +1,27 @@
+name: "Sham v2 host image: build check (CPU container for a second free host; no push, no secrets)"
+
+# Proves hosting/sham-v2 builds from the current code: stages the exact Sham v2 Studio app and builds the CPU image.
+# Nothing is pushed anywhere and no secret is used; the image is discarded at the end of the job.
+on:
+  pull_request:
+    paths:
+      - hosting/sham-v2/**
+      - scripts/transplant/stage_sham_v2_studio.py
+      - .github/workflows/sham-v2-host-image.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the CPU image
+        run: hosting/sham-v2/build.sh sham-v2:cpu
+      - name: Image size and an import check (no weights, no network to the model repo)
+        run: |
+          docker image ls sham-v2:cpu
+          docker run --rm --entrypoint python sham-v2:cpu -c "import torch, gradio, diffusers, modelscope; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), 'gradio', gradio.__version__)"
