@@ -1,0 +1,24 @@
+name: ModelScope model repos inventory (read-only)
+# Lists the account's ModelScope MODEL repos with sizes and weight file names (no contents, no token).
+on:
+  pull_request:
+    paths:
+      - "scripts/ops/model_repo_inventory.py"
+      - ".github/workflows/modelscope-model-repos.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  repos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -q "modelscope>=1.20"
+      - name: inventory
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: python3 scripts/ops/model_repo_inventory.py
