@@ -57,17 +57,17 @@ class PrivateCandidateWeights(unittest.TestCase):
     def test_unassigned_projector_or_file_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "not assigned"):
-                download_candidate_file(self.config, "another.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(), login_impl=lambda _: None)
+                download_candidate_file(self.config, "another.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot())
 
-    def test_missing_token_is_refused_before_modelscope_login(self):
+    def test_missing_token_is_refused_before_any_download(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "MODELSCOPE_API_TOKEN"):
-                download_candidate_file(self.config, "candidate.gguf", folder, token="", snapshot_download_impl=self._fake_snapshot(), login_impl=lambda _: self.fail("login must not be called"))
+                download_candidate_file(self.config, "candidate.gguf", folder, token="", snapshot_download_impl=self._fake_snapshot())
 
     def test_hash_mismatch_refuses_to_return_a_model_path(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "SHA-256 mismatch"):
-                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot("0" * 64), login_impl=lambda _: None)
+                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot("0" * 64))
 
     def test_runtime_has_no_huggingface_client_or_external_weight_endpoint(self):
         app = (Path(__file__).with_name("app.py")).read_text(encoding="utf-8")
@@ -80,12 +80,12 @@ class PrivateCandidateWeights(unittest.TestCase):
     def test_manifest_must_pin_a_valid_upstream_source_commit(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "manifest does not match"):
-                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(source_revision="not-a-commit"), login_impl=lambda _: None)
+                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(source_revision="not-a-commit"))
     def test_runtime_config_cannot_change_to_an_unapproved_weights_revision(self):
         config = dict(self.config, modelscope_weights_revision="unreviewed")
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "revision"):
-                download_candidate_file(config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(), login_impl=lambda _: None)
+                download_candidate_file(config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot())
 
 
 if __name__ == "__main__":
