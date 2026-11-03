@@ -179,11 +179,14 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
       "nova-alive-1": "running", "nova-capped": "failed", "nova-dead-1": "failed", "sham-1-dead": "failed", "sham-2-beating": "running", "sham-3-capped": "failed", "wait-old-1": "waiting", "young-run-1": "running",
     });
   });
-  it("the orphan claim no longer re-bumps a run that started over 30 minutes ago", async () => {
+  it("the orphan claim never re-bumps a run silent for 10 minutes (the reaper closes it), and a long task lost 2 minutes ago is resumed even hours in", async () => {
     const d = db();
     await taskStart(OWNER, { runId: "ghost-run-1", slot: "", source: "interactive", title: "ghost", botId: "bot1" }, d);
     await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '3 hours', updated_at = now() - interval '10 minutes' WHERE run_id = 'ghost-run-1'`);
     expect(await claimOrphanTasks(d)).toEqual([]);
+    await taskStart(OWNER, { runId: "long-run-1", slot: "", source: "interactive", title: "long", botId: "bot1" }, d);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '3 hours', updated_at = now() - interval '2 minutes' WHERE run_id = 'long-run-1'`);
+    expect((await claimOrphanTasks(d)).map((o) => o.run_id)).toEqual(["long-run-1"]);
   });
   it("Home can stop one running task or all of them", async () => {
     const d = db();

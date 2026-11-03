@@ -36,6 +36,7 @@ import { DONOR_TESTS, donorJobPoll, donorJobStart, type DonorChatResult, isDonor
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
+  resumes?: number;                                    // how many times a worker that disappeared was picked up again (resumeOrphan), capped
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
@@ -2965,6 +2966,15 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
   const st = await loadState(chatId, db, slot);
   const run = st.run;
   if (!run || run.id !== runId || run.pending || run.asking) return false;
+  run.resumes = (run.resumes || 0) + 1;
+  if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
+    // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
+    if (run.job) await coderCancel(run.job).catch(() => null);
+    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", coderChatKey(chatId));
+    await saveState(chatId, st, db, slot);
+    return false;
+  }
+  await saveState(chatId, st, db, slot);
   await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
   later(() => continueRun(botRow, chatId, run.chain, db, slot));
   return true;
