@@ -47,7 +47,7 @@ jobs:
         run: |
           cd athar
           set -o pipefail
-          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/allModelsMedia.live.ts' 2>&1 | grep -E "ALLMEDIA|PASS|FAIL|Tests:|●" | cut -c1-700
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/allModelsMedia.live.ts' 2>&1 | grep -E "ALLMEDIA|PASS|FAIL|Tests:|●|\[coder-drive|\[coder-|error:" | cut -c1-700
       - name: Is each clip a real video? (duration, frames, motion between frames)
         if: always()
         run: |

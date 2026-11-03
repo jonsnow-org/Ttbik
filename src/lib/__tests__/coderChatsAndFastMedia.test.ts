@@ -8,7 +8,7 @@ import { claimOrphanTasks, reapStaleTasks, taskStart, listTasks } from "@/lib/co
 import { coderChatKey } from "@/lib/coderAuth";
 import { detectMediaIntent, cleanEnglishPrompt } from "@/lib/coderMediaFast";
 import { fakeBot } from "./coderFakes";
-import { photoStudioFake, b64, png } from "./mediaFixtures";
+import { photoStudioFake, b64, png, wav } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
@@ -286,6 +286,44 @@ describe("owner 2026-11-04: the selected model decides media requests (follow-up
     await wait(300);
     expect((api as any).sendPhoto).not.toHaveBeenCalled();
     expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
+  });
+  it("speech: the model answers AUDIO and the words are spoken by the model's own media Studio and sent as audio", async () => {
+    const urls = await net((body) => (/You route ONE new chat message/.test(body) ? "AUDIO مرحباً، هذا اختبار الصوت" : "CHAT"));
+    const fetch0 = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.startsWith("https://media.test")) { urls.push(url + " " + String(init?.body || "")); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "a1" }), { status: 200 }) : new Response(sse({ type: "audio", b64: b64(wav("tone", 1.2)) }), { status: 200 }); }
+      return fetch0(url, init);
+    });
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendAudio = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت"), db());
+    expect(await until(() => (api as any).sendAudio.mock.calls.length === 1)).toBe(true);
+    expect(urls.some((u) => u.startsWith("https://media.test") && /speech/.test(u))).toBe(true);
+    expect(sent.some((s) => /خطأ داخلي/.test(s.text))).toBe(false);
+  });
+  it("the worker path: the model calls make_media(audio) itself and the run ends without an internal error", async () => {
+    let step = 0;
+    const urls = await net((body) => {
+      if (/You route ONE new chat message/.test(body)) return "CHAT";
+      return "";
+    });
+    const fetch0 = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.startsWith("https://media.test")) { urls.push(url); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "a1" }), { status: 200 }) : new Response(sse({ type: "audio", b64: b64(wav("tone", 1.2)) }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/") && !url.includes("/call/v2/") && !/You route ONE new chat message/.test((global as any).__lastBody || "") && url.includes("coder.test")) {
+        step++;
+        if (step === 1) return new Response(sse({ type: "done", job: "j", text: "", tool_calls: [{ id: "c1", type: "function", function: { name: "make_media", arguments: JSON.stringify({ kind: "audio", prompt: "مرحباً بكم" }) } }] }), { status: 200 });
+        return new Response(sse({ type: "done", job: "j", text: "تم.", tool_calls: [] }), { status: 200 });
+      }
+      return fetch0(url, init);
+    });
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendDocument = jest.fn(async () => ({ message_id: 1 }));
+    (api as any).sendAudio = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("اقرأ هذه الجملة بصوت: مرحباً بكم", OWNER), db());
+    expect(await until(() => (api as any).sendDocument.mock.calls.length + (api as any).sendAudio.mock.calls.length >= 1, 15000)).toBe(true);
+    await wait(300);
+    expect(sent.some((s) => /خطأ داخلي/.test(s.text))).toBe(false);
   });
   it("a request the model refuses gets one short Arabic line and nothing is generated", async () => {
     const urls = await net(() => "NO");
