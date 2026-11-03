@@ -78,7 +78,7 @@ describe("cron in the user's time zone", () => {
     expect(toCron("hourly :15")).toBe("15 * * * *");
     expect(toCron('cron "0 6 * * 0"')).toBe("0 6 * * 0");
     expect(() => toCron("daily 25:00")).toThrow();
-    expect(describeCron("0 9 * * *", "en")).toBe("Daily 09:00");
-    expect(describeCron("5 18 * * 1,4", "ar")).toBe("أسبوعياً الاثنين، الخميس 18:05");
+    expect(describeCron("0 9 * * *", "en")).toBe("Daily 9:00 AM");
+    expect(describeCron("5 18 * * 1,4", "ar")).toBe("أسبوعياً الاثنين، الخميس 6:05 م");
   });
 });
