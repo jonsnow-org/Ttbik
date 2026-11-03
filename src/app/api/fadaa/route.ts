@@ -344,7 +344,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (action === "hide_contribution" || action === "delete_contribution" || action === "delete_session") {
+    if (action === "hide_contribution" || action === "unhide_contribution" || action === "delete_contribution" || action === "delete_session") {
       if (!ctx.isOwner) return jsonError("هذا الإجراء متاح لمالك البوت فقط.", 403);
       if (action === "delete_session") {
         const sessionId = String(body.sessionId || "");
@@ -362,8 +362,9 @@ export async function POST(req: NextRequest) {
           .select("id").eq("id", contribution.session_id).eq("bot_id", ctx.botId).maybeSingle();
         if (parentError) throw parentError;
         if (!parentSession) return jsonError("الإسهامة لا تتبع هذا البوت.", 403);
-        if (action === "hide_contribution") {
-          const { error } = await ctx.db.from("fadaa_contributions").update({ hidden: true })
+        if (action === "hide_contribution" || action === "unhide_contribution") {
+          const { error } = await ctx.db.from("fadaa_contributions")
+            .update({ hidden: action === "hide_contribution" })
             .eq("id", contributionId);
           if (error) throw error;
         } else {
