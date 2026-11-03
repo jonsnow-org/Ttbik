@@ -40,6 +40,24 @@ describe("media Studio modality readiness", () => {
     expect(result).toMatchObject({ ok: true, phase: "ready", media: { image: true, audio: true, video: true } });
   });
 
+  it("does not mark a candidate media Studio ready when it reports another candidate's private media repo", async () => {
+    const result = await probeStudio(
+      "https://media.test",
+      "token",
+      fakeFetch({ phase: "ready", repo: "novaai2026/gemma4-e4b-media-models", video: { ready: true } }),
+      7000,
+      true,
+      "novaai2026/qwen35-9b-media-models",
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      phase: "media_repo_mismatch",
+      media: { image: false, audio: false, video: false },
+    });
+    expect(result.detail).toContain("qwen35-9b-media-models");
+    expect(result.detail).toContain("gemma4-e4b-media-models");
+  });
+
   it("keeps image and speech readiness distinct from video readiness when video is not required", async () => {
     const result = await probeStudio("https://media.test", "token", fakeFetch({ phase: "ready", video: { ready: false } }));
     expect(result).toMatchObject({ ok: true, phase: "ready", media: { image: true, audio: true, video: false } });

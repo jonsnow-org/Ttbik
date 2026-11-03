@@ -66,7 +66,7 @@ export function parseStudioStatusSse(body: string): Record<string, unknown> {
   throw new Error("Gradio sent no completed Studio status event.");
 }
 
-export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000, requireVideo = false): Promise<{ ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } }> {
+export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000, requireVideo = false, expectedRepo?: string): Promise<{ ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } }> {
   if (!base) return { ok: false, phase: "off", detail: "no address" };
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   try {
@@ -76,8 +76,17 @@ export async function probeStudio(base: string, token: string, f: typeof fetch =
     if (!event_id) return { ok: false, phase: "down", detail: "no event id" };
     const res = await fetchStudioResponse(`${base}/gradio_api/call/status/${event_id}`, { headers }, f, ms);
     if (!res.ok) return { ok: false, phase: "down", detail: `HTTP ${res.status}` };
-    const st = parseStudioStatusSse(await res.text()) as { phase?: string; error?: string; model?: string; video?: { ready?: boolean } };
+    const st = parseStudioStatusSse(await res.text()) as { phase?: string; error?: string; model?: string; repo?: string; video?: { ready?: boolean } };
     const phase = String(st?.phase || "unknown");
+    const reportedRepo = String(st?.repo || "");
+    if (phase === "ready" && expectedRepo && reportedRepo !== expectedRepo) {
+      return {
+        ok: false,
+        phase: "media_repo_mismatch",
+        media: { image: false, audio: false, video: false },
+        detail: "expected " + expectedRepo + "; Studio reports " + (reportedRepo || "no repository") + ".",
+      };
+    }
     const videoReady = st?.video?.ready === true;
     const media = phase === "ready" ? { image: true, audio: true, video: videoReady } : { image: false, audio: false, video: false };
     const videoMissing = requireVideo && phase === "ready" && !videoReady;
@@ -108,15 +117,15 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
   const candidateSpecs = [
-    { id: "qwen35-9b", studio: "sham-donor-qwen35-9b-media" },
-    { id: "gemma4-e4b", studio: "sham-donor-gemma4-e4b-media" },
-    { id: "minicpmo45", studio: "sham-donor-minicpmo45-media" },
+    { id: "qwen35-9b", studio: "sham-donor-qwen35-9b-media", mediaRepo: "novaai2026/qwen35-9b-media-models" },
+    { id: "gemma4-e4b", studio: "sham-donor-gemma4-e4b-media", mediaRepo: "novaai2026/gemma4-e4b-media-models" },
+    { id: "minicpmo45", studio: "sham-donor-minicpmo45-media", mediaRepo: "novaai2026/minicpmo45-media-models" },
   ];
   const [pNova, pV2, pV2v, pV1, photoWeights, candidateMedia] = await Promise.all([
     probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
     Promise.all(candidateSpecs.map(async (candidate) => {
       const base = "https://studio-novaai2026-" + candidate.studio + ".api-inference.modelscope.net";
-      const status = await probeStudio(base, msToken, f, 7000, true);
+      const status = await probeStudio(base, msToken, f, 7000, true, candidate.mediaRepo);
       return { id: candidate.id, studio: candidate.studio, ...status, media: status.media || { image: false, audio: false, video: false } };
     })),
   ]);
