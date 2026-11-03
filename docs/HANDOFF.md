@@ -1,3 +1,40 @@
+# HANDOFF — 2026-11-04 (Europe/Istanbul, 02:45)
+
+No secrets here: variable names only. Production branch: `claude/free-services-marketplace-h6rwk2`. `main` follows it through sync, and Oracle follows `main`.
+
+## What changed on Nov 4 (PRs #648–#660)
+- **New independent model LFM2.5-8B-A1B (`lfm25`)**: owner-only and hidden for now.
+  - It has its own inference Studio (`lfm25-inference-server`, `LFM_STUDIO_URLS`) and its own media Studio (`lfm25-media-server`, `LFM_MEDIA_STUDIO_URL`).
+  - It has its own computer session `${userId}:lfm25`.
+  - No fallback to Nova or any other model. An empty pool fails with "off".
+  - Measured: the repo-explain task took 198 s (Nova took 795 s); image 52 s; speech 21 s.
+- **Strict separation**:
+  - The AsyncLocalStorage `withEngineModel` in openCoderStudio.ts routes every completion to the selected model's pool.
+  - `modelMedia.ts` routes each model's media to its own Studio and refuses `nova-inference-server`.
+  - MODEL_OVERRIDES serves only the overridden model.
+- **Computer hub** (`nova-inference-server`, 16 GB, computer only):
+  - New tools: computer_patch (unified diff), computer_test (runner detection, run as a job), computer_tools, and **computer_batch** (up to 8 steps in one round trip).
+  - repo fetch answers within 12 s; tips are guarded; the apt cache lives on `/mnt/workspace`; the browser worker env was fixed.
+  - Bench (`computer-hub-bench.yml`), before → after:
+    - repo: FAIL → OK;
+    - patch and tools: unsupported → OK;
+    - each round trip costs about 1.8 s of gateway time, so use batch.
+- **Media**: a refused submit (429/502–504) is retried after 2, 5 and 10 s. Nova audio was failing on a single 429.
+- **Long tasks**: orphan resume now covers tasks up to 6 h (was 30 min), capped at CODER_MAX_RESUMES. Live disconnect E2E: `nova-task-live.yml` with `drop_continue=1`. No message may pass 4096 characters.
+- **Owner feedback**: 12-hour clock (agent, schedules, app); no English-prompt talk; a false "sent" claim is blocked; simple media goes straight to make_media.
+- **Second free host for Sham v2**: decision is **Oracle Always Free A1**, on a new tenancy. See `hosting/sham-v2/README.md`.
+  - Hugging Face Docker Spaces now require PRO, so they fail the "free forever" condition.
+  - The site's tenancy has no A1 quota left.
+  - **Owner action needed**: sign up and create the VM (steps in the README).
+
+## Still open
+1. Clone speed: the full clone takes 106 s. Find where the time goes from the repo-fetch markers in the bench.
+2. Media speed: Nova image is about 144 s (512×768, 24 steps); LFM video 391 s. Reduce steps or size only with a quality comparison.
+3. Sham v2: its Studios are ready again. Arabic answers sometimes contain a foreign word (model quality). Never touch v1.
+4. #505 stays a draft; **#184 is never merged**; #647 (inventory probe) is a draft.
+
+---
+
 # HANDOFF — 2026-10-28 (Europe/Istanbul، 16:30)
 
 للمهندس الذي يقرأ المشروع. المصدر: `/workspace/work/TODO.md` + جلسة اليوم. لا أسرار هنا: أسماء المتغيرات فقط.
