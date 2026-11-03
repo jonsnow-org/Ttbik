@@ -172,8 +172,7 @@ def generate(prompt,negative,resolution,steps,cfg,seed):
     if STATE.get("phase")!="ready" or PIPE is None: raise gr.Error("epiCRealism Studio is not ready.")
     prompt=str(prompt or "").strip()
     if len(prompt)<8 or len(prompt)>1800: raise gr.Error("Prompt must be between 8 and 1800 characters.")
-    if MINOR.search(prompt) and SEXUAL.search(prompt): raise gr.Error("Sexual depiction of minors is not allowed.")
-    if NONCONSENSUAL.search(prompt) and REAL_PERSON.search(prompt): raise gr.Error("Non-consensual intimate imagery of real people is not allowed.")
+    
     sizes={"512 × 512":(512,512),"512 × 768":(512,768),"768 × 512":(768,512)}
     width,height=sizes.get(resolution,(512,768))
     steps=max(18,min(35,int(steps))); cfg=max(3.0,min(9.0,float(cfg))); seed=int(seed)
