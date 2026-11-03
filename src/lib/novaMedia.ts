@@ -117,7 +117,13 @@ async function novaMakeMediaOnce(
   const timeoutMs = opts.timeoutMs ?? 240000;
   const deadline = Date.now() + timeoutMs;
   try {
-    const sub = await f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(timeoutMs, 30000)) });
+    // a refused submit (the ModelScope gateway answers 429 to a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe (live 2026-11-04: Nova audio lost to one 429)
+    const waits = (process.env.NOVA_MEDIA_SUBMIT_WAITS_MS ?? "2000,5000,10000").split(",").map(Number).filter((x) => x >= 0);
+    let sub = await f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(timeoutMs, 30000)) });
+    for (let k = 0; !sub.ok && [429, 502, 503, 504].includes(sub.status) && k < waits.length && Date.now() + waits[k] < deadline; k++) {
+      await new Promise((r) => setTimeout(r, waits[k]));
+      sub = await f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(Math.max(1000, deadline - Date.now()), 30000)) });
+    }
     if (!sub.ok) return { type: "error", text: `the media Studio answered HTTP ${sub.status}` };
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return { type: "error", text: "the media Studio gave no event id" };

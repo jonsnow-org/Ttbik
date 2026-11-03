@@ -5,6 +5,22 @@ describe("Nova media Studio client", () => {
   const saved = process.env.NOVA_MEDIA_STUDIO_URL;
   afterEach(() => (saved === undefined ? delete process.env.NOVA_MEDIA_STUDIO_URL : (process.env.NOVA_MEDIA_STUDIO_URL = saved)));
 
+  it("asks again after a gateway 429 on submit (no job was created) and then succeeds", async () => {
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+    process.env.NOVA_MEDIA_SUBMIT_WAITS_MS = "1,1";
+    let submits = 0;
+    const f = (async (_url: string, init?: { body?: string }) => {
+      if (init?.body) return ++submits === 1 ? { ok: false, status: 429 } : { ok: true, json: async () => ({ event_id: "e1" }) };
+      return { ok: true, text: async () => `data: ["{\\"type\\":\\"audio\\",\\"b64\\":\\"QUJD\\"}"]\n` };
+    }) as unknown as typeof fetch;
+    try {
+      const r = await novaMakeMedia("audio", "hello", { fetchImpl: f });
+      expect(submits).toBe(2);
+      expect(JSON.stringify(r)).not.toContain("HTTP 429");      // the retry reached the result stage (the fake clip itself may fail vetting)
+    } finally {
+      delete process.env.NOVA_MEDIA_SUBMIT_WAITS_MS;
+    }
+  });
   it("is off without its URL and returns nothing", async () => {
     delete process.env.NOVA_MEDIA_STUDIO_URL;
     expect(novaMediaEnabled()).toBe(false);
