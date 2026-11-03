@@ -4,6 +4,7 @@ import { Shell } from './components/Shell'
 import { useFadaa } from './lib/store'
 import { refreshFadaaSnapshot } from './lib/api'
 import { ArchiveScreen } from './screens/Archive'
+import { AdminScreen } from './screens/Admin'
 import { CreateScreen } from './screens/Create'
 import { HomeScreen } from './screens/Home'
 import { JoinScreen } from './screens/Join'
@@ -15,6 +16,7 @@ import { SummaryScreen } from './screens/Summary'
 export default function App() {
   const ready = useFadaa((s) => s.ready)
   const screen = useFadaa((s) => s.screen)
+  const supervisor = useFadaa((s) => s.supervisor)
   const setReady = useFadaa((s) => s.setReady)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -99,8 +101,8 @@ export default function App() {
     case 'summary': body = <SummaryScreen />; break
     case 'archive': body = <ArchiveScreen />; break
     case 'mine': body = <MineScreen />; break
+    case 'admin': body = supervisor ? <AdminScreen /> : <HomeScreen />; break
     case 'packages':
-    case 'admin':
     default: body = <HomeScreen />
   }
 
