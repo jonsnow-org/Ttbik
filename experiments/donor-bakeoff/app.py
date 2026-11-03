@@ -25,16 +25,15 @@ from pathlib import Path, PurePosixPath
 
 import gradio as gr
 import requests
-from huggingface_hub import hf_hub_download
+from modelscope_weights import download_candidate_file
 from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-02-r16"
+APP_REVISION = "donor-bakeoff-2026-11-03-r17"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
-    """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
-    Used only when it is writable and has room for the model; otherwise the local (ephemeral) folder is used as before."""
+    """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
     base = Path(os.environ.get("DONOR_PERSIST_DIR", "/mnt/workspace"))
     try:
         if not base.is_dir():
@@ -43,9 +42,9 @@ def _persistent_root() -> Path | None:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
         import shutil
-        if shutil.disk_usage(base).free < 9 * 1024 ** 3 and not (base / "donor-bakeoff").exists():
-            return None
         target = base / "donor-bakeoff" / str(CONFIG.get("id") or "candidate")
+        if shutil.disk_usage(base).free < int(6.5 * 1024 ** 3) and not target.exists():
+            return None
         target.mkdir(parents=True, exist_ok=True)
         return target
     except Exception:
@@ -291,27 +290,14 @@ TESTS = [
 TEST_BY_ID = {test["id"]: test for test in TESTS}
 
 def _download_file(filename: str, label: str) -> str:
-    configured_endpoint = os.environ.get("DONOR_HF_ENDPOINT") or os.environ.get("HF_ENDPOINT")
-    endpoints = []
-    for endpoint in (configured_endpoint, "https://hf-mirror.com", "https://huggingface.co"):
-        if endpoint and endpoint.rstrip("/") not in endpoints:
-            endpoints.append(endpoint.rstrip("/"))
-    errors = []
-    for endpoint in endpoints:
-        try:
-            print(f"Downloading {label} from configured Hub endpoint.", flush=True)
-            return hf_hub_download(
-                repo_id=CONFIG["repo_id"],
-                filename=filename,
-                local_dir=str(CACHE),
-                endpoint=endpoint,
-                etag_timeout=8,
-            )
-        except Exception as exc:
-            detail = f"{type(exc).__name__}: {str(exc)[:350]}"
-            errors.append(f"{endpoint}: {detail}")
-            print(f"{label} endpoint failed: {detail}", flush=True)
-    raise RuntimeError(f"Could not download {label}: " + " | ".join(errors))
+    """Load one pinned candidate file from its assigned private ModelScope repo only."""
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    try:
+        path = download_candidate_file(CONFIG, filename, CACHE, token=token)
+        print(f"Verified {label} from the selected private ModelScope weight repository.", flush=True)
+        return str(path)
+    except Exception as exc:
+        raise RuntimeError(f"Could not load {label} from the selected private ModelScope repository: {type(exc).__name__}: {str(exc)[:500]}") from exc
 
 def _prepare_server_source() -> None:
     if SERVER_SCRIPT.is_file() and SERVER_SCRIPT.stat().st_size > 300_000:
@@ -441,6 +427,8 @@ def load_model() -> None:
     started = time.monotonic()
     process = None
     try:
+        if PERSIST is None:
+            raise RuntimeError("Persistent /mnt/workspace storage is unavailable or too small. Refusing to download multi-GB candidate weights to an ephemeral container filesystem.")
         CACHE.mkdir(parents=True, exist_ok=True)
         model_path = _download_file(CONFIG["filename"], "candidate GGUF")
         mmproj_filename = CONFIG.get("mmproj_filename")
@@ -574,7 +562,8 @@ def status() -> str:
             "app_revision": APP_REVISION,
             "phase": STATE["phase"],
             "candidate": STATE["candidate"],
-            "repo_id": CONFIG.get("repo_id"),
+            "repo_id": CONFIG.get("modelscope_repo_id"),
+            "source_repo_id": CONFIG.get("repo_id"),
             "filename": CONFIG.get("filename"),
             "mmproj_filename": CONFIG.get("mmproj_filename"),
             "backend": "llama.cpp MTMD / CPU only",
@@ -2103,7 +2092,8 @@ def smoke_test(test_id: str) -> str:
     result = _run_one(test)
     payload = {
         "candidate": CONFIG.get("label"),
-        "repo_id": CONFIG.get("repo_id"),
+        "repo_id": CONFIG.get("modelscope_repo_id"),
+            "source_repo_id": CONFIG.get("repo_id"),
         "phase": "complete",
         "context_tokens": N_CTX,
         "media_capabilities": state["media"],

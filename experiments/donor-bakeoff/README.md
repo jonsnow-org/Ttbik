@@ -18,7 +18,7 @@ The deployment workflow changes only these three explicitly named experiment Stu
 
 ## Runtime
 
-Each Studio downloads its own main GGUF and the candidate's compatible multimodal projector from Hugging Face, then starts a pinned \`llama-cpp-python 0.3.36\` MTMD API server bound only to \`127.0.0.1\`. Both the model and projector run CPU-only (\`n_gpu_layers=0\`, maximum two worker threads in this experiment). The Gradio UI talks only to this local server.
+Each candidate has a separate private ModelScope weight repository. A controlled one-time import job copies the exact selected GGUF and compatible multimodal projector into that repository and records SHA-256 values. A Studio downloads only from its own private ModelScope repository, verifies the manifest and file hashes, then starts a pinned \`llama-cpp-python 0.3.36\` MTMD API server bound only to \`127.0.0.1\`. Both the model and projector run CPU-only (\`n_gpu_layers=0\`, maximum two worker threads in this experiment). The Gradio UI talks only to this local server.
 
 Images, audio, and video are sent as direct base64 payloads to the local model server. No external media API, remote URL fetch, or media-generation provider is used. The UI reports the actual capabilities detected from the loaded projector; a modality is marked unsupported when the runtime does not report it.
 
@@ -27,7 +27,7 @@ Images, audio, and video are sent as direct base64 payloads to the local model s
 - A media smoke "pass" means the runtime accepted the media and produced a response; it is **not** a semantic accuracy score. Human review of the answer against the uploaded media is still needed.
 - This round tests multimodal **input/understanding** and candidate-owned image output. Each candidate has exactly one pinned image-weight assignment and one private ModelScope image Studio: Qwen3.5-9B → CyberRealistic FINAL; Gemma 4 E4B → an independent private copy of Realistic Vision V6; MiniCPM-o 4.5 → Umranz (pending its successful readiness/generation test). The chat model chooses the generate_image tool; the selected candidate runtime verifies the private Studio repo and checkpoint SHA-256, calls only that Studio, and returns the generated file to the bot. There is no cross-candidate fallback. Audio/video output and speech synthesis are not enabled in this bake-off. MiniCPM-o separate speech/TTS weights are not loaded.
 
-The main weight and projector are downloaded independently. The deployment wait can therefore be longer the first time each Studio receives a projector; retries reuse the existing private Studio and cached downloads whenever possible.
+The one-time import is skipped when the private ModelScope manifest already matches the pinned source revision. Model Studio runtime code contains no Hugging Face client or endpoint; all model and projector downloads are from the candidate-specific private ModelScope repo. Each persistent workspace keeps only that candidate's own verified cache across Studio restarts.
 
 ## Evaluation
 

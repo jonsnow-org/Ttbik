@@ -34,5 +34,7 @@
     "for_candidate": "minicpmo45",
     "studio_api": "https://studio-novaai2026-sham-donor-minicpmo45-media.api-inference.modelscope.net",
     "media_repo": "novaai2026/minicpmo45-media-models"
-  }
+  },
+  "modelscope_repo_id": "novaai2026/sham-donor-minicpmo45-weights",
+  "modelscope_weights_revision": "2026-11-03-r1"
 }

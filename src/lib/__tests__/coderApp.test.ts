@@ -75,7 +75,7 @@ describe("mini app api", () => {
     const readyFetch = jest.fn(async (input: any, init?: any) => {
       const url = String(input);
       if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-")) return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
-      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-02-r16", media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
       return new Response("unexpected request", { status: 500 });
     }) as any;
     const deps = { db, bot, botRow, fetchImpl: readyFetch };
