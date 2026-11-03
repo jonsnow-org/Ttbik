@@ -7,7 +7,7 @@ import "./fadaa-client.css";
 const FadaaApp = dynamic(() => import("@/components/fadaa/App"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-[100dvh] place-items-center bg-[#0f172a] text-[#f1f5f9]">
+    <div className="grid h-[100dvh] place-items-center bg-[#081b2b] text-[#f4fafb]">
       <div className="text-3xl font-bold" style={{ fontFamily: "Amiri, serif" }}>
         فضاء
       </div>
@@ -40,9 +40,9 @@ export default function FadaaPage() {
     try {
       tg?.ready();
       tg?.expand();
-      tg?.setHeaderColor?.("#1e293b");
-      tg?.setBackgroundColor?.("#0f172a");
-      tg?.setBottomBarColor?.("#1e293b");
+      tg?.setHeaderColor?.("#102a3c");
+      tg?.setBackgroundColor?.("#081b2b");
+      tg?.setBottomBarColor?.("#102a3c");
       tg?.disableVerticalSwipes?.();
       try {
         tg?.requestFullscreen?.();
