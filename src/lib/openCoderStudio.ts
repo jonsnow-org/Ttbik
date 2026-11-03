@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // The open coding model (Qwen3.5-4B GGUF on llama.cpp) on its OWN ModelScope Studio (ai-system/modelscope-coder/app.py) — a separate
 // service from Sham's Studio (src/lib/shamStudio.ts). Same Gradio call protocol:
 //   POST {base}/gradio_api/call/v2/<prefix>chat -> {event_id};  GET {base}/gradio_api/call/<prefix>chat/<event_id> -> `data: ["<json>"]`
@@ -39,12 +40,42 @@ export function coderStudioUrl(): string {
 }
 /** Primary Studio + optional replicas (OPEN_CODER_STUDIO_URLS, comma list): a new completion goes to the first healthy one; a job
  *  stays on the Studio that took it (job ids from a replica carry its index: "s<i>~<id>"). */
-export function coderStudioUrls(): string[] {
+// ── Engine pools (owner 2026-11-04: every model is independent) ─────────────────────────────────────────────────────────────────────────
+// Nova and LFM2.5 run the same engine (this module + coderSections) but each on ITS OWN Studios. The model of the current request is carried
+// by an AsyncLocalStorage set at every engine entry (the webhook handler, every worker leg); a new completion may only go to that model's pool.
+// A job id carries a GLOBAL index into allEngineBases(), so polling a job always reaches the Studio that took it, whatever the context.
+const engineModel = new AsyncLocalStorage<string>();
+export const ENGINE_MODELS = ["coder", "lfm25"] as const;
+export type EngineModel = (typeof ENGINE_MODELS)[number];
+export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25";
+/** Runs fn with `model`'s Studio pool for every new completion made inside it (any non-engine id = Nova's pool). */
+export function withEngineModel<T>(model: string | undefined, fn: () => T): T {
+  return engineModel.run(isEngineModel(model) ? model : "coder", fn);
+}
+export const currentEngineModel = (): EngineModel => (engineModel.getStore() as EngineModel | undefined) || "coder";
+const LFM_DEFAULT = "https://studio-novaai2026-lfm25-inference-server.api-inference.modelscope.net";
+/** LFM2.5's own Studios (LFM_STUDIO_URLS, comma list). Outside tests the dedicated Studio is the default; LFM_STUDIO_URLS=off disables it. */
+export function lfmStudioUrls(): string[] {
+  const raw = (process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? (process.env.NODE_ENV === "test" ? "" : LFM_DEFAULT)).trim();
+  if (/^(off|none|0)$/i.test(raw)) return [];
+  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
+}
+function novaStudioUrls(): string[] {
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
-  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x);
+  const lfm = new Set(lfmStudioUrls());
+  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
+}
+/** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
+export function allEngineBases(): string[] {
+  const nova = novaStudioUrls();
+  return [...nova, ...lfmStudioUrls().filter((x) => !nova.includes(x))];
+}
+/** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; LFM2.5: its own). Never the other model's. */
+export function coderStudioUrls(model: EngineModel = currentEngineModel()): string[] {
+  return model === "lfm25" ? lfmStudioUrls() : novaStudioUrls();
 }
 const studioCooling = new Map<string, number>();                       // base -> skip until (after a failure), per server instance
 const COOL_MS = 60000;
@@ -54,7 +85,7 @@ export function splitJob(job: string): { idx: number; id: string } {
 }
 // force redeploy 2
 export function coderEnabled(): boolean {
-  return Boolean(coderStudioUrl());
+  return currentEngineModel() === "lfm25" ? lfmStudioUrls().length > 0 : Boolean(coderStudioUrl());
 }
 function coderToken(): string {
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
@@ -104,19 +135,22 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
   return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
 }
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier, prefer = ""): Promise<CoderOutcome> {
-  const bases = coderStudioUrls();
+  const all = allEngineBases();
+  const pool = coderStudioUrls();
   if (pressureOn()) avoidHome = true;                                       // pressure mode (owner switch): the least-queued Studio, not the conversation's cache-holding one
-  if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of bases) void studioStatus(b, 4000).catch(() => null); }
-  if (!bases.length) return { reply: null, failure: "off" };
+  if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of pool) void studioStatus(b, 4000).catch(() => null); }
   if (typeof payload.job_id === "string") {
-    // a job lives on one Studio
+    // a job lives on one Studio (global index: valid in any request context)
+    if (!all.length) return { reply: null, failure: "off" };
     const { idx, id } = splitJob(payload.job_id);
-    const o = await callOne(bases[idx] || bases[0], api, { ...payload, job_id: id }, timeoutMs);
+    const o = await callOne(all[idx] || all[0], api, { ...payload, job_id: id }, timeoutMs);
     return idx ? tagJob(o, idx) : o;
   }
+  const bases = pool;
+  if (!bases.length) return { reply: null, failure: "off", detail: currentEngineModel() === "lfm25" ? "LFM2.5's own Studio is not configured (no other model is used instead)" : undefined };
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
-  let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
+  let order = bases.map((b) => ({ b, i: all.indexOf(b) })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
   if (api === "chat") {
     // choosing is one at a time (calls that start together must not all see the same Studio idle), and a Studio is marked as holding a conversation
     // the moment a normal call is sent to it: the side calls (quick acknowledgement, quiet work) are `fresh` and may only use a Studio no conversation

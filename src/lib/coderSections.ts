@@ -12,7 +12,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, withEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -302,7 +302,22 @@ async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSe
 }
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
+/** The engine model whose Studio pool serves this chat (Nova or LFM2.5); a sub-agent slot follows its own pick, else the chat's. */
+async function engineModelOf(chatId: number | string | undefined, db: Db, slot = ""): Promise<string | undefined> {
+  if (chatId === undefined || chatId === null || chatId === "") return undefined;
+  try {
+    const own = await loadStateStrict(chatId, db, slot);
+    if (own.model || !slot) return own.model;
+    return (await loadStateStrict(chatId, db)).model;
+  } catch { return undefined; }
+}
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
+  // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
+  const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
+  const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
+  return withEngineModel(model, () => handleCoderSectionsInner(bot, botRow, update, db, onShamRoute));
+}
+async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
   // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
   if (update.message?.successful_payment) {
@@ -467,7 +482,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
   const st = preloadedOwnerState || await loadStateStrict(chatId, db);
-  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
+  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2", "lfm25"]);
   const requestedModel = st.model || "coder";
   console.info("[model-route] Telegram incoming", { chatKey: coderChatKey(chatId), selectedModel: requestedModel, mode: st.mode });
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
@@ -479,7 +494,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       await saveStateStrict(chatId, st, db);
       // Do not silently answer with Nova after a user selected a Sham model that this runtime considers unavailable.
       if (blockedModel && OWNER_FIRST.has(blockedModel) && !cmd.startsWith("/")) {
-        await send(bot, chatId, "⚠️ لم أتمكن من استخدام النموذج الذي اخترته لأنه غير متاح الآن لهذا الحساب. لم أرسل رسالتك إلى Nova. افتح اختيار النماذج وتحقق من إتاحة شام v2 ثم أعد المحاولة.");
+        await send(bot, chatId, "⚠️ لم أتمكن من استخدام النموذج الذي اخترته لأنه غير متاح الآن لهذا الحساب. لم أرسل رسالتك إلى Nova. افتح اختيار النماذج وتحقق من إتاحة النموذج ثم أعد المحاولة.");
         return true;
       }
     }
@@ -676,24 +691,14 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
     if (!d) return false;
     intent = d;
   }
-  if (intent.kind === "audio" && selectedModel !== "coder") return false;   // a candidate's speech stays with its own agent path
-  const ownVideo = intent.kind === "video" && selectedModel !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(selectedModel) : null;
-  if (intent.kind === "video" && selectedModel !== "coder" && !ownVideo) {
-    const why = "لم يتم تجهيز مولّد فيديو مستقل لهذا النموذج بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
+  // every model makes all three kinds on ITS OWN Studios (src/lib/modelMedia.ts); a model without its own generator says so: nothing is made elsewhere
+  const mm = await import("@/lib/modelMedia");
+  if (!mm.modelMediaConfigured(selectedModel, intent.kind)) {
+    const why = "لم يتم تجهيز مولّد " + (intent.kind === "image" ? "صور" : intent.kind === "audio" ? "صوت" : "فيديو") + " مستقل لنموذج " + mm.mediaModelName(selectedModel) + " بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
     return true;
-  }
-  if ((intent.kind === "video" || intent.kind === "audio") && !ownVideo) {
-    const nm = await import("@/lib/novaMedia");
-    if (!nm.novaMediaEnabled()) {
-      const why = "استوديو الوسائط الخاص بنوفا غير مفعّل حالياً، فلم يُنشأ شيء.";
-      st.messages.push({ role: "user", content }, { role: "assistant", content: why });
-      await saveState(chatId, st, db);
-      await send(bot, chatId, why);
-      return true;
-    }
   }
   const runId = randomUUID().slice(0, 12);
   st.messages.push({ role: "user", content });
@@ -792,18 +797,8 @@ async function fastMedia(
         await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);
         const { vetMedia } = await import("@/lib/mediaQuality");
         await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
-        let raw: any;
-        if (kind === "image") {
-          const photo = await import("@/lib/photoWeightMedia");
-          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest, aspect });
-        } else if (kind === "audio") {
-          const nm = await import("@/lib/novaMedia");
-          raw = await nm.novaMakeMedia("audio", prompt, { timeoutMs: 240000, bypassContentHeuristics: rawTest });
-        } else {
-          const nm = await import("@/lib/novaMedia");
-          const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
-          raw = await nm.novaMakeMedia("video", prompt, { seconds: intent.seconds ?? 10, timeoutMs: 300000, bypassContentHeuristics: rawTest, ...(own ? { base: own.base } : {}) });
-        }
+        // the selected model's OWN generator for every kind (never another model's Studio)
+        const raw: any = await (await import("@/lib/modelMedia")).makeModelMedia(modelId, kind, prompt, { seconds: intent.seconds ?? 10, aspect, raw: rawTest });
         const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
         if (media?.b64 && (media.type === "image" || media.type === "video" || media.type === "audio")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
@@ -2161,7 +2156,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
             const { vetMedia } = await import("@/lib/mediaQuality");
             if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-            else if (kind !== "image" && modelId !== "coder") {
+            else if (!(await import("@/lib/modelMedia")).modelMediaConfigured(modelId, kind)) {
               out = "error: this selected model has no dedicated " + kind + " generator configured yet. Nothing was sent to Nova or another model.";
             } else {
               const mq = await import("@/lib/coderMedia");
@@ -2172,18 +2167,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
               } else {
                 let delivered = false;
                 try {
-                  let raw: any;
-                  if (kind === "image") {
-                    const photo = await import("@/lib/photoWeightMedia");
-                    raw = await withHeartbeat(ioBot, chatId, run, "جارٍ توليد صورة من أوزان النموذج المختار", () =>
-                      photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest }));
-                  } else {
-                    const nm = await import("@/lib/novaMedia");
-                    raw = nm.novaMediaEnabled()
-                      ? await withHeartbeat(ioBot, chatId, run, "جارٍ صنع " + kind, () =>
-                          nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, bypassContentHeuristics: rawTest }))
-                      : { type: "error", text: "Nova's own speech/video Studio is disabled." };
-                  }
+                  const mm = await import("@/lib/modelMedia");
+                  const raw: any = await withHeartbeat(ioBot, chatId, run, kind === "image" ? "جارٍ توليد صورة من أوزان النموذج المختار" : "جارٍ صنع " + kind, () =>
+                    mm.makeModelMedia(modelId, kind, prompt, { timeoutMs: kind === "image" ? 420000 : kind === "video" ? 300000 : 240000, raw: rawTest }));
                   const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
                   const rb = realBot(bot);
                   if (media?.b64 && media.type === "image" && kind === "image") {
@@ -2191,10 +2177,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                     out = "image generated by the selected model's own dedicated weight Studio and sent";
                   } else if (media?.b64 && media.type === "audio" && kind === "audio") {
                     await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
-                    out = "audio generated by Nova's own media Studio and sent";
+                    out = "audio generated by the selected model's own media Studio and sent";
                   } else if (media?.b64 && media.type === "video" && kind === "video") {
                     await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
-                    out = "video generated by Nova's own media Studio and sent";
+                    out = "video generated by the selected model's own media Studio and sent";
                   } else {
                     out = "error: " + String(media?.text || media?.reason || media?.type || "the selected generator returned no result").slice(0, 260) + ". Nothing was sent; no different model was used.";
                   }
@@ -2886,6 +2872,10 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+  const model = await engineModelOf(chatId, db, slot);
+  return withEngineModel(model, () => driveInner(bot, botRow, chatId, chain, db, budgetMs, slot));
+}
+async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   if (isAgentSlot(slot)) bot = silentBot(bot);
   let runId = "";
   let heartbeat: ReturnType<typeof setInterval> | undefined;

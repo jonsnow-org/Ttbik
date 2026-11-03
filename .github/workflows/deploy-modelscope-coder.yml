@@ -20,7 +20,7 @@ on:
         required: false
         default: "true"
       studio:
-        description: "Deploy only this Studio (coder-inference-server or a replica coder-inference-server-<n>). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
+        description: "Deploy only this Studio (coder-inference-server, a replica coder-inference-server-<n>, or LFM2.5's lfm25-inference-server). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
         required: false
         default: ""
 
@@ -50,10 +50,10 @@ jobs:
           import json, os, re
           only = os.environ.get("ONLY", "").strip()
           names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
-          ok = re.compile(r"^coder-inference-server(-[0-9]{1,2})?$")
+          ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?|lfm25-inference-server)$")
           bad = [n for n in names if not ok.match(n)]
           if bad or not names:
-              raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server and coder-inference-server-<n>; never Sham's)")
+              raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server, coder-inference-server-<n> and LFM2.5's lfm25-inference-server; never Sham's)")
           open(os.environ["GITHUB_OUTPUT"], "a").write("list=" + json.dumps(names) + "\n")
           print("studios:", names)
           PY
@@ -126,7 +126,7 @@ jobs:
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
-          # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> the app downloads that model first (Qwen stays the fallback)
+          # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
           line=$(grep -E "^${REPO} " ai-system/modelscope-coder/MODEL_OVERRIDES 2>/dev/null | head -1 || true)
           if [ -n "$line" ]; then echo "$line" | cut -d' ' -f2- > ms-studio/model.override; else rm -f ms-studio/model.override; fi
           # ModelScope keeps big files (*.gz) in Git LFS; a fresh Studio instance then holds only the 130-byte LFS pointer (proven 2026-10-24:

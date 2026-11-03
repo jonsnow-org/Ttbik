@@ -102,7 +102,7 @@ describe("mini app api", () => {
 
       const ownerModels = await appOp(owner, "models", {}, deps);
       expect(ownerModels.owner.map((x: any) => x.id)).toEqual([
-        "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45",
+        "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45", "lfm25",
       ]);
       expect(ownerModels.donorTests).toEqual([]);
       const userModels = await appOp(user, "models", {}, { db, bot, botRow });
