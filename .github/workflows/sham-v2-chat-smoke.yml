@@ -2,6 +2,8 @@ name: Sham v2 live capability smoke test
 
 on:
   workflow_dispatch: {}
+  # The Studio is updated by deploy-modelscope-sham-v2.yml. Do not run this live smoke on push:
+  # push triggers it before deployment completes and probes the previous Studio version.
   workflow_run:
     workflows:
       - "Deploy the Sham v2 Studio (Sham on the body of a trained donor, own chat, own media tokens; a NEW Studio, the current Sham Studio is not touched)"
@@ -14,9 +16,9 @@ permissions:
 
 jobs:
   capability:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - name: Test a real capability question through Sham v2's dedicated Studio
