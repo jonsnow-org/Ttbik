@@ -10,7 +10,7 @@ const norm = (s: string): string =>
   s.toLowerCase().replace(/ڤ/g, "ف").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/\s+/g, " ").trim();
 
 const set = (xs: string) => new Set(xs.split(/\s+/));
-const VERBS = set("قم قومي ولد ولدي ولدلي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع اصنعلي سوي سويلي سويلى انشئ انشئلي انشاء انتج انتاج اعمل اعملي اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اظهر هات generate create draw make produce render imagine give show want need");
+const VERBS = set("قم قومي ولد ولدي ولدلي توليد تولد ارسم ارسمي رسم صمم تصميم اصنع صنع اصنعلي سوي سويلي سويلى انشئ انشئلي انشاء انتج انتاج اعمل اعملي اعطني اعطيني ابي ابغي ابغى اريد اريدك اطلب اطلبي طلب طلبت طلبتي طلبنا طلبوا اطلبوا طلبلي طلبولي اظهر هات generate create draw make produce render imagine give show want need");
 const DRAW = set("ارسم ارسمي رسم draw imagine");
 const IMAGES = set("صوره صور رسمه لوحه لوغو لوجو شعار image picture photo pic logo wallpaper illustration");
 const VIDEOS = set("فيديو فيديوهات فديو فديوهات فيدو فدو فيديوا فيديوه فديوه كليب انيميشن video videos clip animation");
