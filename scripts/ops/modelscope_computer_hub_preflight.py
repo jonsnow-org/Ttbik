@@ -90,7 +90,7 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
                     fail("Terminal memory/concurrency policy must match the 2-GB admission floor and six isolated global jobs: " + json.dumps(limits))
                 if computer.get("toolchain") != "ready":
                     fail("Required terminal base toolchain is not ready: " + str(computer.get("toolchain")))
-                required_tools = ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")
+                required_tools = ("python3", "pip", "git", "curl", "unzip", "jq")  # language compilers/runtimes (node, gcc, etc.) are checked after DEV_TIERS completes
                 installed_tools = computer.get("tools") or {}
                 missing_tools = [name for name in required_tools if not installed_tools.get(name)]
                 if missing_tools:
