@@ -7,11 +7,11 @@ describe("the shared one-message card", () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "قم بتوليد تقرير عن المشروع");
     expect(sent).toHaveLength(1);
-    expect(sent[0].text).toMatch(/^🕒 .*\d\d:\d\d:\d\d\n💬 /);              // date + time, the neutral "received" line (the model's own line comes in later)
+    expect(sent[0].text).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n💬 /);              // date + time, the neutral "received" line (the model's own line comes in later)
     expect(sent[0].text).not.toMatch(/قم بتوليد تقرير/);                     // never an echo of the request
     expect(sent[0].text).toMatch(/📋 التقدم/);
     await cardNote(bot, 5, card, "قراءة الملفات", true);
-    expect(sent[0].text).toMatch(/▶️ \d\d:\d\d:\d\d {2}قراءة الملفات/);
+    expect(sent[0].text).toMatch(/▶️ \d{1,2}:\d\d:\d\d [صم] {2}قراءة الملفات/);
     await cardFinish(bot, 5, card, "هذا هو الجواب النهائي", async (p) => { await bot.api.sendMessage(5, p); });
     expect(sent).toHaveLength(1);                                          // never a second message for a short answer
     expect(sent[0].text).toBe("هذا هو الجواب النهائي");

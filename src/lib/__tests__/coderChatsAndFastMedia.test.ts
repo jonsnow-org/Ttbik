@@ -36,11 +36,12 @@ describe("which requests take the fast media lane", () => {
     expect(detectMediaIntent("قم بتوليد صورة فرس ابيض")).toEqual({ kind: "image", subject: "فرس ابيض" });
     expect(detectMediaIntent("ولد لي صورة أسد")?.kind).toBe("image");
     expect(detectMediaIntent("ارسم قطة سوداء")?.kind).toBe("image");
-    expect(detectMediaIntent("generate an image of a white horse")).toEqual({ kind: "image", subject: "white horse" });
+    expect(detectMediaIntent("generate an image of a white horse")).toEqual({ kind: "image", subject: "a white horse" });
     expect(detectMediaIntent("اعمل فيديو عن غروب الشمس")).toEqual({ kind: "video", subject: "عن غروب الشمس" });
   });
   it("code, questions, files, existing pictures and greetings are for the general worker", () => {
-    for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "كيف أرسم", "مرحبا", "حلل الصورة", "/start", "make a python script", "ارسم لي موقع", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
+    // ("كيف أرسم" and "ارسم لي موقع" are ambiguous for words alone: since 2026-11-04 the selected model decides it, see the router tests below)
+    for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "مرحبا", "حلل الصورة", "/start", "make a python script", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
   });
   it("raw model output can be kept without the fixed translation glossary", () => {
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
@@ -243,5 +244,55 @@ describe("the background executor (terminal): the chat and the app are front-end
     const tg2: any = { api: { sendMessage: async () => undefined, sendDocument: async (...a: any[]) => void docs.push(a) } };
     await sendShamReply(tg2, 1, { type: "text", text: text + text });                 // beyond ~24k characters: the whole report as a file
     expect(docs.length).toBe(1);
+  });
+});
+
+describe("owner 2026-11-04: the selected model decides media requests (follow-ups too), never a false 'sent'", () => {
+  const say = (text: string, from = FREE) => ({ message: { chat: { id: from }, from: { id: from, first_name: "Ali" }, text } });
+  async function net(route: (body: string) => string) {
+    const urls: string[] = [];
+    const studio = photoStudioFake("coder", [await png("gradient", 256)]);
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      urls.push(url + (init?.body ? " " + String(init.body).slice(0, 4000) : ""));
+      const ph = studio(url, init); if (ph) return ph;
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
+      if (url.includes("/gradio_api/call/v2/")) { (global as any).__lastBody = String(init?.body || ""); return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "done", job: "j", text: route((global as any).__lastBody || ""), tool_calls: [] }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    return urls;
+  }
+  it("a verb-less follow-up after a picture ('فتاة شقراء ممتلئة ترتدي ملابس سباحة') is understood by the model and made at once, with no thinking and no prompt talk", async () => {
+    const urls = await net((body) => (/You route ONE new chat message/.test(body) ? "IMAGE [tall] a chubby blonde girl wearing a swimsuit" : "CHAT"));
+    const st: any = await loadState(FREE, db());
+    st.messages.push({ role: "user", content: "قم بتوليد صورة فتاة" }, { role: "assistant", content: "🖼️ أُرسلت الصورة." });
+    await saveState(FREE, st, db());
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("فتاة شقراء ممتلئة ترتدي ملابس سباحة"), db());
+    expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
+    expect((api as any).sendPhoto.mock.calls[0][2]?.caption).toBeUndefined();
+    expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /chubby blonde girl wearing a swimsuit/.test(u))).toBe(true);
+    const chats = urls.filter((u) => u.includes("/gradio_api/call/v2/chat"));
+    expect(chats.length).toBe(1);                                                              // one routing call wrote the prompt: no agent loop, no second translation call
+    expect(chats[0]).not.toMatch(/"think":"1/);                                                 // thinking off for the routing call
+    expect(sent.some((s) => /إنجليزي|English|الوصف إلى صيغة/.test(s.text))).toBe(false);          // never talks about writing an English prompt
+  });
+  it("the model says CHAT: the message goes to the general worker (no picture is made)", async () => {
+    const urls = await net(() => "CHAT");
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("ما هو أفضل برنامج لتعديل الصور؟"), db());
+    await wait(300);
+    expect((api as any).sendPhoto).not.toHaveBeenCalled();
+    expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
+  });
+  it("a request the model refuses gets one short Arabic line and nothing is generated", async () => {
+    const urls = await net(() => "NO");
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("ارسم صورة ممنوعة"), db());
+    expect(await until(() => sent.some((s) => /قواعد السلامة/.test(s.text)))).toBe(true);
+    expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
   });
 });

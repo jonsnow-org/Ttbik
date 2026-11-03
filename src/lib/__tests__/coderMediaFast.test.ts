@@ -91,3 +91,33 @@ describe("frame tag from the translator", () => {
     expect(frameFor("512 × 768")).toBe("512 × 768");
   });
 });
+
+describe("model router line parsing (owner 2026-11-04)", () => {
+  const mf = require("@/lib/coderMediaFast");
+  it("parses CHAT / NO / IMAGE / VIDEO / AUDIO", () => {
+    expect(mf.parseMediaRoute("CHAT")).toEqual({ kind: "chat" });
+    expect(mf.parseMediaRoute("NO")).toEqual({ kind: "refuse" });
+    expect(mf.parseMediaRoute("IMAGE [tall] a chubby blonde girl wearing a swimsuit")).toEqual({ kind: "image", prompt: "a chubby blonde girl wearing a swimsuit", aspect: "tall" });
+    expect(mf.parseMediaRoute("VIDEO 30 [wide] a lion running in the desert")).toEqual({ kind: "video", prompt: "a lion running in the desert", seconds: 30, aspect: "wide" });
+    expect(mf.parseMediaRoute("VIDEO a rabbit playing in a garden")).toEqual({ kind: "video", prompt: "a rabbit playing in a garden", seconds: 10 });
+    expect(mf.parseMediaRoute("VIDEO 45 a cat")?.seconds).toBe(30);
+    expect(mf.parseMediaRoute("AUDIO مرحبا بكم في شام")).toEqual({ kind: "audio", prompt: "مرحبا بكم في شام" });
+    expect(mf.parseMediaRoute("<think>x</think>\nIMAGE a red car")).toEqual({ kind: "image", prompt: "a red car" });
+    expect(mf.parseMediaRoute("Sure! here it is")).toBeNull();
+    expect(mf.parseMediaRoute("IMAGE حصان أبيض")).toBeNull();                 // an untranslated prompt is not accepted
+  });
+  it("asks the model only when the message might be about media", () => {
+    expect(mf.mediaRouteNeeded("قم بتوليد صورة فتاة")).toBe(true);
+    expect(mf.mediaRouteNeeded("فتاة شقراء ممتلئة ترتدي ملابس سباحة", { previousUser: "قم بتوليد صورة فتاة", previousAssistant: "🖼️ أُرسلت الصورة." })).toBe(true);
+    expect(mf.mediaRouteNeeded("فتاة شقراء ممتلئة ترتدي ملابس سباحة")).toBe(false);
+    expect(mf.mediaRouteNeeded("اكتب دالة بايثون لفرز قائمة")).toBe(false);
+    expect(mf.mediaRouteNeeded("مرحبا")).toBe(false);
+    expect(mf.mediaRouteNeeded("/start")).toBe(false);
+  });
+  it("detects a final answer that claims a file was sent", () => {
+    expect(mf.claimsMediaSent("أرسلت الصورة")).toBe(true);
+    expect(mf.claimsMediaSent("تم إرسال الفيديو إليك")).toBe(true);
+    expect(mf.claimsMediaSent("I've sent the image above")).toBe(true);
+    expect(mf.claimsMediaSent("هذه خطوات تثبيت المكتبة")).toBe(false);
+  });
+});

@@ -29,7 +29,7 @@ describe("Sham media fast lane", () => {
       ? new Response(JSON.stringify({ event_id: "e1" }), { status: 200 })
       : new Response("event: complete\ndata: " + JSON.stringify(JSON.stringify({ type: "text", text: "white horse" })) + "\n\n", { status: 200 }));
   });
-  it("'قم بتوليد صورة فرس ابيض' on Sham v2 -> always translated (the picture model reads English only), the owner sees the prompt as the caption", async () => {
+  it("'قم بتوليد صورة فرس ابيض' on Sham v2 -> always translated (the picture model reads English only), no prompt caption", async () => {
     routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
     const { bot: b, calls } = bot();
@@ -39,10 +39,10 @@ describe("Sham media fast lane", () => {
     expect(routeCalls[0][2]).toMatchObject({ bypassContentHeuristics: true });
     const photo = calls.find((c) => c.m === "sendPhoto")!;
     expect(photo).toBeTruthy();
-    expect(photo.a[2]).toMatchObject({ caption: "🔎 white horse" });         // test mode (owner): the exact English prompt
+    expect(photo.a[2]?.caption).toBeUndefined();                             // owner 2026-11-04: the English prompt is never shown (MEDIA_SHOW_PROMPT=1 brings it back for tests)
     const msgs = calls.filter((c) => c.m === "sendMessage");
     expect(msgs).toHaveLength(1);                                          // the ONE message: the card (opened at once, with date + time) ...
-    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d\d:\d\d:\d\d\n💬 /);
+    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n💬 /);
     expect(msgs[0].a[1]).not.toMatch(/فهمت طلبك/);                          // no canned echo of the request
     expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });

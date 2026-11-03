@@ -29,7 +29,7 @@ import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, taskIsActive, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
-import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
+import { beginStep, clock12, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
 import { DONOR_TESTS, donorJobPoll, donorJobStart, type DonorChatResult, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
 
@@ -52,6 +52,7 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
+  mediaSent?: number;                                                 // media files really delivered to the chat in this run (make_media)
 };
 export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
 export type { Db };
@@ -653,9 +654,29 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, content: string, db: Db): Promise<boolean> {
   const selectedModel = st.model || "coder";
   if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
-  const { detectMediaIntent } = await import("@/lib/coderMediaFast");
-  const intent = detectMediaIntent(content);
-  if (!intent) return false;
+  const mf = await import("@/lib/coderMediaFast");
+  const lastOf = (role: "user" | "assistant") => { for (let i = st.messages.length - 1; i >= 0; i--) { const m = st.messages[i]; if (m.role === role && typeof m.content === "string") return m.content; } return ""; };
+  const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
+  if (!mf.mediaRouteNeeded(content, context)) return false;
+  // the selected model itself decides (one short call on its own Studio, thinking off) and writes the generator prompt in the same call
+  const routed = await routeMediaByModel(chatId, content, context);
+  let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
+  if (routed?.kind === "chat") return false;
+  if (routed?.kind === "refuse") {
+    const why = "لا أستطيع إنشاء هذا المحتوى لأنه يخالف قواعد السلامة. يمكنك طلب صورة أو مقطع آخر.";
+    st.messages.push({ role: "user", content }, { role: "assistant", content: why });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, why);
+    return true;
+  }
+  if (routed) intent = { kind: routed.kind, subject: content, prompt: routed.prompt, ...(routed.kind !== "audio" && routed.aspect ? { aspect: routed.aspect } : {}), ...(routed.kind === "video" ? { seconds: routed.seconds } : {}) };
+  else {
+    // the model did not answer in time: only an explicit "make a picture / video of X" still goes straight to the generator (its prompt is then written by the same model)
+    const d = mf.detectMediaIntent(content, context);
+    if (!d) return false;
+    intent = d;
+  }
+  if (intent.kind === "audio" && selectedModel !== "coder") return false;   // a candidate's speech stays with its own agent path
   const ownVideo = intent.kind === "video" && selectedModel !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(selectedModel) : null;
   if (intent.kind === "video" && selectedModel !== "coder" && !ownVideo) {
     const why = "لم يتم تجهيز مولّد فيديو مستقل لهذا النموذج بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
@@ -664,10 +685,10 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
     await send(bot, chatId, why);
     return true;
   }
-  if (intent.kind === "video" && !ownVideo) {
+  if ((intent.kind === "video" || intent.kind === "audio") && !ownVideo) {
     const nm = await import("@/lib/novaMedia");
     if (!nm.novaMediaEnabled()) {
-      const why = "استوديو الفيديو الخاص بنوفا غير مفعّل (NOVA_MEDIA_STUDIO_URL=off).";
+      const why = "استوديو الوسائط الخاص بنوفا غير مفعّل حالياً، فلم يُنشأ شيء.";
       st.messages.push({ role: "user", content }, { role: "assistant", content: why });
       await saveState(chatId, st, db);
       await send(bot, chatId, why);
@@ -688,19 +709,39 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 }
 
 
+/** Asks the selected model (its own Studio pool, thinking off, one short line) whether the message asks for media now, and for the generator prompt.
+ *  null = no answer in time / unreadable (the caller then decides conservatively). */
+async function routeMediaByModel(chatId: number, content: string, context: { previousUser?: string; previousAssistant?: string }): Promise<import("@/lib/coderMediaFast").RoutedMedia | null> {
+  const mf = await import("@/lib/coderMediaFast");
+  const messages: CoderMessage[] = [
+    { role: "system", content: mf.MEDIA_ROUTER_SYSTEM },
+    { role: "user", content: mf.mediaRouterInput(content, context) },
+  ];
+  try {
+    const o = await coderChat(messages, { maxTokens: 110, think: false, temperature: 0, waitS: 20, timeoutMs: 35000, tag: "media-route", affinity: coderChatKey(chatId), priority: await queuePriority(chatId) });
+    let r: CoderReply | null | undefined = o?.reply;
+    for (let i = 0; r?.type === "pending" && r.job && i < 12; i++) {
+      await new Promise((res) => setTimeout(res, 2500));
+      r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
+    }
+    if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
+    return r?.type === "done" ? mf.parseMediaRoute(r.text || "") : null;
+  } catch { return null; }
+}
+
 async function englishMediaPrompt(subject: string, original: string, modelId = "coder", rawTest = false): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
   // test mode skips content rewriting, NEVER the translation: the picture models cannot read Arabic (an untranslated Arabic prompt gave unrelated pictures)
   if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
-  // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
-  // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
-  // owner 2026-11-03: translation is a shared utility on the fast LFM replica for every model that uses an English-only picture model (the pictures themselves stay in each model's own Studio)
+  // The picture / video models read English only. The SELECTED model writes the prompt on its own Studio pool (owner 2026-11-04: no model
+  // translates for another one; the old shared translator on another replica is gone). Used only when the router did not already write it.
+  void modelId; void rawTest;
   const messages: CoderMessage[] = [
     { role: "system", content: mf.MEDIA_TRANSLATE_SYSTEM },
     { role: "user", content: original.slice(0, 300) },
   ];
   try {
-    const o = await coderChat(messages, { maxTokens: 90, temperature: 0, waitS: 15, timeoutMs: 30000, prefer: process.env.NOVA_TRANSLATOR_STUDIO ?? "coder-inference-server-4", tag: "media-prompt" });
+    const o = await coderChat(messages, { maxTokens: 90, think: false, temperature: 0, waitS: 15, timeoutMs: 30000, tag: "media-prompt" });
     let r: CoderReply | null | undefined = o?.reply;
     for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
       await new Promise((res) => setTimeout(res, 3000));
@@ -716,7 +757,7 @@ async function fastMedia(
   bot: TelegramBot,
   chatId: number,
   runId: string,
-  intent: { kind: "image" | "video"; subject: string; seconds?: number },
+  intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" },
   content: string,
   modelId: string,
   db: Db,
@@ -736,14 +777,16 @@ async function fastMedia(
     if (!slot.ok) { say = mq.mediaQuotaMessage(slot); result = "quota"; }
     else {
       reserved = true;
-      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : kind === "audio" ? "upload_voice" : "upload_photo").catch(() => null);
       const rbm = realBot(bot) as never;
-      const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
-      if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
-      const { prompt, aspect } = (await import("@/lib/coderMediaFast")).splitAspect(await englishMediaPrompt(intent.subject, content, modelId, rawTest));
-      if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
+      // the prompt was written by the selected model in the routing call; only when that call did not answer does the same model write it now (silently: the card never talks about prompts or translation)
+      const written = intent.prompt
+        ? { prompt: intent.prompt, aspect: intent.aspect }
+        : kind === "audio" ? { prompt: intent.subject, aspect: undefined }
+        : (await import("@/lib/coderMediaFast")).splitAspect(await englishMediaPrompt(intent.subject, content, modelId, rawTest));
+      const { prompt, aspect } = written;
       if (!prompt) {
-        say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
+        say = "لم أفهم وصف " + (kind === "video" ? "المقطع" : "الصورة") + " بما يكفي لإنشائه. صِف ما تريد أن يظهر بكلمات أوضح؛ لم يُحسب شيء من حصتك.";
         result = "no prompt";
       } else {
         await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);
@@ -753,6 +796,9 @@ async function fastMedia(
         if (kind === "image") {
           const photo = await import("@/lib/photoWeightMedia");
           raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest, aspect });
+        } else if (kind === "audio") {
+          const nm = await import("@/lib/novaMedia");
+          raw = await nm.novaMakeMedia("audio", prompt, { timeoutMs: 240000, bypassContentHeuristics: rawTest });
         } else {
           const nm = await import("@/lib/novaMedia");
           const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
@@ -760,18 +806,22 @@ async function fastMedia(
         }
         const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
-        if (media?.b64 && (media.type === "image" || media.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
+        if (media?.b64 && (media.type === "image" || media.type === "video" || media.type === "audio")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
+        const showPrompt = rawTest && process.env.MEDIA_SHOW_PROMPT === "1";   // off by default (owner 2026-11-04: never talk about the English prompt)
         if (media?.b64 && media.type === "image" && kind === "image") {
-          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), showPrompt ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);
           delivered = true;
         } else if (media?.b64 && media.type === "video" && kind === "video") {
           await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
           delivered = true;
+        } else if (media?.b64 && media.type === "audio" && kind === "audio") {
+          await (rb.api as any).sendAudio(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
+          delivered = true;
         }
         if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
-        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة من مولّد " + modelId + " المستقل." : "🎬 أُرسل المقطع.";
+        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة." : kind === "audio" ? "🎙️ أُرسل الصوت." : "🎬 أُرسل المقطع.";
         else {
-          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
+          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : kind === "audio" ? "الصوت" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
           result = "failed";
         }
       }
@@ -1668,7 +1718,7 @@ async function typing(bot: TelegramBot, chatId: number): Promise<void> {
 
 /** The clock on the progress card: the user's local time (CODER_DEFAULT_TZ, Syria / Türkiye UTC+3 by default), never the server's UTC. */
 export function localClock(now: Date = new Date(), tz: string = defaultTz()): string {
-  return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
+  return clock12(now.getTime(), tz);
 }
 
 /** The ack the model wrote after the card was opened (same process only); the persisted run picks it up on its next render. */
@@ -1955,6 +2005,11 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
 }
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
+  if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0) && (await import("@/lib/coderMediaFast")).claimsMediaSent(text)) {
+    // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture)
+    text = "لم يُرسَل أي ملف هذه المرة: لم يكتمل إنشاء الوسائط. أعد إرسال طلبك وسأحاول مجدداً (لم يُحسب من حصتك).";
+    await taskEvent(run.id, "info", "blocked a final answer that claimed a media file was sent while none was delivered", db).catch(() => undefined);
+  }
   if (run.surface === "app") {
     const from = Math.max(0, Math.min(text.length, run.logged || 0));
     const delta = text.slice(from);
@@ -2132,7 +2187,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                   const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
                   const rb = realBot(bot);
                   if (media?.b64 && media.type === "image" && kind === "image") {
-                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest && process.env.MEDIA_SHOW_PROMPT === "1" ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // the prompt is never shown unless MEDIA_SHOW_PROMPT=1 (owner 2026-11-04)
                     out = "image generated by the selected model's own dedicated weight Studio and sent";
                   } else if (media?.b64 && media.type === "audio" && kind === "audio") {
                     await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
@@ -2144,6 +2199,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                     out = "error: " + String(media?.text || media?.reason || media?.type || "the selected generator returned no result").slice(0, 260) + ". Nothing was sent; no different model was used.";
                   }
                   delivered = !out.startsWith("error:");
+                  if (delivered) run.mediaSent = (run.mediaSent || 0) + 1;   // a later "I sent the picture" is true only when this counter moved
                 } finally {
                   if (!delivered) await mq.releaseMedia(chatId, kind, db);
                 }
