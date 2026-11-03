@@ -694,7 +694,7 @@ async function englishMediaPrompt(subject: string, original: string, modelId = "
   if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
   // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
   // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
-  if (modelId !== "coder") return null;
+  // owner 2026-11-03: translation is a shared utility on the fast LFM replica for every model that uses an English-only picture model (the pictures themselves stay in each model's own Studio)
   const messages: CoderMessage[] = [
     { role: "system", content: mf.MEDIA_TRANSLATE_SYSTEM },
     { role: "user", content: original.slice(0, 300) },
