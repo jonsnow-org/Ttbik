@@ -1,65 +1,92 @@
-name: Video model bench (Wan2.1 1.3B on 2 CPU cores, free, read-only)
-# Owner order 2026-11-02: replace AnimateDiff with a newer and better video model, if it can run on our free CPU Studios (2 vCPU, 8 GB).
-# This measures REAL time: stable-diffusion.cpp (CPU) with Wan2.1 T2V 1.3B pinned to 2 cores, few steps, small clip; the log prints seconds per step so the full cost is known before anything is deployed.
+name: Video model bench (LTX-Video 2B distilled on 2 CPU cores, free, read-only)
+# Owner order 2026-11-03: real text-to-video, not stills joined together. Measures REAL seconds for a short clip from a true video diffusion model
+# (LTX-Video 2B distilled, 8 steps) pinned to 2 cores, then checks the MP4 for real motion (brightness removed). Nothing is deployed. The clip is uploaded for the owner to judge.
 on:
   workflow_dispatch:
     inputs:
       width:
-        default: "480"
+        default: "512"
       height:
-        default: "272"
+        default: "320"
       frames:
-        default: "17"
+        description: "must be 8*k+1, e.g. 25 = about 1 s at 24 fps"
+        default: "25"
       steps:
-        default: "4"
+        default: "8"
+      prompt:
+        default: "a woman walks slowly through a field of flowers, the wind moves her hair and the flowers, the camera follows her"
 permissions:
   contents: read
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 170
     steps:
       - name: Machine
         run: |
-          lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-200
+          lscpu | grep -E "Model name|^CPU\(s\)" | cut -c1-200
           free -g | head -2
           df -h / | tail -1
-      - name: Build stable-diffusion.cpp (CPU)
+      - name: Install
         run: |
-          git clone --depth 1 --recursive https://github.com/leejet/stable-diffusion.cpp sdcpp
-          cd sdcpp
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release -j4
-          ls build/bin
-      - name: Download the Wan2.1 files
-        run: |
-          mkdir -p models
-          B=https://huggingface.co
-          curl -sSL --fail -o models/wan.safetensors "$B/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors"
-          curl -sSL --fail -o models/vae.safetensors "$B/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
-          curl -sSL --fail -o models/t5.gguf "$B/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_S.gguf"
-          ls -la models
-      - name: Generate on 2 cores and time it
+          sudo apt-get install -y -qq ffmpeg >/dev/null 2>&1 || true
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q "diffusers==0.35.1" "transformers<5" accelerate sentencepiece protobuf imageio imageio-ffmpeg pillow numpy huggingface_hub
+      - name: Generate on 2 cores and time every stage
         env:
           W: ${{ inputs.width }}
           H: ${{ inputs.height }}
           F: ${{ inputs.frames }}
           S: ${{ inputs.steps }}
+          P: ${{ inputs.prompt }}
         run: |
-          SD=$(ls sdcpp/build/bin/sd-cli sdcpp/build/bin/sd 2>/dev/null | head -1); echo "binary: $SD"; ls sdcpp/build/bin
-          $SD --help 2>&1 | grep -iE "vid_gen|mode|video|diffusion-model|t5xxl|offload|flow" | head -20
-          START=$(date +%s)
+          cat > bench.py <<'PY'
+          import os, time, torch
+          t0 = time.time()
+          torch.set_num_threads(2)
+          from diffusers import LTXPipeline, LTXVideoTransformer3DModel
+          from diffusers.utils import export_to_video
+          from huggingface_hub import hf_hub_download
+          W, H, F, S = int(os.environ["W"]), int(os.environ["H"]), int(os.environ["F"]), int(os.environ["S"])
+          f = hf_hub_download("Lightricks/LTX-Video", "ltxv-2b-0.9.8-distilled.safetensors")
+          print("DOWNLOAD_S", round(time.time() - t0), flush=True)
+          t1 = time.time()
+          tr = LTXVideoTransformer3DModel.from_single_file(f, torch_dtype=torch.bfloat16)
+          pipe = LTXPipeline.from_pretrained("Lightricks/LTX-Video", transformer=tr, torch_dtype=torch.bfloat16)
+          print("LOAD_S", round(time.time() - t1), flush=True)
+          mark = [time.time()]
+          def cb(p, i, t, kw):
+              now = time.time(); print("STEP", i + 1, "of", S, "took_s", round(now - mark[0], 1), flush=True); mark[0] = now; return kw
+          t2 = time.time()
+          out = pipe(prompt=os.environ["P"], negative_prompt="worst quality, blurry, jittery, distorted, static",
+                     width=W, height=H, num_frames=F, num_inference_steps=S, guidance_scale=1.0,
+                     generator=torch.Generator("cpu").manual_seed(7), callback_on_step_end=cb)
+          print("GENERATE_S", round(time.time() - t2), flush=True)
+          export_to_video(out.frames[0], "clip.mp4", fps=24)
+          print("TOTAL_S", round(time.time() - t0), flush=True)
+          PY
           set +e
-          taskset -c 0,1 $SD -M vid_gen --diffusion-model models/wan.safetensors --vae models/vae.safetensors --t5xxl models/t5.gguf \
-            -p "a beautiful girl walking on the beach at sunset, cinematic" --cfg-scale 6.0 --sampling-method euler -t 2 -W "$W" -H "$H" \
-            --diffusion-fa --video-frames "$F" --flow-shift 3.0 --steps "$S" -o out.avi -v > run.log 2>&1
-          echo "EXIT=$?"
-          tail -40 run.log | cut -c1-240
-          echo "WALL_SECONDS=$(( $(date +%s) - START ))"
-          ls -la out* 2>/dev/null || true
+          taskset -c 0,1 python3 bench.py 2>&1 | grep -vE "Warning|warn" | tail -40 | cut -c1-240
+          ls -la clip.mp4 2>/dev/null
+      - name: Is it a real video? (frames, duration, motion with brightness removed)
+        run: |
+          python3 - <<'PY'
+          import subprocess, glob, tempfile, os
+          from PIL import Image, ImageChops, ImageStat
+          if not os.path.exists("clip.mp4"): raise SystemExit("no clip")
+          d = tempfile.mkdtemp(); subprocess.check_call(["ffmpeg", "-v", "error", "-i", "clip.mp4", os.path.join(d, "%04d.png")])
+          fr = sorted(glob.glob(os.path.join(d, "*.png"))); diffs = []
+          for a, b in zip(fr, fr[1:]):
+              ia, ib = Image.open(a).convert("L"), Image.open(b).convert("L")
+              k = ImageStat.Stat(ia).mean[0] - ImageStat.Stat(ib).mean[0]
+              ib = ib.point(lambda v, k=k: max(0, min(255, v + k)))
+              diffs.append(round(ImageStat.Stat(ImageChops.difference(ia, ib)).mean[0], 2))
+          print("FRAMES", len(fr), "motion min/avg/max", min(diffs), round(sum(diffs) / len(diffs), 2), max(diffs))
+          print("first_vs_last", round(ImageStat.Stat(ImageChops.difference(Image.open(fr[0]).convert("L"), Image.open(fr[-1]).convert("L"))).mean[0], 2))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wan-bench
-          path: out*
-          if-no-files-found: ignore
+          name: video-bench
+          path: clip.mp4
+          if-no-files-found: warn
