@@ -1915,9 +1915,12 @@ def _check_candidate_video(data: bytes, expected_seconds: int) -> dict:
         blank = [frame for frame in frames if float(frame.std()) < 2.0 or int(frame.max()) - int(frame.min()) < 12]
         if len(blank) == len(frames):
             raise RuntimeError("static_video: all decoded frames are blank")
-        motion = float(np.abs(frames[1:].astype(np.float32) - frames[:-1].astype(np.float32)).mean())
-        if motion < 0.05:
-            raise RuntimeError("static_video: decoded frames contain no measurable motion")
+        # Brightness-only change is not motion: remove each frame's mean first.
+        flat = frames.astype(np.float32)
+        flat = flat - flat.mean(axis=(1, 2), keepdims=True)
+        motion = float(np.abs(flat[1:] - flat[:-1]).mean())
+        if motion < 0.35:
+            raise RuntimeError("static_video: decoded frames contain no real motion (only lighting changes)")
         return {
             "duration_seconds": round(actual_seconds, 2), "width": width, "height": height,
             "decoded_frames": int(len(frames)), "motion_score": round(motion, 3),
