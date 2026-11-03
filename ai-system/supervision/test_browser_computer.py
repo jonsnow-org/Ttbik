@@ -1,5 +1,6 @@
 """Unit tests for the model's free headless browser: the pure parts (address safety, element list, session folders). No browser is started."""
 import importlib.util
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,36 @@ class Download(unittest.TestCase):
         finally:
             bc._run, bc.have_chromium = old_run, old_have
             bc.os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
+
+
+
+class BrowserLaunch(unittest.TestCase):
+    def test_worker_uses_headless_shell_when_full_chromium_worker_launch_closes(self):
+        old = {key: bc.STATE[key] for key in ("phase", "channel", "chromium", "error")}
+        launches = []
+        expected_browser = object()
+
+        class Chromium:
+            def launch(self, **kwargs):
+                launches.append(dict(kwargs))
+                if kwargs.get("channel") == "chromium":
+                    raise RuntimeError("TargetClosedError from the full channel")
+                return expected_browser
+
+        try:
+            bc.STATE.update({"phase": "ready", "channel": "chromium", "chromium": "playwright chromium", "error": ""})
+            worker = bc._Worker()
+            result = worker._browser(SimpleNamespace(chromium=Chromium()))
+            self.assertIs(result, expected_browser)
+            self.assertEqual(len(launches), 2)
+            self.assertEqual(launches[0].get("channel"), "chromium")
+            self.assertNotIn("channel", launches[1])
+            self.assertEqual(bc.STATE["channel"], "headless-shell")
+            self.assertEqual(bc.STATE["chromium"], "playwright headless-shell")
+            self.assertEqual(bc.STATE["error"], "")
+            self.assertIn("headless-shell fallback", bc.STATE["steps"][-1])
+        finally:
+            bc.STATE.update(old)
 
 
 class Pooling(unittest.TestCase):

@@ -416,7 +416,7 @@ def main() -> int:
         return 0
     except Exception as exc:
         # Keep secrets, prompts, file contents, and screenshots out of CI logs.
-        print(f"[{args.model_id}] FAIL: {str(exc)[:320]}", file=sys.stderr, flush=True)
+        print(f"[{args.model_id}] FAIL: {str(exc)[:2200]}", file=sys.stderr, flush=True)
         return 1
 
 

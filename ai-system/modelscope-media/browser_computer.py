@@ -362,8 +362,35 @@ class _Worker(threading.Thread):
         try:
             self.browser = p.chromium.launch(**launch_options)
         except Exception as exc:
-            _note("worker browser launch failed (" + str(channel or "headless-shell") + "): " + str(exc)[-1400:])
+            _note("worker browser launch failed (" + str(channel or "headless-shell") + "): " + str(exc)[-900:])
+            # Bootstrap may validate the full Chromium channel while the worker
+            # later fails to create its long-lived browser process. Fall back to
+            # Playwright's bundled headless-shell instead of making browser tools
+            # unavailable after a successful installation check.
+            if channel == "chromium":
+                fallback_options = {"headless": True, "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]}
+                try:
+                    self.browser = p.chromium.launch(**fallback_options)
+                except Exception as fallback_exc:
+                    detail = (
+                        "full Chromium launch failed: " + str(exc)[-700:]
+                        + "; headless-shell fallback failed: " + str(fallback_exc)[-700:]
+                    )
+                    with _LOCK:
+                        STATE["error"] = detail[:1800]
+                    _note("worker browser launch failed in both modes: " + detail[-900:])
+                    raise RuntimeError(detail[:1800]) from fallback_exc
+                with _LOCK:
+                    STATE["channel"] = "headless-shell"
+                    STATE["chromium"] = "playwright headless-shell"
+                    STATE["error"] = ""
+                _note("worker browser recovered using Playwright headless-shell fallback")
+                return self.browser
+            with _LOCK:
+                STATE["error"] = (type(exc).__name__ + ": " + str(exc))[:1800]
             raise
+        with _LOCK:
+            STATE["error"] = ""
         return self.browser
 
     def _save(self, session: str, ctx, page) -> None:
