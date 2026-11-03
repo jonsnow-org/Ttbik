@@ -66,7 +66,7 @@ class RequestedDuration(unittest.TestCase):
 
     def test_all_user_requested_durations_have_exact_segment_plans(self):
         expected = {
-            2: [2], 4: [4], 10: [4, 4, 2], 15: [4, 4, 4, 3],
+            2: [2], 4: [4], 6: [4, 2], 10: [4, 4, 2], 15: [4, 4, 4, 3],
             30: [4, 4, 4, 4, 4, 4, 4, 2],
             60: [4] * 15, 120: [4] * 30,
         }
@@ -77,7 +77,7 @@ class RequestedDuration(unittest.TestCase):
                 self.assertTrue(all(2 <= part <= 4 for part in chunks))
 
     def test_unsupported_or_fractional_durations_are_rejected_without_truncation(self):
-        for requested in (1, 3, 5, 6, 8, 12, 20, 45, 90, 121, 2.5, "four"):
+        for requested in (1, 3, 5, 7, 8, 12, 20, 45, 90, 121, 2.5, "four"):      # 6 s is supported since 2026-11-04 (owner: 6 s, 10 s, 15 s, 30 s, 1 min, 2 min)
             with self.assertRaises(ValueError) as caught:
                 cpu_video.cv_chunk_plan(requested)
             self.assertIn("native-video-duration-limit", str(caught.exception))
