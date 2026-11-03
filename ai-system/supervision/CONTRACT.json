@@ -765,6 +765,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "sham_v2_host_image": {
+      "file": ".github/workflows/sham-v2-host-image.yml",
+      "title": "فحص بناء حاوية Sham v2 للمعالج (نسخة ثانية مجانية؛ بلا دفع ولا أسرار)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
