@@ -72,18 +72,25 @@ describe("mini app api", () => {
     const user = { chatId: USER, tier: "user" as const };
     const previousToken = process.env.MODELSCOPE_API_TOKEN;
     process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const readyFetch = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-")) return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-02-r16", media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+      return new Response("unexpected request", { status: 500 });
+    }) as any;
+    const deps = { db, bot, botRow, fetchImpl: readyFetch };
     try {
       await expect(appOp(user, "settings", { model: "qwen35-9b" }, { db, bot, botRow }))
         .rejects.toBeInstanceOf(AppError);
 
-      const selected = await appOp(owner, "donor_test_select", { id: "qwen35-9b" }, { db, bot, botRow });
+      const selected = await appOp(owner, "donor_test_select", { id: "qwen35-9b" }, deps);
       expect(selected).toMatchObject({ ok: true, trialSelected: null, model: "qwen35-9b" });
       const after = await loadState(OWNER, db);
       expect(after.model).toBe("qwen35-9b");
       expect(after.mode).toBe("coder");
       expect(after.donorTestModel).toBeUndefined();
 
-      const ownerModels = await appOp(owner, "models", {}, { db, bot, botRow });
+      const ownerModels = await appOp(owner, "models", {}, deps);
       expect(ownerModels.owner.map((x: any) => x.id)).toEqual([
         "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45",
       ]);
@@ -92,10 +99,10 @@ describe("mini app api", () => {
       expect(userModels.models.map((x: any) => x.id)).not.toContain("qwen35-9b");
       expect(userModels.owner).toBeUndefined();
 
-      await appOp(owner, "settings", { model: "coder" }, { db, bot, botRow });
+      await appOp(owner, "settings", { model: "coder" }, deps);
       expect((await loadState(OWNER, db)).model).toBe("coder");
-      await appOp(owner, "donor_test_select", { id: "gemma4-e4b" }, { db, bot, botRow });
-      await appOp(owner, "donor_test_reset", { id: "gemma4-e4b" }, { db, bot, botRow });
+      await appOp(owner, "donor_test_select", { id: "gemma4-e4b" }, deps);
+      await appOp(owner, "donor_test_reset", { id: "gemma4-e4b" }, deps);
       expect((await loadState(OWNER, db)).donorTestHistory?.["gemma4-e4b"]).toBeUndefined();
     } finally {
       if (previousToken === undefined) delete process.env.MODELSCOPE_API_TOKEN;
@@ -103,6 +110,19 @@ describe("mini app api", () => {
     }
   });
 
+  it("refuses selecting a candidate whose own ModelScope Studio is not ready", async () => {
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const downFetch = jest.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-")) return new Response(JSON.stringify({ data: { runtime: { status: "DeployFailed" } } }), { status: 200 });
+      return new Response("unexpected request", { status: 500 });
+    }) as any;
+    await expect(appOp({ chatId: OWNER, tier: "owner" }, "donor_test_select", { id: "qwen35-9b" }, { db, bot, botRow, fetchImpl: downFetch }))
+      .rejects.toMatchObject({ status: 503 });
+    expect((await loadState(OWNER, db)).model || "coder").toBe("coder");
+  });
   it("policy rules: set, scope, reset", async () => {
     const db = fakeDb();
     const { bot } = fakeBot();

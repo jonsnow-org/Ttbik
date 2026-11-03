@@ -9,7 +9,11 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-media/app.py
+      - ai-system/modelscope-media/browser_computer.py
+      - ai-system/modelscope-media/computer_box.py
+      - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/requirements.txt
+      - scripts/ops/modelscope_computer_smoke.py
       - .github/workflows/deploy-modelscope-media.yml
   workflow_dispatch:
     inputs:

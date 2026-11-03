@@ -27,16 +27,28 @@ const opts = (m: ShamModelId): EngineOption[] => SHAM_ENGINE_OPTIONS[m].map((e) 
 
 const hostOf = (u: string) => u.replace(/^https?:\/\/(studio-novaai2026-)?/, "").replace(/\.api-inference\.modelscope\.net.*$/, "");
 
+async function fetchStudioResponse(url: string, init: RequestInit, f: typeof fetch, timeoutMs: number): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    response = await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    if (![429, 502, 503, 504].includes(response.status) || attempt === 3) return response;
+    const retryAfter = Number(response.headers.get("retry-after") || 0);
+    const delay = retryAfter > 0 ? Math.min(8000, retryAfter * 1000) : [1000, 2500, 5000][attempt];
+    await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : delay));
+  }
+  return response as Response;
+}
 /** One Studio's own `status` answer (POST call/v2/status, then the event). Never throws. */
 export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000): Promise<{ ok: boolean; phase: string; detail: string }> {
   if (!base) return { ok: false, phase: "off", detail: "no address" };
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   try {
-    const sub = await f(`${base}/gradio_api/call/v2/status`, { method: "POST", headers, body: "{}", signal: AbortSignal.timeout(ms) });
+    const sub = await fetchStudioResponse(`${base}/gradio_api/call/v2/status`, { method: "POST", headers, body: "{}" }, f, ms);
     if (!sub.ok) return { ok: false, phase: "down", detail: `HTTP ${sub.status}` };
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return { ok: false, phase: "down", detail: "no event id" };
-    const res = await f(`${base}/gradio_api/call/status/${event_id}`, { headers, signal: AbortSignal.timeout(ms) });
+    const res = await fetchStudioResponse(`${base}/gradio_api/call/status/${event_id}`, { headers }, f, ms);
+    if (!res.ok) return { ok: false, phase: "down", detail: `HTTP ${res.status}` };
     const line = (await res.text()).split("\n").find((l) => l.startsWith("data:")) || "";
     const arr = JSON.parse(line.slice(5).trim()) as unknown[];
     const st = (typeof arr[0] === "string" ? JSON.parse(arr[0]) : arr[0]) as { phase?: string; error?: string; model?: string };
@@ -63,7 +75,7 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
   const [pNova, pV2, pV2v, pV1, photoWeights] = await Promise.all([probeStudio(novaUrl, novaToken, f), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f)]);
-  const S = (id: string, role: { ar: string; en: string }, p: { ok: boolean; phase: string; detail: string }): StudioProbe => ({ id, role, ...p });
+  const S = (id: string, role: { ar: string; en: string }, p: Pick<StudioProbe, "ok" | "phase" | "detail" | "media">): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();
   const overflow: StudioProbe[] = over ? [S(hostOf(over), ROLE.v2over, { ok: ov.ok, phase: ov.ok ? "ready" : "unverified", detail: ov.ok ? "" : ov.why })] : [];
   const e2 = await shamEngine("sham_v2", db), e1 = await shamEngine("sham", db);

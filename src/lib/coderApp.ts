@@ -132,6 +132,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
+        const donor = await import("@/lib/donorTests");
+        if (donor.isDonorTestId(body.model)) {
+          const live = await donor.probeDonorTestStudio(body.model, deps.fetchImpl || globalThis.fetch);
+          if (live.phase !== "ready") throw new AppError(503, `النموذج ${body.model} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
+        }
         // Selecting a production model explicitly exits donor test mode; candidate history stays separate.
         st.donorTestModel = undefined;
         // Model switching changes routing only. Never import or copy the previous model's conversation.
@@ -506,6 +511,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const st = await loadStateStrict(chatId, db);
       const { listModels, chooseModel } = await import("@/lib/coderModels");
       const selected = id || "coder";
+      if (id && D.isDonorTestId(id)) {
+        const live = await D.probeDonorTestStudio(id, deps.fetchImpl || globalThis.fetch);
+        if (live.phase !== "ready") throw new AppError(503, `النموذج ${id} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
+      }
       if (!chooseModel(st, await listModels(db), selected, true)) throw new AppError(503, "candidate model route is not configured");
       st.donorTestModel = undefined;
       await saveStateStrict(chatId, st, db);

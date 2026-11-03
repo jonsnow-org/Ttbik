@@ -72,6 +72,26 @@ class ToolCallEnvelopeTests(unittest.TestCase):
         wrong_args = '<tool_call>{"name":"sandbox_exec","arguments":["not","an","object"]}</tool_call>'
         self.assertIsNone(extract_tool_call(wrong_args, prompt))
 
+    def test_python_style_computer_call_becomes_a_structured_tool_call(self):
+        prompt = "Tools:\n- computer_run(command, cwd?, timeout?) — run a command"
+        call = "computer_run(\'printf ok; id -u\', \'\')"
+        self.assertEqual(
+            extract_tool_call(call, prompt, ["computer_run"]),
+            {"name": "computer_run", "arguments": {"command": "printf ok; id -u", "cwd": ""}, "text": ""},
+        )
+
+    def test_python_style_calls_reject_unknown_names_and_executable_expressions(self):
+        prompt = "Tools:\n- computer_run(command, cwd?) — run a command"
+        self.assertIsNone(extract_tool_call("delete_everything(\'x\')", prompt, ["computer_run"]))
+        self.assertIsNone(extract_tool_call("__import__(\'os\').system(\'id\')", prompt, ["computer_run"]))
+        self.assertIsNone(extract_tool_call("computer_run(open(\'/etc/passwd\').read())", prompt, ["computer_run"]))
+        self.assertIsNone(extract_tool_call("computer_run(\'id\')", prompt, ["other_tool"]))
+
+    def test_python_style_call_accepts_named_literal_arguments(self):
+        prompt = "Tools:\n- computer_run(command, cwd?, timeout?) — run a command"
+        call = extract_tool_call("computer_run(command=\'pwd\', timeout=12)", prompt, ["computer_run"])
+        self.assertEqual(call, {"name": "computer_run", "arguments": {"command": "pwd", "timeout": 12}, "text": ""})
+
     def test_truncated_json_is_repaired_only_when_unambiguous(self):
         broken = '<tool_call>{"name": "github_read_file", "arguments": {"repo": "a/b", "path": "README.md"'
         fixed = repair_call(broken)
