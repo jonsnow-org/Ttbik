@@ -167,6 +167,11 @@ def _env_with_libs() -> dict:
     return env
 
 
+def worker_launch_env() -> dict:
+    """Environment for the worker's own Chromium: exactly what the launch test used (persistent library prefix + browsers path)."""
+    return {k: v for k, v in _env_with_libs().items() if isinstance(v, str)}
+
+
 def _run(cmd: list[str], timeout: int = 900, cwd: Path | None = None) -> tuple[int, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_env_with_libs(), cwd=str(cwd) if cwd else None)
@@ -306,6 +311,10 @@ def bootstrap() -> bool:
                     ok, out, channel = _launch_preferred()
                     _note(("second launch ok via " + channel if ok else "second launch failed: " + out[-1000:]))
         _probe_sandbox()
+        if ok:
+            lib_path = _env_with_libs().get("LD_LIBRARY_PATH", "")
+            if lib_path:
+                os.environ["LD_LIBRARY_PATH"] = lib_path      # every later in-process launch sees the same libraries the test saw
         with _LOCK:
             STATE["phase"] = "ready" if ok else "unavailable"
             STATE["error"] = "" if ok else out[-300:]
@@ -355,7 +364,10 @@ class _Worker(threading.Thread):
             except Exception:  # noqa: BLE001
                 pass
             self.pages.clear()                          # the browser died: its contexts are gone, sessions restore from disk on the next call
-        launch_options = {"headless": True, "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]}
+        # The same environment the bootstrap's launch test used (2026-11-04 fix): the libraries Chromium needs may live in the persistent
+        # STORE/libs prefix from an earlier boot. The test subprocess saw them through _env_with_libs(), but this in-process launch used the
+        # bare os.environ and Chromium died at start ("Target page, context or browser has been closed") although the status said ready.
+        launch_options = {"headless": True, "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"], "env": worker_launch_env()}
         channel = STATE.get("channel")
         if channel == "chromium":
             launch_options["channel"] = "chromium"

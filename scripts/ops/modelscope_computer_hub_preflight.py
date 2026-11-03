@@ -69,7 +69,7 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
             status = request_run(api, "status", token)
             if not isinstance(status, dict):
                 raise RuntimeError("status endpoint returned a non-object")
-            if status.get("app_revision") != "computer-hub-16gb-2026-11-03-r4":
+            if status.get("app_revision") != "computer-hub-16gb-2026-11-04-r5":
                 raise RuntimeError("wrong computer-only app revision: " + str(status.get("app_revision")))
             if status.get("role") != "computer-only" or status.get("model_loaded") is not False:
                 fail("The Studio is not in the required computer-only / no-model state.")
