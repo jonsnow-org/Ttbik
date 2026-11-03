@@ -27,6 +27,10 @@ class CandidateMirrorAssignment(unittest.TestCase):
             path.write_text(json.dumps(config), encoding="utf-8")
             self.assertEqual(stage.validate_assignment(json.loads(path.read_text(encoding="utf-8"))), stage.EXPECTED_REPOSITORIES["qwen35-9b"])
 
+    def test_private_import_skip_requires_a_valid_source_commit_sha(self):
+        self.assertTrue(stage.valid_commit_sha("a" * 40))
+        self.assertFalse(stage.valid_commit_sha("not-a-commit"))
+        self.assertFalse(stage.valid_commit_sha("a" * 39))
     def test_cross_candidate_destination_is_rejected(self):
         config = {
             "route_id": "qwen35-9b",

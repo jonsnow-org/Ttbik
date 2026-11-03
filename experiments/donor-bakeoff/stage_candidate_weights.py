@@ -32,6 +32,11 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def valid_commit_sha(value: object) -> bool:
+    text = str(value or "").lower()
+    return len(text) == 40 and all(ch in "0123456789abcdef" for ch in text)
+
+
 def safe_name(value: str) -> Path:
     parsed = PurePosixPath(str(value or "").replace("\\", "/"))
     if parsed.is_absolute() or not parsed.parts or any(part in ("", ".", "..") for part in parsed.parts):
@@ -83,7 +88,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
                     and existing.get("modelscope_weights_revision") == REVISION
                     and existing.get("filename") == filenames[0]
                     and existing.get("mmproj_filename") == filenames[1]
-                    and bool(existing.get("source_revision"))
+                    and valid_commit_sha(existing.get("source_revision"))
                     and all(
                         isinstance((existing.get("files") or {}).get(name), dict)
                         and len(str((existing.get("files") or {}).get(name, {}).get("sha256") or "")) == 64
