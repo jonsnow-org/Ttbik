@@ -244,9 +244,7 @@ jobs:
           set -euo pipefail
           ready=0
           for i in $(seq 1 540); do
-            code=$(curl -sS --connect-timeout 8 --max-time 25 -o devtools.json -w '%{http_code}' \\
-              -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" \\
-              -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+            code=$(curl -sS --connect-timeout 8 --max-time 25 -o devtools.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
             if [ "$code" = "200" ]; then
               tools=$(python3 - <<'PY'
           import json
