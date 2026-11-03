@@ -20,9 +20,9 @@ export function lfmMediaUrl(): string {
 /** The speech / video (and, for LFM2.5, image) Studio of a model, or "" when that model has none. Never another model's address. */
 export function ownMediaBase(model: string | undefined): string {
   const id = model || "coder";
-  if (id === "coder") return novaMediaUrl();
-  if (id === "lfm25") return lfmMediaUrl();
-  return candidateMediaStudio(id)?.base || "";
+  const base = id === "coder" ? novaMediaUrl() : id === "lfm25" ? lfmMediaUrl() : candidateMediaStudio(id)?.base || "";
+  // nova-inference-server is the 16 GB computer-only hub: no model's media (or inference) may ever run on it, even if an env var points there
+  return /nova-inference-server/i.test(base) ? "" : base;
 }
 
 const MODEL_NAMES: Record<string, string> = { coder: "Nova", lfm25: "LFM2.5", "qwen35-9b": "Qwen3.5-9B", "gemma4-e4b": "Gemma 4 E4B", minicpmo45: "MiniCPM-o 4.5", sham_v2: "Sham v2" };
