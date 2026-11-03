@@ -522,8 +522,6 @@ class EgressRules(unittest.TestCase):
         self.assertIn("refused by the host", result)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class DevTools(unittest.TestCase):
@@ -549,3 +547,53 @@ class DevTools(unittest.TestCase):
             self.assertIn("only 0.5 GB of disk left", cb.ensure_dev_tools())
         finally:
             cb.apt_install, cb._free_gb, cb.is_root = old_apt, old_free, old_root
+
+
+class PatchAndTests(Box):
+    """2026-11-04: computer_patch applies a unified diff all-or-nothing; computer_test detects the runner and runs it as a job."""
+
+    def test_patch_applies_in_git_and_without_git_and_refuses_a_misfit(self):
+        s = "user-p:model-x"
+        self.assertTrue(self.run_box(session=s, action="write", path="g/a.py", content="def f():\n    return 1\n")["ok"])
+        self.assertEqual(self.run_box(session=s, action="run", command="cd g && git init -q && git add . && git -c user.email=a@b -c user.name=a commit -qm i && echo ok")["exit_code"], 0)
+        diff = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
+        r = self.run_box(session=s, action="patch", diff=diff, cwd="g")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["files"], ["a.py"])
+        self.assertIn("return 2", self.run_box(session=s, action="read", path="g/a.py")["text"])
+        again = self.run_box(session=s, action="patch", diff=diff, cwd="g")      # no longer fits: nothing changes
+        self.assertFalse(again["ok"])
+        self.assertIn("return 2", self.run_box(session=s, action="read", path="g/a.py")["text"])
+        self.assertTrue(self.run_box(session=s, action="write", path="p/b.txt", content="x\n")["ok"])
+        self.assertTrue(self.run_box(session=s, action="patch", diff="--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-x\n+y\n", cwd="p")["ok"])
+        self.assertEqual(self.run_box(session=s, action="read", path="p/b.txt")["text"].strip(), "y")
+
+    @unittest.skipUnless(__import__("shutil").which("make"), "make is not installed here")
+    def test_tests_run_as_a_job_with_an_exit_marker(self):
+        old = cb._mem_available_mb
+        self.addCleanup(setattr, cb, "_mem_available_mb", old)
+        cb._mem_available_mb = lambda: 8192
+        s = "user-t:model-x"
+        self.run_box(session=s, action="write", path="m/Makefile", content="test:\n\t@echo all-good\n")
+        r = self.run_box(session=s, action="test", cwd="m")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["command"], "make test")
+        for _ in range(50):
+            log = self.run_box(session=s, action="job_log", id=r["id"])
+            if not log.get("running"):
+                break
+            time.sleep(0.1)
+        self.assertIn("all-good", log["output"])
+        self.assertIn("TESTS_EXIT=0", log["output"])
+        none = self.run_box(session=s, action="test", cwd=".")
+        self.assertFalse(none["ok"])
+
+    def test_tools_inventory_and_persistent_apt_cache(self):
+        t = self.run_box(session="user-q:model-x", action="tools")
+        self.assertTrue(t["ok"])
+        self.assertIn("rg", t["tools"])
+        opts = cb.apt_cache_options()
+        self.assertTrue(any(o.startswith("-oDir::Cache::Archives=") for o in opts))
+
+if __name__ == "__main__":
+    unittest.main()

@@ -155,9 +155,24 @@ def apt_install(packages: list[str], timeout: int = 900) -> subprocess.Completed
     # lowest CPU / disk priority: after every restart the tools are installed again, and at normal priority that starved the 2 vCPUs for many minutes (users' calls answered slowly or with nothing)
     prefix = ["nice", "-n", "19"] + (["ionice", "-c3"] if shutil.which("ionice") else []) if shutil.which("nice") else []
     return subprocess.run(
-        [*prefix, "apt-get", "install", "-y", "--no-install-recommends", *packages],
+        [*prefix, "apt-get", *apt_cache_options(), "install", "-y", "--no-install-recommends", *packages],
         capture_output=True, text=True, timeout=timeout, env=apt_environment()
     )
+
+
+def apt_cache_dir() -> Path:
+    """Downloaded .deb files live on the persistent disk (2026-11-04): a Studio restart reinstalls the toolchain from this cache instead of
+    downloading ~1 GB again, so the computer is fully equipped minutes sooner and the 2 vCPUs are not tied up by downloads."""
+    return Path(os.environ.get("BOX_APT_CACHE", str(ROOT.parent / "apt-archives")))
+
+
+def apt_cache_options() -> list[str]:
+    cache = apt_cache_dir()
+    try:
+        (cache / "partial").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return []
+    return [f"-oDir::Cache::Archives={cache}", "-oAPT::Keep-Downloaded-Packages=true", "-oBinary::apt::APT::Keep-Downloaded-Packages=true"]
 
 
 PLAYBOOK = """YOUR COMPUTER - how to work fast
@@ -168,7 +183,9 @@ PLAYBOOK = """YOUR COMPUTER - how to work fast
 5. Install into your home (pip install --target ~/pylib, npm in ~/proj). Your files and caches stay between chats.
 6. Pages that need JavaScript: the browser. Plain pages: web_fetch is faster.
 7. Output is cut at 12 KB: send big output to a file and read parts of it.
-8. Change a file with computer_edit and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
+8. Change a file with computer_edit (exact text) or computer_patch (a unified diff for many changes at once) and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
+10. Tests: computer_test finds the runner (npm / pytest / go / cargo / make) and runs it as a job; read it with computer_job action=log.
+11. Tools here: git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node (computer_tools lists what is installed now).
 9. When your work is done and tested: computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.
 """
 
@@ -684,12 +701,12 @@ def ensure_toolchain() -> str:
 # Everything a programmer reaches for, installed in the background AFTER the computer is already usable (the required toolchain above stays small so a full disk can never keep the
 # computer down). Tiers are installed in order; a tier is skipped when free disk is short, and a package that does not exist is skipped, never fatal.
 DEV_TIERS = [
-    ("core", ["build-essential", "cmake", "pkg-config", "make", "python3-pip", "python3-venv", "python3-dev", "nodejs", "npm", "sqlite3", "vim", "nano", "tmux", "htop", "tree",
+    ("core", ["build-essential", "cmake", "pkg-config", "make", "python3-pip", "python3-venv", "python3-dev", "python3-pytest", "nodejs", "npm", "sqlite3", "vim", "nano", "tmux", "htop", "tree",
               "less", "procps", "wget", "zip", "p7zip-full", "rsync", "openssh-client", "patch", "file", "bc", "git-lfs", "iputils-ping", "dnsutils", "net-tools", "netcat-openbsd",
               "traceroute", "lsof", "strace", "man-db", "locales", "ca-certificates"]),
-    ("languages", ["golang-go", "default-jdk-headless", "ruby", "php-cli", "lua5.4", "perl", "rustc", "cargo"]),
     ("tools", ["clang", "gdb", "valgrind", "ninja-build", "shellcheck", "fd-find", "fzf", "httpie", "postgresql-client", "redis-tools", "default-mysql-client", "universal-ctags",
-               "silversearcher-ag", "bat", "ffmpeg", "imagemagick", "pandoc", "graphviz"]),
+               "silversearcher-ag", "bat", "ffmpeg", "imagemagick", "pandoc", "graphviz", "poppler-utils", "sqlite3", "moreutils", "entr"]),
+    ("languages", ["golang-go", "default-jdk-headless", "ruby", "php-cli", "lua5.4", "perl", "rustc", "cargo"]),
 ]
 DEV_MIN_FREE_GB = {"core": 1.5, "languages": 3.0, "tools": 3.0}
 
@@ -1076,7 +1093,7 @@ def status(session: str = "") -> dict:
         disk = {"free_gb": None if unbounded else round(usage.free / 1024 ** 3, 1), "total_gb": None if unbounded else round(usage.total / 1024 ** 3, 1), "note": "filesystem reports no real limit" if unbounded else ""}
     except OSError:
         disk = {}
-    tools = {name: bool(shutil.which(name)) for name in ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")}
+    tools = {name: bool(shutil.which(name)) for name in TOOL_NAMES}
     with _LOCK:
         active_jobs, active_commands, active_desktops = _global_counts_locked()
         available_mb = _mem_available_mb()
@@ -1099,6 +1116,78 @@ def status(session: str = "") -> dict:
         reply["jobs_running"] = sum(1 for j in _jobs(session).values() if j.get("exit_code") is None)
     return reply
 
+
+
+# ---------------------------------------------------------------- patch + test (2026-11-04: fewer tokens per change, one call per test run)
+TOOL_NAMES = ("python3", "pip", "node", "npm", "git", "gh", "rg", "fdfind", "jq", "gcc", "make", "curl", "unzip", "patch", "ffmpeg", "convert", "pandoc",
+              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java")
+MAX_PATCH = 400_000
+
+
+def patch_files(session: str, diff: str, cwd: str = ".") -> dict:
+    """Apply a unified diff (git format or plain `diff -u`) inside the session's home: `git apply` in a git checkout, else `patch -p1`, with a
+    dry run first so a patch that does not fit changes nothing. Far fewer generated tokens than rewriting files."""
+    text = str(diff or "")
+    if not text.strip():
+        return {"ok": False, "error": "empty patch"}
+    if len(text.encode("utf-8")) > MAX_PATCH:
+        return {"ok": False, "error": f"a patch is limited to {MAX_PATCH // 1000} KB; split it"}
+    if not text.endswith("\n"):
+        text += "\n"
+    name = ".cache/patches/" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12] + ".diff"
+    wrote = write_file(session, name, text)
+    if not wrote.get("ok"):
+        return wrote
+    cmd = (f"P=\"$HOME\"/{shell_quote(name)}; "
+           "if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then "
+           "git apply --check --recount --whitespace=nowarn \"$P\" && git apply --recount --whitespace=nowarn -v \"$P\" 2>&1 && echo PATCH_OK via git; "
+           "else for n in 1 0; do if patch -p$n --dry-run --forward -s < \"$P\" >/dev/null 2>&1; then patch -p$n --forward < \"$P\" && echo PATCH_OK via patch -p$n; exit 0; fi; done; "
+           "patch -p1 --dry-run --forward < \"$P\"; exit 1; fi")
+    out = run_command(session, cmd, cwd, 60)
+    if not out.get("ok"):
+        return out
+    applied = "PATCH_OK" in str(out.get("output", ""))
+    files = sorted(set(re.findall(r"^\+\+\+ (?:b/)?(\S+)", text, re.M)) - {"/dev/null"})
+    return {"ok": applied, "files": files[:200], "output": out.get("output", ""), **({} if applied else {"error": "the patch does not apply here (nothing was changed)"}), "cwd": out.get("cwd", cwd)}
+
+
+TEST_DETECT = (
+    "if [ -f package.json ] && grep -q '\"test\"' package.json; then if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null; then echo 'pnpm test'; "
+    "elif [ -f yarn.lock ] && command -v yarn >/dev/null; then echo 'yarn test'; else echo 'npm test --silent'; fi; "
+    "elif [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f setup.cfg ] || [ -d tests ] || compgen -G 'test_*.py' >/dev/null || compgen -G '*_test.py' >/dev/null; then echo 'python3 -m pytest -q -x || python3 -m unittest discover -q'; "
+    "elif [ -f go.mod ]; then echo 'go test ./...'; elif [ -f Cargo.toml ]; then echo 'cargo test --quiet'; "
+    "elif [ -f Makefile ] && grep -q '^test:' Makefile; then echo 'make test'; else echo ''; fi"
+)
+
+
+def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
+    """Run the project's tests in the background (they often take longer than one call): the runner is detected from the project files
+    unless `command` is given. Returns a job id to read with job_log."""
+    cmd = str(command or "").strip()
+    if not cmd:
+        found = run_command(session, TEST_DETECT, cwd, 15)
+        if not found.get("ok"):
+            return found
+        lines = str(found.get("output") or "").strip().splitlines()
+        cmd = lines[-1].strip() if lines else ""
+        if not cmd:
+            return {"ok": False, "error": "no test runner found here (package.json test script, pytest, go.mod, Cargo.toml or a Makefile test target); pass command"}
+    try:
+        workdir = safe_path(session, cwd)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    rel = str(workdir.relative_to(session_home(session))) if workdir != session_home(session) else "."
+    started = job_start(session, f"cd {shell_quote(rel)} && ( {cmd} ) 2>&1 | tail -n 400; echo TESTS_EXIT=${{PIPESTATUS[0]}}", "tests")
+    if started.get("ok"):
+        started["command"] = cmd
+        started["cwd"] = rel
+    return started
+
+
+def tools_inventory(session: str = "") -> dict:
+    """Which tools this computer has right now (and how the background installation is going)."""
+    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "toolchain": STATE.get("toolchain", "not checked"),
+            "devtools": STATE.get("devtools", "not started"), "apt_cache": str(apt_cache_dir())}
 
 def api_box_status(body: str = "") -> str:
     session = ""
@@ -1156,11 +1245,17 @@ def api_box_do(body: str) -> str:
             out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
         elif action == "status":
             out = status(session)
+        elif action == "patch":
+            out = patch_files(session, job.get("diff", ""), job.get("cwd", "."))
+        elif action == "test":
+            out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
+        elif action == "tools":
+            out = tools_inventory(session)
         else:
             out = {"ok": False, "error": "unknown action " + action[:30]}
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test"):
         tips = welcome(session)                            # once per session, never repeated
         if tips:
             out["tips"] = tips

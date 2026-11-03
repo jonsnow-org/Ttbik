@@ -13,6 +13,13 @@ describe("the model's own persistent computer", () => {
     expect(boxActionFor("computer_repo", { url: "https://github.com/a/b", ref: "main" })).toEqual({ action: "repo", url: "https://github.com/a/b", ref: "main" });
     expect(boxActionFor("computer_search", { pattern: "needle", glob: "*.ts" })).toMatchObject({ action: "search", pattern: "needle", path: ".", glob: "*.ts" });
     expect(boxActionFor("sandbox_exec", {})).toBeNull();
+    expect(boxActionFor("computer_patch", { diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" })).toEqual({ action: "patch", diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" });
+    expect(boxActionFor("computer_test", { cwd: "repos/a-b" })).toEqual({ action: "test", cwd: "repos/a-b", command: "" });
+    expect(boxActionFor("computer_tools", {})).toEqual({ action: "tools" });
+    expect(cleanBoxArgs({ action: "patch", diff: "d".repeat(500_000) })?.diff).toHaveLength(400_000);
+    expect(renderBoxReply("patch", { ok: true, files: ["a.ts", "b.ts"], output: "PATCH_OK via git" })).toMatch(/a\.ts, b\.ts/);
+    expect(renderBoxReply("test", { ok: true, id: "j1", command: "npm test --silent", cwd: "p" })).toMatch(/TESTS_EXIT/);
+    expect(renderBoxReply("patch", { ok: false, error: "the patch does not apply here (nothing was changed)", output: "hunk FAILED" })).toMatch(/does not apply[\s\S]*hunk FAILED/);
   });
 
   test("fields are bounded before they reach the Studio", () => {
