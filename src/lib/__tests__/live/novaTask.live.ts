@@ -1,7 +1,7 @@
 // LIVE timing of a Nova TASK (not just a reply) against the REAL coder Studio (run only by .github/workflows/nova-task-live.yml).
 // Drives the production handler with a fake Telegram bot and a throwaway in-memory database, sends one task message and prints a timeline:
 // every task event and every message the bot would have sent, with seconds since the request. Nothing is sent to Telegram.
-import { drive, handleCoderSections, later } from "@/lib/coderSections";
+import { drive, handleCoderSections, later, saveState } from "@/lib/coderSections";
 import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
 
@@ -28,6 +28,8 @@ test("a repository-reading task finishes, with a timeline", async () => {
     }
     return realFetch(input, init);
   }) as any;
+  // PROBE_MODEL picks the engine model (coder = Nova, lfm25 = LFM2.5); each runs only on its own Studios
+  if (process.env.PROBE_MODEL) await saveState(4242, { mode: "coder", think: false, messages: [], notes: "", inbox: [], run: null, model: process.env.PROBE_MODEL } as any, db);
   const t0 = Date.now();
   let seen = 0;
   await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: TEXT } }, db);

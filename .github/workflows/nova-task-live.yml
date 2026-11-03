@@ -8,6 +8,10 @@ on:
         description: "the task message"
         required: false
         default: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة"
+      model:
+        description: "engine model: coder (Nova) or lfm25 (LFM2.5)"
+        required: false
+        default: "coder"
 
 permissions:
   contents: read
@@ -30,6 +34,7 @@ jobs:
           MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
           PROBE_TEXT: ${{ inputs.text }}
+          PROBE_MODEL: ${{ inputs.model }}
           OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
           PROBE_OUT: ${{ runner.temp }}
         run: |
