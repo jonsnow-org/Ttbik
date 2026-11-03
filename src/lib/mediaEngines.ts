@@ -41,6 +41,31 @@ async function fetchStudioResponse(url: string, init: RequestInit, f: typeof fet
   return response as Response;
 }
 
+/** Parse only Gradio's completed SSE event; progress/heartbeat data must never be mistaken for status. */
+export function parseStudioStatusSse(body: string): Record<string, unknown> {
+  for (const frame of String(body || "").split(/\r?\n\r?\n/)) {
+    if (!/(^|\r?\n)event:\s*complete(?:\r?\n|$)/.test(frame)) continue;
+    const line = frame.split(/\r?\n/).find((item) => item.startsWith("data:"));
+    if (!line) continue;
+    let parsed: unknown;
+    try { parsed = JSON.parse(line.slice(5).trim()); }
+    catch { throw new Error("Gradio completed status event contained invalid JSON."); }
+    if (Array.isArray(parsed)) parsed = parsed[0];
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); }
+      catch { throw new Error("Gradio completed status event contained non-JSON text."); }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Gradio completed status event did not contain a status object.");
+    }
+    return parsed as Record<string, unknown>;
+  }
+  if (/(^|\r?\n)event:\s*error(?:\r?\n|$)/m.test(body || "")) {
+    throw new Error("Gradio returned an error event while checking Studio status.");
+  }
+  throw new Error("Gradio sent no completed Studio status event.");
+}
+
 export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000, requireVideo = false): Promise<{ ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } }> {
   if (!base) return { ok: false, phase: "off", detail: "no address" };
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -51,9 +76,7 @@ export async function probeStudio(base: string, token: string, f: typeof fetch =
     if (!event_id) return { ok: false, phase: "down", detail: "no event id" };
     const res = await fetchStudioResponse(`${base}/gradio_api/call/status/${event_id}`, { headers }, f, ms);
     if (!res.ok) return { ok: false, phase: "down", detail: `HTTP ${res.status}` };
-    const line = (await res.text()).split("\n").find((l) => l.startsWith("data:")) || "";
-    const arr = JSON.parse(line.slice(5).trim()) as unknown[];
-    const st = (typeof arr[0] === "string" ? JSON.parse(arr[0]) : arr[0]) as { phase?: string; error?: string; model?: string; video?: { ready?: boolean } };
+    const st = parseStudioStatusSse(await res.text()) as { phase?: string; error?: string; model?: string; video?: { ready?: boolean } };
     const phase = String(st?.phase || "unknown");
     const videoReady = st?.video?.ready === true;
     const media = phase === "ready" ? { image: true, audio: true, video: videoReady } : { image: false, audio: false, video: false };

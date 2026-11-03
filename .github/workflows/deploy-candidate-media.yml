@@ -2,22 +2,19 @@ name: "Candidate media Studios: each candidate gets its OWN speech + video Studi
 
 # Qwen3.5-9B, Gemma 4 E4B and MiniCPM-o 4.5 each get (a) a private model repo <id>-media-models, a copy of the ready media weights
 # (Arabic Piper voice and the picture model), and (b) a private Studio sham-donor-<id>-media that runs the same media app on its own copy.
-# Nothing is shared at run time: a candidate asks only ITS Studio. Free 8 GB CPU hardware only. Nothing secret is printed; nothing is deleted.
+# Each candidate uses only ITS media Studio and media checkpoint. The shared computer is a separate 16 GB host with private user+model sessions; media Studios do not host computer processes. Free CPU hardware only.
 
 on:
   push:
     branches:
       - claude/free-services-marketplace-h6rwk2
+      - fix/live-runtime-followthrough-20261103
     paths:
       - ai-system/modelscope-media/app.py
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/nova_media_probe.py
-      - ai-system/modelscope-media/browser_computer.py
-      - ai-system/modelscope-media/computer_box.py
-      - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/requirements.txt
-      - scripts/ops/modelscope_computer_smoke.py
       - .github/workflows/deploy-candidate-media.yml
   workflow_dispatch: {}
 
@@ -108,11 +105,15 @@ jobs:
           git config --global user.name "media CI"
           git config --global user.email "ci@media.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/desktop_computer.py ai-system/modelscope-media/requirements.txt ms-studio/
+          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/requirements.txt ms-studio/
           cp ai-system/colab/sham_small/media_quality.py ms-studio/media_quality.py
           cd ms-studio
-          git add app.py browser_computer.py computer_box.py desktop_computer.py requirements.txt media_quality.py
-          git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
+          # Candidate media Studios do not host computer/browser/desktop runtimes.
+          # Remove old copies left by prior versions of this deployment workflow.
+          git rm -f browser_computer.py computer_box.py desktop_computer.py >/dev/null 2>&1 || true
+          sed -i '/^playwright[<=>]/d' requirements.txt
+          git add app.py requirements.txt media_quality.py
+          git diff --cached --quiet && echo "no change" || git commit -m "media-only app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
       - name: Give the Studio the token it needs to read the private model repo (as a Studio secret; never printed)
@@ -175,7 +176,7 @@ jobs:
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           NOVA_MEDIA_URL: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
-          PROBE_KINDS: video
+          PROBE_KINDS: image,speech,video
           READY_TIMEOUT: "2400"
           PROBE_OUT: ${{ runner.temp }}
         run: |
@@ -185,12 +186,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.candidate.id }}-media-video-smoke
-          path: ${{ runner.temp }}/probe.mp4
+          name: ${{ matrix.candidate.id }}-media-smoke
+          path: |
+            ${{ runner.temp }}/probe.png
+            ${{ runner.temp }}/probe.wav
+            ${{ runner.temp }}/probe.mp4
           if-no-files-found: ignore
-      - name: Live test this candidate's own persistent computer and graphical desktop
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
-          MODEL_ID: ${{ matrix.candidate.id }}
-        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id "$MODEL_ID"

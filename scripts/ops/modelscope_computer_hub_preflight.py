@@ -85,8 +85,8 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
                 preserved = set(cleanup.get("preserved") or [])
                 if not {"/mnt/workspace/computer", "/mnt/workspace/browser"}.issubset(preserved):
                     fail("Cache-cleanup report does not confirm preservation of computer/browser data: " + json.dumps(cleanup))
-                if limits.get("minimum_available_mb") != 2048 or limits.get("global_jobs") != 1:
-                    fail("Terminal memory/concurrency policy does not match the 2-GB / single-job configuration: " + json.dumps(limits))
+                if limits.get("minimum_available_mb") != 2048 or limits.get("global_jobs") != 6 or limits.get("jobs_per_session") != 4:
+                    fail("Terminal policy must match 2-GB admission, six global jobs and four jobs per user+model session: " + json.dumps(limits))
                 if not isinstance(hardware.get("mem_total_gb"), (int, float)) or hardware["mem_total_gb"] < 14:
                     fail("Studio did not report the expected 16-GB memory class: " + json.dumps(hardware))
                 print("COMPUTER_APP_READY", json.dumps({

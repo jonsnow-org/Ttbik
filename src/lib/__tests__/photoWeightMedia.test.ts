@@ -53,6 +53,25 @@ describe("per-model photo weight routing", () => {
     expect(urls.some((url) => url.includes("cyberrealistic") || url.includes("epicrealism") || url.includes("juggernaut"))).toBe(false);
   });
 
+
+  it("distinguishes an HTTP gateway rejection from a model-generated refusal and does not try another Studio", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-token";
+    const profile = photoWeightProfile("gemma4-e4b")!;
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      urls.push(url);
+      if (init?.method === "POST") return { ok: true, json: async () => ({ event_id: "status-1" }) };
+      return { ok: false, status: 403, text: async () => "gateway rejected request" };
+    }) as unknown as typeof fetch;
+    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { fetchImpl });
+    expect(result).toMatchObject({ type: "error", reason: "studio_http_rejected" });
+    expect(result.text).toContain("HTTP-level rejection");
+    expect(result.text).toContain("HTTP 403");
+    expect(urls.length).toBe(2);
+    expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
+    expect(urls.some((url) => /cyberrealistic|epicrealism|umranz/.test(url))).toBe(false);
+  });
+
   it("uses only the selected model Studio and verifies the repo and checkpoint before returning an image", async () => {
     process.env.MODELSCOPE_API_TOKEN = "test-token";
     const profile = photoWeightProfile("gemma4-e4b")!;

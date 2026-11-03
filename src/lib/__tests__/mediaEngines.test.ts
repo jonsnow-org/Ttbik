@@ -1,4 +1,4 @@
-import { probeStudio } from "@/lib/mediaEngines";
+import { parseStudioStatusSse, probeStudio } from "@/lib/mediaEngines";
 
 const sse = (value: object) => "event: complete\ndata: [" + JSON.stringify(JSON.stringify(value)) + "]\n\n";
 
@@ -13,6 +13,22 @@ describe("media Studio modality readiness", () => {
     }
     return new Response("unexpected request", { status: 500 });
   }) as any;
+
+
+  it("ignores progress and heartbeat data and parses only the completed status event", async () => {
+    const body = [
+      "event: heartbeat\\ndata: null\\n\\n",
+      "event: generating\\ndata: " + JSON.stringify({ phase: "loading" }) + "\\n\\n",
+      "event: complete\\ndata: " + JSON.stringify([JSON.stringify({ phase: "ready", model: "novaai2026/test" })]) + "\\n\\n",
+    ].join("");
+    expect(parseStudioStatusSse(body)).toMatchObject({ phase: "ready", model: "novaai2026/test" });
+  });
+
+  it("refuses an incomplete or malformed Gradio status stream", () => {
+    expect(() => parseStudioStatusSse("event: heartbeat\\ndata: null\\n\\n")).toThrow("no completed");
+    expect(() => parseStudioStatusSse("event: complete\\ndata: not-json\\n\\n")).toThrow("invalid JSON");
+    expect(() => parseStudioStatusSse("event: error\\ndata: failed\\n\\n")).toThrow("error event");
+  });
 
   it("does not mark video ready while its local weights are absent", async () => {
     const result = await probeStudio("https://media.test", "token", fakeFetch({ phase: "ready", video: { ready: false } }), 7000, true);

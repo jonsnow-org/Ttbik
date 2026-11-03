@@ -1,7 +1,7 @@
 name: "Donor bake-off: three isolated ModelScope Studios"
 on:
   push:
-    branches: [claude/free-services-marketplace-h6rwk2, realistic-vision-v6-isolated-test, feat/cloud-computer-owner-mvp-20261031]
+    branches: [claude/free-services-marketplace-h6rwk2, fix/live-runtime-followthrough-20261103, realistic-vision-v6-isolated-test, feat/cloud-computer-owner-mvp-20261031]
     paths:
       - "experiments/donor-bakeoff/**"
       - "ai-system/app/media_quality.py"

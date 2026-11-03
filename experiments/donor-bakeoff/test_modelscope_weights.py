@@ -82,6 +82,35 @@ class PrivateCandidateWeights(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "manifest does not match"):
                 download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_snapshot(source_revision="not-a-commit"), login_impl=lambda _: None)
+
+    def test_symlinked_weight_file_cannot_escape_the_candidate_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "outside.gguf"
+            outside.write_bytes(self.payload)
+            cache = root / "cache"
+            cache.mkdir()
+            manifest = {
+                "candidate_id": self.route,
+                "source_repo_id": self.config["repo_id"],
+                "source_revision": "a" * 40,
+                "modelscope_repo_id": self.repo,
+                "modelscope_weights_revision": "2026-11-03-r1",
+                "filename": "candidate.gguf",
+                "mmproj_filename": "mmproj.gguf",
+                "files": {"candidate.gguf": {"size_bytes": len(self.payload), "sha256": self.sha}},
+            }
+            def snapshot(repo, local_dir, allow_patterns):
+                self.assertEqual(repo, self.repo)
+                link = Path(local_dir) / "candidate.gguf"
+                link.symlink_to(outside)
+                (Path(local_dir) / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "symlink"):
+                download_candidate_file(
+                    self.config, "candidate.gguf", cache, token="secret",
+                    snapshot_download_impl=snapshot, login_impl=lambda _: None,
+                )
+
     def test_runtime_config_cannot_change_to_an_unapproved_weights_revision(self):
         config = dict(self.config, modelscope_weights_revision="unreviewed")
         with tempfile.TemporaryDirectory() as folder:

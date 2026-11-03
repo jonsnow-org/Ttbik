@@ -213,6 +213,8 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
     if limits.get("global_jobs") != 6:
         fail(f"Studio global execution limit must match the owner-approved six isolated sessions; reported {limits.get('global_jobs')}")
     print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
+    if limits.get("jobs_per_session") != 4:
+        fail(f"Each user+model session must retain its four-job limit; reported {limits.get('jobs_per_session')}")
     print("Network egress isolation:", status.get("egress", "not reported"), flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):
         # The computer can still execute commands, but never claim network egress is protected.

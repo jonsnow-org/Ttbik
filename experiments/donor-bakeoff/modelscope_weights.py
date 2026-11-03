@@ -83,7 +83,7 @@ def download_candidate_file(
         snapshot_download_impl = snapshot_download
     snapshot_download_impl(repo_id, local_dir=str(cache), allow_patterns=[MANIFEST_NAME, filename])
     manifest_path = cache / MANIFEST_NAME
-    if not manifest_path.is_file():
+    if manifest_path.is_symlink() or not manifest_path.is_file():
         raise RuntimeError("The private ModelScope weight repository is missing its integrity manifest.")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -104,8 +104,15 @@ def download_candidate_file(
     if not isinstance(entry, dict) or not re_full_sha(entry.get("sha256")):
         raise RuntimeError("The private ModelScope manifest has no valid SHA-256 for the requested file.")
     target = cache / relative
-    if not target.is_file():
+    # A repository path must not escape this candidate's private cache through a symlink.
+    if target.is_symlink():
+        raise RuntimeError("Candidate weight file is a symlink; refusing to read outside the private cache.")
+    resolved_target = target.resolve()
+    if cache not in resolved_target.parents:
+        raise RuntimeError("Candidate weight file resolves outside its private cache; refusing cross-session access.")
+    if not resolved_target.is_file():
         raise RuntimeError("The selected candidate's private ModelScope repository did not deliver " + filename)
+    target = resolved_target
     actual_size = target.stat().st_size
     expected_size = int(entry.get("size_bytes") or 0)
     if actual_size < 1_000_000 or actual_size != expected_size:
