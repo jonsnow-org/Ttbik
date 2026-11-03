@@ -45,7 +45,7 @@ CHROMIUM_LIBS = [
     "libglib2.0-0", "libatspi2.0-0", "libx11-xcb1", "libxrender1", "libfontconfig1", "libfreetype6", "fonts-liberation",
 ]
 
-STATE: dict = {"phase": "not started", "steps": [], "error": "", "chromium": ""}
+STATE: dict = {"phase": "not started", "steps": [], "error": "", "chromium": "", "channel": ""}
 _LOCK = threading.RLock()
 
 
@@ -197,15 +197,29 @@ def fetch_libs_without_root() -> bool:
     return fetched > 0
 
 
-def _launch_test() -> tuple[bool, str]:
-    """Start Chromium once in a child process (so a missing library cannot crash the Studio) and report why it failed."""
+def _launch_test(channel: str | None = "chromium") -> tuple[bool, str]:
+    """Test full Chromium first (new headless mode), then Playwright's headless-shell fallback."""
+    launch = "    b = p.chromium.launch(" + (f"channel={channel!r}, " if channel else "") + "args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage'])\n"
     code, out = _run(["python3", "-c",
                       "from playwright.sync_api import sync_playwright\n"
                       "with sync_playwright() as p:\n"
-                      "    b = p.chromium.launch(args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage'])\n"
+                      + launch +
                       "    pg = b.new_page(); pg.set_content('<h1>ok</h1>'); print('LAUNCH_OK', pg.inner_text('h1')); b.close()\n"], 120)
     return "LAUNCH_OK" in out, out
 
+
+def _launch_preferred() -> tuple[bool, str, str]:
+    """Prefer the full Chromium executable; fall back to the headless-shell binary only if required."""
+    ok, out = _launch_test("chromium")
+    if ok:
+        _note("browser launch mode: full Chromium channel")
+        return True, out, "chromium"
+    _note("full Chromium channel failed: " + re.sub(r"[╔╗╚╝║═]+", " ", out)[-300:])
+    ok, out = _launch_test(None)
+    if ok:
+        _note("browser launch mode: Playwright headless-shell fallback")
+        return True, out, "headless-shell"
+    return False, out, ""
 
 def _probe_sandbox() -> None:
     """Record (never rely on) whether Bubblewrap works here: it needs unprivileged user namespaces, which many container hosts forbid. Chromium keeps its own flags either way."""
@@ -275,32 +289,33 @@ def bootstrap() -> bool:
             download_chromium()
         else:
             _note("chromium already in the persistent folder")
-        ok, out = _launch_test()
+        ok, out, channel = _launch_preferred()
         if not ok and re.search(r"playwright install|Executable doesn't exist", out):
             # a Chromium of another revision is in the persistent folder (the playwright package changed): fetch the one this package wants
             _note("playwright wants another chromium revision: downloading it")
             for old in list((STORE / "pw").glob("chromium*")):
                 shutil.rmtree(old, ignore_errors=True)
             download_chromium()
-            ok, out = _launch_test()
+            ok, out, channel = _launch_preferred()
         if not ok:
-            _note("first launch failed: " + re.sub(r"[╔╗╚╝║═]+", " ", out)[:300])
+            _note("first launch failed: " + re.sub(r"[╔╗╚╝║═]+", " ", out)[-1000:])
             if have_chromium():
                 fixed = install_libs_as_root() or fetch_libs_without_root()
                 if fixed:
                     os.environ["LD_LIBRARY_PATH"] = _env_with_libs().get("LD_LIBRARY_PATH", "")
-                    ok, out = _launch_test()
-                    _note(("second launch ok" if ok else "second launch failed: " + out[-300:]))
+                    ok, out, channel = _launch_preferred()
+                    _note(("second launch ok via " + channel if ok else "second launch failed: " + out[-1000:]))
         _probe_sandbox()
         with _LOCK:
             STATE["phase"] = "ready" if ok else "unavailable"
             STATE["error"] = "" if ok else out[-300:]
             STATE["chromium"] = "playwright chromium" if ok else ""
+            STATE["channel"] = channel if ok else ""
         return ok
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             STATE["phase"] = "unavailable"
-            STATE["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            STATE["error"] = f"{type(exc).__name__}: {exc}"[:1600]
         return False
 
 
@@ -329,7 +344,7 @@ class _Worker(threading.Thread):
                 try:
                     reply.put(self._do(p, job))
                 except Exception as exc:  # noqa: BLE001
-                    reply.put({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}"})
+                    reply.put({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:1800]}"})
                 self._reap()
 
     def _browser(self, p):
@@ -340,7 +355,15 @@ class _Worker(threading.Thread):
             except Exception:  # noqa: BLE001
                 pass
             self.pages.clear()                          # the browser died: its contexts are gone, sessions restore from disk on the next call
-        self.browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"])
+        launch_options = {"headless": True, "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]}
+        channel = STATE.get("channel")
+        if channel == "chromium":
+            launch_options["channel"] = "chromium"
+        try:
+            self.browser = p.chromium.launch(**launch_options)
+        except Exception as exc:
+            _note("worker browser launch failed (" + str(channel or "headless-shell") + "): " + str(exc)[-1400:])
+            raise
         return self.browser
 
     def _save(self, session: str, ctx, page) -> None:
@@ -494,7 +517,7 @@ def _worker() -> _Worker:
 # ---------------------------------------------------------------- the two API entry points
 def api_browser_status(_unused: str = "") -> str:
     with _LOCK:
-        return json.dumps({"browser": {k: STATE[k] for k in ("phase", "error", "chromium", "steps")},
+        return json.dumps({"browser": {k: STATE[k] for k in ("phase", "error", "chromium", "channel", "steps")},
                            "sessions": len(_WORKER.pages) if _WORKER else 0, "root": os.geteuid() == 0 if hasattr(os, "geteuid") else None}, ensure_ascii=False)
 
 
