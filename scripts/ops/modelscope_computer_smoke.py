@@ -210,8 +210,8 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
         fail(f"terminal requires at least 2048 MB available; reported {available_mb} MB")
     if not isinstance(minimum_mb, (int, float)) or minimum_mb < 2048:
         fail(f"terminal admission limit is too low or missing: {minimum_mb} MB")
-    if limits.get("global_jobs") != 1:
-        fail(f"2-vCPU Studio must enforce one global execution job; reported {limits.get('global_jobs')}")
+    if limits.get("global_jobs") != 6:
+        fail(f"Studio global execution limit must match the owner-approved six isolated sessions; reported {limits.get('global_jobs')}")
     print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
     print("Network egress isolation:", status.get("egress", "not reported"), flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):

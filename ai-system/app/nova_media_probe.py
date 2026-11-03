@@ -181,6 +181,15 @@ def _bytes(reply: dict, kind: str, label: str) -> bytes:
     return base64.b64decode(reply["b64"], validate=False)
 
 
+def select_probe_steps(steps: list[tuple], selection: str | None = None) -> list[tuple]:
+    """Select only requested media checks; shared by Nova and candidate-owned video smoke tests."""
+    raw = selection if selection is not None else os.environ.get("PROBE_KINDS", "image,speech,video")
+    selected = {item.strip().lower() for item in str(raw).split(",") if item.strip()}
+    known = {str(step[5]) for step in steps}
+    if not selected or selected - known:
+        raise ProbeError("PROBE_KINDS must select one or more of: " + ",".join(sorted(known)))
+    return [step for step in steps if str(step[5]) in selected]
+
 def main() -> int:
     base = os.environ.get("NOVA_MEDIA_URL") or "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net"
     token = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
@@ -201,6 +210,11 @@ def main() -> int:
         ("speech", "audio", {"text": "مرحبا، هذا اختبار صوت نوفا العربي."}, verify_audio, "probe.wav", "speech"),
         ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 2, "seed": 17}, verify_video, "probe.mp4", "video"),
     ]
+    try:
+        steps = select_probe_steps(steps)
+    except ProbeError as exc:
+        print(f"FAIL selection: {exc}")
+        return 2
     for api, kind, payload, verify, fname, label in steps:
         t0 = time.time()
         try:

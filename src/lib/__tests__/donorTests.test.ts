@@ -75,7 +75,14 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-11-02-r16",
+            app_revision: "donor-bakeoff-2026-11-03-r17",
+            repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
+            weight_manifest: {
+              candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+              modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights", modelscope_weights_revision: "2026-11-03-r1",
+              filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+              files: { "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
+            },
             media_capabilities: { vision: true, audio: false, video: true },
             runtime_generation_capabilities: { image: true, audio: false, video: false },
             image_generation_assignment: {
@@ -102,6 +109,76 @@ describe("donor Studio readiness probe", () => {
       else process.env.MODELSCOPE_API_TOKEN = previous;
     }
   });
+
+  it("rejects a ready runner if its private ModelScope weight repo belongs to another candidate", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const manifest = {
+      candidate_id: "qwen35-9b",
+      source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+      modelscope_repo_id: "novaai2026/sham-donor-gemma4-e4b-weights",
+      modelscope_weights_revision: "2026-11-03-r1",
+      filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+      mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+      files: {
+        "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 },
+        "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
+      },
+    };
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
+        return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
+        return new Response(JSON.stringify({ data: [JSON.stringify({
+          phase: "ready",
+          app_revision: "donor-bakeoff-2026-11-03-r17",
+          repo_id: "novaai2026/sham-donor-gemma4-e4b-weights",
+          weight_manifest: manifest,
+          media_capabilities: { vision: true, audio: false, video: false },
+        })] }), { status: 200 });
+      }
+      return new Response("unexpected request", { status: 500 });
+    }) as any;
+    const status = await probeDonorTestStudio("qwen35-9b", fetchImpl);
+    expect(status.phase).toBe("error");
+    expect(status.detail).toContain("لا يطابق تعيين هذا المرشح");
+  });
+
+  it("rejects a ready runner with a missing file hash in its own manifest", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
+    const manifest = {
+      candidate_id: "qwen35-9b",
+      source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+      modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
+      modelscope_weights_revision: "2026-11-03-r1",
+      filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+      mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+      files: {
+        "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
+      },
+    };
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
+        return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
+      }
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
+        return new Response(JSON.stringify({ data: [JSON.stringify({
+          phase: "ready",
+          app_revision: "donor-bakeoff-2026-11-03-r17",
+          repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
+          weight_manifest: manifest,
+          media_capabilities: { vision: true, audio: false, video: false },
+        })] }), { status: 200 });
+      }
+      return new Response("unexpected request", { status: 500 });
+    }) as any;
+    const status = await probeDonorTestStudio("qwen35-9b", fetchImpl);
+    expect(status.phase).toBe("error");
+    expect(status.detail).toContain("manifest أوزان");
+  });
+
   it("does not report an old isolated runner revision as ready for bot testing", async () => {
     process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
     const fetchImpl = jest.fn(async (input: any, init?: any) => {

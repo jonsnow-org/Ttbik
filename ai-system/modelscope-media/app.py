@@ -367,8 +367,8 @@ def _make_image(prompt: str, size: int, seed: int):
 # Real text-to-video on CPU: AnimateDiff-Lightning (motion adapter, 4 steps) on an SD-1.5 realistic base (epiCRealism). Open weights (CreativeML OpenRAIL-M),
 # about 3 GB on disk, run by our own process. The frames come out of one temporal diffusion pass (never stills stitched into a slideshow).
 _CV = {"pipe": None, "dtype": None}
-CV_MS_BASE, CV_HF_BASE = "songkey/epicrealism_naturalSinRC1VAE", "emilianJR/epiCRealism"
-CV_MS_ADAPTER, CV_HF_ADAPTER, CV_ADAPTER_FILE = "AI-ModelScope/AnimateDiff-Lightning", "ByteDance/AnimateDiff-Lightning", "animatediff_lightning_4step_diffusers.safetensors"
+CV_MS_BASE = "songkey/epicrealism_naturalSinRC1VAE"
+CV_MS_ADAPTER, CV_ADAPTER_FILE = "AI-ModelScope/AnimateDiff-Lightning", "animatediff_lightning_4step_diffusers.safetensors"
 _CV_BASE_FILES = ["model_index.json", "scheduler/scheduler_config.json", "feature_extractor/preprocessor_config.json", "tokenizer/*", "text_encoder/config.json",
                   "unet/config.json", "vae/config.json", "text_encoder/*.safetensors", "unet/*.safetensors", "vae/*.safetensors"]
 
@@ -411,48 +411,31 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     return None
 
 
-CV_HF_LEAN_BASE = "stable-diffusion-v1-5/stable-diffusion-v1-5"      # the same SD-1.5 family, published with fp16 files: ~2.1 GB instead of 4.3 GB
-_CV_LEAN_FILES = ["model_index.json", "scheduler/scheduler_config.json", "feature_extractor/preprocessor_config.json", "tokenizer/*", "text_encoder/config.json",
-                  "unet/config.json", "vae/config.json", "text_encoder/model.fp16.safetensors", "unet/diffusion_pytorch_model.fp16.safetensors", "vae/diffusion_pytorch_model.fp16.safetensors"]
-CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
+CV_REQUIRED_FREE = int(3.05 * 1024 ** 3)
 
 
 def cv_fetch_weights(root):
-    """Download the (open) weights once into <root>/video_animatediff. epiCRealism (fp16-sized files, ~2.1 GB) + the 0.9 GB adapter from ModelScope (~2.9 GiB in total); Hugging Face is the fallback (with a small disk: the fp16 SD-1.5 base). Weights only; all inference stays local."""
+    """Download a private local copy of the video weights from ModelScope only."""
     import shutil as _sh
     from pathlib import Path as _P
     dest = _P(root) / "video_animatediff"
     dest.mkdir(parents=True, exist_ok=True)
+    existing = cv_find_weights(root, ())
+    if existing:
+        return existing
     free = _sh.disk_usage(dest).free
-    if free < CV_LEAN_NEED:
-        raise RuntimeError(f"native-video-unavailable: the video model needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
-    lean = free < CV_FULL_NEED
-    errors = []
-    for source in ("modelscope", "huggingface"):          # ModelScope first: epiCRealism there is already fp16-sized (unet 1.72 GB), ~2.9 GiB with the adapter; the Studios cannot always reach Hugging Face
-        try:
-            if source == "modelscope":
-                from modelscope import snapshot_download
-                snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-                snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-            else:
-                from huggingface_hub import snapshot_download as hf_download
-                hf_download(CV_HF_LEAN_BASE if lean else CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_LEAN_FILES if lean else _CV_BASE_FILES)
-                if lean:                                            # the adapter is the same file on ModelScope; use it first, it is closer to the Studio
-                    try:
-                        from modelscope import snapshot_download
-                        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-                    except Exception:  # noqa: BLE001
-                        hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-                else:
-                    hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-            found = cv_find_weights(root)
-            if found:
-                return found
-            errors.append(f"{source}: files incomplete")
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{source}: {type(exc).__name__}: {str(exc)[:120]}")
-    raise RuntimeError("native-video-unavailable: could not fetch the video weights (" + "; ".join(errors) + ")")
-
+    if free < CV_REQUIRED_FREE:
+        raise RuntimeError(f"native-video-unavailable: this Studio needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
+    try:
+        from modelscope import snapshot_download
+        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
+        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
+        found = cv_find_weights(root, ())
+        if found:
+            return found
+        raise RuntimeError("ModelScope download completed but the required base or AnimateDiff adapter files are missing")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"native-video-unavailable: ModelScope-only video weights could not be prepared: {type(exc).__name__}: {str(exc)[:180]}") from exc
 
 def cv_pipe(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     if _CV["pipe"] is not None:
@@ -694,7 +677,7 @@ def cv_generate_long(
 
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
     """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4."""
-    return cv_generate_long(HERE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -710,11 +693,11 @@ def _run(kind: str, payload: dict) -> dict:
         STATE["phase"] = f"making {kind}"
         if kind == "image":
             img = _make_image(str(payload.get("prompt", "")), payload.get("size", 512), payload.get("seed", 0))
-            # check_image(img)  - quality gate bypassed for testing (owner's request)
+            check_image(img)
             out = {"type": "image", "b64": base64.b64encode(_png(img)).decode()}
         elif kind == "speech":
             wav = _speech_wav(str(payload.get("text", "")))
-            # check_wav(wav)  - quality gate bypassed for testing
+            check_wav(wav)
             out = {"type": "audio", "b64": base64.b64encode(wav).decode()}
         else:
             prompt = str(payload.get("prompt", "")).strip()
@@ -758,7 +741,7 @@ def _disk() -> dict:
 
 
 def api_status() -> str:
-    ready = bool(_CV["pipe"] is not None or cv_find_weights(HERE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
+    ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),

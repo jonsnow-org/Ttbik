@@ -30,5 +30,7 @@
     "for_candidate": "qwen35-9b",
     "studio_api": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net",
     "media_repo": "novaai2026/qwen35-9b-media-models"
-  }
+  },
+  "modelscope_repo_id": "novaai2026/sham-donor-qwen35-9b-weights",
+  "modelscope_weights_revision": "2026-11-03-r1"
 }

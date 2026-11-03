@@ -10,6 +10,9 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - ai-system/modelscope-media/app.py
+      - ai-system/colab/sham_small/cpu_video.py
+      - ai-system/colab/sham_small/media_quality.py
+      - ai-system/app/nova_media_probe.py
       - ai-system/modelscope-media/browser_computer.py
       - ai-system/modelscope-media/computer_box.py
       - ai-system/modelscope-media/desktop_computer.py
@@ -106,8 +109,9 @@ jobs:
           git config --global user.email "ci@media.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           cp ai-system/modelscope-media/app.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/desktop_computer.py ai-system/modelscope-media/requirements.txt ms-studio/
+          cp ai-system/colab/sham_small/media_quality.py ms-studio/media_quality.py
           cd ms-studio
-          git add app.py browser_computer.py computer_box.py desktop_computer.py requirements.txt
+          git add app.py browser_computer.py computer_box.py desktop_computer.py requirements.txt media_quality.py
           git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
@@ -167,6 +171,23 @@ jobs:
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
 
+      - name: Generate and validate a real video on this candidate-owned media Studio
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          NOVA_MEDIA_URL: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
+          PROBE_KINDS: video
+          READY_TIMEOUT: "2400"
+          PROBE_OUT: ${{ runner.temp }}
+        run: |
+          python3 -m pip install -q numpy pillow imageio-ffmpeg
+          python3 ai-system/app/nova_media_probe.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.candidate.id }}-media-video-smoke
+          path: ${{ runner.temp }}/probe.mp4
+          if-no-files-found: ignore
       - name: Live test this candidate's own persistent computer and graphical desktop
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}

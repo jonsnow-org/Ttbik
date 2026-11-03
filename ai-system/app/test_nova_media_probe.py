@@ -121,6 +121,22 @@ def payload_for(api):
     return {"type": {"image": "image", "speech": "audio"}.get(api, api), "b64": base64.b64encode(raw).decode()}
 
 
+class Selection(unittest.TestCase):
+    def test_video_only_selection_skips_image_and_audio(self):
+        steps = [("image", "image", {}, None, "probe.png", "image"), ("speech", "audio", {}, None, "probe.wav", "speech"), ("video", "video", {}, None, "probe.mp4", "video")]
+        self.assertEqual([item[5] for item in P.select_probe_steps(steps, "video")], ["video"])
+
+    def test_multiple_selection_is_case_insensitive(self):
+        steps = [("image", "image", {}, None, "probe.png", "image"), ("video", "video", {}, None, "probe.mp4", "video")]
+        self.assertEqual([item[5] for item in P.select_probe_steps(steps, "VIDEO,image")], ["image", "video"])
+
+    def test_unknown_or_empty_selection_is_refused(self):
+        steps = [("video", "video", {}, None, "probe.mp4", "video")]
+        with self.assertRaises(P.ProbeError):
+            P.select_probe_steps(steps, "")
+        with self.assertRaises(P.ProbeError):
+            P.select_probe_steps(steps, "image")
+
 class Sse(unittest.TestCase):
     def test_heartbeat_before_the_result_is_skipped(self):
         body = 'event: heartbeat\ndata: null\n\nevent: heartbeat\ndata: null\n\nevent: complete\ndata: ["{\\"type\\": \\"video\\", \\"b64\\": \\"QQ==\\"}"]\n\n'

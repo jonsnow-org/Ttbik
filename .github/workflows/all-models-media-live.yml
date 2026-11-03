@@ -6,19 +6,26 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma list: coder,sham,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
+        description: "comma list: coder,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
         required: false
-        default: "coder,sham,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
+        default: "coder,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
       kinds:
         description: "image,video"
         required: false
         default: "image,video"
+  workflow_run:
+    workflows:
+      - "Candidate media Studios: each candidate gets its OWN speech + video Studio and its OWN copy of the media weights"
+    types: [completed]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
 
 permissions:
   contents: read
 
 jobs:
   live:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
