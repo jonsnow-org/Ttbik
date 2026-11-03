@@ -103,3 +103,87 @@ export function looksLikeToolPlan(text: string): boolean {
 
 /** Compatibility shim: preserve the model's wording exactly. */
 export function stripOwnersExcuse(text: string): string { return String(text || ""); }
+
+// ── The model decides (owner 2026-11-04: "the model must understand the request itself, not canned automation") ──────────────────────
+// A message that MIGHT be about making media (a media word, or a short follow-up right after a media turn) is shown to the SELECTED model's
+// own Studio with the last turns; the model answers one line: CHAT / IMAGE / VIDEO / AUDIO / NO, and for media the faithful English prompt
+// in the same call (no second translation call, no other model's Studio). Code only parses that line; it never guesses the subject itself.
+export type RoutedMedia =
+  | { kind: "image"; prompt: string; aspect?: Aspect }
+  | { kind: "video"; prompt: string; seconds: number; aspect?: Aspect }
+  | { kind: "audio"; prompt: string }
+  | { kind: "chat" }
+  | { kind: "refuse" };
+
+const MEDIA_WORDS = set("صوره صور رسمه رسم لوحه لوغو لوجو شعار خلفيه صوت صوتي اغنيه نشيد مقطع كليب انيميشن فيديو فديو image picture photo pic logo wallpaper illustration drawing video clip animation audio voice speech song narrate");
+/** True when the message is worth asking the model about (cheap pre-check, never the decision itself). */
+export function mediaRouteNeeded(text: string, context: MediaFollowupContext = {}): boolean {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length > 400 || raw.startsWith("/")) return false;
+  if (detectMediaIntent(raw, context)) return true;
+  const ws = words(raw).map((w) => norm(w));
+  if (ws.some((w) => inSet(w, MEDIA_WORDS) || inSet(w, DRAW) || VIDEO_SHAPE.test(w) || VIDEO_SHAPE.test(bare(w)))) return true;
+  // a short description right after a media request or a delivered picture/clip ("فتاة شقراء ترتدي ملابس سباحة")
+  if (raw.length <= 220 && !/[?؟]\s*$/.test(raw)) {
+    if (detectMediaIntent(String(context.previousUser || ""))) return true;
+    if (/^(?:🖼️|🎬|🎙️)|أُرسلت الصورة|أُرسل المقطع|أُرسل الصوت/.test(String(context.previousAssistant || "").trim())) return true;
+  }
+  return false;
+}
+
+export const MEDIA_ROUTER_SYSTEM = "You route ONE new chat message of a user who can ask you to make pictures, short videos and speech with your own generators. Read the previous turns and the NEW message and answer with exactly ONE line, nothing else:\n"
+  + "CHAT — the new message is not a request to make media right now (a question, code, chat, thanks, a request about a picture the user attached, asking how media works, downloading a video from a link).\n"
+  + "IMAGE [wide|tall|square] <English prompt> — make a picture now.\n"
+  + "VIDEO <seconds> [wide|tall|square] <English prompt> — make a video now; seconds = what the user asked (10, 15, 30, 60 or 120), 10 when not stated.\n"
+  + "AUDIO <the exact words to speak, in the user's language> — read text aloud / make speech now.\n"
+  + "NO — a media request the safety rules forbid (any sexual content involving minors, explicit sexual acts or nudity, sexual images of real people, graphic gore).\n"
+  + "A short message that only describes a subject, sent right after a picture or video request or result, continues it: same kind, the NEW subject.\n"
+  + "English prompt rules: translate the user's description FAITHFULLY (every subject, number, colour, gender, age, body type, clothing, action and setting, in order of importance); never add, soften, replace or invent anything; drop only the command words and the duration; up to 40 words. Ordinary portraits, people at a beach or pool, swimwear, everyday clothing, sports, and non-graphic medical or educational scenes are allowed. [wide] for scenes or several subjects, [tall] for one standing person, [square] otherwise.\n"
+  + "Examples:\n"
+  + "قم بتوليد صورة فتاة => IMAGE [tall] a girl\n"
+  + "(after a picture request) فتاة شقراء ممتلئة ترتدي ملابس سباحة => IMAGE [tall] a chubby blonde girl wearing a swimsuit\n"
+  + "قم بتوليد فديو ارنب يلعب في الحديقة => VIDEO 10 [wide] a rabbit playing in a garden\n"
+  + "فيديو 30 ثانية لاسد يركض في الصحراء => VIDEO 30 [wide] a lion running in the desert\n"
+  + "اقرأ بصوتك: مرحبا بكم في شام => AUDIO مرحبا بكم في شام\n"
+  + "كيف أصنع فيديو بالذكاء الاصطناعي؟ => CHAT\n"
+  + "شكرا الصورة جميلة => CHAT";
+
+const SECONDS = [10, 15, 30, 60, 120];
+const nearestSeconds = (n: number): number => SECONDS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a), 10);
+
+/** Parses the router's one line. null = unreadable (the caller treats it as "the model did not decide"). */
+export function parseMediaRoute(reply: string): RoutedMedia | null {
+  const line = String(reply || "").replace(/<think>[\s\S]*?<\/think>/gi, "").split("\n").map((l) => l.trim().replace(/^[`*"'«“]+|[`*"'»”]+$/g, "")).find(Boolean) || "";
+  const m = /^(CHAT|IMAGE|VIDEO|AUDIO|NO)\b[\s:—-]*(.*)$/i.exec(line);
+  if (!m) return null;
+  const head = m[1].toUpperCase();
+  let rest = m[2].trim();
+  if (head === "CHAT") return { kind: "chat" };
+  if (head === "NO") return { kind: "refuse" };
+  if (head === "AUDIO") return rest.length >= 1 ? { kind: "audio", prompt: rest.slice(0, 1200) } : null;
+  let seconds = 10;
+  if (head === "VIDEO") {
+    const s = /^(\d{1,3})\s*(?:s|sec|seconds?)?\b\s*/i.exec(rest);
+    if (s) { seconds = nearestSeconds(Number(s[1])); rest = rest.slice(s[0].length).trim(); }
+  }
+  const { prompt, aspect } = splitAspect(rest);
+  const clean = prompt ? cleanEnglishPrompt(prompt) : null;
+  if (!clean) return null;
+  return head === "IMAGE" ? { kind: "image", prompt: clean, ...(aspect ? { aspect } : {}) } : { kind: "video", prompt: clean, seconds, ...(aspect ? { aspect } : {}) };
+}
+
+/** The router's user message: the last turns (short) + the new message. */
+export function mediaRouterInput(text: string, context: MediaFollowupContext = {}): string {
+  const prev = [
+    context.previousUser ? "Previous user message: " + String(context.previousUser).slice(0, 300) : "",
+    context.previousAssistant ? "Previous assistant reply: " + String(context.previousAssistant).slice(0, 300) : "",
+  ].filter(Boolean).join("\n");
+  return (prev ? prev + "\n" : "") + "NEW message: " + String(text).slice(0, 400);
+}
+
+/** A final answer that says a picture / video / audio WAS sent. Used only to stop a false claim when nothing was delivered in that run. */
+export function claimsMediaSent(text: string): boolean {
+  const t = String(text || "");
+  return /(?:أرسلت|أرسلتُ|تم إرسال|أُرسلت|أُرسل|ارسلت|هذه هي|ها هي|إليك)\s*(?:لك\s*)?(?:ال)?(?:صورة|صوره|الصورة|فيديو|الفيديو|المقطع|مقطع|الملف الصوتي|التسجيل)/.test(t)
+    || /\b(?:i(?:'ve| have)? sent|here is|here's)\b[^.\n]{0,30}\b(?:image|picture|photo|video|clip|audio)\b/i.test(t);
+}

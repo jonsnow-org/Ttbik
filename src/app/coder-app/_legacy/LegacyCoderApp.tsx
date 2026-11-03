@@ -44,7 +44,7 @@ function ago(iso: string | null, t: Str): string {
 const fmtTime = (iso: string | null, tz: string, lang: Lang) => {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || undefined, weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }).format(new Date(iso.replace(" ", "T").replace(/\+00$/, "Z")));
+    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || undefined, weekday: "short", hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" }).format(new Date(iso.replace(" ", "T").replace(/\+00$/, "Z")));
   } catch {
     return iso.slice(0, 16);
   }

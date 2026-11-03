@@ -11,9 +11,10 @@ beforeEach(() => { process.env.CARD_TZ = "Europe/Istanbul"; });
 afterEach(() => { jest.useRealTimers(); });
 
 describe("clock and durations (Istanbul)", () => {
-  it("12:00:05 UTC is 15:00:05 in Istanbul, with the Arabic date", () => {
+  it("12:00:05 UTC is 3:00:05 PM (م) in Istanbul, 12-hour clock, with the Arabic date", () => {
     const t = Date.parse("2026-10-28T12:00:05Z");
-    expect(clockAt(t)).toBe("15:00:05");
+    expect(clockAt(t)).toBe("3:00:05 م");
+    expect(clockAt(Date.parse("2026-10-28T06:41:00Z"))).toBe("9:41:00 ص");
     expect(dateAt(t)).toBe("الأربعاء 28 أكتوبر 2026");
   });
   it("durations are short and exact", () => {
@@ -53,12 +54,12 @@ describe("the timeline renders only what happened", () => {
     endStep(tl, false, t0 + 9200);
     beginStep(tl, "phase", "write", "جاري الكتابة", t0 + 9300);
     const text = renderTimeline(tl, t0 + 15000);
-    expect(text).toContain("🕒 الأربعاء 28 أكتوبر 2026 · 15:00:00");
+    expect(text).toContain("🕒 الأربعاء 28 أكتوبر 2026 · 3:00:00 م");
     expect(text).toContain("💬 سأقرأ ملف الدخول ثم أصلح الخطأ.");
-    expect(text).toContain("✅ 15:00:01  جاري التفكير · 3.0ث");
-    expect(text).toContain("✅ 15:00:04  قراءة ملف src/auth.ts · 1.2ث");
-    expect(text).toContain("❌ 15:00:05  تشغيل أمر: npm test · 4.0ث");
-    expect(text).toContain("▶️ 15:00:09  جاري الكتابة… · منذ 5.7ث");
+    expect(text).toContain("✅ 3:00:01 م  جاري التفكير · 3.0ث");
+    expect(text).toContain("✅ 3:00:04 م  قراءة ملف src/auth.ts · 1.2ث");
+    expect(text).toContain("❌ 3:00:05 م  تشغيل أمر: npm test · 4.0ث");
+    expect(text).toContain("▶️ 3:00:09 م  جاري الكتابة… · منذ 5.7ث");
     for (let i = 0; i < 20; i++) beginStep(tl, "tool", "tool", `قراءة ملف f${i}`, t0 + 20000 + i * 1000);
     const folded = renderTimeline(tl, t0 + 60000);
     expect(folded).toMatch(/… \d+ خطوات سابقة/);
@@ -219,8 +220,8 @@ describe("Nova: the card is written from the loop's real events", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toBe("الملف يعرّف دالة واحدة.");
     const seen = edits.map((e) => e.text);
-    expect(seen.some((t) => /▶️ \d\d:\d\d:\d\d {2}جاري التنفيذ · قراءة ملف a\/b:src\/x\.ts/.test(t))).toBe(true);   // while it ran
-    expect(seen.some((t) => /✅ \d\d:\d\d:\d\d {2}قراءة ملف a\/b:src\/x\.ts · [\d.]+ث/.test(t))).toBe(true);        // when it ended, with its duration
+    expect(seen.some((t) => /▶️ \d{1,2}:\d\d:\d\d [صم] {2}جاري التنفيذ · قراءة ملف a\/b:src\/x\.ts/.test(t))).toBe(true);   // while it ran
+    expect(seen.some((t) => /✅ \d{1,2}:\d\d:\d\d [صم] {2}قراءة ملف a\/b:src\/x\.ts · [\d.]+ث/.test(t))).toBe(true);        // when it ended, with its duration
     expect(seen.every((t) => !/فهمت طلبك/.test(t))).toBe(true);
   });
 });
