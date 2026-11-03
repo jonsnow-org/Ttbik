@@ -101,14 +101,15 @@ class PrivateCandidateWeights(unittest.TestCase):
                 folder,
                 hub_api_factory=self._fake_hub_api_factory(),
             )
-        self.assertEqual(path.read_bytes(), self.payload)
+            self.assertEqual(path.read_bytes(), self.payload)
         self.assertEqual(self.downloaded_files, [MANIFEST_NAME, "candidate.gguf"])
 
     def test_candidate_workflow_sets_dedicated_read_token_and_valid_shell_continuation(self):
         workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "donor-bakeoff-modelscope.yml"
         source = workflow.read_text(encoding="utf-8")
-        self.assertIn('api.add_secret(studio, "DONOR_MODEL_READ_TOKEN", token)', source)
-        self.assertIn('api.update_secret(studio, "DONOR_MODEL_READ_TOKEN", token)', source)
+        self.assertIn('for secret_name in ("MODELSCOPE_API_TOKEN", "DONOR_MODEL_READ_TOKEN"):', source)
+        self.assertIn("api.add_secret(studio, secret_name, token)", source)
+        self.assertIn("api.update_secret(studio, secret_name, token)", source)
         status_line = next(line for line in source.splitlines() if "studio_code=$(curl" in line)
         self.assertTrue(status_line.endswith("\\"))
         self.assertFalse(status_line.endswith("\\\\"))
