@@ -75,7 +75,17 @@ describe("mini app api", () => {
     const readyFetch = jest.fn(async (input: any, init?: any) => {
       const url = String(input);
       if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-")) return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
-      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+      if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
+        const id = url.includes("sham-donor-gemma4-e4b-test") ? "gemma4-e4b" : url.includes("sham-donor-minicpmo45-test") ? "minicpmo45" : "qwen35-9b";
+        const specs: Record<string, any> = {
+          "qwen35-9b": { sourceRepo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive", weightsRepo: "novaai2026/sham-donor-qwen35-9b-weights", filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf" },
+          "gemma4-e4b": { sourceRepo: "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF", weightsRepo: "novaai2026/sham-donor-gemma4-e4b-weights", filename: "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf", mmproj: "gemma-4-E4B-it-mmproj-BF16.gguf" },
+          "minicpmo45": { sourceRepo: "openbmb/MiniCPM-o-4_5-gguf", weightsRepo: "novaai2026/sham-donor-minicpmo45-weights", filename: "MiniCPM-o-4_5-Q4_K_M.gguf", mmproj: "vision/MiniCPM-o-4_5-vision-F16.gguf" },
+        };
+        const spec = specs[id];
+        const weight_manifest = { candidate_id: id, source_repo_id: spec.sourceRepo, modelscope_repo_id: spec.weightsRepo, modelscope_weights_revision: "2026-11-03-r1", filename: spec.filename, mmproj_filename: spec.mmproj, files: { [spec.filename]: { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, [spec.mmproj]: { sha256: "b".repeat(64), size_bytes: 400_000_000 } } };
+        return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", repo_id: spec.weightsRepo, weight_manifest, media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+      }
       return new Response("unexpected request", { status: 500 });
     }) as any;
     const deps = { db, bot, botRow, fetchImpl: readyFetch };

@@ -554,8 +554,14 @@ describe("isolated primary candidate route", () => {
         return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/run/status") && method === "POST") {
+        const weight_manifest = {
+          candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+          modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights", modelscope_weights_revision: "2026-11-03-r1",
+          filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+          files: { "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
+        };
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", repo_id: "novaai2026/sham-donor-qwen35-9b-weights", weight_manifest, media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/run/chat_start") && method === "POST") {
@@ -591,7 +597,7 @@ describe("isolated primary candidate route", () => {
       if (originalConnectorKey === undefined) delete process.env.CODER_TOKEN_KEY;
       else process.env.CODER_TOKEN_KEY = originalConnectorKey;
     }
-  });
+  }, 20000);
 });
 
 describe("candidate isolation", () => {

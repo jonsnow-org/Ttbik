@@ -76,6 +76,13 @@ describe("donor Studio readiness probe", () => {
           data: [JSON.stringify({
             phase: "ready",
             app_revision: "donor-bakeoff-2026-11-03-r17",
+            repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
+            weight_manifest: {
+              candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+              modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights", modelscope_weights_revision: "2026-11-03-r1",
+              filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+              files: { "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
+            },
             media_capabilities: { vision: true, audio: false, video: true },
             runtime_generation_capabilities: { image: true, audio: false, video: false },
             image_generation_assignment: {
