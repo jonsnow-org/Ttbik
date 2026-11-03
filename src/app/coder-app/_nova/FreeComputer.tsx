@@ -1,5 +1,5 @@
 "use client";
-// The Mini App Computer tab: the shared 8 GB computer hub exposes private user+model sessions for terminal, files, browser and background jobs.
+// The Mini App Computer tab: the reserved private 16 GB computer hub exposes isolated user+model sessions for terminal, files, browser and background jobs.
 // It is the same private session the model works in (files the model made are here; files you make here, the model sees). Replaces the old fake "NOVA / TERMINAL"
 // log box in the Chats tab. Owner only (the server refuses everyone else).
 import { useCallback, useEffect, useRef, useState } from "react";
