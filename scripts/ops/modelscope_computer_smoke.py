@@ -359,7 +359,22 @@ def check_browser(api: str, token: str, session: str) -> None:
         token,
         timeout=180,
     )
-    assert_ok(opened, "headless browser open")
+    if opened.get("ok") is not True:
+        # Include the browser worker's launch diagnostics; never expose the ModelScope token.
+        try:
+            raw = request_json("POST", f"{api}/gradio_api/run/browser_status", token, {"data": []}, timeout=35)
+            state = raw.get("data", raw)
+            if isinstance(state, list):
+                state = state[0] if state else {}
+            if isinstance(state, str):
+                try:
+                    state = json.loads(state)
+                except ValueError:
+                    state = {"raw": state[:1000]}
+        except Exception as exc:  # noqa: BLE001
+            state = {"status_error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        fail("headless browser open: " + str(opened.get("error") or "unknown error")[:1800]
+             + "; browser diagnostics: " + json.dumps(state, ensure_ascii=False)[:2600])
     url = str(opened.get("url") or "")
     title = str(opened.get("title") or "")
     page_text = str(opened.get("text") or "")
