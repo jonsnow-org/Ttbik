@@ -35,7 +35,7 @@ VIEWPORT = {"width": 1152, "height": 768}
 MAX_TEXT = 6000
 MAX_ELEMENTS = 40
 IDLE_SECONDS = 600
-MAX_SESSIONS = 6                 # contexts of ONE shared Chromium cost ~25 MB each (a process per session cost ~500 MB), so several fit in 8 GB
+MAX_SESSIONS = 6                 # contexts of ONE shared Chromium cost ~25 MB each (a process per session cost ~500 MB), so several fit comfortably in the reserved 16 GB hub
 ARIA_LIMIT = 5000
 
 # Debian/Ubuntu packages Chromium needs; fetched (not installed) only when it fails to start for a missing library.
