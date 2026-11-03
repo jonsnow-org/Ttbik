@@ -12,13 +12,14 @@ const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, t
 jest.setTimeout(3_000_000);
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
-const MODELS = (process.env.PROBE_MODELS || "coder,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
+const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
-const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 4 ثوان";
+const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
+const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";
 const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
-const LIMIT = { image: 420_000, video: 600_000 } as const;
+const LIMIT = { image: 420_000, video: 600_000, audio: 300_000 } as const;
 
-async function once(model: string, kind: "image" | "video", text: string): Promise<string> {
+async function once(model: string, kind: "image" | "video" | "audio", text: string): Promise<string> {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
   process.env.CODER_TOKEN_KEY = "live-test";
   const db: any = pgDb();
@@ -35,9 +36,11 @@ async function once(model: string, kind: "image" | "video", text: string): Promi
   };
   (api as any).sendPhoto = grab("photo", "png");
   (api as any).sendVideo = grab("video", "mp4");
+  (api as any).sendAudio = grab("audio", "wav");
+  (api as any).sendVoice = grab("audio", "ogg");
   const t0 = Date.now();
   try {
-    if (model === "coder") await handleCoderSections(bot, botRow, { message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }, db);
+    if (model === "coder" || model === "lfm25") await handleCoderSections(bot, botRow, { message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }, db);
     else if (model === "sham" || model === "sham_v2") await shamVariant.run(model === "sham" ? "v1" : "v2", () => shamMediaFastLane(bot, chat, text, "bot1"));
     else await startDonorTestTelegramTask(bot, chat, text, "bot1", undefined, db, globalThis.fetch, "telegram", model as any);
   } catch (e) { return `${model} ${kind}: EXCEPTION ${String((e as Error)?.message || e).slice(0, 200)}`; }
@@ -54,7 +57,7 @@ async function once(model: string, kind: "image" | "video", text: string): Promi
 test("every model: a picture and a video request", async () => {
   const lines: string[] = [];
   for (const m of MODELS) for (const k of KINDS) {
-    const line = await once(m, k as "image" | "video", k === "image" ? IMAGE : VIDEO);
+    const line = await once(m, k as "image" | "video" | "audio", k === "image" ? IMAGE : k === "audio" ? AUDIO : VIDEO);
     lines.push(line);
     process.stderr.write("ALLMEDIA " + line + "\n");
   }
