@@ -186,6 +186,7 @@ PLAYBOOK = """YOUR COMPUTER - how to work fast
 8. Change a file with computer_edit (exact text) or computer_patch (a unified diff for many changes at once) and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
 10. Tests: computer_test finds the runner (npm / pytest / go / cargo / make) and runs it as a job; read it with computer_job action=log.
 11. Tools here: git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node (computer_tools lists what is installed now).
+12. Several small steps (read + search + run + write): ONE computer_batch call with up to 8 steps; every separate call costs about 2 s of network time.
 9. When your work is done and tested: computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.
 """
 
@@ -1042,8 +1043,8 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
         f"set -e; mkdir -p repos; "
         f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
         f"else rm -rf {q}; mkdir -p {q}; "
-        f"if curl -fsSL --max-time 70 {tar_url} | tar xz -C {q} --strip-components=1; then "
-        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); "
+        f"if curl -fsSL --max-time 70 {tar_url} | tar xz -C {q} --strip-components=1; then echo \"fetched (tarball) in ${{SECONDS}}s\"; "
+        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); echo \"git baseline at ${{SECONDS}}s\"; "
         f"else rm -rf {q}; git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {q}; fi; fi; "
         f"{repo_summary_command(folder)}"
     )
@@ -1070,7 +1071,7 @@ def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
     g = f"-g {shell_quote(glob)} " if glob else ""
     inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
     return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
-            f"else grep -rIn --max-count=20 {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+            f"else grep -rIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
 def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
@@ -1211,6 +1212,76 @@ def unwrap_body(body: str) -> str:
     return text
 
 
+BATCH_MAX_STEPS = 8
+BATCH_BUDGET_S = float(os.environ.get("BOX_BATCH_BUDGET_S", "20"))   # the gateway can drop a call near 30 s: start no new step after this
+
+
+def _dispatch(session: str, action: str, job: dict) -> dict:
+    if action == "run":
+        out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
+    elif action == "write":
+        out = write_file(session, job.get("path", ""), job.get("content", ""))
+    elif action == "read":
+        out = read_path(session, job.get("path", "."))
+    elif action == "job_start":
+        out = job_start(session, job.get("command", ""), job.get("name", ""))
+    elif action == "job_log":
+        out = job_log(session, job.get("id", ""), int(job.get("tail") or 60))
+    elif action == "job_stop":
+        out = job_stop(session, job.get("id", ""))
+    elif action == "job_list":
+        out = job_list(session)
+    elif action == "edit":
+        out = edit_file(session, job.get("path", ""), job.get("old", ""), job.get("new", ""), bool(job.get("replace_all")), job.get("edits"))
+    elif action == "changes":
+        out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
+    elif action == "repo":
+        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+    elif action == "search":
+        out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
+    elif action == "status":
+        out = status(session)
+    elif action == "patch":
+        out = patch_files(session, job.get("diff", ""), job.get("cwd", "."))
+    elif action == "test":
+        out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
+    elif action == "tools":
+        out = tools_inventory(session)
+    else:
+        out = {"ok": False, "error": "unknown action " + action[:30]}
+    return out
+
+
+def run_batch(session: str, steps) -> dict:
+    """Several actions in ONE round trip (each Studio call costs ~1.8 s of gateway time). Steps run in order; the first failure stops the rest
+    unless continue_on_error is set; a step that would start after the time budget is reported as not run, so the call always answers in time."""
+    if not isinstance(steps, list) or not steps:
+        return {"ok": False, "error": "give steps: a list of actions"}
+    t0 = time.time()
+    results = []
+    for i, step in enumerate(steps[:BATCH_MAX_STEPS]):
+        if not isinstance(step, dict):
+            results.append({"ok": False, "error": "step is not an object"}); break
+        act = str(step.get("action") or "")
+        if act in ("batch", "changes"):
+            results.append({"action": act, "ok": False, "error": "not allowed inside a batch"}); break
+        if time.time() - t0 > BATCH_BUDGET_S:
+            results.extend({"action": str((s or {}).get("action") or ""), "ok": False, "skipped": True, "error": "not run: time budget of this call used; send it again"} for s in steps[i:BATCH_MAX_STEPS] if isinstance(s, dict))
+            break
+        if act == "run":                     # a long command must not carry the whole call past the gateway's cut
+            step = {**step, "timeout": max(5, min(int(step.get("timeout") or DEFAULT_TIMEOUT), int(BATCH_BUDGET_S + 8 - (time.time() - t0))))}
+        try:
+            r = _dispatch(session, act, step)
+        except Exception as exc:  # noqa: BLE001
+            r = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+        r["action"] = act
+        results.append(r)
+        if (not r.get("ok") or r.get("exit_code") not in (None, 0)) and not step.get("continue_on_error"):
+            break                                # a failed step or a command that exited non-zero stops the rest
+
+    return {"ok": True, "results": results, "seconds": round(time.time() - t0, 2), "dropped": max(0, len(steps) - BATCH_MAX_STEPS)}
+
+
 def api_box_do(body: str) -> str:
     try:
         job = json.loads(unwrap_body(body) or "{}")
@@ -1223,41 +1294,10 @@ def api_box_do(body: str) -> str:
         return json.dumps({"ok": False, "error": "no session"})
     action = str(job.get("action") or "")
     try:
-        if action == "run":
-            out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
-        elif action == "write":
-            out = write_file(session, job.get("path", ""), job.get("content", ""))
-        elif action == "read":
-            out = read_path(session, job.get("path", "."))
-        elif action == "job_start":
-            out = job_start(session, job.get("command", ""), job.get("name", ""))
-        elif action == "job_log":
-            out = job_log(session, job.get("id", ""), int(job.get("tail") or 60))
-        elif action == "job_stop":
-            out = job_stop(session, job.get("id", ""))
-        elif action == "job_list":
-            out = job_list(session)
-        elif action == "edit":
-            out = edit_file(session, job.get("path", ""), job.get("old", ""), job.get("new", ""), bool(job.get("replace_all")), job.get("edits"))
-        elif action == "changes":
-            out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
-        elif action == "repo":
-            out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
-        elif action == "search":
-            out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
-        elif action == "status":
-            out = status(session)
-        elif action == "patch":
-            out = patch_files(session, job.get("diff", ""), job.get("cwd", "."))
-        elif action == "test":
-            out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
-        elif action == "tools":
-            out = tools_inventory(session)
-        else:
-            out = {"ok": False, "error": "unknown action " + action[:30]}
+        out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
         try:
             tips = welcome(session)                        # once per session, never repeated
         except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error

@@ -107,6 +107,7 @@ export const COMPUTER_PLAYBOOK = [
   "- anything over ~60 s (install, build, tests, download, server) goes to computer_job; do other work, then read its log;",
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
+  "- several small steps (read + search + run + write) go in ONE computer_batch call (up to 8 steps): every separate computer call costs about 2 s.",
   "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
 ].join("\n");
 
@@ -124,6 +125,8 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_test", "Run the project's tests on YOUR computer as a background job (runner detected: npm/pnpm/yarn test, pytest, go test, cargo test, make test). Read it with computer_job action=log.",
     obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
   tool("computer_tools", "List the tools installed on YOUR computer now (git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node go cargo java).", obj({})),
+  tool("computer_batch", "Run up to 8 computer actions in ONE call, in order (each call costs ~2 s of network time: batch reads, searches, small runs and writes). Each step = {tool: computer_run|computer_write|computer_read|computer_edit|computer_search|computer_patch|computer_test|computer_tools|computer_job|computer_repo, ...that tool's arguments}. Stops at the first error unless the step sets continue_on_error.",
+    obj({ steps: { type: "array", items: obj({ tool: s("computer_* tool name"), continue_on_error: { type: "boolean" } }, ["tool"]) } }, ["steps"])),
   tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
@@ -754,11 +757,11 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (res?.error) return `error: ${res.error}`;
       return clip({ published: `${got.files.length} file(s) changed, ${got.deleted.length} deleted in ONE commit on ${branch}`, ...res, ...(got.skipped.length ? { skipped: got.skipped } : {}) });
     }
-    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search" || name === "computer_edit" || name === "computer_patch" || name === "computer_test" || name === "computer_tools") {
+    if (name === "computer_run" || name === "computer_write" || name === "computer_read" || name === "computer_job" || name === "computer_repo" || name === "computer_search" || name === "computer_edit" || name === "computer_patch" || name === "computer_test" || name === "computer_tools" || name === "computer_batch") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
-      if (!mapped) return "error: computer_job action must be start, log, stop or list";
+      if (!mapped) return name === "computer_batch" ? "error: every batch step needs a valid computer_* tool and its arguments" : "error: computer_job action must be start, log, stop or list";
       // one private computer namespace per user AND model on the shared 16 GB computer hub
       return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
     }
@@ -1084,7 +1087,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   github_create_issue: ["📝", "فتح مشكلة"], github_comment: ["💬", "إضافة تعليق"], github_ci_status: ["🧪", "فحص نتائج CI"],
   github_run_workflow: ["▶️", "تشغيل سير عمل"], github_api: ["🔧", "طلب GitHub"], web_search: ["🔎", "بحث في الويب"],
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
-sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_patch: ["🩹", "تطبيق تعديلات على الملفات"], computer_test: ["🧪", "تشغيل الاختبارات"], computer_tools: ["🧰", "أدوات الحاسوب"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
+sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_patch: ["🩹", "تطبيق تعديلات على الملفات"], computer_test: ["🧪", "تشغيل الاختبارات"], computer_tools: ["🧰", "أدوات الحاسوب"], computer_batch: ["⚡", "عدة خطوات على الحاسوب دفعة واحدة"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],

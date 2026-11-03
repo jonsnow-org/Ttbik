@@ -4,6 +4,19 @@ const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice
 import { candidateToolsFor } from "@/lib/donorToolBridge";
 
 describe("the model's own persistent computer", () => {
+  test("computer_batch maps every step to its Studio action, refuses unknown or nested steps, and renders each result", () => {
+    const b = boxActionFor("computer_batch", { steps: [{ tool: "computer_read", path: "a" }, { tool: "computer_run", command: "ls", continue_on_error: true }] });
+    expect(b).toMatchObject({ action: "batch", steps: [{ action: "read", path: "a" }, { action: "run", command: "ls", continue_on_error: true }] });
+    expect(cleanBoxArgs(b!)).toMatchObject({ action: "batch", steps: [{ action: "read" }, { action: "run", continue_on_error: true }] });
+    expect(boxActionFor("computer_batch", { steps: [{ tool: "computer_batch" }] })).toBeNull();
+    expect(boxActionFor("computer_batch", { steps: [{ tool: "rm_rf" }] })).toBeNull();
+    expect(boxActionFor("computer_batch", { steps: [] })).toBeNull();
+    expect(cleanBoxArgs({ action: "batch", steps: [{ action: "batch" }] })).toBeNull();
+    const out = renderBoxReply("batch", { ok: true, seconds: 0.4, results: [{ action: "write", ok: true, path: "x", bytes: 1 }, { action: "run", ok: false, skipped: true, error: "not run: time budget" }] });
+    expect(out).toContain("[1] write: wrote x (1 bytes)");
+    expect(out).toContain("[2] run: not run");
+  });
+
   test("the four tools map to the Studio's actions and nothing else", () => {
     expect(boxActionFor("computer_run", { command: "ls", timeout: 5 })).toMatchObject({ action: "run", command: "ls", timeout: 5 });
     expect(boxActionFor("computer_write", { path: "a.txt", content: "x" })).toMatchObject({ action: "write", path: "a.txt" });

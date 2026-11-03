@@ -416,10 +416,20 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
                 break
             time.sleep(3)
     timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
-    timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
+    tv = timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
+    out["tools_present"] = " ".join(x for x in str(tv.get("output") or "").split() if x.endswith("=yes")).replace("=yes", "")
+    if job:
+        try:
+            fin = box_call(api, token, {"session": session, "action": "job_log", "id": job, "tail": 200}, 60)
+            out["repo_clone_markers"] = " | ".join(l for l in str(fin.get("output") or "").splitlines() if "fetched" in l or "baseline" in l)[:200]
+        except Exception:  # noqa: BLE001
+            pass
     timed("write_src", {"action": "write", "path": "bench/p/a.txt", "content": "one\ntwo\n"})
     timed("patch", {"action": "patch", "cwd": "bench/p", "diff": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n"})
     timed("tools", {"action": "tools"})
+    b = timed("batch_5", {"action": "batch", "steps": [{"action": "run", "command": "echo 1"}, {"action": "write", "path": "bench/b.txt", "content": "b"}, {"action": "read", "path": "bench/b.txt"}, {"action": "search", "pattern": "b", "path": "bench"}, {"action": "run", "command": "echo 5"}]})
+    if b:
+        out["batch_5"]["steps_ok"] = sum(1 for r in (b.get("results") or []) if r.get("ok"))
     return out
 
 
