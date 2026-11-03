@@ -83,7 +83,7 @@ class PrivateCandidateWeights(unittest.TestCase):
     def test_hash_mismatch_refuses_to_return_a_model_path(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "SHA-256 mismatch"):
-                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_hub_api_factory("0" * 64))
+                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", hub_api_factory=self._fake_hub_api_factory("0" * 64))
 
     def test_runtime_downloads_exact_private_files_instead_of_enumerating_repository(self):
         source = Path(__file__).with_name("modelscope_weights.py").read_text(encoding="utf-8")
@@ -103,7 +103,7 @@ class PrivateCandidateWeights(unittest.TestCase):
     def test_manifest_must_pin_a_valid_upstream_source_commit(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(RuntimeError, "manifest does not match"):
-                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", snapshot_download_impl=self._fake_hub_api_factory(source_revision="not-a-commit"))
+                download_candidate_file(self.config, "candidate.gguf", folder, token="secret", hub_api_factory=self._fake_hub_api_factory(source_revision="not-a-commit"))
     def test_runtime_config_cannot_change_to_an_unapproved_weights_revision(self):
         config = dict(self.config, modelscope_weights_revision="unreviewed")
         with tempfile.TemporaryDirectory() as folder:
