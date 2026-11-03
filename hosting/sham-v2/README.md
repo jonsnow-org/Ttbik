@@ -21,18 +21,21 @@ The VM needs these environment variables. Only their names appear here; the valu
 
 Sizing: about 8 GB RAM at run time and 15 GB disk, so a free host needs at least 12 GB RAM.
 
-## Free hosts compared (permanently free; trials excluded)
-Facts checked 2026-11-04 against Oracle's Always Free documentation (docs.oracle.com, "Always Free Resources"):
-- Ampere A1 is now **1,500 OCPU-h and 9,000 GB-h a month**, i.e. **2 OCPU / 12 GB total**. The old 4 OCPU / 24 GB figure was halved in mid-2026.
-- Oracle may reclaim an Always Free VM as idle when, over 7 days, CPU p95 **and** network **and** memory (A1) are all below 20%.
+## Decision (owner condition t87u: free FOREVER, never stopped by usage limits or credit): **Oracle Always Free A1**
+Checked 2026-11-04 against the official pages: docs.oracle.com "Always Free Resources"; huggingface.co/docs "Spaces Overview", "Using GPU Spaces" and "Manage your Space".
 
-| Host | Permanently free resources | Fits Sham v2 (about 8 GB RAM, 15 GB disk)? | Needs owner action |
-|---|---|---|---|
-| **Oracle Cloud Always Free, a NEW tenancy** (recommended) | Ampere A1 ARM: 2 OCPU / 12 GB, 200 GB block storage, 10 TB egress a month | **Yes.** The loaded model keeps memory near 65%, so it is never "idle" by Oracle's rule. arm64 CPU torch wheels exist, and `build.sh` builds natively on the VM. | **Yes: sign-up.** The site's tenancy already uses all its A1 quota (2/12) for the site VM. |
-| Hugging Face Spaces, CPU basic | 2 vCPU / 16 GB / 50 GB, free with no time limit; sleeps after 48 h without traffic | Yes, via the Docker SDK (this Dockerfile, port 7860). | **Yes: sign-up, plus an explicit owner OK.** Project rule: HF is used for downloads only. |
-| ModelScope: another free Studio on the same account | 2 vCPU / 8 GB | Tight. It also sits on the same platform as the first copy, so it adds no host diversity. | No |
-| Google Cloud / AWS / Azure always-free micro VMs | 1 GB RAM | No | — |
-| Render / Koyeb / Fly free tiers | 256 MB to 1 GB RAM | No | — |
+| | Oracle Always Free (Ampere A1) | Hugging Face Spaces, CPU basic |
+|---|---|---|
+| Free forever? | **Yes.** Free "for the life of the account", in the home region. | **No longer, for this use.** The hardware has no hourly cost, but *creating* a Gradio or Docker Space now requires a paid plan (PRO). Without it the API returns HTTP 402. Only static Spaces are free. |
+| CPU / RAM / disk | 2 OCPU (2 physical Arm cores) / 12 GB / 200 GB block storage, persistent | 2 vCPU / 16 GB / 50 GB, not persistent (weights download again on every restart) |
+| Sleep / idle | Reclaimed only when CPU p95, network **and** memory are all below 20% for 7 days. Sham v2 keeps about 8 of 12 GB resident (about 65%), so it is never idle. No keep-alive is needed; a cron health check restarts the container. | Sleeps after 48 h without visits, and the sleep time can't be changed on free hardware. An external ping could keep it awake, but the paid-plan requirement already rules it out. |
+| Capacity | A1 can fail with "out of host capacity". Retry in another availability domain or later. Pick a region with capacity at sign-up. | n/a |
+| Sign-up | A card is checked at sign-up and Always Free resources are never charged. Do **not** upgrade to Pay As You Go. Oracle allows one free tenancy per person, so the new tenancy must be in the owner's own legitimate details, not a duplicate identity. | Account plus PRO subscription. |
+| Existing account | **Full.** The site/bot VM already uses the tenancy's whole A1 allowance (2 OCPU / 12 GB; see deploy/oracle/README-AR.md). | — |
+| Expected Sham v2 speed | About the same as its 2 vCPU ModelScope Studio. Two full Arm cores (not hyperthreads), but no AVX-512/AMX, so roughly ±30%. Not measured yet. | Similar (2 shared vCPU) |
+
+**Decision: Oracle.** Hugging Face fails the "free forever" condition (PRO is required to create a Docker Space), so it is not implemented, even though the owner authorised it.
+- If Oracle sign-up is impossible, the free fallback is a third ModelScope Studio (2 vCPU / 8 GB, free). It is tight, and it sits on the same platform.
 
 ## Owner steps for the recommended host (Oracle Always Free, new tenancy)
 1. **Owner only:** sign up at https://signup.cloud.oracle.com with a different email from the site's tenancy. Choose a home region with A1 capacity (for example Frankfurt or Amsterdam). Oracle asks for card verification but does not charge Always Free resources. Do not upgrade to Pay As You Go.
