@@ -29,10 +29,10 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1024"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "768"))))
+WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
+HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
 MAX_TYPE = 1200
-MAX_FRAME_BYTES = 450_000
+MAX_FRAME_BYTES = 560_000
 PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm")
 
 _LOCK = threading.RLock()
@@ -473,11 +473,11 @@ def _screenshot() -> dict:
     image = image.convert("RGB")
     from io import BytesIO
     out = BytesIO()
-    image.save(out, format="JPEG", quality=56, optimize=True)
+    image.save(out, format="JPEG", quality=62, optimize=True)
     raw = out.getvalue()
     if len(raw) > MAX_FRAME_BYTES:
         out = BytesIO()
-        image.save(out, format="JPEG", quality=38, optimize=True)
+        image.save(out, format="JPEG", quality=48, optimize=True)
         raw = out.getvalue()
     return {
         "screenshot_b64": base64.b64encode(raw).decode("ascii"),

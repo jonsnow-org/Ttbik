@@ -29,9 +29,9 @@ export type PubModel = { id: string; name: { ar: string; en: string }; desc: { a
 export type PubPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars: number | null; days: number; current: boolean; tier: number };
 export type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
 export type OwnPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars?: number | null; days?: number; active: boolean };
-export async function api<T = any>(op: string, body: Record<string, unknown> = {}): Promise<T> {
+export async function api<T = any>(op: string, body: Record<string, unknown> = {}, timeoutMs = 20000): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), Math.max(1000, Math.min(120000, timeoutMs)));
   try {
     const r = await fetch("/api/coder/app", {
       method: "POST",

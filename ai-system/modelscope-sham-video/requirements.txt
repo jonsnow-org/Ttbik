@@ -7,4 +7,3 @@ safetensors
 pillow
 numpy
 imageio-ffmpeg
-playwright

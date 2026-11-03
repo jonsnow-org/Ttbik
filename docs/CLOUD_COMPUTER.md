@@ -1,44 +1,45 @@
-# The model-owned graphical computer and distributed task workers
+# The shared isolated graphical computer and distributed task workers
 
 ## Architecture
 
-The application has one authenticated computer surface, but its work is split between three different execution resources. These are not treated as interchangeable live machines:
+The application exposes one authenticated computer surface backed by a dedicated, private 8 GB ModelScope computer hub. It is an execution host, not a language model or a media generator. Work is split between three different execution resources:
 
-1. **ModelScope Studio — the selected model's private computer and graphical desktop.** Each model is routed only to its own media Studio. Its computer shell, headless browser, graphical desktop and model media service share that Studio, but only one heavy execution mode may occupy it at a time.
-2. **Oracle Linux runner — primary task-scoped Linux worker.** It runs isolated containers for build, code execution, repository work and tests when its health and memory gates pass. It does not carry the user's live desktop session.
-3. **GitHub Actions — ephemeral batch worker.** It handles CI, repository clone/build/test and artifact-producing jobs. It is not a persistent shell or an interactive desktop.
+1. **Dedicated ModelScope computer hub.** Terminal, persistent files, jobs, Chromium and the graphical desktop run here. Every session is isolated by verified user ID and selected model ID; users and models do not share home directories, browser cookies or desktop sessions.
+2. **Model-specific ModelScope inference and media Studios.** Nova, Sham v2 and each candidate retain their own inference and media weights. Image, speech and real video generation execute on the selected model's assigned media Studio, not on the computer hub.
+3. **Oracle Linux runner and GitHub Actions.** Oracle handles eligible task-scoped Linux work; GitHub Actions handles discrete CI/build/test/export jobs. Neither is presented as a persistent interactive desktop.
 
 The application may move a task between workers only after saving its files, logs and next step. A live process, browser window, in-memory state or open graphical session is never claimed to have migrated between hosts.
 
-## ModelScope computer
+## Dedicated ModelScope computer
 
-Each supported model uses its own Studio URL and its own copy of the media/computer runtime. A session identifier is derived on the server from the verified user ID and selected model ID. It is not accepted from an arbitrary client locator.
+All supported models use the same private computer-only Studio URL, but **not a shared workspace**. A session identifier is derived on the server from the verified user ID and selected model ID; the server does not trust an arbitrary client locator.
 
-### The three functions inside the model's Studio
+### Three interfaces backed by isolated sessions
 
-- **Persistent Linux workspace** (computer_box.py): shell commands, file read/write, repository checkout, local search and background jobs. Each user/model session has a hashed workspace, a separate unprivileged Unix UID and a private home under /mnt/workspace/computer.
-- **Headless browser** (browser_computer.py): JavaScript-capable Chromium controlled through bounded browser actions. It is separate from the graphical screen session, and the same Studio-wide lock prevents simultaneous use when memory is constrained.
-- **Graphical desktop** (desktop_computer.py): Xvfb display server, Openbox window manager, terminal, file manager and an optional visible Chromium window. It returns JPEG screen frames through the existing authenticated Gradio API and accepts bounded mouse, keyboard and scroll actions. It does not open a public VNC port or require a Docker socket.
+- **Persistent Linux workspace** (`computer_box.py`): shell commands, file read/write, repository checkout, local search and background jobs. Each user/model session has a hashed workspace, a separate unprivileged Unix UID and a private home under `/mnt/workspace/computer`.
+- **Headless browser** (`browser_computer.py`): JavaScript-capable Chromium controlled through bounded browser actions. It uses a per-session browser context, cookies and persistent directory.
+- **Graphical desktop** (`desktop_computer.py`): Xvfb display server, Openbox window manager, terminal, file manager and an optional visible Chromium window. It returns JPEG screen frames through the authenticated Gradio API and accepts bounded mouse, keyboard and scroll actions. It does not open a public VNC port or require a Docker socket.
 
-The Mini App exposes the graphical desktop in its own tab. The old headless-browser tab remains a separate automation surface. The terminal and files views use the same private workspace as the model.
+The Mini App exposes the graphical desktop in its own tab. The headless browser remains a separate automation interface, and terminal/files views use the same private user+model workspace as the selected model's computer tools.
 
 ### Admission and isolation controls
 
-- Start is refused unless /proc/meminfo reports at least **3072 MB MemAvailable**. Unknown memory is a refusal, not an assumed pass.
-- A single execution slot is reserved at Studio scope. The desktop, shell jobs, headless browser and media generation do not run concurrently when the lock is held.
-- The desktop can be assigned to only one user session in a Studio at a time. Other users receive a busy state without seeing the session ID, display or screenshot.
+- Desktop start is refused unless `/proc/meminfo` reports at least **3072 MB MemAvailable**. Unknown memory is a refusal, not an assumed pass.
+- The 8 GB hub can allocate up to three isolated desktop slots, but every start is guarded by its live memory check. Shell jobs and browser contexts have their own bounded concurrency limits.
+- The desktop is assigned to its own user+model slot. Other sessions receive a busy/capacity response without seeing another session's ID, display or screenshot.
 - Child applications run under that session's Unix UID, with a clean environment that does not pass Studio secrets into the desktop process.
 - The desktop will not start a network-capable session unless the Studio confirms its UID-scoped private-network and metadata egress rules.
 - Input is restricted to named desktop actions. Mouse coordinates, text length, scroll count and keyboard key names are bounded server-side.
-- Idle desktop sessions are stopped after the configured inactivity window. The workspace files remain in the persistent Studio directory.
+- Idle desktop sessions are stopped after the configured inactivity window. Workspace files remain in persistent storage.
 
-The display is intentionally lightweight: the Mini App refreshes screen images approximately every two seconds. This is an interactive remote desktop surface, not a 60-fps GPU workstation or a full video-streaming protocol. Large graphical workloads, GPU-dependent applications and high-frame-rate media editing are outside the CPU-only Studio profile.
+The display refreshes approximately every two seconds. This is an interactive remote desktop surface, not a 60-fps GPU workstation. Large graphical workloads, GPU-dependent applications and high-frame-rate media editing are outside the CPU-only computer profile.
 
 ## First start
 
 The first graphical start installs the small X11 package set through the Studio's configured package mirror, then starts Xvfb and Openbox. If the Studio does not have root access, a package mirror, enough free memory or a working egress firewall, start fails closed and reports the reason. A failed start does not claim that a desktop is running.
 
-The visible browser reuses Chromium only when a non-headless executable is present in that model's Studio. If only the automation browser is installed, the desktop reports that the visible browser is unavailable; the headless browser remains a separate option.
+The visible browser reuses Chromium only when a non-headless executable is present. The separate headless Chromium interface remains available independently.
+
 
 ## Oracle task runner
 

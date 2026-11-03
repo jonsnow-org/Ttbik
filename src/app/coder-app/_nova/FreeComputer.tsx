@@ -1,5 +1,5 @@
 "use client";
-// The Mini App's "Computer" tab: the model's own FREE computer (ai-system/modelscope-media/computer_box.py) as a real terminal, file browser and background jobs.
+// The Mini App Computer tab: the shared 8 GB computer hub exposes private user+model sessions for terminal, files, browser and background jobs.
 // It is the same private session the model works in (files the model made are here; files you make here, the model sees). Replaces the old fake "NOVA / TERMINAL"
 // log box in the Chats tab. Owner only (the server refuses everyone else).
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -133,7 +133,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
           </div>
           {deskBusy && <div className="n-meta">{ar ? "… يعمل" : "… working"}</div>}
           {page?.error && <div className="n-note" role="alert">{page.error}</div>}
-          {page?.shot ? <img ref={imgRef} src={page.shot} alt={page.title} onClick={tapPicture} style={{ width: "100%", borderRadius: 8, border: "1px solid #8884", cursor: "pointer" }} /> : <div className="n-meta">{ar ? "المتصفح الخاص بحاسوب هذا النموذج: اكتب عنواناً واضغط «فتح». المتصفح نفسه الذي يستخدمه النموذج." : "This model's own browser: type an address and press Go. It is the same browser the model uses."}</div>}
+          {page?.shot ? <img ref={imgRef} src={page.shot} alt={page.title} onClick={tapPicture} style={{ width: "100%", maxHeight: "72vh", height: "auto", objectFit: "contain", borderRadius: 8, border: "1px solid #8884", cursor: "pointer" }} /> : <div className="n-meta">{ar ? "المتصفح الخاص بحاسوب هذا النموذج: اكتب عنواناً واضغط «فتح». المتصفح نفسه الذي يستخدمه النموذج." : "This model's own browser: type an address and press Go. It is the same browser the model uses."}</div>}
           {page?.title && <div className="n-meta" style={{ marginTop: 6 }}>{page.title}</div>}
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <input id="deskType" dir="auto" placeholder={ar ? "اكتب نصاً في الحقل المحدد…" : "type into the focused field…"} style={{ flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }}

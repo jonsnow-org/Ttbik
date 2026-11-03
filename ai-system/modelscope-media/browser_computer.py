@@ -31,7 +31,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 STORE = Path(os.environ.get("BROWSER_STORE", "/mnt/workspace/browser"))
-VIEWPORT = {"width": 1024, "height": 700}
+VIEWPORT = {"width": 1152, "height": 768}
 MAX_TEXT = 6000
 MAX_ELEMENTS = 40
 IDLE_SECONDS = 600
@@ -409,7 +409,7 @@ class _Worker(threading.Thread):
             if visual:
                 out["visual"] = visual
         if shot:
-            out["screenshot_b64"] = base64.b64encode(page.screenshot(type="jpeg", quality=55)).decode()
+            out["screenshot_b64"] = base64.b64encode(page.screenshot(type="jpeg", quality=60)).decode()
         return out
 
     def _do(self, p, job: dict) -> dict:

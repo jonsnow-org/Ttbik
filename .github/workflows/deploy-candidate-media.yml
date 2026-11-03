@@ -13,11 +13,7 @@ on:
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/nova_media_probe.py
-      - ai-system/modelscope-media/browser_computer.py
-      - ai-system/modelscope-media/computer_box.py
-      - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/requirements.txt
-      - scripts/ops/modelscope_computer_smoke.py
       - .github/workflows/deploy-candidate-media.yml
   workflow_dispatch: {}
 
@@ -108,10 +104,10 @@ jobs:
           git config --global user.name "media CI"
           git config --global user.email "ci@media.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/desktop_computer.py ai-system/modelscope-media/requirements.txt ms-studio/
+          cp ai-system/modelscope-media/app.py ai-system/modelscope-media/requirements.txt ms-studio/
           cp ai-system/colab/sham_small/media_quality.py ms-studio/media_quality.py
           cd ms-studio
-          git add app.py browser_computer.py computer_box.py desktop_computer.py requirements.txt media_quality.py
+          git add app.py requirements.txt media_quality.py
           git diff --cached --quiet && echo "no change" || git commit -m "media: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
@@ -188,9 +184,3 @@ jobs:
           name: ${{ matrix.candidate.id }}-media-video-smoke
           path: ${{ runner.temp }}/probe.mp4
           if-no-files-found: ignore
-      - name: Live test this candidate's own persistent computer and graphical desktop
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
-          MODEL_ID: ${{ matrix.candidate.id }}
-        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id "$MODEL_ID"

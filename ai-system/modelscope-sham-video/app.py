@@ -28,52 +28,6 @@ from media_quality import MediaQualityError, check_mp4  # noqa: E402
 
 ENVS = ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")
 
-# Sham v2's own free computer (shell, files, jobs, headless browser) lives in this Studio: Sham v2's own, never shared with Nova or a candidate.
-try:
-    import browser_computer
-except Exception:                                                             # noqa: BLE001  (the video Studio works without the browser)
-    browser_computer = None
-try:
-    import computer_box
-except Exception:                                                             # noqa: BLE001  (the video Studio works without the computer)
-    computer_box = None
-try:
-    import desktop_computer
-except Exception:                                                             # noqa: BLE001  (the video Studio remains usable without the graphical desktop)
-    desktop_computer = None
-
-
-def api_desktop_do(body: str) -> str:
-    """Authenticated graphical desktop API, scoped to the same private Studio session as computer_box."""
-    if desktop_computer is None:
-        return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
-    wire = str(body or "{}")
-    if wire.startswith("b64:"):
-        encoded = wire[4:]
-        if len(encoded) > 128_000:
-            return json.dumps({"ok": False, "error": "desktop request is too large"})
-        try:
-            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
-        except (ValueError, UnicodeDecodeError):
-            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
-    try:
-        request = json.loads(wire or "{}")
-    except (TypeError, ValueError):
-        return json.dumps({"ok": False, "error": "invalid desktop request"})
-    if not isinstance(request, dict):
-        return json.dumps({"ok": False, "error": "desktop request must be an object"})
-    normalized = json.dumps(request, ensure_ascii=False)
-    if str(request.get("action") or "").lower() == "start":
-        if not _LOCK.acquire(blocking=False):
-            return json.dumps({"ok": False, "phase": "busy", "error": "video generation is using this Studio; retry desktop start when it finishes"})
-        try:
-            return desktop_computer.api_desktop_do(normalized)
-        finally:
-            _LOCK.release()
-    return desktop_computer.api_desktop_do(normalized)
-
-
-
 def _ram() -> dict:
     try:
         mem = {l.split(":")[0]: int(l.split()[1]) // 1024 for l in open("/proc/meminfo") if l.split(":")[0] in ("MemTotal", "MemAvailable")}
@@ -142,25 +96,14 @@ def _warm() -> None:
             time.sleep(120)
 
 
+
 if __name__ == "__main__":
     import gradio as gr
     threading.Thread(target=_warm, daemon=True).start()
-    if browser_computer is not None:
-        threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
-    if computer_box is not None:
-        threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
     with gr.Blocks() as demo:
-        gr.Markdown("Sham v2 video Studio — real text-to-video on CPU for Sham v2.")
+        gr.Markdown("Sham v2 video Studio — real text-to-video on CPU. Computer tools run on the separate isolated computer hub.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
         gr.Button("generate_video", visible=False).click(generate_video, box, out, api_name="generate_video")
         gr.Button("status", visible=False).click(status, None, out, api_name="status")
-        if browser_computer is not None:
-            gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
-            gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
-        if computer_box is not None:
-            gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
-            gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
-        if desktop_computer is not None:
-            gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

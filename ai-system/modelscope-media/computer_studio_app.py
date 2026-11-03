@@ -1,4 +1,4 @@
-"""Dedicated 16 GB CPU computer hub for all supported user+model sessions.
+"""Dedicated 8 GB CPU computer hub for all supported user+model sessions.
 
 This Studio is computer-only: no LLM, image/audio/video weights or MiniCPM
 runtime. Inference and media remain in the selected model's own Studios.
@@ -14,10 +14,10 @@ os.environ.setdefault("COMPUTER_MIN_AVAILABLE_MB", "2048")
 os.environ.setdefault("COMPUTER_MEMORY_KILL_MB", "8192")
 os.environ.setdefault("COMPUTER_QUOTA_GB", "8")
 os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
-os.environ.setdefault("DESKTOP_WIDTH", "1280")
-os.environ.setdefault("DESKTOP_HEIGHT", "800")
+os.environ.setdefault("DESKTOP_WIDTH", "1344")
+os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-02-r2"
+APP_REVISION = "computer-hub-8gb-2026-11-03-r3"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
@@ -140,7 +140,7 @@ def api_browser_bootstrap():
     return json.dumps({"ok":True,"phase":"installing"})
 
 import importlib.util
-DESKTOP_SLOTS=max(1,min(6,int(os.environ.get("DESKTOP_SLOTS") or ("5" if (_mem_total_mb() or 0)>12000 else "3"))))      # more desktops at the same time on a 16 GB Studio
+DESKTOP_SLOTS=max(1,min(6,int(os.environ.get("DESKTOP_SLOTS") or ("5" if (_mem_total_mb() or 0)>12000 else "3"))))      # three independent desktop slots on this 8 GB hub, subject to the free-memory gate
 computer_box.MAX_DESKTOPS=DESKTOP_SLOTS
 _DISPATCH_LOCK=threading.Lock()
 
@@ -178,7 +178,7 @@ def main():
     threading.Thread(target=_bootstrap_core,daemon=True,name="computer-core-bootstrap").start()
     import gradio as gr
     with gr.Blocks() as demo:
-        gr.Markdown("Dedicated 16 GB Linux computer — terminal, persistent files, background jobs, Chromium and graphical desktop.")
+        gr.Markdown("Dedicated 8 GB Linux computer hub — isolated user+model workspaces, terminal, persistent files, Chromium and graphical desktop.")
         body=gr.Textbox(visible=False)
         out=gr.Textbox(visible=False)
         gr.Button("status",visible=False).click(api_status,None,out,api_name="status")
