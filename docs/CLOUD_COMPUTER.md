@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The application exposes one authenticated computer surface backed by a dedicated, private 8 GB ModelScope computer hub. It is an execution host, not a language model or a media generator. Work is split between three different execution resources:
+The application exposes one authenticated computer surface backed by the reserved, private 16 GB ModelScope computer hub (`nova-inference-server`). It is an execution host, not a language model or a media generator. Work is split between three different execution resources:
 
 1. **Dedicated ModelScope computer hub.** Terminal, persistent files, jobs, Chromium and the graphical desktop run here. Every session is isolated by verified user ID and selected model ID; users and models do not share home directories, browser cookies or desktop sessions.
 2. **Model-specific ModelScope inference and media Studios.** Nova, Sham v2 and each candidate retain their own inference and media weights. Image, speech and real video generation execute on the selected model's assigned media Studio, not on the computer hub.
