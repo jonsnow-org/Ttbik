@@ -125,12 +125,12 @@ describe("writing fast: edit in place and publish in one commit", () => {
     expect(gh).not.toHaveBeenCalled();
   });
 
-  test("publishing to a default or protected branch asks for confirmation like every other push, and candidates cannot publish at all", async () => {
+  test("publishing to a default or protected branch asks for confirmation like every other push, and candidates can publish like Nova (the same confirmation)", async () => {
     const gh = async (_m: string, p: string) => p === "/repos/o/r" ? { status: 200, data: { default_branch: "main" } } : p.includes("/branches/") ? { status: 200, data: { protected: false } } : { status: 404, data: {} };
     const guard = await guardCall(call("computer_publish", { repo: "o/r", branch: "main", message: "m" }), gh as any, "user");
     expect(guard.confirm).toBe(true);
     const names = candidateToolsFor(["computer", "github"], true, false).map((t) => t.function.name);
-    expect(names).not.toContain("computer_publish");
+    expect(names).toContain("computer_publish");                          // owner 2026-11-02: candidates have the same tools as Nova; a push to a default / protected branch still asks (guard above)
     expect(names).toContain("computer_edit");
   });
 });
