@@ -96,7 +96,10 @@ describe("model router line parsing (owner 2026-11-04)", () => {
   const mf = require("@/lib/coderMediaFast");
   it("parses CHAT / NO / IMAGE / VIDEO / AUDIO", () => {
     expect(mf.parseMediaRoute("CHAT")).toEqual({ kind: "chat" });
-    expect(mf.parseMediaRoute("NO")).toEqual({ kind: "refuse" });
+    expect(mf.parseMediaRoute("NO")).toBeNull(); // no refusal kind (owner 2026-11-04)
+    expect(mf.sexualMinorRequest("صورة طفلة عارية")).toBe(true);
+    expect(mf.sexualMinorRequest("a nude woman on a beach")).toBe(false);
+    expect(mf.sexualMinorRequest("a small boy playing with a ball")).toBe(false);
     expect(mf.parseMediaRoute("IMAGE [tall] a chubby blonde girl wearing a swimsuit")).toEqual({ kind: "image", prompt: "a chubby blonde girl wearing a swimsuit", aspect: "tall" });
     expect(mf.parseMediaRoute("VIDEO 30 [wide] a lion running in the desert")).toEqual({ kind: "video", prompt: "a lion running in the desert", seconds: 30, aspect: "wide" });
     expect(mf.parseMediaRoute("VIDEO a rabbit playing in a garden")).toEqual({ kind: "video", prompt: "a rabbit playing in a garden", seconds: 10 });
