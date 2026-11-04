@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
+import { rawInitData } from "../_tma/sdk";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
@@ -12,6 +13,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("https://example.com");
   const [typed, setTyped] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [activity, setActivity] = useState<any[]>([]);
+  const [runningJobs, setRunningJobs] = useState<any[]>([]);
+  const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -33,6 +38,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
 
   useEffect(() => {
     const phase = String(status?.phase || "");
+    if (phase === "running" && streaming) return;
     if (!["installing", "starting", "running"].includes(phase)) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -60,7 +66,79 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     };
     void tick();
     return () => { stopped = true; clearTimeout(timer); };
-  }, [status?.phase, model]);
+  }, [status?.phase, model, streaming]);
+
+  // The computer Studio exposes a true Gradio SSE stream: frames and activity arrive
+  // in one bounded call, then the client reconnects before the gateway's 25 s limit.
+  useEffect(() => {
+    if (!running) { setStreaming(false); return; }
+    let stopped = false;
+    let controller: AbortController | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
+    const connect = async () => {
+      setStreaming(true);
+      while (!stopped) {
+        controller = new AbortController();
+        try {
+          const response = await fetch("/api/coder/app", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+            body: JSON.stringify({ op: "desktop_live", model, seconds: 20 }),
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            throw new Error(String(body?.error || `Live desktop HTTP ${response.status}`));
+          }
+          if (!response.body) throw new Error("Live desktop stream is empty");
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          const consume = (block: string) => {
+            if (!block.trim()) return;
+            if (/^event:\s*error/m.test(block)) throw new Error("Computer Studio ended the live stream with an error");
+            const data = block.split(/\\r?\\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\\n");
+            if (!data || data === "[DONE]") return;
+            let parsed: any;
+            try { parsed = JSON.parse(data); } catch { return; }
+            const value = Array.isArray(parsed) ? parsed[0] : parsed;
+            let event: any = value;
+            if (typeof value === "string") { try { event = JSON.parse(value); } catch { return; } }
+            if (!event || typeof event !== "object") return;
+            if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
+            if (event.phase) setStatus((prior: any) => ({ ...(prior || {}), phase: event.phase }));
+            if (Array.isArray(event.activity)) setActivity(event.activity);
+            if (Array.isArray(event.running_jobs)) setRunningJobs(event.running_jobs);
+            if (event.frame_error) setError(String(event.frame_error));
+            else if (event.ok !== false) setError("");
+          };
+          while (!stopped) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const blocks = buffer.split(/\\r?\\n\\r?\\n/);
+            buffer = blocks.pop() || "";
+            for (const block of blocks) consume(block);
+          }
+          if (buffer) consume(buffer);
+        } catch (e: any) {
+          if (!stopped && e?.name !== "AbortError") {
+            setStreaming(false);
+            setError(String(e?.message || e));
+            break; // fall back to the existing bounded screenshot polling path
+          }
+        }
+        if (!stopped) await new Promise<void>((resolve) => { reconnect = setTimeout(resolve, 250); });
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      controller?.abort();
+      if (reconnect) clearTimeout(reconnect);
+    };
+  }, [model, running]);
 
   const perform = async (args: Record<string, unknown>) => {
     if (busy) return;
@@ -112,8 +190,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       </div>
       <div className="n-meta" style={{ marginBottom: 8 }}>
         {ar
-          ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل. تُحدّث الصورة كل نحو ثانيتين؛ هذا ليس بثاً فورياً بسرعة 60 إطاراً."
-          : "Computer hub memory available: " + available + ". Start requires at least 3072 MB. The screen refreshes about every two seconds; this is not 60-fps streaming."}
+          ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل. "
+          : "Computer hub memory available: " + available + ". Start requires at least 3072 MB. "}
+        {running ? (streaming ? (ar ? "بث حي للشاشة والأنشطة." : "Live screen and activity stream.") : (ar ? "وضع اللقطات الاحتياطي." : "Fallback screenshot mode.")) : null}
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
@@ -128,7 +207,19 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             event.preventDefault();
             void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
           }}
-          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (["INPUT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName || "")) return;
+            const names: Record<string, string> = { " ": "Space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
+            const key = names[event.key] || (event.key.length === 1 ? event.key : event.key);
+            const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
+            const mapped = [...modifiers, key].join("+");
+            if (/^[A-Za-z0-9_+ -]{1,40}$/.test(mapped)) {
+              event.preventDefault();
+              void perform({ action: "key", key: mapped.replace(/ /g, "") });
+            }
+          }}
+          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", transform: `scale(${zoom})`, transformOrigin: "top center", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
         />
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>
@@ -139,6 +230,21 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           </div>
         </div>
       )}
+      {running ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+          <span className="n-meta">{ar ? "تكبير الشاشة" : "Screen zoom"}</span>
+          <button type="button" className="n-btn n-ghost" disabled={zoom <= 0.7} onClick={() => setZoom((v) => Math.max(0.7, Math.round((v - 0.1) * 10) / 10))}>−</button>
+          <span className="n-meta">{Math.round(zoom * 100)}%</span>
+          <button type="button" className="n-btn n-ghost" disabled={zoom >= 1.5} onClick={() => setZoom((v) => Math.min(1.5, Math.round((v + 0.1) * 10) / 10))}>＋</button>
+        </div>
+      ) : null}
+      {running && (activity.length > 0 || runningJobs.length > 0) ? (
+        <div className="n-note" style={{ marginTop: 8, maxHeight: 150, overflow: "auto" }}>
+          <strong>{ar ? "نشاط الحاسوب" : "Computer activity"}</strong>
+          {activity.slice(-6).map((item, index) => <div key={item?.id || item?.seq || index} style={mono}>{String(item?.text || item?.message || item).slice(0, 220)}</div>)}
+          {runningJobs.map((job, index) => <div key={job?.id || index} style={mono}>{String(job?.name || job?.command || "Background job")}: {ar ? "يعمل" : "running"}</div>)}
+        </div>
+      ) : null}
       {running ? (
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <input value={address} dir="ltr" onChange={(event) => setAddress(event.target.value)} placeholder="https://example.com" style={{ ...mono, minWidth: 140, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }} />
