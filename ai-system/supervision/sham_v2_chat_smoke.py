@@ -8,7 +8,7 @@ import os
 import re
 import time
 import uuid
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
@@ -20,9 +20,17 @@ COMPUTER_BASE = (os.environ.get("COMPUTER_STUDIO_URL") or "https://studio-novaai
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = json.dumps(payload or {}, ensure_ascii=False).encode("utf-8") if payload is not None else None
-    req = Request(url, data=data, headers=headers, method=method)
-    with urlopen(req, timeout=timeout) as res:
-        return json.loads(res.read().decode("utf-8"))
+    # the shared gateway answers 429/502-504 when several live checks hit it at once: wait and retry a few times
+    waits = [3, 8, 15, 30]
+    for attempt in range(len(waits) + 1):
+        req = Request(url, data=data, headers=headers, method=method)
+        try:
+            with urlopen(req, timeout=timeout) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except HTTPError as exc:
+            if exc.code not in (429, 502, 503, 504) or attempt == len(waits):
+                raise
+            time.sleep(waits[attempt])
 
 
 def unwrap_line(line: str):
