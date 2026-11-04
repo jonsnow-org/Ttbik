@@ -512,20 +512,20 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
             return fh.read()
 
 
-CV_SUPPORTED_DURATIONS = (2, 4, 10, 15, 30, 60, 120)
+CV_SUPPORTED_DURATIONS = (2, 4, 6, 10, 15, 30, 60, 120)
 
 
 def cv_chunk_plan(seconds: int | float) -> list[int]:
     """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
     import math
     if isinstance(seconds, bool):
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     try:
         requested = float(seconds)
     except (TypeError, ValueError) as exc:
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds") from exc
     if not math.isfinite(requested) or not requested.is_integer() or int(requested) not in CV_SUPPORTED_DURATIONS:
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     remaining = int(requested)
     chunks = []
     while remaining > 4:
@@ -745,7 +745,7 @@ def api_status() -> str:
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),
-                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
+                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 6, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
     })
 
 

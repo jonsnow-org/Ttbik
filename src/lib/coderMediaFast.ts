@@ -48,8 +48,8 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
     return { kind: followupKind, subject };
   }
   const digits = raw.replace(/[٠-٩۰-۹]/g, (d) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(d) % 10));
-  const secondsMatch = digits.match(/\b(10|15|30|60|120)\s*(?:seconds?|secs?|s)\b/i)
-    || digits.match(/(10|15|30|60|120)\s*(?:ثواني|ثانية|ثانيه|ثوان)/i);
+  const secondsMatch = digits.match(/\b(6|10|15|30|60|120)\s*(?:seconds?|secs?|s)\b/i)
+    || digits.match(/(6|10|15|30|60|120)\s*(?:ثواني|ثانية|ثانيه|ثوان)/i);
   const minutesMatch = digits.match(/\b([12])\s*(?:minutes?|mins?|m)\b/i)
     || digits.match(/([12])\s*(?:دقيقة|دقائق|دقايق)/i);
   const requestedSeconds = secondsMatch ? Number(secondsMatch[1]) : minutesMatch ? Number(minutesMatch[1]) * 60
@@ -148,7 +148,7 @@ export const MEDIA_ROUTER_SYSTEM = "You route ONE new chat message of a user who
   + "كيف أصنع فيديو بالذكاء الاصطناعي؟ => CHAT\n"
   + "شكرا الصورة جميلة => CHAT";
 
-const SECONDS = [10, 15, 30, 60, 120];
+const SECONDS = [6, 10, 15, 30, 60, 120];
 const nearestSeconds = (n: number): number => SECONDS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a), 10);
 
 /** Parses the router's one line. null = unreadable (the caller treats it as "the model did not decide"). */

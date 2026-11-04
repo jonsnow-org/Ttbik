@@ -17,7 +17,7 @@ const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة ح
 const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
 const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";
 const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
-const LIMIT = { image: 420_000, video: 600_000, audio: 300_000 } as const;
+const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS || 600_000), audio: 300_000 } as const;     // a 1-2 min clip on CPU needs far longer than 10 min
 
 async function once(model: string, kind: "image" | "video" | "audio", text: string): Promise<string> {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";

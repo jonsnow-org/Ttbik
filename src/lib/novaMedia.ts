@@ -73,8 +73,8 @@ export async function novaMakeMedia(
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
   const requestedSeconds = kind === "video" ? Number(opts.seconds ?? pressureMedia().videoSeconds) : undefined;
   const videoSeconds = requestedSeconds;
-  if (kind === "video" && ![10, 15, 30, 60, 120].includes(videoSeconds as number)) {
-    return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
+  if (kind === "video" && ![6, 10, 15, 30, 60, 120].includes(videoSeconds as number)) {
+    return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
   }
   const effectiveOpts = kind === "video"
     ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(3600000, Math.max(Number(opts.timeoutMs) || 0, 300000, (videoSeconds as number) * 30000)) }
