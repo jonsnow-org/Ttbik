@@ -1,5 +1,5 @@
 import { withEngineModel } from "@/lib/openCoderStudio";
-import { ensureLfmSessionState, loadStateStrict, saveStateStrict, stateKey } from "@/lib/coderSections";
+import { ensureLfmSessionState, loadStateStrict, saveStateStrict, signContinue, stateKey, verifyContinue } from "@/lib/coderSections";
 import { saveMemory, listMemories } from "@/lib/coderMemory";
 import * as Threads from "@/lib/coderThreads";
 import { pgDb, resetPg } from "./pgDb";
@@ -12,6 +12,15 @@ beforeEach(async () => {
 });
 
 describe("LFM2.5 conversation isolation", () => {
+  it("binds signed task continuations to LFM2.5 while accepting the legacy Nova signature", () => {
+    const legacy = signContinue("secret", "bot", String(OWNER), "chain");
+    expect(verifyContinue("secret", "bot", String(OWNER), "chain", legacy)).toBe(true);
+    expect(verifyContinue("secret", "bot", String(OWNER), "chain", legacy, "coder")).toBe(true);
+    const lfm = signContinue("secret", "bot", String(OWNER), "chain", "lfm25");
+    expect(verifyContinue("secret", "bot", String(OWNER), "chain", lfm, "lfm25")).toBe(true);
+    expect(verifyContinue("secret", "bot", String(OWNER), "chain", lfm, "coder")).toBe(false);
+  });
+
   it("keeps state, transcript, active run, thread IDs and notes separate from Nova while syncing account preferences", async () => {
     const db = pgDb();
     const nova = await withEngineModel("coder", async () => {
