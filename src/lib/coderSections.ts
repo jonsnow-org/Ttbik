@@ -346,7 +346,10 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
   const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
-  return withEngineModel(model, () => handleCoderSectionsInner(bot, botRow, update, db, onShamRoute));
+  return withEngineModel(model, async () => {
+    if (model === "lfm25" && typeof chat === "number") await ensureLfmSessionState(chat, db);
+    return handleCoderSectionsInner(bot, botRow, update, db, onShamRoute);
+  });
 }
 async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
