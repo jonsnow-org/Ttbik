@@ -3,6 +3,7 @@ import type { ShamTool } from "@/lib/shamTypes";
 import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { stripThinkTags } from "@/lib/thinkTags";
+import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
@@ -246,7 +247,12 @@ export async function shamUnderstandImage(b64: string, question = "صف ما ي�
 
 export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeoutMs = 50000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   const body = await shamCall("generate_any", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  let reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  if (reply?.type === "text" && isPersianLeak(prompt, String(reply.text || ""))) {
+    const again = await shamCall("generate_any", { prompt: prompt + ARABIC_ONLY_NOTE, max_new_tokens: maxNewTokens }, timeoutMs);
+    const fixed = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (fixed?.type === "text" && String(fixed.text || "").trim()) reply = fixed;
+  }
   if (body && !reply) setFailure(`generate_any: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return reply;
 }
@@ -271,7 +277,14 @@ export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens
     temperature: knobs.temperature,
     think_tokens: knobs.thinkTokens,
   }, timeoutMs);
-  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  let reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  const lastUser = valid[valid.length - 1].content;
+  if (reply?.type === "text" && isPersianLeak(lastUser, String(reply.text || ""))) {
+    const retryTurns = [...valid.slice(-12, -1), { role: "user" as const, content: lastUser + ARABIC_ONLY_NOTE }];
+    const again = await shamCall("generate_chat", { messages_json: JSON.stringify(retryTurns), max_new_tokens: maxNewTokens, temperature: knobs.temperature, think_tokens: knobs.thinkTokens }, timeoutMs);
+    const fixed = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (fixed?.type === "text" && String(fixed.text || "").trim()) reply = fixed;
+  }
   if (body && !reply) setFailure(`generate_chat: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);
   return reply;
 }

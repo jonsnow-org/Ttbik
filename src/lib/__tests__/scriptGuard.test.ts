@@ -18,3 +18,12 @@ describe("script guard for Arabic replies", () => {
     expect(classifyRequest("من انت وكيف تصلح مستودعي jonsnow-org/Ttbik")).not.toBe("trivial");
   });
 });
+
+describe("Persian leak in Arabic chats", () => {
+  const { isPersianLeak } = require("@/lib/scriptGuard");
+  it("flags a Persian reply to an Arabic question, not Arabic replies or Persian users", () => {
+    expect(isPersianLeak("من انت", "من انت؟ به نظرم، من انت چی؟ اگر این سوال را در مورد من طرح کردی")).toBe(true);
+    expect(isPersianLeak("من انت", "أنا شام، مساعد ذكي على منصة Sham AI.")).toBe(false);
+    expect(isPersianLeak("سلام، چطوری؟", "خوبم، ممنون. چه کمکی از دستم برمیاد؟")).toBe(false);
+  });
+});
