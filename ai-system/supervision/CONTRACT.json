@@ -797,6 +797,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "modelscope_weights_audit": {
+      "file": ".github/workflows/modelscope-weights-audit.yml",
+      "title": "تدقيق قراءة فقط لمستودع أوزان خاص على ModelScope (الملفات والإيداعات والحالة)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
