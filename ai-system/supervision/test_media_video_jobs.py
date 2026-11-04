@@ -62,10 +62,6 @@ class VideoJobs(unittest.TestCase):
         self.assertIn('("video_start", api_video_start), ("job", api_job)', src)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class VideoInFreshProcess(unittest.TestCase):
     """A clip runs in a child process (the RAM of one clip is returned before the next); the child's error comes back to the caller."""
 
@@ -117,3 +113,17 @@ class ShamV2VideoJobs(unittest.TestCase):
         done = json.loads(self.app.job(json.dumps({"job": start["job"], "wait": 5})))
         self.assertEqual(done["type"], "video")
         self.assertEqual(json.loads(self.app.job(json.dumps({"job": "x", "wait": 0})))["reason"], "job_lost")
+
+
+class FreeParentRamTest(unittest.TestCase):
+    def test_clip_process_starts_with_the_picture_pipeline_released(self):
+        app = load()
+        app._MODELS["pipe"] = object()
+        app._CV["pipe"] = object()
+        app._free_parent_ram()
+        self.assertIsNone(app._MODELS["pipe"])
+        self.assertIsNone(app._CV["pipe"])
+
+
+if __name__ == "__main__":
+    unittest.main()
