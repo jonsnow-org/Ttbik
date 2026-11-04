@@ -22,6 +22,15 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
 
   useEffect(() => setMounted(true), []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   const groups: { label: string; badge?: string; links: { href: string; label: string }[] }[] = [
     {
       label: "الرئيسية",
@@ -62,6 +71,9 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
     <div className="fixed inset-0 z-[100] lg:hidden">
       <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="القائمة الرئيسية"
         className="absolute inset-y-0 right-0 flex h-full w-72 max-w-[80vw] flex-col overflow-y-auto overscroll-contain bg-white p-4 shadow-xl"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
@@ -71,10 +83,10 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
           </span>
           <button
             onClick={() => setOpen(false)}
-            className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100"
-            aria-label="إغلاق"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            aria-label="إغلاق القائمة"
           >
-            ✕
+            <span aria-hidden>✕</span>
           </button>
         </div>
         <nav className="space-y-5">
@@ -94,7 +106,7 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
                     key={link.href}
                     href={link.href}
                     onClick={() => setOpen(false)}
-                    className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-brand-50 hover:text-brand-700"
+                    className="flex min-h-11 items-center rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-brand-50 hover:text-brand-700"
                   >
                     {link.label}
                   </a>
@@ -112,7 +124,9 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       <button
         onClick={() => setOpen(true)}
         aria-label="فتح القائمة"
-        className="rounded-lg p-2 text-slate-700 hover:bg-slate-100 lg:hidden"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 lg:hidden"
       >
         <span aria-hidden className="text-xl">☰</span>
       </button>
