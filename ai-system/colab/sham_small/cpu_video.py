@@ -119,6 +119,11 @@ def cv_release():
     import gc
     _CV["pipe"] = None
     gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)      # the freed pipeline goes back to the system; without it the next clip stalled (2026-11-04)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
