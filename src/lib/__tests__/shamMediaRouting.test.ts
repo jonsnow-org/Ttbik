@@ -1,5 +1,5 @@
 import { shamGenerateMedia, shamVariant, SHAM_BACKEND_LABELS } from "@/lib/shamStudio";
-import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
+import { generateShamMediaThroughRoute, shamVideoDeadlineMs } from "@/lib/shamMediaRoutes";
 import { b64, png, photoStudioFake } from "./mediaFixtures";
 
 jest.mock("@/lib/shamExec", () => ({ shamMediaRoute: jest.fn(), shamMediaRouteEnabled: jest.fn(async () => true) }));
@@ -17,6 +17,13 @@ function studio(reply: object) {
 beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_URL = "https://v2.test"; process.env.SHAM_V2_OVERFLOW_URL = "off"; process.env.SHAM_MODELSCOPE_URL = "https://v1.test"; });
 
 describe("Sham media routing (the removed generate_media endpoint is never called)", () => {
+  it("allocates a duration-aware budget for long CPU videos", () => {
+    expect(shamVideoDeadlineMs(6)).toBe(540_000);
+    expect(shamVideoDeadlineMs(10)).toBe(750_000);
+    expect(shamVideoDeadlineMs(30)).toBe(1_800_000);
+    expect(shamVideoDeadlineMs(60)).toBe(3_270_000);
+    expect(shamVideoDeadlineMs(120)).toBe(6_420_000);
+  });
   it("refuses a request without a selected model instead of using a shared media route", async () => {
     const calls = studio({ type: "image", b64: "never-used" });
     const r = await generateShamMediaThroughRoute("image", "a red apple");
@@ -72,11 +79,19 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     process.env.NOVA_MEDIA_STUDIO_URL = "https://nova-media.test";
     delete process.env.SHAM_V2_VIDEO_URL;
     const calls = studio({ type: "error", text: "no clip in this test" });
-    await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a red apple rotating"));
+    await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a red apple rotating", { seconds: 30 }));
     expect(calls[0].url).toBe("https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net/gradio_api/call/v2/generate_video_start");
-    expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating" });
+    expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating", seconds: 30 });
     expect(calls.some((c) => c.url.includes("v2.test") || c.url.includes("nova-media") || c.url.includes("generate_media_from_panel"))).toBe(false);
   });
+  it("rejects unsupported Sham v2 video durations before calling the Studio", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
+    const calls = studio({ type: "error", text: "must not be reached" });
+    const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a test clip", { seconds: 7 }));
+    expect(r).toMatchObject({ type: "error", route: "sham_v2_ready", reason: "unsupported_duration" });
+    expect(calls).toHaveLength(0);
+  });
+
   it("Sham v2 video runs as a job on its own video Studio: start, then `job` until the clip is done (a running answer is asked again)", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
     delete process.env.SHAM_V2_VIDEO_URL;

@@ -1,7 +1,7 @@
 // The owner's isolated graphical Linux desktop on the shared 16 GB computer hub.
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
-import { browserStudioFor, studioCall } from "@/lib/browserComputer";
+import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
 
 export type DesktopArgs = {
   action?: string;
@@ -57,6 +57,26 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
   return out;
+}
+
+/** Stream screen frames and activity for one verified user:model session. */
+export async function desktopLive(
+  modelId: string | undefined,
+  session: string,
+  seconds = 20,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<Response> {
+  const base = browserStudioFor(modelId);
+  if (!base) throw new Error("the dedicated computer hub is unavailable for this model");
+  if (!session || session.length > 240) throw new Error("invalid desktop session");
+  const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
+  return studioStream(base, "live", {
+    session,
+    seconds: duration,
+    interval: 0.5,
+    quality: 50,
+    scale: 0.75,
+  }, fetchImpl, (duration + 15) * 1000);
 }
 
 export async function desktopDo(

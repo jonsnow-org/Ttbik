@@ -6,10 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import GraphicalDesktop from "./GraphicalDesktop";
 import type { Lang } from "../i18n";
+import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
-const MODELS: { id: string; label: string }[] = [
-  { id: "coder", label: "Nova AI" }, { id: "lfm25", label: "LFM2.5" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
-];
+const MODELS = COMPUTER_MODEL_OPTIONS;
 type Line = { cmd: string; out: string; code?: number | null; sec?: number; err?: boolean };
 type Activity = { seq: number; t: number; source: string; action: string; detail: string; state: string; output?: string; exit_code?: number | null; live?: boolean };
 type ActivityJob = { id: string; name: string; tail: string };

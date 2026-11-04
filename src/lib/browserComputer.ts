@@ -1,7 +1,9 @@
 // The free headless browser and all computer tools run only on the reserved private 16 GB computer Studio.
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
 export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
-const COMPUTER_MODELS = new Set(["coder", "lfm25", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"]);
+import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
+
+const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
 export type BrowserArgs = {
   action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
@@ -163,4 +165,29 @@ export async function studioCall(base: string, api: string, payload: Record<stri
     return studioCallPlain(base, api, wire, headers, fetchImpl, readMs);
   }
   return reply;
+}
+
+/** Open a bounded Gradio event stream (used by the graphical computer's live screen). */
+export async function studioStream(
+  base: string,
+  api: string,
+  payload: Record<string, unknown>,
+  fetchImpl: typeof fetch = globalThis.fetch,
+  readMs = 40_000,
+): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, {
+    method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({ data: [wire] }),
+  });
+  if (!start.ok) throw new Error(await studioHttpError(start, api, "submit"));
+  const { event_id } = (await start.json()) as { event_id?: string };
+  if (!event_id) throw new Error("the Studio gave no live-stream request id");
+  const stream = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, {
+    headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
+  });
+  if (!stream.ok) throw new Error(await studioHttpError(stream, api, "stream"));
+  if (!stream.body) throw new Error("the Studio returned an empty live stream");
+  return stream;
 }

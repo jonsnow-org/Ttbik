@@ -15,6 +15,8 @@ describe("the tool list the model is shown", () => {
     const block = shamToolBlock(tools);
     for (const t of tools) expect(block).toContain(`- ${t.function.name}(`);
     expect(block).toContain("- make_media(");
+    const mediaTool = tools.find((t) => t.function.name === "make_media")!;
+    expect((mediaTool.function.parameters as any).properties.seconds).toMatchObject({ type: "integer", enum: [6, 10, 15, 30, 60, 120] });
     expect(block).toContain("- ask_user(");
     expect(block).toContain("- delegate(");
     expect(block).toContain("- computer_run(");

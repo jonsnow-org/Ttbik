@@ -57,7 +57,7 @@ export async function shamAgentRun(opts: {
   agentAsk?: ShamAsk;
   /** Optional injectable verifier; production verifies from recorded tool results via the plain-answer endpoint. */
   verifyAsk?: ShamAsk;
-  media?: (kind: "image" | "audio" | "video", prompt: string, opts?: { scenes?: string[]; narration?: string }) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
+  media?: (kind: "image" | "audio" | "video", prompt: string, opts?: { scenes?: string[]; narration?: string; seconds?: number }) => Promise<ShamReply | null>;      // injectable override; default uses the selected three-route router
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
@@ -178,14 +178,14 @@ export async function shamAgentRun(opts: {
   let recoveries = 0;
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
-    let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown } = {};
+    let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown; seconds?: number } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
     const kind = (["image", "audio", "video"].includes(String(a.kind)) ? a.kind : "image") as "image" | "audio" | "video";
     const scenes = Array.isArray(a.scenes) ? a.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6) : undefined;
     const narration = String(a.narration || "").trim().slice(0, 1500) || undefined;
     opts.onEvent?.("tool", "make_media " + kind + " via selected route: " + String(a.prompt || "").slice(0, 80));
     opts.onStep?.({ type: "tool_start", name: "make_media", args: JSON.stringify({ kind }) });
-    const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600), { scenes, narration });
+    const r = await (opts.media || defaultMedia)(kind, String(a.prompt || "").slice(0, 600), { scenes, narration, seconds: typeof a.seconds === "number" ? a.seconds : undefined });
     opts.onStep?.({ type: "tool_end", name: "make_media", ok: Boolean(r && r.type !== "error" && r.b64) });
     if (r?.type === "error") {
       opts.onEvent?.("info", "Media route " + (r.route || "unknown") + " FAILED: " + String(r.text || "unknown error").slice(0, 220));
@@ -197,7 +197,7 @@ export async function shamAgentRun(opts: {
     }
     return { kind: "text", text: "Selected media route " + (r?.route || "unknown") + " did not return a usable file (" + (r?.text || r?.type || "no answer") + "). No automatic route switch was performed.", used: usedNow, steps: stepNow };
   };
-  const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string } = {}): Promise<ShamReply | null> =>
+  const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string; seconds?: number } = {}): Promise<ShamReply | null> =>
     generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;

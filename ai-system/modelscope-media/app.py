@@ -487,9 +487,17 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
 
 
 CV_REQUIRED_FREE = int(3.05 * 1024 ** 3)
+_VIDEO_WEIGHTS_LOCK = threading.Lock()
+_VIDEO_WEIGHT_STATE = {"loading": False, "ready": False, "error": ""}
 
 
 def cv_fetch_weights(root):
+    """Serialize background prefetch and request-time fetches of the same local ModelScope video assets."""
+    with _VIDEO_WEIGHTS_LOCK:
+        return _cv_fetch_weights_locked(root)
+
+
+def _cv_fetch_weights_locked(root):
     """Download a private local copy of the video weights from ModelScope only."""
     import shutil as _sh
     from pathlib import Path as _P
@@ -789,12 +797,44 @@ def _free_parent_ram() -> None:
     _trim_heap()
 
 
+def _mem_available_gb(read_text=None) -> float:
+    """Conservative free-memory estimate: use the minimum of host MemAvailable and the remaining cgroup memory limit."""
+    if read_text is None:
+        def read_text(path):
+            with open(path, "r", encoding="utf-8") as handle:
+                return handle.read()
+    candidates = []
+    try:
+        for line in read_text("/proc/meminfo").splitlines():
+            if line.startswith("MemAvailable:"):
+                candidates.append(max(0.0, float(line.split()[1]) / 1048576.0))
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    for limit_path, current_path in (
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+    ):
+        try:
+            raw_limit = read_text(limit_path).strip()
+            if not raw_limit or raw_limit.lower() == "max":
+                continue
+            limit = int(raw_limit)
+            if limit <= 0 or limit >= 2 ** 60:
+                continue
+            current = max(0, int(read_text(current_path).strip()))
+            candidates.append(max(0, limit - current) / 1024 ** 3)
+        except Exception:  # noqa: BLE001
+            continue
+    return min(candidates) if candidates else 0.0
+
+
 def _run_pass(prompt: str, seconds: float, seed: int, d: str, index: int) -> bytes:
     import multiprocessing as _mp
     out = os.path.join(d, f"pass{index}.mp4")
     proc = _mp.get_context("spawn").Process(target=_video_pass_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
     proc.start()
-    limit = int(os.environ.get("NOVA_VIDEO_PASS_LIMIT_S", "") or 600)
+    limit = int(os.environ.get("NOVA_VIDEO_PASS_LIMIT_S", "") or 1200)
     proc.join(limit)
     if proc.is_alive():
         proc.kill()
@@ -809,13 +849,10 @@ def _run_pass(prompt: str, seconds: float, seed: int, d: str, index: int) -> byt
 
 
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Local AnimateDiff: 2/4/6/10/15/30/60/120 s via temporal diffusion passes, joined as one checked MP4.
-
-    Every 2-4 s pass runs in its OWN fresh process, and the parent never holds torch weights while it runs (the picture worker is stopped
-    first). 2026-11-04 logs: a second pass/clip in the same process stalled or was killed; a fresh process gives all its RAM back when it ends.
-    NOVA_VIDEO_SUBPROCESS=0 runs everything in-process (tests)."""
-    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
-        return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    """Use one process for low-memory Studios and isolated fresh processes only when the cgroup has enough headroom."""
+    mode = (os.environ.get("NOVA_VIDEO_SUBPROCESS", "auto") or "auto").strip().lower()
+    if mode not in ("0", "1", "auto"):
+        mode = "auto"
     try:
         chunks = cv_chunk_plan(seconds)
     except ValueError as exc:
@@ -823,7 +860,16 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
     prompt = (prompt or "").strip()
     if not prompt:
         raise RuntimeError("native-video-unavailable: a text prompt is required")
+    # Free the image worker and its allocator before deciding whether the 8 GB container can afford another Python/Torch process.
     _free_parent_ram()
+    low_memory = _mem_available_gb() < 9.0
+    if mode == "0" or (mode == "auto" and low_memory):
+        # The Studio itself owns the only heavy process; cv_generate_long unloads AnimateDiff and trims libc after EACH 2-4 s pass.
+        try:
+            return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        finally:
+            _CV["pipe"] = None
+            _trim_heap()
     from media_quality import check_mp4
     continuity = (" Continue the same scene and same subject from the preceding temporal segment; "
                   "preserve subject identity, clothing, lighting, environment and camera direction. "
@@ -968,13 +1014,38 @@ def api_status() -> str:
     ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
-        "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),
-                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 6, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
+        "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "weights_loading": bool(_VIDEO_WEIGHT_STATE["loading"]),
+                  "weights_error": str(_VIDEO_WEIGHT_STATE["error"] or ""), "available_memory_gb": round(_mem_available_gb(), 2),
+                  "device": "cpu", "gpu_required": False, "profile": cv_profile(),
+                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 6, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4],
+                  "runtime_policy": "in-process below 9 GiB cgroup headroom; isolated pass workers above it",
+                  "note": "local AnimateDiff weights are prefetched independently of image/speech; each pass is checked and released before the next"},
     })
 
 
+def _warm_video_weights() -> None:
+    """Fetch only the local AnimateDiff files in the background; never hold the pipeline in RAM during chat/image startup."""
+    if _VIDEO_WEIGHT_STATE["loading"] or _VIDEO_WEIGHT_STATE["ready"]:
+        return
+    _VIDEO_WEIGHT_STATE["loading"] = True
+    _VIDEO_WEIGHT_STATE["error"] = ""
+    try:
+        found = cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        if not found:
+            cv_fetch_weights(MODEL_STORE)
+        found = cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        if not found:
+            raise RuntimeError("the downloaded AnimateDiff base or motion adapter is missing")
+        _VIDEO_WEIGHT_STATE["ready"] = True
+    except Exception as exc:  # noqa: BLE001
+        _VIDEO_WEIGHT_STATE["error"] = f"{type(exc).__name__}: {str(exc)[:240]}"
+        traceback.print_exc()
+    finally:
+        _VIDEO_WEIGHT_STATE["loading"] = False
+
+
 def _warm() -> None:
-    """Load Nova's local image and speech weights; retry without recursive stack growth."""
+    """Load Nova's image and Arabic speech weights, then prefetch video files without blocking chat readiness."""
     while True:
         try:
             STATE["phase"] = "loading models"
@@ -985,6 +1056,7 @@ def _warm() -> None:
             _voice()
             STATE["phase"] = "ready"
             STATE["error"] = ""
+            threading.Thread(target=_warm_video_weights, name="video-weights-warm", daemon=True).start()
             return
         except Exception as exc:  # noqa: BLE001
             traceback.print_exc()
