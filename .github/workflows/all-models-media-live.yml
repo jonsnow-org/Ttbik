@@ -14,7 +14,7 @@ on:
         required: false
         default: "image,video"
       video_prompt:
-        description: "the video request (sets the duration), e.g. «قم بتوليد فديو فتاة ترقص 6 ثوان» / «… 30 ثانية» / «… دقيقة» / «… دقيقتين»"
+        description: "the video request (sets the duration); several requests separated by || run one after another, e.g. «قم بتوليد فديو فتاة ترقص 6 ثوان» / «… 30 ثانية» / «… دقيقة» / «… دقيقتين»"
         required: false
         default: ""
       video_limit_ms:

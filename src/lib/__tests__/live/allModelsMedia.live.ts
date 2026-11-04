@@ -9,7 +9,7 @@ import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
 
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
-jest.setTimeout(3_000_000);
+jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
 const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
@@ -19,7 +19,7 @@ const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت
 const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
 const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS || 600_000), audio: 300_000 } as const;     // a 1-2 min clip on CPU needs far longer than 10 min
 
-async function once(model: string, kind: "image" | "video" | "audio", text: string): Promise<string> {
+async function once(model: string, kind: "image" | "video" | "audio", text: string, tag = ""): Promise<string> {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
   process.env.CODER_TOKEN_KEY = "live-test";
   const db: any = pgDb();
@@ -31,7 +31,7 @@ async function once(model: string, kind: "image" | "video" | "audio", text: stri
   const grab = (k: string, ext: string) => async (_c: number, file: any) => {
     const buf: Buffer = Buffer.isBuffer(file?.fileData) ? file.fileData : Buffer.alloc(0);
     got.push({ kind: k, bytes: buf.length });
-    fs.writeFileSync(path.join(OUT, `${model}-${kind}.${ext}`), buf);
+    fs.writeFileSync(path.join(OUT, `${model}${tag}-${kind}.${ext}`), buf);
     return { message_id: 9 };
   };
   (api as any).sendPhoto = grab("photo", "png");
@@ -59,10 +59,16 @@ async function once(model: string, kind: "image" | "video" | "audio", text: stri
 
 test("every model: a picture and a video request", async () => {
   const lines: string[] = [];
+  // PROBE_VIDEO may hold several requests separated by "||" (one per duration): they run one after another on the model's own Studio (never in parallel: a 2 vCPU Studio runs one clip at a time)
+  const videos = VIDEO.split("||").map((x) => x.trim()).filter(Boolean);
   for (const m of MODELS) for (const k of KINDS) {
-    const line = await once(m, k as "image" | "video" | "audio", k === "image" ? IMAGE : k === "audio" ? AUDIO : VIDEO);
-    lines.push(line);
-    process.stderr.write("ALLMEDIA " + line + "\n");
+    const asks = k === "video" ? videos : [k === "image" ? IMAGE : AUDIO];
+    for (let i = 0; i < asks.length; i++) {
+      const tag = asks.length > 1 ? "-" + (i + 1) : "";
+      const line = await once(m, k as "image" | "video" | "audio", asks[i], tag);
+      lines.push(line + (tag ? ` [${asks[i]}]` : ""));
+      process.stderr.write("ALLMEDIA " + lines[lines.length - 1] + "\n");
+    }
   }
   console.log("ALLMEDIA_SUMMARY\n" + lines.join("\n"));
 });
