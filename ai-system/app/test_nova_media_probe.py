@@ -113,7 +113,7 @@ class FakeStudio:
         body = self.status_replies[min(self.n, len(self.status_replies) - 1)] if api == "status" else payload_for(api)
         if api == "status":
             self.n += 1
-        return 200, "event: complete\ndata: " + json.dumps([json.dumps(body)]) + "\n\n"
+            return 200, "data: " + json.dumps([json.dumps(events[event])]) + chr(10)
 
 
 def payload_for(api):
