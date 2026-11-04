@@ -166,3 +166,28 @@ export async function studioCall(base: string, api: string, payload: Record<stri
   }
   return reply;
 }
+
+/** Open a bounded Gradio event stream (used by the graphical computer's live screen). */
+export async function studioStream(
+  base: string,
+  api: string,
+  payload: Record<string, unknown>,
+  fetchImpl: typeof fetch = globalThis.fetch,
+  readMs = 40_000,
+): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, {
+    method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({ data: [wire] }),
+  });
+  if (!start.ok) throw new Error(await studioHttpError(start, api, "submit"));
+  const { event_id } = (await start.json()) as { event_id?: string };
+  if (!event_id) throw new Error("the Studio gave no live-stream request id");
+  const stream = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, {
+    headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
+  });
+  if (!stream.ok) throw new Error(await studioHttpError(stream, api, "stream"));
+  if (!stream.body) throw new Error("the Studio returned an empty live stream");
+  return stream;
+}
