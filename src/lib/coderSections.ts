@@ -3050,7 +3050,17 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
 export async function startScheduledRun(
   bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db = prismaDb,
 ): Promise<"started" | "busy" | "off" | "limited"> {
-  if (!coderEnabled()) return "off";
+  const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selectedModel, async () => {
+    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    return startScheduledRunInner(bot, botRow, chatId, t, db, selectedModel);
+  });
+}
+async function startScheduledRunInner(
+  bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db,
+  selectedModel: string,
+): Promise<"started" | "busy" | "off" | "limited"> {
+  if (!coderEnabled() && currentEngineModel() !== "lfm25") return "off";
   const slot = `s:${t.scheduleId}`;
   const prev = await loadState(chatId, db, slot);
   if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
@@ -3061,7 +3071,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, perModel: main.perModel, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", model: selectedModel, think: main.think, accuracy: main.accuracy, perModel: main.perModel, memPer: main.memPer, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
   await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title, surface: "app" }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
@@ -3073,21 +3083,25 @@ export { splitForTelegram };
 
 /** A run whose worker disappeared (server replaced mid-leg): continue it from the saved state, the Studio job included. */
 export async function resumeOrphan(chatId: number, runId: string, slot: string, botRow: BotRow, db: Db = prismaDb): Promise<boolean> {
-  const st = await loadState(chatId, db, slot);
-  const run = st.run;
-  if (!run || run.id !== runId || run.pending || run.asking) return false;
-  run.resumes = (run.resumes || 0) + 1;
-  if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
-    // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
-    if (run.job) await coderCancel(run.job).catch(() => null);
-    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", modelSessionChatKey(chatId));
+  const selectedModel = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db, slot))).model || "coder");
+  return withEngineModel(selectedModel, async () => {
+    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    const st = await loadState(chatId, db, slot);
+    const run = st.run;
+    if (!run || run.id !== runId || run.pending || run.asking) return false;
+    run.resumes = (run.resumes || 0) + 1;
+    if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
+      // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
+      if (run.job) await coderCancel(run.job).catch(() => null);
+      await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", modelSessionChatKey(chatId));
+      await saveState(chatId, st, db, slot);
+      return false;
+    }
     await saveState(chatId, st, db, slot);
-    return false;
-  }
-  await saveState(chatId, st, db, slot);
-  await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
-  later(() => continueRun(botRow, chatId, run.chain, db, slot));
-  return true;
+    await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
+    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "lfm25" ? "lfm25" : "coder"));
+    return true;
+  });
 }
 
 /** Starts one quiet, read-only child run per task (own slot, own state) on our Studio model; returns their slots. */
