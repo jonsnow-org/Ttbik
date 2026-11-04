@@ -958,8 +958,8 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     const candidate = text.trim();
     const looksLikePlainSubject = candidate.length >= 2 && candidate.length <= 180
       && !/[?؟]/.test(candidate)
-      && !/^(?:مرحبا|اهلا|أهلا|السلام عليكم|شكرا|شكرًا|تمام|حسنا|حسنًا|ok|okay|thanks|thank you|hello|hi)\\b/i.test(candidate)
-      && !/^(?:اكتب|اشرح|افتح|نفذ|نفّذ|اختبر|ابحث|مرحبا|لماذا|كيف|هل)\\b|^(?:write|explain|open|run|test|search|why|how|what)\\b/i.test(candidate);
+      && !/^(?:مرحبا|اهلا|أهلا|السلام عليكم|شكرا|شكرًا|تمام|حسنا|حسنًا|ok|okay|thanks|thank you|hello|hi)\b/i.test(candidate)
+      && !/^(?:اكتب|اشرح|افتح|نفذ|نفّذ|اختبر|ابحث|مرحبا|لماذا|كيف|هل)\b|^(?:write|explain|open|run|test|search|why|how|what)\b/i.test(candidate);
     if (pending && looksLikePlainSubject) {
       intent = { kind: pending.kind, subject: candidate, ...(pending.kind === "video" && pending.seconds ? { seconds: pending.seconds } : {}) };
     }
@@ -991,21 +991,21 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     if (v1) {
       // The original Sham writes media from its own tokens and reads the user's language directly.
       prompt = intent.subject.trim().slice(0, 1800) || text.trim().slice(0, 1800);
-    } else if (intent.subject.trim() && /^[\\x00-\\x7f]+$/.test(intent.subject)) {
+    } else if (intent.subject.trim() && /^[\x00-\x7f]+$/.test(intent.subject)) {
       prompt = mf.cleanEnglishPrompt(intent.subject);
     } else {
       await cardTool(bot, chatId, card, intent.subject.trim() ? "ترجمة وصف الصورة إلى مطالبة إنجليزية" : "اختيار مشهد للصورة");
       const system = intent.subject.trim() ? mf.MEDIA_TRANSLATE_SYSTEM : mf.MEDIA_CREATIVE_SYSTEM;
       const source = intent.subject.trim() ? intent.subject.trim() : `The user requested a ${intent.kind} and delegated the subject choice to you. Duration: ${intent.seconds || 10} seconds.`;
       const instruction = (extra = "") =>
-        `${system}\\n\\nMedia kind: ${intent!.kind}.\\nUser description: ${source}\\n${extra}Return only one English visual-generation prompt, no report, no greeting, no questions.\\nEnglish prompt:`;
+        `${system}\n\nMedia kind: ${intent!.kind}.\nUser description: ${source}\n${extra}Return only one English visual-generation prompt, no report, no greeting, no questions.\nEnglish prompt:`;
       const cleanPrompt = (value: string | null | undefined): string | null => {
         const raw = String(value || "").trim();
         if (!raw) return null;
-        const first = raw.split(/\\r?\\n/).map((line) => line.trim()).find(Boolean) || "";
+        const first = raw.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
         const clean = mf.cleanEnglishPrompt(first);
-        if (!clean || clean.split(/\\s+/).length > 45) return null;
-        if (/^(?:of course|certainly|sure|here(?:'s| is)|report|analysis|the following|بالطبع|إليك|تقرير|الصورة|الوصف)\\b/i.test(clean)) return null;
+        if (!clean || clean.split(/\s+/).length > 45) return null;
+        if (/^(?:of course|certainly|sure|here(?:'s| is)|report|analysis|the following|بالطبع|إليك|تقرير|الصورة|الوصف)\b/i.test(clean)) return null;
         if (/[•*#]/.test(clean)) return null;
         return clean;
       };
