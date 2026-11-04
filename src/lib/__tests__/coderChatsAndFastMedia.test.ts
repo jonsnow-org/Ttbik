@@ -46,7 +46,6 @@ describe("which requests take the fast media lane", () => {
   it("raw model output can be kept without the fixed translation glossary", () => {
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
-    expect(cleanEnglishPrompt("I cannot help with that request")).toBeNull();
     expect(cleanEnglishPrompt("a woman in a swimsuit on a beach at sunset")).toBe("a woman in a swimsuit on a beach at sunset");
     expect(cleanEnglishPrompt("\u56fe\u7247\u6d4b\u8bd5", { preserveRaw: true })).toBe("\u56fe\u7247\u6d4b\u8bd5");
     expect(cleanEnglishPrompt("حصان أبيض", { preserveRaw: true })).toBe("حصان أبيض");
@@ -328,12 +327,12 @@ describe("owner 2026-11-04: the selected model decides media requests (follow-up
     await wait(300);
     expect(sent.some((s) => /خطأ داخلي/.test(s.text))).toBe(false);
   });
-  it("a request the model refuses gets one short Arabic line and nothing is generated", async () => {
-    const urls = await net(() => "NO");
+  it("only sexual content involving minors is declined (one short Arabic line, nothing generated)", async () => {
+    const urls = await net(() => "IMAGE [tall] a child");
     const { bot, api, sent } = fakeBot();
     (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
-    await handleCoderSections(bot, botRow, say("ارسم صورة ممنوعة"), db());
-    expect(await until(() => sent.some((s) => /قواعد السلامة/.test(s.text)))).toBe(true);
+    await handleCoderSections(bot, botRow, say("ارسم صورة طفلة عارية"), db());
+    expect(await until(() => sent.some((s) => /القاصرين/.test(s.text)))).toBe(true);
     expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
   });
 });
