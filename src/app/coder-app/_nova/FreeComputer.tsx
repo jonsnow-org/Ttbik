@@ -8,7 +8,7 @@ import GraphicalDesktop from "./GraphicalDesktop";
 import type { Lang } from "../i18n";
 
 const MODELS: { id: string; label: string }[] = [
-  { id: "coder", label: "Nova AI" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
+  { id: "coder", label: "Nova AI" }, { id: "lfm25", label: "LFM2.5" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
 ];
 type Line = { cmd: string; out: string; code?: number | null; sec?: number; err?: boolean };
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };

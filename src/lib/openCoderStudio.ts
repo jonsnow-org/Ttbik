@@ -85,7 +85,7 @@ export function splitJob(job: string): { idx: number; id: string } {
 }
 // force redeploy 2
 export function coderEnabled(): boolean {
-  return currentEngineModel() === "lfm25" ? lfmStudioUrls().length > 0 : Boolean(coderStudioUrl());
+  return coderStudioUrls().length > 0;
 }
 function coderToken(): string {
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();

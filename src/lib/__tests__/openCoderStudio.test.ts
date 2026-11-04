@@ -1,5 +1,29 @@
-import { parseCoderSse, parseStatusSse, readCoderSse } from "@/lib/openCoderStudio";
+import { coderEnabled, coderStudioUrls, parseCoderSse, parseStatusSse, readCoderSse } from "@/lib/openCoderStudio";
 import { readMediaSse } from "@/lib/novaMedia";
+
+describe("Nova Studio availability", () => {
+  it("stays enabled when its primary URL is absent but a valid replica is configured", () => {
+    const saved = {
+      primary: process.env.OPEN_CODER_STUDIO_URL,
+      replicas: process.env.OPEN_CODER_STUDIO_URLS,
+      lfm: process.env.LFM_STUDIO_URLS,
+    };
+    process.env.OPEN_CODER_STUDIO_URL = "";
+    process.env.OPEN_CODER_STUDIO_URLS = "https://studio-test-coder-inference-server-2.api-inference.modelscope.net";
+    process.env.LFM_STUDIO_URLS = "off";
+    try {
+      expect(coderStudioUrls()).toHaveLength(1);
+      expect(coderEnabled()).toBe(true);
+    } finally {
+      if (saved.primary === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
+      else process.env.OPEN_CODER_STUDIO_URL = saved.primary;
+      if (saved.replicas === undefined) delete process.env.OPEN_CODER_STUDIO_URLS;
+      else process.env.OPEN_CODER_STUDIO_URLS = saved.replicas;
+      if (saved.lfm === undefined) delete process.env.LFM_STUDIO_URLS;
+      else process.env.LFM_STUDIO_URLS = saved.lfm;
+    }
+  });
+});
 
 describe("Nova Studio SSE streaming", () => {
   it("returns a completion as soon as its data line arrives, without waiting for EOF", async () => {
