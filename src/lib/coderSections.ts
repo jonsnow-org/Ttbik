@@ -21,7 +21,9 @@ import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { stripThinkTags } from "@/lib/thinkTags";
+export { stripThinkTags };
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -892,7 +894,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
   const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
-  let messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
+  let messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }), novaModelOf(st.model)) }, ...w.msgs.map(wire), { role: "user", content: "." }];
   // A warm-up reads the whole conversation to fill the Studio's cache: on a cold Studio that is MINUTES of the one worker (measured 2026-10-25: a 35k-character conversation held a Studio for 7+ minutes
   // while the owner's real request waited behind it). So it is small-only, and the moment a real request of the same chat is sent it is cancelled (cancelWarm).
   // A long conversation is not read ahead (minutes of the one worker), but the START every conversation shares (system text + the whole fixed tool list, ~9k tokens) still is:
@@ -1220,7 +1222,7 @@ async function finishDonorRun(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   {
     if (!(await taskIsActive(runId, db))) return;
-    const answer = String(result.text || "").trim();
+    const answer = stripThinkTags(String(result.text || "")).trim();       // a thought block never reaches the chat or the Mini App (any model)
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
     const executedTools = Array.isArray(result.executed_tools) ? result.executed_tools : [];
     const auditForHistory = executedTools.length
@@ -1951,6 +1953,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
 
 /** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
 async function sendRich(bot: TelegramBot, chatId: number, text: string) {
+  text = stripThinkTags(text);
   const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
   const html = markdownToTelegramHtml(text);
   if (html.length <= 4096) {
@@ -2012,7 +2015,27 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
   }
 }
 
+/** The name a model introduces itself with (owner 2026-11-04: LFM2.5 answered «من انت» with the repository name). Nova keeps "Nova AI". */
+export function modelDisplayName(modelId?: string): string {
+  const m = DEFAULT_MODELS.find((x) => x.id === (modelId || "coder"));
+  return (m?.name.en || "Nova AI").replace(/\s*\([^)]*\)\s*$/, "").trim() || "Nova AI";
+}
+
+/** The system text with this model's own identity, plus what it can do (it makes pictures, videos and speech; live 2026-11-04 LFM2.5 said "I can't
+ *  generate images, use the dedicated tool") and that a repository in the context is the user's project, never its name. Same text every time per model. */
+export function withModelIdentity(system: string, modelId?: string): string {
+  const name = modelDisplayName(modelId);
+  let s = system;
+  if (name !== "Nova AI") s = s.replace(/Nova AI/g, name).replace(new RegExp(`I'm ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\w)`, "g"), `I'm ${name} on Sham AI`);
+  return s + "\n" + [
+    `CAPABILITIES: you are ${name}${name === "Nova AI" ? "" : " on Sham AI"}. You CAN make pictures, short videos and Arabic speech yourself: the app makes them as soon as the user asks for one (or with make_media). Never say you cannot make images, videos or audio, and never send the user to another tool or site for them.`,
+    "Never call yourself by a repository, GitHub account, file or project name: a default repository in the context is the user's project, not your name.",
+  ].join("\n");
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
+  // a model's thought block is never shown (live 2026-11-04: LFM2.5 answered «مرحبا» with "<think></think>" twice before the greeting); an unclosed one at the tail is held back until it closes
+  text = stripThinkTags(text);
   if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0)) {
     // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture). Only the false sentence goes:
     // the rest of the answer stays (a greeting answered with "here is the picture" from an earlier turn keeps its greeting), and the "media did not finish"
@@ -2794,14 +2817,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return w.msgs;
     };
     const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
+    const messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }), novaModelOf(st.model)) }, ...histOf().map(wireOf)];
     // greetings / thanks (class "trivial"): the short system text, no tool list and only the plain conversation, so the reply comes in seconds instead of reading ~9k tokens of tools.
     // Only on the first step of a task, never while a question is pending, and never when the last assistant turn was a tool call or a question.
     const lastAsst = [...st.messages].reverse().find((m) => m.role === "assistant");
     const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
     if (lite) {
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
-      messages.splice(0, messages.length, { role: "system", content: prof.liteSystem }, ...plain);
+      messages.splice(0, messages.length, { role: "system", content: withModelIdentity(prof.liteSystem, novaModelOf(st.model)) }, ...plain);
     }
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);

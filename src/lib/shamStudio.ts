@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShamTool } from "@/lib/shamTypes";
 import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { stripThinkTags } from "@/lib/thinkTags";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
@@ -152,7 +153,10 @@ export function parseShamReply(body: string): ShamReply | null {
   if (!raw) return null;
   try {
     const obj = JSON.parse(raw);
-    if (obj && typeof obj === "object" && typeof obj.type === "string") return obj as ShamReply;
+    if (obj && typeof obj === "object" && typeof obj.type === "string") {
+      if (typeof obj.text === "string") obj.text = stripThinkTags(obj.text);     // Sham v2 answers with an empty <think></think>: never shown
+      return obj as ShamReply;
+    }
   } catch {
     /* not JSON: the Studio is still on the older text-only app */
   }
