@@ -11,6 +11,7 @@ import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 export type ShamVariantId = "v1" | "v2";
 export type ShamThread = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; created_at: string; updated_at: string; preview: string };
 export type ShamTurnView = { q: string; a: string; at: string };
+export type ShamPendingMediaIntent = { kind: "image" | "video"; source: string; seconds?: number };
 
 const prismaDb: Db = {
   exec: (sql, ...args) => prisma.$executeRawUnsafe(sql, ...args),
@@ -27,6 +28,8 @@ export function ensureThreadTables(db: Db): Promise<void> {
       await db.exec(`CREATE TABLE IF NOT EXISTS sham_threads (id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, variant TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '', pinned BOOLEAN NOT NULL DEFAULT false, archived BOOLEAN NOT NULL DEFAULT false, turns INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ)`);
       await db.exec(`CREATE INDEX IF NOT EXISTS sham_threads_chat_idx ON sham_threads (chat_key, variant, updated_at DESC)`);
       await db.exec(`CREATE TABLE IF NOT EXISTS sham_thread_active (chat_key TEXT NOT NULL, variant TEXT NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY (chat_key, variant))`);
+      // Pending media is task state, not chat memory: it must survive even when the user turns conversation memory off.
+      await db.exec(`CREATE TABLE IF NOT EXISTS sham_media_pending (chat_key TEXT NOT NULL, variant TEXT NOT NULL, intent JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_key, variant))`);
     })().catch((e) => { readyBy.delete(db); throw e; });
     readyBy.set(db, ready);
   }
@@ -34,6 +37,43 @@ export function ensureThreadTables(db: Db): Promise<void> {
 }
 
 const newId = () => "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+/** Store a short-lived media continuation independently from the optional conversation-memory feature. */
+export async function savePendingMediaIntent(chatId: number | string, variant: ShamVariantId, intent: ShamPendingMediaIntent, db: Db = prismaDb): Promise<void> {
+  await ensureThreadTables(db);
+  const safe = {
+    kind: intent.kind === "video" ? "video" : "image",
+    source: String(intent.source || "").slice(0, 500),
+    ...(intent.kind === "video" && intent.seconds ? { seconds: Math.max(2, Math.min(120, Math.floor(intent.seconds))) } : {}),
+  };
+  await db.exec(
+    `INSERT INTO sham_media_pending (chat_key, variant, intent, created_at) VALUES ($1, $2, $3::jsonb, now())
+     ON CONFLICT (chat_key, variant) DO UPDATE SET intent = EXCLUDED.intent, created_at = now()`,
+    chatKey(chatId), variant, JSON.stringify(safe),
+  );
+}
+
+/** Read one user's pending media continuation; it expires after 15 minutes and never crosses Sham variants. */
+export async function loadPendingMediaIntent(chatId: number | string, variant: ShamVariantId, db: Db = prismaDb): Promise<ShamPendingMediaIntent | null> {
+  await ensureThreadTables(db);
+  const rows = await db.query<{ intent: ShamPendingMediaIntent | string }>(
+    `SELECT intent FROM sham_media_pending WHERE chat_key = $1 AND variant = $2 AND created_at > now() - interval '15 minutes' LIMIT 1`,
+    chatKey(chatId), variant,
+  );
+  const raw = rows[0]?.intent;
+  if (!raw) return null;
+  try {
+    const value = (typeof raw === "string" ? JSON.parse(raw) : raw) as ShamPendingMediaIntent;
+    if ((value.kind !== "image" && value.kind !== "video") || !String(value.source || "").trim()) return null;
+    return { kind: value.kind, source: String(value.source).slice(0, 500), ...(value.kind === "video" && Number(value.seconds) > 0 ? { seconds: Math.max(2, Math.min(120, Math.floor(Number(value.seconds)))) } : {}) };
+  } catch { return null; }
+}
+
+export async function clearPendingMediaIntent(chatId: number | string, variant: ShamVariantId, db: Db = prismaDb): Promise<void> {
+  await ensureThreadTables(db);
+  await db.exec(`DELETE FROM sham_media_pending WHERE chat_key = $1 AND variant = $2`, chatKey(chatId), variant);
+}
+
 const clip = (s: string, n: number) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 const view = (r: any): ShamThread => ({ id: r.id, title: r.title || "", pinned: Boolean(r.pinned), archived: Boolean(r.archived), turns: Number(r.turns) || 0, created_at: String(r.created_at), updated_at: String(r.updated_at), preview: r.preview || "" });
 const COLS = `id, title, preview, pinned, archived, turns, created_at::text AS created_at, updated_at::text AS updated_at`;
