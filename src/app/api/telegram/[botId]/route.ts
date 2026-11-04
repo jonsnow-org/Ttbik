@@ -23,17 +23,20 @@ import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
 import { bannerBalance } from "@/lib/siteAds";
+import { grokNotificationFrom } from "@/lib/grokWebhook";
 
 import { createHmac, randomUUID } from "crypto";
 
-async function notifyGrok(botId: string, template: string, body: any) {
+async function notifyGrok(botId: string, template: string, ownerId: string, body: any) {
   const url = process.env.GROK_BOT_WEBHOOK_URL;
   const secret = process.env.GROK_BOT_WEBHOOK_SECRET;
-  const text = body?.message?.text;
-  const chatId = body?.message?.chat?.id;
-  if (!url || !secret || !text || !chatId) return;
-  if (!String(text).startsWith("مرحبا جروك انا المالك")) return;
-  const payload = JSON.stringify({ botId, template, chatId: String(chatId), text: String(text).slice(0, 500) });
+  const trigger = grokNotificationFrom(body, [
+    ownerId,
+    process.env.TELEGRAM_ADMIN_CHAT_ID || "",
+    process.env.SUPER_ADMIN_TELEGRAM_ID || "",
+  ]);
+  if (!url || !secret || !trigger) return;
+  const payload = JSON.stringify({ botId, template, chatId: trigger.chatId, text: trigger.text });
   const id = `msg_${randomUUID().replace(/-/g, "")}`;
   const timestamp = String(Math.floor(Date.now() / 1000));
   const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
@@ -94,7 +97,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
-      void notifyGrok(botRow.id, botRow.template, body);
+      void notifyGrok(botRow.id, botRow.template, botRow.ownerId, body);
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a
       // balance top-up. Must be answered within 10s, so this skips the
