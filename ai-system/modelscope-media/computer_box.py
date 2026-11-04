@@ -1039,17 +1039,29 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
     marker = re.sub(r"[^A-Za-z0-9_.-]", "_", tar_ref)[:100]          # a snapshot of THIS ref fetched minutes ago is reused (the Studio's GitHub link is slow)
     api_url = shell_quote(f"https://api.github.com/repos/{owner}/{name}/tarball/{tar_ref}")
-    # github.com itself is slow or blocked from the Studio (a live probe: `git clone` gave up after 44 s) while codeload.github.com answers in under a second:
-    # the tarball goes first and becomes a local git checkout (a baseline commit, so `changes` / publish still see what the model edits); a real clone is the fallback
+    # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
+    # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
+    # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
+    # publish still see what the model edits).
+    t_dir, g_dir = shell_quote(folder + ".tar.part"), shell_quote(folder + ".git.part")
     script = (
         f"set -e; mkdir -p repos; "
         f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
         f"elif [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
-        f"else rm -rf {q}; mkdir -p {q}; "
-        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {q} --strip-components=1; }}; "
-        f"if fetch_tar {tar_url} || {{ rm -rf {q}; mkdir -p {q}; echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; fetch_tar {api_url}; }}; then echo \"fetched (tarball) in ${{SECONDS}}s\"; "
-        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); touch {q}/.git/FETCHED_{marker}; echo \"git baseline at ${{SECONDS}}s\"; "
-        f"else rm -rf {q}; echo \"tarballs failed at ${{SECONDS}}s; trying git clone\"; git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {q}; fi; fi; "
+        f"else rm -rf {q} {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; mkdir -p {t_dir}; set +e; "
+        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
+        f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
+        f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; fetch_tar {api_url} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
+        f"( git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone -q --depth 1 --single-branch {branch}{shell_quote(clone_url)} {g_dir} && touch {g_dir}.ok || echo \"git clone failed at ${{SECONDS}}s\" ) & pg=$!; "
+        f"win=; while :; do "
+        f"if [ -f {t_dir}.ok ]; then win=tar; break; fi; if [ -f {g_dir}.ok ]; then win=git; break; fi; "
+        f"if ! kill -0 $pt 2>/dev/null && ! kill -0 $pg 2>/dev/null; then [ -f {t_dir}.ok ] && win=tar; [ -f {g_dir}.ok ] && win=git; break; fi; sleep 0.5; done; "
+        f"killtree $pt; killtree $pg; wait 2>/dev/null; set -e; "
+        f"if [ \"$win\" = tar ]; then mv {t_dir} {q}; echo \"fetched (tarball) in ${{SECONDS}}s\"; "
+        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); echo \"git baseline at ${{SECONDS}}s\"; "
+        f"elif [ \"$win\" = git ]; then mv {g_dir} {q}; echo \"fetched (git clone) in ${{SECONDS}}s\"; "
+        f"else rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
+        f"rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; touch {q}/.git/FETCHED_{marker}; fi; "
         f"{repo_summary_command(folder)}"
     )
     # a big repository (tar + git baseline commit) used to starve the 2 vCPUs so that the Studio answered the next calls with nothing: run it at the lowest priority
