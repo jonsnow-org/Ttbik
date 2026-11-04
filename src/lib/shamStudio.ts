@@ -333,7 +333,7 @@ export async function shamGenerateMedia(
   if (kind === "video" && backend === "ready" && shamVariant.getStore() === "v2" && shamStudioEnabled()) {
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
     const requestedSeconds = opts.seconds ?? pressureMedia().videoSeconds;
-    if (!Number.isInteger(requestedSeconds) || ![6, 10, 15, 30, 60, 120].includes(requestedSeconds)) {
+    if (!Number.isInteger(requestedSeconds) || !new Set<number>([6, 10, 15, 30, 60, 120]).has(requestedSeconds)) {
       return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
     }
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
