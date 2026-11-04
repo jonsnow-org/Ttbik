@@ -289,6 +289,14 @@ describe("owner 2026-11-04: the selected model decides media requests (follow-up
     expect((api as any).sendPhoto).not.toHaveBeenCalled();
     expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
   });
+  it("singing requests are answered before the LLM queue and never sent to speech-only Piper", async () => {
+    const urls = await net(() => "CHAT");
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, say("اعطني صوت فتاة تغني"), db());
+    expect(sent.some((s) => /لا يملك أوزاناً لتوليد الغناء أو الموسيقى/.test(s.text))).toBe(true);
+    expect(urls).toHaveLength(0); // no routing call, no queued chat/task call, no media submit
+    expect((await listTasks(FREE, { limit: 10 }, db())).length).toBe(0);
+  });
   it("speech: the model answers AUDIO and the words are spoken by the model's own media Studio and sent as audio", async () => {
     const urls = await net((body) => (/You route ONE new chat message/.test(body) ? "AUDIO مرحباً، هذا اختبار الصوت" : "CHAT"));
     const fetch0 = (global as any).fetch;
