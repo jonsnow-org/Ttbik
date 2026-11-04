@@ -1160,7 +1160,7 @@ def _explicit_computer_target(text: str) -> bool:
 def _project_execution_request(text: str) -> bool:
     """A repository/project needs the computer only for a real build, test, install, edit or execution—not public GitHub reads."""
     project = r"\b(repository|repo|project|source code)\b|مستودع|ريبو|المشروع|الكود"
-    action = r"\b(run|execute|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\b|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
+    action = r"\b(run|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\b|شغّل|شغل|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
     return bool(re.search(r"(?:%s).{0,70}(?:%s)|(?:%s).{0,70}(?:%s)" % (action, project, project, action), text))
 
 
