@@ -61,7 +61,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-03-r17";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-04-r18";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -172,11 +172,19 @@ function asObject(value: unknown): Record<string, any> {
 
 export type DonorChatResult = Awaited<ReturnType<typeof donorTestChat>>;
 
+const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
+const CJK_RE = /[\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u312F\u3130-\u318F\u31A0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]+/g;
+/** An Arabic reply never carries Chinese/Japanese/Korean fragments (MiniCPM leaked «的人工智能助手» into Arabic). */
+export function stripMixedCjk(text: string): string {
+  if (!ARABIC_RE.test(text) || !text.match(CJK_RE)) return text;
+  return text.replace(CJK_RE, " ").replace(/[ \t]{2,}/g, " ").replace(/ +([.,!?،؛])/g, "$1").trim();
+}
+
 function shapeChatResult(raw: unknown): DonorChatResult {
   const result = asObject(raw);
   if (result.error) throw new Error(String(result.error).slice(0, 700));
   return {
-    text: String(result.text || "").replace(/<\|?(?:turn|end_of_turn|im_end|eos|end)\|?>|<\|?(?:start_of_turn|im_start)\|?>/gi, "").trimEnd(),   // a chat-template end marker (Gemma «<turn|>») must never reach the user
+    text: stripMixedCjk(String(result.text || "").replace(/<\|?(?:turn|end_of_turn|im_end|eos|end)\|?>|<\|?(?:start_of_turn|im_start)\|?>/gi, "").trimEnd()),   // a chat-template end marker (Gemma «<turn|>») must never reach the user
     tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
     executed_tools: Array.isArray(result.executed_tools) ? result.executed_tools : [],
     generated_media: Array.isArray(result.generated_media) ? result.generated_media.filter((item: any) => item && item.kind === "image" && typeof item.b64 === "string").map((item: any) => ({ ...item, metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {} })) : [],

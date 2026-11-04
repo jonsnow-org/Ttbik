@@ -75,7 +75,7 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-11-03-r17",
+            app_revision: "donor-bakeoff-2026-11-04-r18",
             repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
             weight_manifest: {
               candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
@@ -132,7 +132,7 @@ describe("donor Studio readiness probe", () => {
       if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
         return new Response(JSON.stringify({ data: [JSON.stringify({
           phase: "ready",
-          app_revision: "donor-bakeoff-2026-11-03-r17",
+          app_revision: "donor-bakeoff-2026-11-04-r18",
           repo_id: "novaai2026/sham-donor-gemma4-e4b-weights",
           weight_manifest: manifest,
           media_capabilities: { vision: true, audio: false, video: false },
@@ -166,7 +166,7 @@ describe("donor Studio readiness probe", () => {
       if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
         return new Response(JSON.stringify({ data: [JSON.stringify({
           phase: "ready",
-          app_revision: "donor-bakeoff-2026-11-03-r17",
+          app_revision: "donor-bakeoff-2026-11-04-r18",
           repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
           weight_manifest: manifest,
           media_capabilities: { vision: true, audio: false, video: false },
@@ -219,5 +219,15 @@ describe("donor background jobs", () => {
     const done = await donorJobPoll("qwen35-9b", "j", fetchImpl);
     expect(done.state === "done" && done.result.text).toBe("تم");
     expect((await donorJobPoll("qwen35-9b", "j", fetchImpl)).state).toBe("unknown");
+  });
+});
+
+describe("stripMixedCjk", () => {
+  it("removes Chinese fragments from an Arabic reply (MiniCPM leak)", () => {
+    const { stripMixedCjk } = require("@/lib/donorTests");
+    const out = stripMixedCjk("أنا مساعد ذكاء的人工智能助手. أنا هنا لمساعدتك!");
+    expect(out).not.toMatch(/[\u4E00-\u9FFF]/);
+    expect(out).toContain("أنا هنا لمساعدتك");
+    expect(stripMixedCjk("你好")).toBe("你好");
   });
 });
