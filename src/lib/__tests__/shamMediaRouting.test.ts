@@ -1,5 +1,5 @@
 import { shamGenerateMedia, shamVariant, SHAM_BACKEND_LABELS } from "@/lib/shamStudio";
-import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
+import { generateShamMediaThroughRoute, shamVideoDeadlineMs } from "@/lib/shamMediaRoutes";
 import { b64, png, photoStudioFake } from "./mediaFixtures";
 
 jest.mock("@/lib/shamExec", () => ({ shamMediaRoute: jest.fn(), shamMediaRouteEnabled: jest.fn(async () => true) }));
@@ -17,6 +17,13 @@ function studio(reply: object) {
 beforeEach(() => { process.env.MODELSCOPE_API_TOKEN = "t"; process.env.SHAM_V2_URL = "https://v2.test"; process.env.SHAM_V2_OVERFLOW_URL = "off"; process.env.SHAM_MODELSCOPE_URL = "https://v1.test"; });
 
 describe("Sham media routing (the removed generate_media endpoint is never called)", () => {
+  it("allocates a duration-aware budget for long CPU videos", () => {
+    expect(shamVideoDeadlineMs(6)).toBe(540_000);
+    expect(shamVideoDeadlineMs(10)).toBe(750_000);
+    expect(shamVideoDeadlineMs(30)).toBe(1_800_000);
+    expect(shamVideoDeadlineMs(60)).toBe(3_270_000);
+    expect(shamVideoDeadlineMs(120)).toBe(6_420_000);
+  });
   it("refuses a request without a selected model instead of using a shared media route", async () => {
     const calls = studio({ type: "image", b64: "never-used" });
     const r = await generateShamMediaThroughRoute("image", "a red apple");
