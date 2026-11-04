@@ -41,6 +41,8 @@ describe("the model's own persistent computer", () => {
     expect(clean.timeout).toBe(90);
     expect(cleanBoxArgs({ action: "rm" })).toBeNull();
     expect(cleanBoxArgs({ action: "job_log", id: "abcdefgh", tail: 9999 })).toEqual({ action: "job_log", id: "abcdefgh", tail: 400 });
+    expect(cleanBoxArgs({ action: "activity", since: -5, limit: 999 })).toEqual({ action: "activity", since: 0, limit: 40 });
+    expect(cleanBoxArgs({ action: "activity", since: 17, limit: 12 })).toEqual({ action: "activity", since: 17, limit: 12 });
   });
 
   test("the model reads exit code, output and the hint for long work", () => {
@@ -133,6 +135,36 @@ describe("writing fast: edit in place and publish in one commit", () => {
     const tree = seen.find((x) => x.p.endsWith("/git/trees"))!.body.tree;
     expect(tree).toEqual(expect.arrayContaining([expect.objectContaining({ path: "old.ts", sha: null }), expect.objectContaining({ path: "src/a.ts" }), expect.objectContaining({ path: "docs/n.md" })]));
     expect(seen.find((x) => x.p.endsWith("/git/commits"))!.body.message).toBe("fix things");
+  });
+
+  test("computer_publish uploads blobs with bounded concurrency and preserves tree order", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const files = Array.from({ length: 9 }, (_, i) => ({ path: `src/${i}.ts`, content: `export const value${i} = ${i};` }));
+    const studio = async (input: any) => String(input).endsWith("/call/box_do")
+      ? new Response('{"event_id":"e"}', { status: 200 })
+      : new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, repo: "o/r", base: "b".repeat(40), files, deleted: [], skipped: [] })]) + "\n\n", { status: 200 });
+    let active = 0;
+    let peak = 0;
+    const seenPaths: string[] = [];
+    const gh = async (method: string, path: string, body?: any) => {
+      if (path.endsWith("/git/ref/heads/fix-x")) return { status: 200, data: { object: { sha: "p1" } } };
+      if (path.includes("/git/commits/p1")) return { status: 200, data: { tree: { sha: "t0" } } };
+      if (path.endsWith("/git/blobs")) {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        return { status: 201, data: { sha: `blob-${body.content}` } };
+      }
+      if (path.endsWith("/git/trees")) { seenPaths.push(...body.tree.map((item: any) => item.path)); return { status: 201, data: { sha: "t1" } }; }
+      if (path.endsWith("/git/commits")) return { status: 201, data: { sha: "c1" } };
+      if (path.includes("/git/refs/heads/")) return { status: 200, data: {} };
+      return { status: 404, data: {} };
+    };
+    const out = await runTool(call("computer_publish", { repo: "o/r", branch: "fix-x", message: "parallel upload" }), { gh: gh as any, addNote: () => undefined, userId: 7, modelId: "coder", fetchImpl: studio as any } as any);
+    expect(out).toContain("9 file(s) changed");
+    expect(peak).toBe(4);
+    expect(seenPaths).toEqual(files.map((file) => file.path));
   });
 
   test("an empty checkout, a missing GitHub link or a bad branch publish nothing", async () => {

@@ -622,14 +622,16 @@ async function writeFiles(gh: Gh, repo: string, branch: string, message: string,
   const parent = ref.data.object.sha;
   const commit = await gh("GET", `/repos/${repo}/git/commits/${parent}`);
   const tree: any[] = [];
-  for (const f of files) {
-    if (f.content === null) {
-      tree.push({ path: f.path, mode: "100644", type: "blob", sha: null });
-      continue;
-    }
-    const blob = await gh("POST", `/repos/${repo}/git/blobs`, { content: f.content, encoding: "utf-8" });
-    if (blob.status >= 300) return { error: `blob ${f.path}: ${blob.status}` };
-    tree.push({ path: f.path, mode: "100644", type: "blob", sha: blob.data.sha });
+  for (let offset = 0; offset < files.length; offset += 4) {
+    const batch = await Promise.all(files.slice(offset, offset + 4).map(async (f) => {
+      if (f.content === null) return { path: f.path, mode: "100644", type: "blob", sha: null };
+      const blob = await gh("POST", `/repos/${repo}/git/blobs`, { content: f.content, encoding: "utf-8" });
+      if (blob.status >= 300) return { error: `blob ${f.path}: ${blob.status}` };
+      return { path: f.path, mode: "100644", type: "blob", sha: blob.data.sha };
+    }));
+    const failure = batch.find((item) => "error" in item);
+    if (failure && "error" in failure) return { error: failure.error };
+    tree.push(...batch as { path: string; mode: string; type: string; sha: string | null }[]);
   }
   const t = await gh("POST", `/repos/${repo}/git/trees`, { base_tree: commit.data.tree.sha, tree });
   if (t.status >= 300) return { error: `tree: ${t.status} ${clip(t.data?.message || "")}` };

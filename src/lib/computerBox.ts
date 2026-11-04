@@ -3,10 +3,10 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "patch", "test", "tools", "batch"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
 const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo"]);
 
 /** The tool names a model sees → what the Studio understands. */
@@ -51,6 +51,8 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
   if (a.name !== undefined) out.name = String(a.name).slice(0, 60);
   if (a.tail !== undefined && Number.isFinite(Number(a.tail))) out.tail = Math.max(1, Math.min(400, Math.trunc(Number(a.tail))));
+  if (a.since !== undefined && Number.isFinite(Number(a.since))) out.since = Math.max(0, Math.trunc(Number(a.since)));
+  if (a.limit !== undefined && Number.isFinite(Number(a.limit))) out.limit = Math.max(1, Math.min(40, Math.trunc(Number(a.limit))));
   if (a.url !== undefined) out.url = String(a.url).slice(0, 300);
   if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
   if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);

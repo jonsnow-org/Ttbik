@@ -242,11 +242,21 @@ def verify_remote_files(api, destination: str, manifest: dict, route_id: str, re
     if wait > 0:
         print(f"{route_id}: checking the manifest again in {wait:.0f}s.", flush=True)
         sleep(wait)
-        with tempfile.TemporaryDirectory(prefix="donor-weights-recheck-") as tmp:
-            again = json.loads(download_private_manifest(api, destination, tmp).read_text(encoding="utf-8"))
-        if again != manifest:
-            raise RuntimeError(f"{route_id}: the manifest changed or vanished {wait:.0f}s after the upload.")
-        print(f"{route_id}: manifest still intact after {wait:.0f}s.", flush=True)
+        last_error = "manifest contents differ from the uploaded revision"
+        for attempt in range(1, 7):
+            try:
+                with tempfile.TemporaryDirectory(prefix="donor-weights-recheck-") as tmp:
+                    again = json.loads(download_private_manifest(api, destination, tmp).read_text(encoding="utf-8"))
+                if again == manifest:
+                    print(f"{route_id}: manifest still intact after {wait:.0f}s (read {attempt}/6).", flush=True)
+                    return
+            except Exception as exc:
+                last_error = f"manifest read failed ({type(exc).__name__})"
+            if attempt < 6:
+                delay = min(30, 5 * attempt)
+                print(f"{route_id}: post-upload manifest is not stable ({last_error}); retrying in {delay}s ({attempt}/6).", flush=True)
+                sleep(delay)
+        raise RuntimeError(f"{route_id}: manifest remained unavailable or mismatched after six reads ({last_error}).")
 
 
 def main() -> int:
