@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-04-r19"
+APP_REVISION = "donor-bakeoff-2026-11-04-r20"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
@@ -1037,6 +1037,72 @@ def _video_duration_seconds(value=4) -> int:
     return int(seconds)
 
 
+def _candidate_gradio_result(profile: dict, token: str, api: str, payload: dict, read_timeout: int = 45) -> dict:
+    """Call one hidden Gradio API on this candidate's private media Studio and decode its final SSE event."""
+    base = str(profile.get("base") or "").rstrip("/")
+    if not base.startswith("https://studio-novaai2026-sham-donor-") or not base.endswith("-media.api-inference.modelscope.net"):
+        raise RuntimeError("Candidate media Studio address is not approved.")
+    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+    submit = _gateway_retry(
+        "POST", base + "/gradio_api/call/v2/" + api,
+        json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30),
+    )
+    submit.raise_for_status()
+    event_id = str((submit.json() or {}).get("event_id") or "")
+    if not event_id:
+        raise RuntimeError("The candidate media Studio returned no event id for " + api + ".")
+    result = _gateway_retry(
+        "GET", base + "/gradio_api/call/" + api + "/" + event_id,
+        headers={"Authorization": "Bearer " + token}, timeout=(8, max(10, int(read_timeout))),
+    )
+    result.raise_for_status()
+    raw = result.text
+    if "event: error" in raw or "event: complete" not in raw:
+        raise RuntimeError("The candidate media Studio did not complete " + api + ": " + re.sub(r"\s+", " ", raw[-420:]).strip())
+    data = _decode_gradio_data(raw)
+    item = data[0] if isinstance(data, list) and data else data
+    if isinstance(item, str):
+        item = json.loads(item)
+    if not isinstance(item, dict):
+        raise RuntimeError("The candidate media Studio returned an unreadable " + api + " result.")
+    return item
+
+
+def _candidate_video_by_job(profile: dict, token: str, payload: dict, seconds: int) -> dict:
+    """Keep a request in flight while the selected candidate's CPU Studio renders a long clip in its own background job."""
+    deadline = time.monotonic() + 120 + ((int(seconds) + 3) // 4) * 210
+    while time.monotonic() < deadline:
+        started = _candidate_gradio_result(profile, token, "video_start", payload, 35)
+        if started.get("type") == "busy":
+            time.sleep(5)
+            continue
+        job_id = str(started.get("job") or "") if started.get("type") == "job" else ""
+        if not job_id:
+            raise RuntimeError("The candidate media Studio did not start a video job: " + str(started.get("text") or started.get("type") or "unreadable")[:240])
+        misses = 0
+        while time.monotonic() < deadline:
+            wait = max(1, min(18, int(deadline - time.monotonic()) - 5))
+            try:
+                result = _candidate_gradio_result(profile, token, "job", {"job": job_id, "wait": wait}, wait + 25)
+            except Exception:
+                misses += 1
+                if misses >= 8:
+                    raise
+                time.sleep(3)
+                continue
+            if result.get("type") == "running":
+                misses = 0
+                continue
+            if result.get("type") == "busy":
+                time.sleep(3)
+                continue
+            if result.get("type") == "error" and result.get("reason") == "job_lost":
+                raise RuntimeError("The candidate video job was lost because its Studio restarted.")
+            return result
+        raise TimeoutError("The candidate video job exceeded its duration-aware deadline.")
+    raise TimeoutError("The candidate video Studio remained busy beyond its deadline.")
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1059,23 +1125,8 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
-    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
-        submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
-        submit.raise_for_status()
-        event_id = str((submit.json() or {}).get("event_id") or "")
-        if not event_id:
-            raise RuntimeError("the media Studio returned no event id")
-        result = requests.get(profile["base"] + "/gradio_api/call/" + api + "/" + event_id, headers={"Authorization": "Bearer " + token}, timeout=(8, 600))
-        result.raise_for_status()
-        raw = result.text
-        if "event: error" in raw or "event: complete" not in raw:
-            why = re.sub(r"\s+", " ", raw[-420:]).strip()
-            raise RuntimeError("the media Studio did not complete. Its last answer: " + why)
-        data = _decode_gradio_data(raw)
-        item = data[0] if isinstance(data, list) and data else data
-        if isinstance(item, str):
-            item = json.loads(item)
+        item = _candidate_video_by_job(profile, token, payload, seconds) if kind == "video" else _candidate_gradio_result(profile, token, api, payload, 600)
         if not isinstance(item, dict) or item.get("type") != kind or not item.get("b64"):
             reason = item.get("text") if isinstance(item, dict) else ""
             raise RuntimeError("the media Studio returned no " + kind + " file. " + str(reason or "")[:300])
@@ -1097,25 +1148,43 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
 
 
+def _explicit_computer_target(text: str) -> bool:
+    """Detect a local machine/shell/browser target; a media attachment or GitHub repository alone is not a computer target."""
+    return bool(re.search(
+        r"\b(computer|desktop|terminal|bash|shell|browser|folder|directory|filesystem|file system|workspace|command line|local file|local files|local path)\b|"
+        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|مجلد|مسار محلي|ملف محلي|ملفات محلية|على الحاسوب|على الكمبيوتر",
+        text,
+    ))
+
+
+def _project_execution_request(text: str) -> bool:
+    """A repository/project needs the computer only for a real build, test, install, edit or execution—not public GitHub reads."""
+    project = r"\b(repository|repo|project|source code)\b|مستودع|ريبو|المشروع|الكود"
+    action = r"\b(run|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\b|شغّل|شغل|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
+    return bool(re.search(r"(?:%s).{0,70}(?:%s)|(?:%s).{0,70}(?:%s)" % (action, project, project, action), text))
+
+
+def _computer_action_request(text: str) -> bool:
+    """A local target is actionable only when the user asks to perform an operation, not when asking about capabilities."""
+    action = (
+        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
+        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|انقر"
+    )
+    return _explicit_computer_target(text) and bool(re.search(action, text))
+
+
 def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
-    """Preload only the owner's own computer/GitHub schemas for tasks that clearly need them.
-    This removes an unnecessary model round-trip to call load_tools before the first real action."""
+    """Preload only required groups: computer for local execution, GitHub for linked repository tasks."""
     if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
         return []
     text = str(prompt or "").lower()
     groups = []
-    computer_words = (
-        "computer", "desktop", "terminal", "bash", "shell", "browser", "file", "folder", "run code",
-        "execute", "install", "build", "test", "debug", "repository", "repo", "كمبيوتر", "حاسوب",
-        "الحاسوب", "طرفية", "ترمينال", "متصفح", "ملف", "ملفات", "مجلد", "نفذ", "شغل", "اختبر",
-        "ثبت", "ابن", "اصلح", "أصلح", "كود", "برمج", "مشروع",
-    )
+    if _computer_action_request(text) or _project_execution_request(text):
+        groups.append("computer")
     github_words = (
         "github", "git hub", "pull request", "commit", "branch", "مستودع", "مستودعي", "ريبو",
         "جيت هب", "جيتهوب", "فرع", "طلب سحب",
     )
-    if any(word in text for word in computer_words):
-        groups.append("computer")
     connected = tool_bridge.get("connectors") if isinstance(tool_bridge.get("connectors"), list) else []
     if any(word in text for word in github_words) and "github" in connected:
         groups.append("github")
@@ -1123,19 +1192,9 @@ def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
 
 
 def _requires_computer_execution(prompt: str) -> bool:
-    """True only when the request combines an actionable verb with a computer/file/repository target."""
+    """Only actionable local computer tasks or project execution require a computer bridge."""
     text = str(prompt or "").lower()
-    has_target = bool(re.search(
-        r"\b(computer|desktop|terminal|shell|browser|file|files|folder|repository|repo|project|source code)\b|"
-        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|ملف|ملفات|مجلد|مستودع|ريبو|المشروع|الكود",
-        text,
-    ))
-    has_action = bool(re.search(
-        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
-        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|ابحث|استخدم|استعمل|انقر",
-        text,
-    ))
-    return has_target and has_action
+    return _computer_action_request(text) or _project_execution_request(text)
 
 
 def _has_computer_tools(tools: list) -> bool:

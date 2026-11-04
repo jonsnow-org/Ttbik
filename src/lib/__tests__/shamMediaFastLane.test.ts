@@ -59,6 +59,16 @@ describe("Sham media fast lane", () => {
     expect(routeCalls[0][1]).toBe("white horse");
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
   });
+  it("passes an Arabic requested video duration to the Sham v2 video route", async () => {
+    routeReply = { type: "video", mime: "video/mp4", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "قم بتوليد فيديو فرس أبيض لمدة 30 ثانية"))).toBe(true);
+    expect(routeCalls[0][0]).toBe("video");
+    expect(routeCalls[0][2]).toMatchObject({ seconds: 30 });
+    expect(calls.some((c) => c.m === "sendVideo")).toBe(true);
+  });
+
   it("old Sham (v1) reads the user's language as written: no translation", async () => {
     routeReply = { type: "image", b64: tiny, route: "sham_v1" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");

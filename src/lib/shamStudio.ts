@@ -326,15 +326,19 @@ export async function shamGenerateMedia(
   prompt: string,
   timeoutMs = 180000,
   backend: ShamMediaBackend = "internal",
-  opts: { scenes?: unknown; narration?: unknown; bypassQuality?: boolean } = {},
+  opts: { scenes?: unknown; narration?: unknown; bypassQuality?: boolean; seconds?: number } = {},
 ): Promise<ShamReply | null> {
   const api = "generate_media_from_panel";
   if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
   if (kind === "video" && backend === "ready" && shamVariant.getStore() === "v2" && shamStudioEnabled()) {
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
+    const requestedSeconds = opts.seconds ?? pressureMedia().videoSeconds;
+    if (!Number.isInteger(requestedSeconds) || !new Set<number>([6, 10, 15, 30, 60, 120]).has(requestedSeconds)) {
+      return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
+    }
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const videoBody = JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) });
+    const videoBody = JSON.stringify({ prompt: clipPrompt, seconds: requestedSeconds, seed: Math.floor(Math.random() * 2 ** 31) });
     const body = (await shamVideoByJob(base, videoBody, timeoutMs)) ?? await shamCallAt(base, "generate_video", { body: videoBody }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
     if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");

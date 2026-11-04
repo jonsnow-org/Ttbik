@@ -73,13 +73,10 @@ class LongTaskRubric(unittest.TestCase):
         self.assertFalse(f('تم تشغيل "deploy": "make it so"', tools))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CandidateImageSettings(unittest.TestCase):
     """The resolution a candidate sends must be one of the choices of ITS image Studio (a wrong string made Gradio answer with an error event)."""
     PAIRS = {"qwen35-9b": "cyberrealistic-test", "gemma4-e4b": "gemma4-realistic-vision-v6-test", "minicpm-o45": "umranz-image-test"}
+    MINIMUM_STEPS = {"qwen35-9b": 1, "gemma4-e4b": 25, "minicpm-o45": 1}
 
     def test_resolution_is_a_real_choice(self):
         here = Path(__file__).parent
@@ -88,24 +85,41 @@ class CandidateImageSettings(unittest.TestCase):
             res = conf["image_generation"]["resolution"]
             app = (here.parent / studio / "app.py").read_text(encoding="utf-8")
             self.assertIn('"' + res + '"', app, f"{cand}: '{res}' is not a choice of {studio}")
+            steps = int(conf["image_generation"]["steps"])
+            self.assertGreaterEqual(steps, self.MINIMUM_STEPS[cand],
+                                    f"{cand}: this Studio rejects image generation below {self.MINIMUM_STEPS[cand]} steps")
 
 
 class CandidateToolRouting(unittest.TestCase):
     def test_computer_tasks_preload_the_selected_model_computer_without_an_extra_generation_round(self):
-        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         self.assertEqual(f("شغّل الاختبارات على الحاسوب وافحص ملف package.json", bridge), ["computer"])
         self.assertEqual(f("run the build and debug the failing test in the terminal", bridge), ["computer"])
 
-    def test_github_tasks_load_only_a_connected_github_account(self):
-        f = load("_requested_tool_groups")["_requested_tool_groups"]
+    def test_github_read_tasks_do_not_preload_the_computer(self):
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
+        prompt = "Use github_repo_scan to inspect the repository root and github_read_files to read package.json."
+        self.assertEqual(f(prompt, no_github), [])
+        self.assertEqual(f(prompt, with_github), ["github"])
+
+    def test_project_edits_preload_both_computer_and_linked_github(self):
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
         self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", no_github), ["computer"])
         self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", with_github), ["computer", "github"])
 
+    def test_media_output_file_does_not_preload_the_computer(self):
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        prompt = "Create an image with generate_image and only say it was created when the image file is returned."
+        self.assertEqual(f(prompt, bridge), [])
+
     def test_unlinked_or_missing_bridge_does_not_offer_remote_tools(self):
-        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         self.assertEqual(f("run code in the computer", None), [])
         self.assertEqual(f("run code in the computer", {"url": "", "connectors": []}), [])
 
@@ -120,15 +134,26 @@ class CandidateToolRouting(unittest.TestCase):
 
 class ComputerExecutionContract(unittest.TestCase):
     def test_actionable_arabic_and_english_computer_requests_are_detected(self):
-        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
         self.assertTrue(f("افحص ملف package.json على الحاسوب وشغّل الاختبارات"))
         self.assertTrue(f("Open the browser and click the Settings button"))
         self.assertTrue(f("Run the build in the terminal and inspect the failing file"))
+        self.assertTrue(f("Run the tests in the repository project and fix the failing code"))
+
+    def test_github_reads_and_image_generation_do_not_require_a_computer(self):
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
+        self.assertFalse(f("Execute the task in two phases: use github_repo_scan to inspect the repository and then use vercel_deployment_status."))
+        self.assertFalse(f("Read package.json and src/lib/donorTests.ts from the GitHub repository, then summarize the results."))
+        self.assertFalse(f("أنشئ صورة فوتوغرافية واقعية، واستخدم generate_image، ولا تقل إنها أُنشئت حتى يرجع ملف الصورة."))
 
     def test_capability_questions_are_not_mistaken_for_execution_requests(self):
-        f = load("_requires_computer_execution")["_requires_computer_execution"]
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
         self.assertFalse(f("ما الذي يمكنك فعله على الحاسوب؟"))
         self.assertFalse(f("What computer tools are available?"))
+        bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        groups = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        self.assertEqual(groups("ما الذي يمكنك فعله على الحاسوب؟", bridge), [])
+        self.assertEqual(groups("What computer tools are available?", bridge), [])
 
     def test_preload_must_expose_a_real_computer_tool(self):
         f = load("_has_computer_tools")["_has_computer_tools"]
@@ -186,6 +211,69 @@ class LoadTools(unittest.TestCase):
         have = [{"function": {"name": "load_tools"}}]
         got = merge(have, [{"function": {"name": "github_read_file"}}, {"function": {"name": "load_tools"}}, {"function": {"name": "github_read_file"}}, {"function": {}}])
         self.assertEqual([t["function"]["name"] for t in got], ["load_tools", "github_read_file"])
+
+
+class CandidateVideoJobs(unittest.TestCase):
+    def test_gradio_job_helper_reads_the_final_complete_event(self):
+        calls = []
+
+        class Response:
+            def __init__(self, event_id=None, text=""):
+                self._event_id = event_id
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"event_id": self._event_id}
+
+        def gateway(method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            if method == "POST":
+                return Response(event_id="event-1")
+            return Response(text='event: heartbeat\ndata: null\n\nevent: complete\ndata: [{"type":"job","job":"clip-1"}]\n\n')
+
+        scope = load("_decode_gradio_data", "_candidate_gradio_result", _gateway_retry=gateway)
+        profile = {"base": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net"}
+        result = scope["_candidate_gradio_result"](profile, "secret", "video_start", {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(result, {"type": "job", "job": "clip-1"})
+        self.assertEqual(calls[0][0], "POST")
+        self.assertTrue(calls[0][1].endswith("/gradio_api/call/v2/video_start"))
+        self.assertEqual(json.loads(calls[0][2]["json"]["body"]), {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(calls[1][1], profile["base"] + "/gradio_api/call/video_start/event-1")
+        self.assertEqual(calls[0][2]["headers"]["Authorization"], "Bearer secret")
+
+    def test_video_tool_starts_and_polls_its_own_background_job(self):
+        calls = []
+        responses = iter([
+            {"type": "busy"},
+            {"type": "job", "job": "clip-1"},
+            {"type": "running", "phase": "sampling"},
+            {"type": "video", "mime": "video/mp4", "b64": "ZmFrZQ=="},
+        ])
+
+        def fake_call(profile, token, api, payload, read_timeout=45):
+            calls.append((api, payload, read_timeout))
+            return next(responses)
+
+        class Clock:
+            monotonic = staticmethod(lambda: 0.0)
+            sleep = staticmethod(lambda _seconds: None)
+
+        run = load("_candidate_video_by_job", time=Clock, _candidate_gradio_result=fake_call)["_candidate_video_by_job"]
+        profile = {"base": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net"}
+        result = run(profile, "secret", {"prompt": "A moving fox", "seconds": 30}, 30)
+        self.assertEqual(result["type"], "video")
+        self.assertEqual([x[0] for x in calls], ["video_start", "video_start", "job", "job"])
+        self.assertEqual(calls[1][1], {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(calls[2][1], {"job": "clip-1", "wait": 18})
+        self.assertEqual(calls[2][2], 43)
+
+    def test_deployed_media_studio_exposes_the_background_video_job_api(self):
+        studio = (Path(__file__).parents[2] / "ai-system" / "modelscope-media" / "app.py").read_text(encoding="utf-8")
+        self.assertIn('("video_start", api_video_start)', studio)
+        self.assertIn('("job", api_job)', studio)
 
 
 class CandidateMediaStudios(unittest.TestCase):
@@ -292,3 +380,7 @@ class ComputerAndToolSpeed(unittest.TestCase):
         self.assertEqual(sorted(out), [0, 2, 3])                   # the write-capable call is left to the ordered loop
         self.assertEqual(out[2]["name"], "fetch_page")
         self.assertEqual(scope["_run_reads_in_parallel"]([{"name": "github_read_file"}], None), {})   # one read: nothing to parallelise
+
+
+if __name__ == "__main__":
+    unittest.main()

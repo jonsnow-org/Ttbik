@@ -4,6 +4,8 @@ AnimateDiff-Lightning + an SD-1.5 realistic base, open weights, ~3 GB. Used by s
 """
 from __future__ import annotations
 
+import threading
+
 # --- cpu_video BEGIN (byte-identical in colab/sham_small/cpu_video.py and modelscope-media/app.py; a test keeps the copies in sync) ---
 # Real text-to-video on CPU: AnimateDiff-Lightning (motion adapter, 4 steps) on an SD-1.5 realistic base (epiCRealism). Open weights (CreativeML OpenRAIL-M),
 # about 3 GB on disk, run by our own process. The frames come out of one temporal diffusion pass (never stills stitched into a slideshow).
@@ -53,9 +55,17 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
 
 
 CV_REQUIRED_FREE = int(3.05 * 1024 ** 3)
+_VIDEO_WEIGHTS_LOCK = threading.Lock()
+_VIDEO_WEIGHT_STATE = {"loading": False, "ready": False, "error": ""}
 
 
 def cv_fetch_weights(root):
+    """Serialize background prefetch and request-time fetches of the same local ModelScope video assets."""
+    with _VIDEO_WEIGHTS_LOCK:
+        return _cv_fetch_weights_locked(root)
+
+
+def _cv_fetch_weights_locked(root):
     """Download a private local copy of the video weights from ModelScope only."""
     import shutil as _sh
     from pathlib import Path as _P

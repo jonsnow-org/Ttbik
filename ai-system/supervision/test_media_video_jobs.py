@@ -126,11 +126,55 @@ class FreeParentRamTest(unittest.TestCase):
         self.assertIsNone(app._CV["pipe"])
 
 
+class VideoMemoryPolicy(unittest.TestCase):
+    def test_cgroup_limit_overrides_large_host_meminfo(self):
+        app = load()
+        gib = 1024 ** 3
+        contents = {
+            "/proc/meminfo": "MemAvailable: 32000000 kB\\n",
+            "/sys/fs/cgroup/memory.max": str(8 * gib),
+            "/sys/fs/cgroup/memory.current": str(7 * gib),
+        }
+        self.assertAlmostEqual(app._mem_available_gb(contents.__getitem__), 1.0, places=3)
+
+    def test_8_gib_studio_uses_one_in_process_pipeline_after_releasing_picture_worker(self):
+        import os
+        app = load()
+        calls = []
+        app._free_parent_ram = lambda: calls.append("release-picture-worker-and-parent-heap")
+        app._mem_available_gb = lambda: 6.5
+        app.cv_generate_long = lambda *a, **k: calls.append(("generate-in-process", a[2])) or b"MP4"
+        app._trim_heap = lambda: calls.append("trim-heap")
+        app._CV["pipe"] = object()
+        with __import__("unittest.mock").mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NOVA_VIDEO_SUBPROCESS", None)
+            self.assertEqual(app._make_video("a girl dancing", 6), b"MP4")
+        self.assertEqual(calls, ["release-picture-worker-and-parent-heap", ("generate-in-process", 6), "trim-heap"])
+        self.assertIsNone(app._CV["pipe"])
+
+    def test_video_weights_are_prefetched_without_loading_the_pipeline(self):
+        app = load()
+        reads = []
+        app._VIDEO_WEIGHT_STATE.update({"loading": False, "ready": False, "error": ""})
+        def find(root, env_names=()):
+            reads.append("find")
+            return None if reads.count("find") == 1 else ("base", "adapter")
+        app.cv_find_weights = find
+        app.cv_fetch_weights = lambda root: reads.append(("download-assets-only", str(root)))
+        app._warm_video_weights()
+        self.assertEqual(reads[1][0], "download-assets-only")
+        self.assertTrue(app._VIDEO_WEIGHT_STATE["ready"])
+        self.assertFalse(app._VIDEO_WEIGHT_STATE["loading"])
+        self.assertEqual(app._VIDEO_WEIGHT_STATE["error"], "")
+
+
 class VideoPassesInFreshProcesses(unittest.TestCase):
-    def test_each_pass_gets_its_own_process_after_the_picture_worker_stops(self):
+    def test_each_pass_gets_its_own_process_only_when_memory_headroom_is_high(self):
         app = load()
         events = []
         app._stop_image_worker = lambda: events.append("stop-picture-worker")
+        app._trim_heap = lambda: None
+        app._mem_available_gb = lambda: 12.0
         app._run_pass = lambda prompt, secs, seed, d, i: events.append(("pass", i, secs)) or b"MP4"
         import types, sys
         mq = types.ModuleType("media_quality")
