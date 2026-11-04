@@ -208,11 +208,12 @@ export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): 
 }
 
 // ---------------------------------------------------------------- signing of the self-continuation
-export function signContinue(secret: string, botId: string, chatId: string, chain: string): string {
-  return createHmac("sha256", secret || "coder").update(`${botId}|${chatId}|${chain}`).digest("hex");
+export function signContinue(secret: string, botId: string, chatId: string, chain: string, engineModel?: string): string {
+  const payload = engineModel ? `${botId}|${chatId}|${chain}|${engineModel}` : `${botId}|${chatId}|${chain}`;
+  return createHmac("sha256", secret || "coder").update(payload).digest("hex");
 }
-export function verifyContinue(secret: string, botId: string, chatId: string, chain: string, sig: string): boolean {
-  const want = Buffer.from(signContinue(secret, botId, chatId, chain));
+export function verifyContinue(secret: string, botId: string, chatId: string, chain: string, sig: string, engineModel?: string): boolean {
+  const want = Buffer.from(signContinue(secret, botId, chatId, chain, engineModel));
   const got = Buffer.from(String(sig || ""));
   return want.length === got.length && timingSafeEqual(want, got);
 }
@@ -1743,7 +1744,8 @@ async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db:
 // ---------------------------------------------------------------- the loop: submit -> poll/stream -> tools (guarded) -> submit … until a final answer
 async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
   const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
-  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
+  const engineModel = currentEngineModel();
+  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, engineModel, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain, engineModel) });
   // Do not retry an ambiguous POST: the server may have accepted it even if the response was lost, and a retry could start two runners.
   const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
   if (res.status !== 202) throw new Error(`coder continuation handoff was not accepted (HTTP ${res.status})`);
@@ -2967,7 +2969,7 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
-  const model = await engineModelOf(chatId, db, slot);
+  const model = currentEngineModel() === "lfm25" ? "lfm25" : await engineModelOf(chatId, db, slot);
   return withEngineModel(model, () => driveInner(bot, botRow, chatId, chain, db, budgetMs, slot));
 }
 async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
@@ -3015,15 +3017,18 @@ async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chai
   }
 }
 
-export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = ""): Promise<void> {
-  const { Bot } = await import("grammy");
-  const bot = new Bot(botRow.token);
-  const st = await loadState(chatId, db, slot);
-  if (!st.run || st.run.chain !== chain) return;
-  const surface = st.run.surface;
-  st.run.lease = Date.now();
-  await saveState(chatId, st, db, slot);
-  await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" = "coder"): Promise<void> {
+  return withEngineModel(engineModel, async () => {
+    if (engineModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    const { Bot } = await import("grammy");
+    const bot = new Bot(botRow.token);
+    const st = await loadState(chatId, db, slot);
+    if (!st.run || st.run.chain !== chain) return;
+    const surface = st.run.surface;
+    st.run.lease = Date.now();
+    await saveState(chatId, st, db, slot);
+    await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+  });
 }
 
 /**
