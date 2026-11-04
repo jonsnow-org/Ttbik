@@ -12,7 +12,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, withEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -156,7 +156,15 @@ function ensureTable(db: Db): Promise<void> {
 }
 
 /** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
-export const stateKey = (chatId: number | string, slot = "") => coderChatKey(slot ? `${chatId}#${slot}` : chatId);
+/** LFM2.5 has its own working state; Nova's historical key is left unchanged. */
+export const modelSessionChatId = (chatId: number | string, model = currentEngineModel()): string =>
+  model === "lfm25" ? `${chatId}#model:lfm25` : String(chatId);
+export const modelSessionChatKey = (chatId: number | string, model = currentEngineModel()): string =>
+  coderChatKey(modelSessionChatId(chatId, model));
+export const stateKey = (chatId: number | string, slot = "") => {
+  const scoped = modelSessionChatId(chatId);
+  return coderChatKey(slot ? `${scoped}#${slot}` : scoped);
+};
 
 export async function loadStateStrict(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<ChatState> {
   await ensureTable(db);
