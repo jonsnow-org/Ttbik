@@ -72,11 +72,19 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     process.env.NOVA_MEDIA_STUDIO_URL = "https://nova-media.test";
     delete process.env.SHAM_V2_VIDEO_URL;
     const calls = studio({ type: "error", text: "no clip in this test" });
-    await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a red apple rotating"));
+    await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a red apple rotating", { seconds: 30 }));
     expect(calls[0].url).toBe("https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net/gradio_api/call/v2/generate_video_start");
-    expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating" });
+    expect(JSON.parse(calls[0].body.body)).toMatchObject({ prompt: "a red apple rotating", seconds: 30 });
     expect(calls.some((c) => c.url.includes("v2.test") || c.url.includes("nova-media") || c.url.includes("generate_media_from_panel"))).toBe(false);
   });
+  it("rejects unsupported Sham v2 video durations before calling the Studio", async () => {
+    (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
+    const calls = studio({ type: "error", text: "must not be reached" });
+    const r = await shamVariant.run("v2", () => generateShamMediaThroughRoute("video", "a test clip", { seconds: 7 }));
+    expect(r).toMatchObject({ type: "error", route: "sham_v2_ready", reason: "unsupported_duration" });
+    expect(calls).toHaveLength(0);
+  });
+
   it("Sham v2 video runs as a job on its own video Studio: start, then `job` until the clip is done (a running answer is asked again)", async () => {
     (shamMediaRoute as jest.Mock).mockResolvedValue("sham_v2_ready");
     delete process.env.SHAM_V2_VIDEO_URL;
