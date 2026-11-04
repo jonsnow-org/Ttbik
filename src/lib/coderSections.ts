@@ -678,14 +678,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
   const mf = await import("@/lib/coderMediaFast");
   const lastOf = (role: "user" | "assistant") => { for (let i = st.messages.length - 1; i >= 0; i--) { const m = st.messages[i]; if (m.role === role && typeof m.content === "string") return m.content; } return ""; };
-  const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
-  if (!mf.mediaRouteNeeded(content, context)) return false;
-  // the selected model itself decides (one short call on its own Studio, thinking off) and writes the generator prompt in the same call
-  const routed = mf.reconcileRoute(await routeMediaByModel(chatId, content, context), content, context);
-  let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
-  if (routed?.kind === "chat") return false;
-  if (routed?.kind === "refuse") {
-    const why = "لا أستطيع إنشاء هذا المحتوى لأنه يخالف قواعد السلامة. يمكنك طلب صورة أو مقطع آخر.";
+
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
