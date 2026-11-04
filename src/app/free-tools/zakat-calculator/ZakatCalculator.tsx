@@ -171,7 +171,7 @@ export default function ZakatCalculator() {
               `إجمالي الأصول الزكوية: ${fmt(result.assetsValue)}`,
               `بعد خصم الديون: ${fmt(result.net)}`,
               result.hasPrice && result.nisabThreshold > 0 ? `النصاب: ${fmt(result.nisabThreshold)}` : null,
-              `هل بلغ النصاب؟ ${result.reached ? "نعم — تجب الزكاة" : result.needsPrice ? (useGoldNisab ? "أدخل سعر جرام الذهب لمعرفة النصاب" : "أدخل سعر جرام الفضة لمعرفة النصاب") : "لا — لم يبلغ النصاب"}`,
+              `هل بلغ النصاب؟ ${result.reached ? "نعم — تجب الزكاة" : result.needsPrice ? zakatMissingPricesMessage(result, useGoldNisab) : "لا — لم يبلغ النصاب"}`,
               `مبلغ الزكاة (2.5%): ${fmt(result.zakatDue)}`,
             ].filter(Boolean) as string[];
             try {
