@@ -78,3 +78,39 @@ No secrets here: variable names only. Production branch: `claude/free-services-m
 
 ## ملاحظات Studios
 استوديوهات Nova وSham ومرشحو الأوزان تبقى مستقلة للاستدلال والوسائط، بينما `nova-inference-server` مخصص للحاسوب 16GB فقط. Sham v2 overflow في `sham-v2-overflow-server`. التفاصيل والاختبارات: `docs/STUDIOS.md`.
+
+## Handoff — Nov 4, about 5:25 AM Istanbul (save-and-ship)
+
+### Production
+- `claude/free-services-marketplace-h6rwk2` is at baa450dc1. The build was fixed by #682 (d2b681e6a); no content restriction was restored. Content restrictions were removed by the owner directly; do not re-add any.
+
+### Merged this session
+- #668–#678 and #680–#682. Highlights:
+  - #674: the owner's LFM test (pending note, Arabic errors, no prompt captions, faithful translation, a video request stays a video).
+  - #675 and #677: video runs as a background job (`video_start`/`generate_video_start` plus `job` polls of at most 20 s) on the Nova, LFM, candidate and Sham v2 video Studios.
+  - #681 (includes #679):
+    - Each clip runs in a fresh spawn process; the 2nd clip in one Studio process used to stall.
+    - Video deadline = 120 s + 210 s per 4 s pass.
+    - Each model introduces itself by its own name on Sham AI and knows it makes pictures, video and speech; it never calls itself by a repo name.
+    - `<think>` is stripped on every send path; a greeting never gets the "no file" note.
+  - #680: Qwen/Gemma weights stored under neutral names; read back plus a manifest recheck after 5 minutes.
+  - #678: read-only weight-repo audit workflow.
+  - #676: greeting probe (`all-models-media-live.yml kinds=chat`).
+  - #672: live desktop, Studio side.
+- #679 was closed as superseded by #681.
+
+### Qwen/Gemma weights
+- Cause: ModelScope emptied both repos about 3.5 minutes after a verified upload (E3020, run 41686061008). Only the repos whose file names held "Uncensored/heretic/Aggressive" were hit; MiniCPM was intact. No code of ours deletes them.
+- Re-upload run 41755213979 (neutral names):
+  - Qwen read back with matching size and SHA-256 (5,627,044,224 B, sha 2ca636d9…; mmproj 921,704,448 B, sha 05f66250…).
+  - The Qwen manifest was intact after 300 s, and the Qwen Studio was READY at 5:09 AM Istanbul.
+  - Gemma was still running at handoff: check that run.
+
+### Open / next steps
+1. LFM live test via the production handler: `all-models-media-live.yml models=lfm25 kinds=chat,image,video`.
+   - Add a chat-prompt input so «من انت» can be tested; today only «مرحبا» is built in.
+   - Then the other models, one at a time.
+2. Video durations 6/10/15/30/60/120 s, run one after another, never alongside owner tests, checked with VIDEOCHECK.
+3. Mini App live-desktop client (desktopComputer.ts actions, a streaming route for Studio `live`, GraphicalDesktop keyboard/touch/zoom/activity strip/terminal). Not started.
+4. The Sham v2 video Studio passes `pressureMedia().videoSeconds`, not the user's requested seconds (shamStudio.ts `shamGenerateMedia`).
+5. `shamMediaEngine.test.ts` has 1 failure that existed before this session and is not in the CI list.
