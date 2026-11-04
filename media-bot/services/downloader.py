@@ -529,3 +529,26 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
     gc.collect()
     joined = " | ".join(errors[-4:]) if errors else "download failed"
     return None, joined
+
+
+def cleanup_download_directory(path: Path | None) -> bool:
+    """Remove only downloader-owned temporary directories, never arbitrary paths."""
+    if path is None:
+        return False
+
+    parent = Path(path).parent
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        resolved_parent = parent.resolve()
+        resolved_parent.relative_to(temp_root)
+    except (OSError, ValueError):
+        return False
+
+    if not resolved_parent.name.startswith(("mediabot_", "tikwm_")):
+        return False
+
+    if not resolved_parent.is_dir():
+        return False
+
+    shutil.rmtree(resolved_parent, ignore_errors=True)
+    return not resolved_parent.exists()

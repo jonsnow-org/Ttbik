@@ -19,6 +19,7 @@ const T = {
     clicksSoFar: (n: number) => `النقرات حتى الآن: ${n}`,
     copied: "✅ تم النسخ",
     copy: "نسخ الرابط",
+    copyFailed: "تعذّر نسخ الرابط تلقائياً. حدّد الرابط وانسخه يدوياً.",
     open: "فتح",
     qrNotePre: "لمشاركة كـ QR: انسخ الرابط ثم افتح",
     qrNoteLink: "مولّد QR الخاص بنا",
@@ -41,6 +42,7 @@ const T = {
     clicksSoFar: (n: number) => `Clicks so far: ${n}`,
     copied: "✅ Copied",
     copy: "Copy link",
+    copyFailed: "Could not copy automatically. Select the link and copy it manually.",
     open: "Open",
     qrNotePre: "To share as a QR: copy the link then open our",
     qrNoteLink: "QR generator",
@@ -97,12 +99,43 @@ export default function UrlShortener({ lang = "ar" }: { lang?: "ar" | "en" }) {
     }
   }
 
-  function copy() {
+  async function copy() {
     if (!result) return;
-    navigator.clipboard.writeText(result.shortUrl).then(() => {
+
+    const legacyCopy = () => {
+      const field = document.createElement("textarea");
+      field.value = result.shortUrl;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      field.style.pointerEvents = "none";
+      document.body.appendChild(field);
+      field.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        field.remove();
+      }
+      return copied;
+    };
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(result.shortUrl);
+        } catch {
+          if (!legacyCopy()) throw new Error("clipboard unavailable");
+        }
+      } else if (!legacyCopy()) {
+        throw new Error("clipboard unavailable");
+      }
+      setError("");
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError(t.copyFailed);
+    }
   }
 
   return (

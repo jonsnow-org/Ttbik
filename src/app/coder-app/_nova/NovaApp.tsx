@@ -702,7 +702,7 @@ function Chats({ c }: { c: Ctx }) {
   const [bump, setBump] = useState(0);
   useEffect(() => {
     api<Models>("models").then((m) => setAvail([{ id: "all", name: n.ch_all }, ...(m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en }))])).catch(() => null);
-  }, [lang]);
+  }, [lang, n.ch_all]);
   const loading = useRef(false);
   const load = useCallback(async () => {
     if (loading.current || document.visibilityState !== "visible") return;

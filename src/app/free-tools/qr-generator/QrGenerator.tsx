@@ -69,7 +69,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
     try {
       const matrix = QR(value) as number[][];
       const n = matrix.length;
-      const quiet = 2;
+      const quiet = 4;
       const modules = n + quiet * 2;
       const cell = size / modules;
       canvas.width = size;

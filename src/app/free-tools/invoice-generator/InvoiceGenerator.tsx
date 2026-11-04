@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
 type LineItem = { desc: string; qty: string; price: string };
 
@@ -27,13 +28,13 @@ export default function InvoiceGenerator() {
   const parsedItems = items
     .map((it) => ({
       desc: it.desc.trim(),
-      qty: parseFloat(it.qty.replace(/,/g, ".")) || 0,
-      price: parseFloat(it.price.replace(/,/g, ".")) || 0,
+      qty: parseLocalizedNumber(it.qty, { commaDecimal: true }),
+      price: parseLocalizedNumber(it.price, { commaDecimal: true }),
     }))
     .filter((it) => it.desc || it.price);
 
   const subtotal = parsedItems.reduce((s, it) => s + it.qty * it.price, 0);
-  const taxRate = parseFloat(taxPercent.replace(/,/g, ".")) || 0;
+  const taxRate = parseLocalizedNumber(taxPercent, { commaDecimal: true });
   const taxAmount = (subtotal * taxRate) / 100;
   const total = subtotal + taxAmount;
 

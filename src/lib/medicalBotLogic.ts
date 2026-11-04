@@ -1,4 +1,5 @@
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { generateMedicalActivationCode, redeemMedicalActivationCode } from "@/lib/medicalActivation";
 import { startGuide } from "@/lib/botStartGuide";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -306,9 +307,7 @@ async function setPending(userId: string, action: PendingAction | null) {
   await prisma.medUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
 function genCode(role: FacilityType): string {
-  const prefix = role === "CLINIC" ? "CLN" : role === "HOSPITAL" ? "HOS" : "PHR";
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `MED-${prefix}-${rand}`;
+  return generateMedicalActivationCode(role);
 }
 
 // ---------------------------------------------------------------------
@@ -614,13 +613,38 @@ async function handleFacilityRegStep(
       await bot.api.sendMessage(chatId, "أرسل كود التفعيل:", { reply_markup: plainBackMenu() });
       return;
     }
-    const found = await prisma.medActivationCode.findUnique({ where: { code } });
-    if (!found || found.isRedeemed || found.role !== data.targetRole) {
+    const redeemed = await redeemMedicalActivationCode(
+      code,
+      data.targetRole!,
+      tgUserId,
+      {
+        findByCode: async (normalizedCode) => {
+          const found = await prisma.medActivationCode.findUnique({
+            where: { code: normalizedCode },
+            select: { id: true, isRedeemed: true, role: true },
+          });
+          return found;
+        },
+        claimAndAssign: async ({ id, redeemedBy, targetRole }) =>
+          prisma.$transaction(async (tx) => {
+            const claim = await tx.medActivationCode.updateMany({
+              where: { id, isRedeemed: false, role: targetRole },
+              data: { isRedeemed: true, redeemedBy },
+            });
+            if (claim.count !== 1) return false;
+
+            await tx.medUser.update({
+              where: { id: redeemedBy },
+              data: { role: targetRole },
+            });
+            return true;
+          }),
+      },
+    );
+    if (!redeemed) {
       await bot.api.sendMessage(chatId, "❌ كود غير صالح أو غير مطابق لنوع الحساب. تأكد وأعد المحاولة، أو اطلب كوداً جديداً من مالك المنصة.", { reply_markup: plainBackMenu() });
       return;
     }
-    await prisma.medActivationCode.update({ where: { id: found.id }, data: { isRedeemed: true, redeemedBy: tgUserId } });
-    await prisma.medUser.update({ where: { id: tgUserId }, data: { role: data.targetRole! } });
     await setPending(tgUserId, { mode: "facility_reg", step: "name", data });
     await bot.api.sendMessage(chatId, `🏷 أدخل اسم ${roleFacilityLabel(data.targetRole!)}:`, { reply_markup: plainBackMenu() });
     return;

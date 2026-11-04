@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { normalizeLocalizedDigits } from "@/lib/numberInput";
 
 const ONES = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة", "عشرة"];
 const ONES_F = ["", "واحدة", "اثنتان", "ثلاث", "أربع", "خمس", "ست", "سبع", "ثماني", "تسع", "عشر"];
@@ -100,7 +101,7 @@ export default function NumberToWords() {
   const [copied, setCopied] = useState(false);
 
   const text = useMemo(() => {
-    const clean = raw.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[,٬\s]/g, "").replace("٫", ".");
+    const clean = normalizeLocalizedDigits(raw);
     if (!/^\d{1,15}(\.\d{1,2})?$/.test(clean)) return clean ? "أدخل رقماً صحيحاً (حتى 15 خانة، وكسران عشريان كحد أقصى)" : "";
     const [i, f = ""] = clean.split(".");
     const intPart = BigInt(i);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
-import { createHash } from "crypto";
+import { createHash, randomInt } from "crypto";
 
 const CODE_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const CODE_LEN = 7;
@@ -9,7 +9,7 @@ const CODE_LEN = 7;
 function generateCode(): string {
   let out = "";
   for (let i = 0; i < CODE_LEN; i++) {
-    out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    out += CODE_CHARS[randomInt(CODE_CHARS.length)];
   }
   return out;
 }
@@ -48,28 +48,41 @@ export async function POST(req: NextRequest) {
   }
 
   const site = process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app";
-  let code = generateCode();
-  let attempts = 0;
-  while (attempts < 8) {
-    const existing = await prisma.shortLink.findUnique({ where: { code } });
-    if (!existing) break;
-    code = generateCode();
-    attempts++;
-  }
-
   const expiresAt = days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
 
   try {
-    const row = await prisma.shortLink.create({
-      data: {
-        code,
-        targetUrl: url,
-        ownerIpHash: hashIp(ip),
-        expiresAt,
-      },
-    });
+    let row: Awaited<ReturnType<typeof prisma.shortLink.create>> | null = null;
 
-    const shortUrl = `${site.replace(/\/$/, "")}/s/${row.code}`;
+    // Let the unique database index resolve concurrent code collisions. A
+    // preflight findUnique() check alone can race with another request.
+    for (let attempt = 0; attempt < 8 && !row; attempt++) {
+      try {
+        row = await prisma.shortLink.create({
+          data: {
+            code: generateCode(),
+            targetUrl: url,
+            ownerIpHash: hashIp(ip),
+            expiresAt,
+          },
+        });
+      } catch (error) {
+        const isUniqueCollision =
+          !!error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2002";
+        if (!isUniqueCollision) throw error;
+      }
+    }
+
+    if (!row) {
+      return NextResponse.json(
+        { error: "تعذّر إنشاء رمز فريد للرابط. حاول مرة أخرى." },
+        { status: 503 },
+      );
+    }
+
+    const shortUrl = site.replace(/\/$/, "") + "/s/" + row.code;
 
     return NextResponse.json({
       code: row.code,
@@ -77,8 +90,7 @@ export async function POST(req: NextRequest) {
       clicks: 0,
       expiresAt: row.expiresAt,
     });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "db error";
-    return NextResponse.json({ error: "تعذر إنشاء الرابط", detail: msg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "تعذر إنشاء الرابط" }, { status: 500 });
   }
 }

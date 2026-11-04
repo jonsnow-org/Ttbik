@@ -1,5 +1,7 @@
 "use client";
 
+import { parseLocalizedNumber } from "@/lib/numberInput";
+
 import { useMemo, useState } from "react";
 
 const PRESETS: { label: string; rate: number }[] = [
@@ -12,8 +14,7 @@ const PRESETS: { label: string; rate: number }[] = [
 ];
 
 function parseNum(v: string): number {
-  const n = parseFloat(v.replace(/,/g, "").replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? n : 0;
+  return parseLocalizedNumber(v);
 }
 
 function fmt(n: number, digits = 2): string {

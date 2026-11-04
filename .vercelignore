@@ -6,4 +6,3 @@ media-bot/
 # Repository workflows and quarantined legacy implementations are not site runtime files.
 .github/
 quarantine/
-.staging/

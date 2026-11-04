@@ -1,3 +1,4 @@
+import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -2334,22 +2335,11 @@ export async function runBroadcast(bot: TelegramBot, chatId: number, text: strin
   await auditAdmin(String(chatId), "broadcast", null, text, adminVia);
   const recipients = await prisma.matchUser.findMany({ where: broadcastWhere(botId), select: { id: true } });
   const messageText = formatBroadcastText(text);
-  let sent = 0;
-  for (const [i, r] of recipients.entries()) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        await bot.api.sendMessage(Number(r.id), messageText);
-        sent++;
-        break;
-      } catch (e: any) {
-        // 429: honour Telegram's retry_after once; other errors (blocked bot…) → skip.
-        const wait = Number(e?.parameters?.retry_after || 0);
-        if (e?.error_code === 429 && wait > 0 && wait <= 10 && attempt === 0) { await new Promise((res) => setTimeout(res, wait * 1000)); continue; }
-        break;
-      }
-    }
-    if (i % 25 === 24) await new Promise((res) => setTimeout(res, 1000)); // stay under ~30 msg/s
-  }
+  const { sent } = await sendTelegramBroadcast(
+    recipients.map((recipient) => recipient.id),
+    messageText,
+    (recipientId, payload) => bot.api.sendMessage(recipientId, payload),
+  );
   await bot.api.sendMessage(chatId, `✅ تم إرسال البث إلى ${sent} من أصل ${recipients.length} مستخدم.`, { reply_markup: adminMenu(botId) });
 }
 

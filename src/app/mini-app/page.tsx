@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
+import { migrateLegacyFollowIds } from "@/lib/mediaFollowMigration";
 import AdsterraBanner from "@/components/AdsterraBanner";
 import { AtharFeedCard, AtharProfileCard } from "@/components/AtharMediaCard";
 
@@ -418,11 +419,24 @@ export default function MiniAppPage() {
       // localStorage into the real server-side follow list.
       if (j.ready && !loadJSON(LS.followMigrated, false)) {
         const local = loadJSON<Record<string, boolean>>(LS.follow, {});
-        const ids = Object.keys(local).filter((k) => local[k] && !(j.relations?.following || []).includes(k));
-        saveJSON(LS.followMigrated, true);
-        if (ids.length) {
-          await Promise.all(ids.map((id) => social("follow", { target_id: id }).catch(() => null)));
-          void loadRelations(profileId);
+        const serverFollowing = new Set<string>(j.relations?.following || []);
+        const ids = Object.keys(local).filter((id) => local[id] && !serverFollowing.has(id));
+
+        if (!ids.length) {
+          saveJSON(LS.followMigrated, true);
+        } else {
+          const migration = await migrateLegacyFollowIds(
+            ids,
+            (id) => social("follow", { target_id: id }),
+          );
+
+          // Keep the marker unset after a partial failure. Successful follows
+          // are now returned by the server and excluded on the next app load;
+          // failed IDs remain in the legacy local list for a future retry.
+          if (!migration.pendingIds.length) {
+            saveJSON(LS.followMigrated, true);
+            void loadRelations(profileId);
+          }
         }
       }
     } catch { setSocialReady(false); }

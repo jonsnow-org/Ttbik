@@ -1,5 +1,7 @@
 "use client";
 
+import { parseLocalizedNumber } from "@/lib/numberInput";
+
 import { useMemo, useState } from "react";
 
 type Expense = { id: number; title: string; amount: number; payer: string; people: string[] };
@@ -42,7 +44,7 @@ export default function SharedCosts() {
   }, [people, expenses]);
 
   function addExpense() {
-    const amount = Number(amountText.replace(",", "."));
+    const amount = parseLocalizedNumber(amountText, { commaDecimal: true, fallback: NaN });
     if (!people.length) { setError("أضف أسماء المشاركين أولاً."); return; }
     if (!Number.isFinite(amount) || amount <= 0) { setError("أدخل مبلغاً صحيحاً أكبر من صفر."); return; }
     if (!people.includes(payer)) { setError("اختر شخصاً من قائمة المشاركين دفع الفاتورة."); return; }
