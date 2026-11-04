@@ -8,7 +8,7 @@ export type ShamMediaKind = "image" | "audio" | "video";
 export async function generateShamMediaThroughRoute(
   kind: ShamMediaKind,
   prompt: string,
-  opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown; bypassContentHeuristics?: boolean; aspect?: "wide" | "tall" | "square" } = {},
+  opts: { timeoutMs?: number; scenes?: unknown; narration?: unknown; bypassContentHeuristics?: boolean; aspect?: "wide" | "tall" | "square"; seconds?: number } = {},
 ): Promise<ShamReply> {
   const model = shamVariant.getStore();
   if (model !== "v1" && model !== "v2") {
@@ -38,7 +38,7 @@ export async function generateShamMediaThroughRoute(
       prompt,
       timeoutMs,
       backend,
-      { scenes: opts.scenes, narration: opts.narration, bypassQuality: opts.bypassContentHeuristics },
+      { scenes: opts.scenes, narration: opts.narration, bypassQuality: opts.bypassContentHeuristics, seconds: opts.seconds },
     ));
     if (reply && (reply.type === "image" || reply.type === "audio" || reply.type === "video") && reply.b64) {
       return { ...reply, route };
