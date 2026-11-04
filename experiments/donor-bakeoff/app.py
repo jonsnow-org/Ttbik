@@ -1151,7 +1151,7 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
 def _explicit_computer_target(text: str) -> bool:
     """Detect a local machine/shell/browser target; a media attachment or GitHub repository alone is not a computer target."""
     return bool(re.search(
-        r"\\b(computer|desktop|terminal|bash|shell|browser|folder|directory|filesystem|file system|workspace|command line|local file|local files|local path)\\b|"
+        r"\b(computer|desktop|terminal|bash|shell|browser|folder|directory|filesystem|file system|workspace|command line|local file|local files|local path)\b|"
         r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|مجلد|مسار محلي|ملف محلي|ملفات محلية|على الحاسوب|على الكمبيوتر",
         text,
     ))
@@ -1159,8 +1159,8 @@ def _explicit_computer_target(text: str) -> bool:
 
 def _project_execution_request(text: str) -> bool:
     """A repository/project needs the computer only for a real build, test, install, edit or execution—not public GitHub reads."""
-    project = r"\\b(repository|repo|project|source code)\\b|مستودع|ريبو|المشروع|الكود"
-    action = r"\\b(run|execute|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\\b|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
+    project = r"\b(repository|repo|project|source code)\b|مستودع|ريبو|المشروع|الكود"
+    action = r"\b(run|execute|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\b|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
     return bool(re.search(r"(?:%s).{0,70}(?:%s)|(?:%s).{0,70}(?:%s)" % (action, project, project, action), text))
 
 
