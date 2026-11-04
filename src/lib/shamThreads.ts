@@ -82,6 +82,7 @@ async function createThread(chatId: number | string, variant: ShamVariantId, tit
   const id = newId();
   await db.exec(`INSERT INTO sham_threads (id, chat_key, variant, title) VALUES ($1, $2, $3, $4)`, id, chatKey(chatId), variant, clip(title, 80));
   await db.exec(`INSERT INTO sham_thread_active (chat_key, variant, thread_id) VALUES ($1, $2, $3) ON CONFLICT (chat_key, variant) DO UPDATE SET thread_id = EXCLUDED.thread_id`, chatKey(chatId), variant, id);
+  await db.exec(`DELETE FROM sham_media_pending WHERE chat_key = $1 AND variant = $2`, chatKey(chatId), variant);
   return id;
 }
 
@@ -123,6 +124,7 @@ export async function openThread(chatId: number | string, variant: ShamVariantId
   if (!t[0]) return false;
   await db.exec(`UPDATE sham_threads SET archived = false WHERE id = $1`, id);     // opening an archived chat brings it back
   await db.exec(`INSERT INTO sham_thread_active (chat_key, variant, thread_id) VALUES ($1, $2, $3) ON CONFLICT (chat_key, variant) DO UPDATE SET thread_id = EXCLUDED.thread_id`, key, variant, id);
+  await db.exec(`DELETE FROM sham_media_pending WHERE chat_key = $1 AND variant = $2`, key, variant);
   return true;
 }
 
