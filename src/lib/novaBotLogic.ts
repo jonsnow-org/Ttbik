@@ -11,7 +11,7 @@ import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaP
 import { looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
-import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
+import { clearPendingMediaIntent, loadChatMemory, loadPendingMediaIntent, saveChatTurn, savePendingMediaIntent } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
@@ -950,20 +950,32 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
 export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: string, botId?: string): Promise<boolean> {
   const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
   const mf = await import("@/lib/coderMediaFast");
+  const variant = shamVariant.getStore() || "v1";
   let intent = mf.detectMediaIntent(text);
   if (!intent) {
-    // A user may reply to our previous request for an image/video description with
-    // only the subject (for example: "حصان أبيض"). Reuse only the immediately
-    // preceding turn in this Sham variant's own thread; never cross to Nova/other Sham.
-    const memory = await loadChatMemory(chatId, text).catch(() => null);
-    const previous = [...(memory?.history || [])].reverse().find((turn) => String(turn.a || "").trim());
-    if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a });
+    // This task state is independent of optional chat memory and is scoped to both Telegram user and Sham variant.
+    const pending = await loadPendingMediaIntent(chatId, variant).catch(() => null);
+    const candidate = text.trim();
+    const looksLikePlainSubject = candidate.length >= 2 && candidate.length <= 180
+      && !/[?؟]/.test(candidate)
+      && !/^(?:مرحبا|اهلا|أهلا|السلام عليكم|شكرا|شكرًا|تمام|حسنا|حسنًا|ok|okay|thanks|thank you|hello|hi)\\b/i.test(candidate)
+      && !/^(?:اكتب|اشرح|افتح|نفذ|نفّذ|اختبر|ابحث|مرحبا|لماذا|كيف|هل)\\b|^(?:write|explain|open|run|test|search|why|how|what)\\b/i.test(candidate);
+    if (pending && looksLikePlainSubject) {
+      intent = { kind: pending.kind, subject: candidate, ...(pending.kind === "video" && pending.seconds ? { seconds: pending.seconds } : {}) };
+    }
+    if (!intent) {
+      // Compatibility for an older pending clarification saved in this variant's own thread.
+      const memory = await loadChatMemory(chatId, text).catch(() => null);
+      const previous = [...(memory?.history || [])].reverse().find((turn) => String(turn.a || "").trim());
+      if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a });
+    }
   }
   if (!intent) return false;
+  await savePendingMediaIntent(chatId, variant, { kind: intent.kind, source: text, ...(intent.seconds ? { seconds: intent.seconds } : {}) }).catch(() => null);
   await refreshPressure().catch(() => false);
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // one message: the model's understanding + real progress; a failure is written into it, a picture / video is sent separately
-  await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
+  await taskStart(chatId, { runId, slot: shamTaskSlot(variant), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);
   const fail = async (msg: string, detail = "") => {
     await taskEvent(runId, "failed", detail || msg).catch(() => null);
     await taskStatus(runId, "failed").catch(() => null);
@@ -971,31 +983,52 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     await saveChatTurn(chatId, text, msg);
     return true;
   };
-  const askForDescription = async () => {
-    const message = intent!.kind === "video" ? "ما المشهد الذي تريد أن يظهر في الفيديو؟" : "ما الذي تريد أن يظهر في الصورة؟";
-    await taskEvent(runId, "info", "بانتظار وصف المشهد من المستخدم.").catch(() => null);
-    await taskStatus(runId, "waiting").catch(() => null);
-    if (!(await cardSay(bot, chatId, card, message))) await bot.api.sendMessage(chatId, message).catch(() => null);
-    await saveChatTurn(chatId, text, message);
-    return true;
-  };
   try {
     await bot.api.sendChatAction(chatId, intent.kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
-    // the media models read English: a plain word list when it is enough, else Sham's own chat translates (no Nova call)
-    // Test mode skips content rewriting and glossaries, NEVER the translation: the picture models read English only (an untranslated Arabic prompt gave unrelated pictures).
+    // Sham v2's dedicated text model translates the supplied subject. An empty subject means the user delegated the creative choice to Sham.
     let prompt: string | null = null;
-    // Old Sham (v1) writes the picture / clip from the model's OWN tokens (trained from scratch, its own tokenizer): it needs no translation and reads the user's language as written.
-    if ((shamVariant.getStore() || "v1") === "v1") prompt = intent.subject.trim().slice(0, 1800) || null;
-    else if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
-    else {
-      await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
-      const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + text.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
-      prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
+    const v1 = variant === "v1";
+    if (v1) {
+      // The original Sham writes media from its own tokens and reads the user's language directly.
+      prompt = intent.subject.trim().slice(0, 1800) || text.trim().slice(0, 1800);
+    } else if (intent.subject.trim() && /^[\\x00-\\x7f]+$/.test(intent.subject)) {
+      prompt = mf.cleanEnglishPrompt(intent.subject);
+    } else {
+      await cardTool(bot, chatId, card, intent.subject.trim() ? "ترجمة وصف الصورة إلى مطالبة إنجليزية" : "اختيار مشهد للصورة");
+      const system = intent.subject.trim() ? mf.MEDIA_TRANSLATE_SYSTEM : mf.MEDIA_CREATIVE_SYSTEM;
+      const source = intent.subject.trim() ? intent.subject.trim() : `The user requested a ${intent.kind} and delegated the subject choice to you. Duration: ${intent.seconds || 10} seconds.`;
+      const instruction = (extra = "") =>
+        `${system}\\n\\nMedia kind: ${intent!.kind}.\\nUser description: ${source}\\n${extra}Return only one English visual-generation prompt, no report, no greeting, no questions.\\nEnglish prompt:`;
+      const cleanPrompt = (value: string | null | undefined): string | null => {
+        const raw = String(value || "").trim();
+        if (!raw) return null;
+        const first = raw.split(/\\r?\\n/).map((line) => line.trim()).find(Boolean) || "";
+        const clean = mf.cleanEnglishPrompt(first);
+        if (!clean || clean.split(/\\s+/).length > 45) return null;
+        if (/^(?:of course|certainly|sure|here(?:'s| is)|report|analysis|the following|بالطبع|إليك|تقرير|الصورة|الوصف)\\b/i.test(clean)) return null;
+        if (/[•*#]/.test(clean)) return null;
+        return clean;
+      };
+      // generate_text is a stateless text-completion endpoint. chat_auto can answer a translation instruction as a conversational report.
+      const first = await shamGenerate(instruction(), 90, 30000).catch(() => null);
+      prompt = cleanPrompt(first);
+      if (!prompt) {
+        const retry = await shamGenerate(
+          instruction("Do not explain. Do not summarize. Do not ask the user anything. Translate the description faithfully into English and output exactly one line."),
+          70, 25000,
+        ).catch(() => null);
+        prompt = cleanPrompt(retry);
+      }
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
     let aspect: "wide" | "tall" | "square" | undefined;
     if (prompt) { const sp = mf.splitAspect(prompt); prompt = sp.prompt; aspect = sp.aspect; }
-    if (!prompt) return await askForDescription();
+    if (!prompt) {
+      return await fail(
+        "لم أتمكن من تجهيز مطالبة صالحة لتوليد الصورة هذه المرة. لم أرسل تقريراً نصياً بديلاً ولم يبدأ التوليد؛ أعد المحاولة.",
+        "Sham v2 generate_text did not return one concise English media prompt after two attempts.",
+      );
+    }
     if (mf.sexualMinorRequest(text) || mf.sexualMinorRequest(prompt)) { await bot.api.sendMessage(chatId, "لا أنشئ محتوى جنسيًا يخص القاصرين.").catch(() => null); return true; }
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
@@ -1009,6 +1042,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
       else await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"));
       await taskEvent(runId, "done", "").catch(() => null);
       await taskStatus(runId, "done", 1).catch(() => null);
+      await clearPendingMediaIntent(chatId, variant).catch(() => null);
       await saveChatTurn(chatId, text, intent.kind === "image" ? "🖼️ أُرسلت الصورة." : "🎬 أُرسل المقطع.");
       return true;
     }
