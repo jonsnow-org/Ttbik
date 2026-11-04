@@ -77,7 +77,8 @@ class VideoInFreshProcess(unittest.TestCase):
             "    except Exception as e:\n"
             "        print('RAISED', type(e).__name__, e)\n"
         ) % str(PATH.parent)
-        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        import os
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60, env={**os.environ, "NOVA_VIDEO_SUBPROCESS": "1"})
         self.assertIn("RAISED RuntimeError", out.stdout)
         self.assertIn("native-video-duration-limit", out.stdout)
 
@@ -123,6 +124,19 @@ class FreeParentRamTest(unittest.TestCase):
         app._free_parent_ram()
         self.assertIsNone(app._MODELS["pipe"])
         self.assertIsNone(app._CV["pipe"])
+
+
+class VideoInProcessOnSmallStudio(unittest.TestCase):
+    def test_low_ram_runs_the_clip_in_process_after_freeing_the_picture_pipeline(self):
+        import os
+        app = load()
+        calls = []
+        app._mem_available_gb = lambda: 6.5
+        app.cv_generate_long = lambda *a, **k: calls.append((app._MODELS["pipe"], a[2])) or b"MP4"
+        app._MODELS["pipe"] = object()
+        os.environ.pop("NOVA_VIDEO_SUBPROCESS", None)
+        self.assertEqual(app._make_video("a girl dancing", 6), b"MP4")
+        self.assertEqual(calls, [(None, 6)])
 
 
 if __name__ == "__main__":
