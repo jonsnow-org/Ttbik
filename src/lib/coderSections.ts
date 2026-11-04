@@ -876,7 +876,7 @@ async function fastMedia(
       if (at >= 0) cur.messages[at] = { role: "assistant", content: final };
       else cur.messages.push({ role: "assistant", content: final });
       await saveState(chatId, cur, db);
-      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(coderChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
+      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(modelSessionChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
     }
   }
 }
@@ -1413,7 +1413,7 @@ export async function newConversation(chatId: number, st: ChatState, db: Db = pr
 async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = ""): Promise<void> {
   const { createThread, LEGACY_TITLE } = await import("@/lib/coderThreads");
   const legacy = st.messages.length > 0 || !firstText;
-  st.threadId = await createThread(chatId, legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
+  st.threadId = await createThread(modelSessionChatId(chatId), legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
 }
 
 /**
@@ -1423,11 +1423,12 @@ async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = "
  */
 export async function switchThread(chatId: number, st: ChatState, targetId: string | null, db: Db = prismaDb): Promise<string> {
   const T = await import("@/lib/coderThreads");
-  const key = coderChatKey(chatId);
+  const ownerId = modelSessionChatId(chatId);
+  const key = coderChatKey(ownerId);
   if (targetId && targetId === st.threadId) return targetId;
   let target: Awaited<ReturnType<typeof T.getThread>> = null;
   if (targetId) {
-    target = await T.getThread(chatId, targetId, db);
+    target = await T.getThread(ownerId, targetId, db);
     if (!target || target.deleted_at) throw new Error("no such thread");
   }
   if (!targetId && st.threadId && !st.messages.length && !st.run) return st.threadId;          // already on an empty new chat
@@ -1440,7 +1441,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   if (st.threadId) {
     await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
     // "save conversations" off: the chat is not kept once it is left (hidden from the list like a delete)
-    if (!novaMemory(st).save) await T.hideThread(chatId, st.threadId, db);
+    if (!novaMemory(st).save) await T.hideThread(ownerId, st.threadId, db);
   }
   else if (st.messages.length) await ensureThread(chatId, st, db);
   if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db, st);   // no key for quiet time: as before
@@ -1450,7 +1451,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
     next.messages = target.messages || [];
     next.notes = target.notes || "";
     next.convId = target.conv_id || undefined;
-  } else next.threadId = await T.createThread(chatId, {}, db);
+  } else next.threadId = await T.createThread(ownerId, {}, db);
   await saveState(chatId, next, db);
   Object.assign(st, next);
   return next.threadId!;
