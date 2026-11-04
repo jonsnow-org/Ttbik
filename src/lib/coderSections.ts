@@ -119,7 +119,7 @@ export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb,
   if (heartbeatFresh === null && Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
   if (heartbeatFresh === false && Date.now() - (run.startedAt || run.lease || 0) < 45000) return false;
   if (run.job) await coderCancel(run.job).catch(() => null);
-  await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", coderChatKey(chatId));
+  await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", modelSessionChatKey(chatId));
   await saveState(chatId, st, db, slot);
   return true;
 }
@@ -1479,7 +1479,7 @@ export async function stopRun(chatId: number, slot = "", runId?: string, db: Db 
   if (!st.run || (runId && st.run.id !== runId)) return false;
   if (st.run.job) await coderCancel(st.run.job).catch(() => null);
   if (st.run.delegating) await cancelAgents(chatId, st.run.delegating.slots, db);
-  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
+  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", modelSessionChatKey(chatId));
   if (!slot && st.convId) {
     const conv = st.convId;
     later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv, st.model)));
@@ -2518,7 +2518,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         await closeCard(ioBot, chatId, run, r?.type === "cancelled" ? "⏹️ أُوقفت المهمة." : "❌ توقفت المهمة بسبب خطأ من خادم النموذج.", true);
-        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
+        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
@@ -2598,7 +2598,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             continue;
           }
           if (run.progress?.msgId) await (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `❌ توقفت المهمة بسبب عدم وصول أي تقدم من خادم النموذج.\nالسبب: ${where}\nيمكنك إعادة المحاولة أو فتح الطرفية لعرض السجلات.`).catch(() => null);
-          await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
+          await endRun(st, "failed", db, `studio job stalled (${where})`, modelSessionChatKey(chatId));
           await saveState(chatId, st, db, slot);
           await send(ioBot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
           return;
@@ -2653,7 +2653,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
-        await endRun(st, "failed", db, "empty model output after retry", coderChatKey(chatId));
+        await endRun(st, "failed", db, "empty model output after retry", modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
         return;
@@ -2687,7 +2687,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
-          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
+          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, modelSessionChatKey(chatId));
           await saveState(chatId, st, db, slot);
           await send(ioBot, chatId, tierFor(chatId) === "owner"
             ? `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`
@@ -2712,7 +2712,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const snap = [...st.messages], id = run.id, steps = run.step;
         later(() => import("@/lib/coderLessons").then((m) => m.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
       }
-      await endRun(st, "done", db, "✓", coderChatKey(chatId));
+      await endRun(st, "done", db, "✓", modelSessionChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
     }
@@ -2823,7 +2823,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const limT = lim.ok ? await checkLimit(chatId, "tokens", 1, db) : lim;
       const hit = !lim.ok ? lim : !limT.ok ? limT : null;
       if (hit) {
-        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, coderChatKey(chatId));
+        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         await sendLimit(ioBot, chatId, hit, st.tz, run.title && run.slot ? `${run.title}: ` : "");
         return;
@@ -2917,7 +2917,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     if (!r || !r.job) {
       await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.", true);
-      await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
+      await endRun(st, "failed", db, coderFailureText(o), modelSessionChatKey(chatId));
       await saveState(chatId, st, db, slot);
       await send(ioBot, chatId, userFailureText(o, chatId));
       return;
@@ -3064,7 +3064,7 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
   if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
     // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
     if (run.job) await coderCancel(run.job).catch(() => null);
-    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", coderChatKey(chatId));
+    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", modelSessionChatKey(chatId));
     await saveState(chatId, st, db, slot);
     return false;
   }
@@ -3095,7 +3095,7 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
     const st = await loadState(chatId, db, slot);
     if (!st.run) continue;
     if (st.run.job) await coderCancel(st.run.job).catch(() => null);
-    await endRun(st, "stopped", db, "stopped (parent finished or stopped)", coderChatKey(chatId));
+    await endRun(st, "stopped", db, "stopped (parent finished or stopped)", modelSessionChatKey(chatId));
     await saveState(chatId, st, db, slot);
   }
 }
