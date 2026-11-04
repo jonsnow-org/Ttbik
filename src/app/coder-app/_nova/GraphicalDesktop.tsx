@@ -19,6 +19,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  const running = status?.phase === "running";
+  const preparing = status?.phase === "installing" || status?.phase === "starting";
+  const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
 
   const call = useCallback(async (args: Record<string, unknown>) => {
     const result = await api<any>("desktop", { model, args });
@@ -98,7 +101,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           const consume = (block: string) => {
             if (!block.trim()) return;
             if (/^event:\s*error/m.test(block)) throw new Error("Computer Studio ended the live stream with an error");
-            const data = block.split(/\\r?\\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\\n");
+            const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
             if (!data || data === "[DONE]") return;
             let parsed: any;
             try { parsed = JSON.parse(data); } catch { return; }
@@ -117,7 +120,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             const chunk = await reader.read();
             if (chunk.done) break;
             buffer += decoder.decode(chunk.value, { stream: true });
-            const blocks = buffer.split(/\\r?\\n\\r?\\n/);
+            const blocks = buffer.split(/\r?\n\r?\n/);
             buffer = blocks.pop() || "";
             for (const block of blocks) consume(block);
           }
@@ -148,9 +151,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     finally { setBusy(false); }
   };
 
-  const running = status?.phase === "running";
-  const preparing = status?.phase === "installing" || status?.phase === "starting";
-  const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
   const launch = (app: "browser" | "terminal" | "files") => {
     void perform({ action: "launch", app, ...(app === "browser" ? { url: address } : {}) });
   };
