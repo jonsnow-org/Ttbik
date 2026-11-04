@@ -113,7 +113,7 @@ class FakeStudio:
         body = self.status_replies[min(self.n, len(self.status_replies) - 1)] if api == "status" else payload_for(api)
         if api == "status":
             self.n += 1
-            return 200, "data: " + json.dumps([json.dumps(events[event])]) + chr(10)
+        return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(body)]) + chr(10) + chr(10)
 
 
 def payload_for(api):
@@ -172,7 +172,7 @@ class AsyncVideoJobs(unittest.TestCase):
                 return 200, json.dumps({"event_id": event})
             api, event = url.rsplit("/gradio_api/call/", 1)[1].rsplit("/", 1)
             calls.append((method, api, event))
-            return 200, "event: complete\\ndata: " + json.dumps([json.dumps(events[event])]) + "\\n\\n"
+            return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(events[event])]) + chr(10) + chr(10)
 
         t = [0.0]
         st = P.Studio(
