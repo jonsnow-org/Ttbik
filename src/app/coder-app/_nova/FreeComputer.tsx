@@ -6,10 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import GraphicalDesktop from "./GraphicalDesktop";
 import type { Lang } from "../i18n";
+import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
-const MODELS: { id: string; label: string }[] = [
-  { id: "coder", label: "Nova AI" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
-];
+const MODELS = COMPUTER_MODEL_OPTIONS;
 type Line = { cmd: string; out: string; code?: number | null; sec?: number; err?: boolean };
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 const box = (model: string, args: Record<string, unknown>) => api<any>("box", { model, args });
