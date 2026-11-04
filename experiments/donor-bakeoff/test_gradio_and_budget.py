@@ -192,6 +192,69 @@ class LoadTools(unittest.TestCase):
         self.assertEqual([t["function"]["name"] for t in got], ["load_tools", "github_read_file"])
 
 
+class CandidateVideoJobs(unittest.TestCase):
+    def test_gradio_job_helper_reads_the_final_complete_event(self):
+        calls = []
+
+        class Response:
+            def __init__(self, event_id=None, text=""):
+                self._event_id = event_id
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"event_id": self._event_id}
+
+        def gateway(method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            if method == "POST":
+                return Response(event_id="event-1")
+            return Response(text='event: heartbeat\\ndata: null\\n\\nevent: complete\\ndata: [{"type":"job","job":"clip-1"}]\\n\\n')
+
+        scope = load("_decode_gradio_data", "_candidate_gradio_result", _gateway_retry=gateway)
+        profile = {"base": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net"}
+        result = scope["_candidate_gradio_result"](profile, "secret", "video_start", {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(result, {"type": "job", "job": "clip-1"})
+        self.assertEqual(calls[0][0], "POST")
+        self.assertTrue(calls[0][1].endswith("/gradio_api/call/v2/video_start"))
+        self.assertEqual(json.loads(calls[0][2]["json"]["body"]), {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(calls[1][1], profile["base"] + "/gradio_api/call/video_start/event-1")
+        self.assertEqual(calls[0][2]["headers"]["Authorization"], "Bearer secret")
+
+    def test_video_tool_starts_and_polls_its_own_background_job(self):
+        calls = []
+        responses = iter([
+            {"type": "busy"},
+            {"type": "job", "job": "clip-1"},
+            {"type": "running", "phase": "sampling"},
+            {"type": "video", "mime": "video/mp4", "b64": "ZmFrZQ=="},
+        ])
+
+        def fake_call(profile, token, api, payload, read_timeout=45):
+            calls.append((api, payload, read_timeout))
+            return next(responses)
+
+        class Clock:
+            monotonic = staticmethod(lambda: 0.0)
+            sleep = staticmethod(lambda _seconds: None)
+
+        run = load("_candidate_video_by_job", time=Clock, _candidate_gradio_result=fake_call)["_candidate_video_by_job"]
+        profile = {"base": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net"}
+        result = run(profile, "secret", {"prompt": "A moving fox", "seconds": 30}, 30)
+        self.assertEqual(result["type"], "video")
+        self.assertEqual([x[0] for x in calls], ["video_start", "video_start", "job", "job"])
+        self.assertEqual(calls[1][1], {"prompt": "A moving fox", "seconds": 30})
+        self.assertEqual(calls[2][1], {"job": "clip-1", "wait": 18})
+        self.assertEqual(calls[2][2], 43)
+
+    def test_deployed_media_studio_exposes_the_background_video_job_api(self):
+        studio = (Path(__file__).parents[2] / "ai-system" / "modelscope-media" / "app.py").read_text(encoding="utf-8")
+        self.assertIn('("video_start", api_video_start)', studio)
+        self.assertIn('("job", api_job)', studio)
+
+
 class CandidateMediaStudios(unittest.TestCase):
     def test_each_candidate_points_at_its_own_media_studio_and_repo(self):
         here = Path(__file__).parent
