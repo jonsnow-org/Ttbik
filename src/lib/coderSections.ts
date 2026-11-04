@@ -1518,7 +1518,8 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
   if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
   if (!novaMemory(st).remember) return;                                  // the user switched "remember" off for Nova in the app
   const snap = msgs.slice(-40);
-  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(modelSessionChatId(chatId), snap, { runId, repo }, db)).catch(() => null));
+  const memoryChatId = modelSessionChatId(chatId); // capture the selected model before the quiet-time callback loses request context
+  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(memoryChatId, snap, { runId, repo }, db)).catch(() => null));
 }
 
 /**
