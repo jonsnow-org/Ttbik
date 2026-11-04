@@ -1058,7 +1058,7 @@ def _candidate_gradio_result(profile: dict, token: str, api: str, payload: dict,
     result.raise_for_status()
     raw = result.text
     if "event: error" in raw or "event: complete" not in raw:
-        raise RuntimeError("The candidate media Studio did not complete " + api + ": " + re.sub(r"\\s+", " ", raw[-420:]).strip())
+        raise RuntimeError("The candidate media Studio did not complete " + api + ": " + re.sub(r"\s+", " ", raw[-420:]).strip())
     data = _decode_gradio_data(raw)
     item = data[0] if isinstance(data, list) and data else data
     if isinstance(item, str):
@@ -1125,7 +1125,6 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
-    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
         item = _candidate_video_by_job(profile, token, payload, seconds) if kind == "video" else _candidate_gradio_result(profile, token, api, payload, 600)
         if not isinstance(item, dict) or item.get("type") != kind or not item.get("b64"):
