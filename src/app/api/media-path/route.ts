@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mediaBotToken, mediaDb } from "@/lib/mediaSocial";
+import { isPublicMediaPost } from "@/lib/mediaVisibility";
 
 // Tiny lookup for the Cloudflare media Worker (cloudflare/media-stream-worker.js):
 // post id -> Telegram file_path. Only the path is returned (it's useless
@@ -15,9 +16,9 @@ export async function GET(req: NextRequest) {
   const token = mediaBotToken();
   if (!db || !token) return NextResponse.json({ error: "not configured" }, { status: 503 });
 
-  const { data } = await db.from("media_feed").select("file_id,media_type,hidden").eq("id", id).maybeSingle();
+  const { data } = await db.from("media_feed").select("file_id,media_type,hidden,squad_code").eq("id", id).maybeSingle();
   const row = data as any;
-  if (!row || row.hidden || !row.file_id) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!isPublicMediaPost(row) || !row.file_id) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const r = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(row.file_id)}`, { cache: "no-store" });
   const j = await r.json().catch(() => null);

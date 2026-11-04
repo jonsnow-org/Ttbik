@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notify } from "@/lib/mediaNotify";
 import { write } from "@/lib/mediaSafe";
+import { isPublicMediaPost } from "@/lib/mediaVisibility";
 import {
   EMPTY_RELATIONS,
   MEDIA_OWNER_ID,
@@ -264,8 +265,8 @@ export async function POST(req: NextRequest) {
         // Telegram file_id) as a prepared message the user then sends to
         // any chat they pick via WebApp.shareMessage (Bot API 8.0).
         if (!postId) return bad("post_id required");
-        const { data: post } = await db.from("media_feed").select("id,file_id,media_type,title").eq("id", postId).maybeSingle();
-        if (!post || !(post as any).file_id) return bad("not found", 404);
+        const { data: post } = await db.from("media_feed").select("id,file_id,media_type,title,hidden,squad_code").eq("id", postId).maybeSingle();
+        if (!isPublicMediaPost(post) || !(post as any).file_id) return bad("not found", 404);
         const p = post as any;
         const bot = await mediaBotUsername();
         const caption = `${String(p.title || "").slice(0, 200)}${bot ? `\n\n📥 عبر @${bot}` : ""}`;

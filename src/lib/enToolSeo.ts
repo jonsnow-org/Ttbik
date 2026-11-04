@@ -149,4 +149,118 @@ export const EN_TOOL_PAGES: EnTool[] = [
       { q: "Why does a symbol show as a square?", a: "The device or app lacks a glyph for that character. Try a different style." },
     ],
   },
+
+  {
+    slug: "qr-generator", ar: "qr-generator",
+    title: "Free QR Code Generator — Custom Colors and PNG Download",
+    h1: "Free QR code generator",
+    desc: "Create a QR code for a URL or text, customize its size and colors, and download a PNG. Free and generated in your browser.",
+    intro: "Enter a website address or any text, choose a size and color combination, then download a QR image you can use on a screen or in print.",
+    about: [
+      "A QR code stores a short piece of information in a two-dimensional pattern. A phone camera can scan it to open a website, read text, or access other supported data without typing the content manually.",
+      "This generator creates the code in your browser and lets you adjust its dimensions and foreground and background colors before downloading a PNG. For reliable scanning, keep strong contrast, leave a clear margin around the code, and test the downloaded image with more than one phone before printing it.",
+    ],
+    faq: [
+      { q: "Can I make a QR code for Arabic text?", a: "Yes. The QR code stores text rather than drawing Arabic letters as an image, so compatible scanner apps can read Arabic content." },
+      { q: "Will the QR code expire?", a: "A static QR code does not expire on its own. If it contains a web link, the destination must continue to work." },
+      { q: "Why will some phones not scan my QR code?", a: "Low contrast, a missing quiet margin, very small print size, or a damaged image can make scanning difficult. Use a dark code on a light background and test it before distribution." },
+    ],
+  },
+  {
+    slug: "url-shortener", ar: "url-shortener",
+    title: "Free URL Shortener with a Click Counter",
+    h1: "Free URL shortener",
+    desc: "Create a shorter link for sharing and track its click count. No account is required.",
+    intro: "Paste a long web address to create a compact link that is easier to share in messages, profiles, printed material, and social posts.",
+    about: [
+      "A short link redirects visitors to the original destination. The short-link service must retain the destination and record visits to provide the redirect and click counter, so do not use it for private or confidential URLs.",
+      "Before sharing a shortened link, open it yourself and confirm that it reaches the intended website. A short link does not make the destination safer; only open links from sources you trust.",
+    ],
+    faq: [
+      { q: "Does a shortened link keep working forever?", a: "It remains available while the short-link record and the destination are active. Do not use a short link as the only copy of an important address." },
+      { q: "Can I see how many times a link was clicked?", a: "The tool displays a click count for links it creates. A click count is a visit metric, not a guarantee that a person read the destination page." },
+      { q: "Should I shorten a private or sensitive URL?", a: "No. The short-link service needs to store the destination to redirect visitors. Avoid shortening links that contain passwords, private access tokens, or confidential information." },
+    ],
+  },
+  {
+    slug: "talking-photo", ar: "talking-photo",
+    title: "Talking Photo Maker — Make a Picture Speak with Your Voice",
+    h1: "Make a picture speak",
+    desc: "Add a voice recording to a portrait or drawing and create a short speaking-photo video in your browser.",
+    intro: "Choose a picture, add an audio file or record your voice, and create a short video in which the picture moves with the sound. Processing happens in your browser.",
+    about: [
+      "A talking-photo effect combines a still image with audio and applies visible facial movement to make the picture appear to speak. This tool performs its visual processing in the browser rather than uploading the selected media to a remote rendering service.",
+      "The result is an animation effect, not proof that the pictured person said the words. Use images you own or have permission to use, disclose edits when appropriate, and never present an edited clip as authentic evidence. Export formats and processing speed depend on browser support and device performance.",
+    ],
+    faq: [
+      { q: "Are my photo and voice uploaded to a server?", a: "The tool is designed to process the selected media in your browser. The tool page does not need to upload the source picture or voice to render the effect." },
+      { q: "Can I use a drawing or fictional character?", a: "Yes. You can use a portrait, drawing, or fictional character, provided you have the rights to use the image." },
+      { q: "Why can video export take a long time?", a: "Rendering and recording depend on the size of the image, audio duration, browser capabilities, and available device resources. Shorter clips and moderate image dimensions are usually easier to process." },
+    ],
+  },
+  {
+    slug: "image-optimizer", ar: "image-optimizer",
+    title: "Free Image Compressor and Converter — WebP, JPEG, PNG",
+    h1: "Free image compressor",
+    desc: "Resize and compress images, then export WebP, JPEG, or PNG directly in your browser without uploading the source image.",
+    intro: "Select an image, choose an output format and quality, and download a smaller copy for websites, shops, or social media.",
+    about: [
+      "Image optimization reduces file size or dimensions so pages and uploads can load faster. The best settings depend on the image: photographs often compress well as JPEG or WebP, while graphics that need transparency should use PNG or a supported WebP setting.",
+      "This tool uses browser image and canvas capabilities to process the selected file locally. A lower quality setting can reduce file size but may introduce visible artifacts, so compare the preview before saving. The original file is not overwritten.",
+    ],
+    faq: [
+      { q: "Which format should I choose?", a: "WebP often provides a good balance for web images, JPEG is widely supported for photographs, and PNG is useful when lossless detail or transparency is needed." },
+      { q: "Does compression always make an image smaller?", a: "Not always. A small or already-optimized image may not shrink, and converting formats can sometimes increase file size. Compare the output size before using it." },
+      { q: "Is my original image sent to the website?", a: "The image conversion is performed in your browser. The source image is not uploaded to the site's server by this tool." },
+    ],
+  },
+  {
+    slug: "invoice-generator", ar: "invoice-generator",
+    title: "Free Invoice Generator — Create and Print an Invoice",
+    h1: "Invoice generator",
+    desc: "Create a simple invoice in your browser, add line items and totals, and print or save the result as a PDF. No account required.",
+    intro: "Prepare a clear invoice by entering the seller and customer details, adding the items and amounts, and reviewing the totals before printing.",
+    about: [
+      "An invoice records what was supplied, who supplied it, who should pay, and the amount due. A useful invoice normally identifies both parties, includes an issue date and a unique reference, describes each item, and shows any tax or additional charge clearly.",
+      "This browser-based generator helps prepare a simple document for review and printing. It does not submit invoices to a tax authority, verify tax compliance, or replace accounting advice. Check local invoicing rules and required fields before issuing a document to a customer.",
+    ],
+    faq: [
+      { q: "Can I save the invoice as a PDF?", a: "Use the browser's print dialog and choose its Save as PDF option when available." },
+      { q: "Does the tool send my customer details to a server?", a: "The invoice is prepared in the browser; avoid sharing the generated document publicly because it may contain personal or business information." },
+      { q: "Is this invoice valid for every country?", a: "Invoice requirements vary by country and business type. Review local tax and record-keeping requirements before using the document as an official invoice." },
+    ],
+  },
+  {
+    slug: "cv-generator", ar: "cv-generator",
+    title: "Free CV Generator — Build a One-Page Resume",
+    h1: "CV generator",
+    desc: "Build a clear one-page CV in your browser and print or save it as a PDF. No account required.",
+    intro: "Add your contact details, profile, experience, education, and skills to create a structured CV that you can review and export.",
+    about: [
+      "A CV should make relevant experience easy to scan. Keep the most relevant information near the top, use consistent dates and job titles, and describe achievements with specific outcomes when you can support them.",
+      "This tool helps arrange your information into a one-page document in the browser. Review spelling, contact details, dates, and formatting before sending it to an employer. Tailor the final version to the role rather than sending the same document for every application.",
+    ],
+    faq: [
+      { q: "Can I download my CV as a PDF?", a: "Use the browser print dialog and select Save as PDF to keep a shareable copy." },
+      { q: "Should my CV always fit on one page?", a: "A concise one-page CV can work well for early-career applicants, but relevant experience should not be removed solely to meet a page limit." },
+      { q: "Should I include a photo or personal details?", a: "Requirements differ by country and industry. Include only information that is appropriate for the role and local hiring practices." },
+    ],
+  },
+  {
+    slug: "crypto-converter", ar: "crypto-converter",
+    title: "Crypto Converter — Convert TON, BTC, ETH and USDT",
+    h1: "Cryptocurrency converter",
+    desc: "Convert supported cryptocurrency amounts using the rates displayed by the tool. Free to use, with no account required.",
+    intro: "Choose the source and target currencies, enter an amount, and view the equivalent using the latest rate available to the converter.",
+    about: [
+      "A cryptocurrency converter calculates an indicative value by multiplying an amount by a displayed exchange rate. Market prices can change quickly, and rates can differ between exchanges, trading pairs, network fees, and the final execution price.",
+      "Use the result as a reference calculation only. It is not an offer to buy or sell cryptocurrency, a guaranteed quote, or a record of a completed transaction. Confirm the live rate and all fees on the service you intend to use before making a transfer or trade.",
+    ],
+    faq: [
+      { q: "Is the displayed conversion price guaranteed?", a: "No. It is an indicative conversion based on the rate returned to the tool and may differ from an exchange's executable price." },
+      { q: "Why might the value change?", a: "Crypto prices fluctuate continuously, and data providers may refresh at different intervals. The rate can also differ between exchanges and currency pairs." },
+      { q: "Does the converter execute a trade?", a: "No. It calculates an equivalent value only. It does not place orders, transfer assets, or connect to your wallet." },
+    ],
+  },
+
 ];
