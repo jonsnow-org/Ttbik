@@ -92,7 +92,7 @@ class CandidateImageSettings(unittest.TestCase):
 
 class CandidateToolRouting(unittest.TestCase):
     def test_computer_tasks_preload_the_selected_model_computer_without_an_extra_generation_round(self):
-        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         self.assertEqual(f("شغّل الاختبارات على الحاسوب وافحص ملف package.json", bridge), ["computer"])
         self.assertEqual(f("run the build and debug the failing test in the terminal", bridge), ["computer"])
@@ -119,7 +119,7 @@ class CandidateToolRouting(unittest.TestCase):
         self.assertEqual(f(prompt, bridge), [])
 
     def test_unlinked_or_missing_bridge_does_not_offer_remote_tools(self):
-        f = load("_requested_tool_groups")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         self.assertEqual(f("run code in the computer", None), [])
         self.assertEqual(f("run code in the computer", {"url": "", "connectors": []}), [])
 
