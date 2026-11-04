@@ -28,6 +28,27 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "open this from Telegram" }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as Record<string, any>;
   const chatId = Number(user.id);
+  // The live desktop route is still authenticated with Telegram initData and remains owner-only.
+  // It streams the existing per-user:model Studio session rather than polling full JPEG snapshots.
+  if (String(body.op || "") === "desktop_live") {
+    if (tierOf(chatId) !== "owner") return NextResponse.json({ error: "owner only" }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    const model = String(body.model || "");
+    const seconds = Number(body.seconds ?? 20);
+    try {
+      const { desktopLive } = await import("@/lib/desktopComputer");
+      const upstream = await desktopLive(model, `${chatId}:${model}`, seconds);
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: {
+          "Content-Type": upstream.headers.get("content-type") || "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    } catch (e) {
+      return NextResponse.json({ error: String((e as Error)?.message || e).slice(0, 240) }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    }
+  }
   try {
     const out = await appOp({ chatId, tier: tierOf(chatId) }, String(body.op || ""), body, { bot: new Bot(botRow.token), botRow });
     return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
