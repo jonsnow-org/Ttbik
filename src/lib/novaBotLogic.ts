@@ -1029,7 +1029,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
         "Sham v2 generate_text did not return one concise English media prompt after two attempts.",
       );
     }
-    if (mf.sexualMinorRequest(text) || mf.sexualMinorRequest(prompt)) { await bot.api.sendMessage(chatId, "لا أنشئ محتوى جنسيًا يخص القاصرين.").catch(() => null); return true; }
+    if (mf.sexualMinorRequest(text) || mf.sexualMinorRequest(prompt)) { await clearPendingMediaIntent(chatId, variant).catch(() => null); await bot.api.sendMessage(chatId, "لا أنشئ محتوى جنسيًا يخص القاصرين.").catch(() => null); return true; }
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));
