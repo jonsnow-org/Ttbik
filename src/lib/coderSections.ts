@@ -12,7 +12,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, withEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -21,7 +21,9 @@ import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
-import { chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { stripThinkTags } from "@/lib/thinkTags";
+export { stripThinkTags };
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -29,13 +31,14 @@ import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, taskIsActive, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
-import { beginStep, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
+import { beginStep, clock12, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
 import { DONOR_TESTS, donorJobPoll, donorJobStart, type DonorChatResult, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
+  resumes?: number;                                    // how many times a worker that disappeared was picked up again (resumeOrphan), capped
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
@@ -52,6 +55,8 @@ export type Run = {
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
+  mediaSent?: number;                                                 // media files really delivered to the chat in this run (make_media)
+  mediaTried?: number;                                                // make_media calls in this run (delivered or not)
 };
 export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
 export type { Db };
@@ -301,7 +306,22 @@ async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSe
 }
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
+/** The engine model whose Studio pool serves this chat (Nova or LFM2.5); a sub-agent slot follows its own pick, else the chat's. */
+async function engineModelOf(chatId: number | string | undefined, db: Db, slot = ""): Promise<string | undefined> {
+  if (chatId === undefined || chatId === null || chatId === "") return undefined;
+  try {
+    const own = await loadStateStrict(chatId, db, slot);
+    if (own.model || !slot) return own.model;
+    return (await loadStateStrict(chatId, db)).model;
+  } catch { return undefined; }
+}
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
+  // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
+  const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
+  const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
+  return withEngineModel(model, () => handleCoderSectionsInner(bot, botRow, update, db, onShamRoute));
+}
+async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
   // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
   if (update.message?.successful_payment) {
@@ -466,7 +486,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
   const st = preloadedOwnerState || await loadStateStrict(chatId, db);
-  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
+  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2", "lfm25"]);
   const requestedModel = st.model || "coder";
   console.info("[model-route] Telegram incoming", { chatKey: coderChatKey(chatId), selectedModel: requestedModel, mode: st.mode });
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
@@ -478,7 +498,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       await saveStateStrict(chatId, st, db);
       // Do not silently answer with Nova after a user selected a Sham model that this runtime considers unavailable.
       if (blockedModel && OWNER_FIRST.has(blockedModel) && !cmd.startsWith("/")) {
-        await send(bot, chatId, "⚠️ لم أتمكن من استخدام النموذج الذي اخترته لأنه غير متاح الآن لهذا الحساب. لم أرسل رسالتك إلى Nova. افتح اختيار النماذج وتحقق من إتاحة شام v2 ثم أعد المحاولة.");
+        await send(bot, chatId, "⚠️ لم أتمكن من استخدام النموذج الذي اخترته لأنه غير متاح الآن لهذا الحساب. لم أرسل رسالتك إلى Nova. افتح اختيار النماذج وتحقق من إتاحة النموذج ثم أعد المحاولة.");
         return true;
       }
     }
@@ -650,32 +670,49 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 }
 
 /** Takes a clear media request out of the general worker's hands. False = not a media request (or media is off here): the normal path runs. */
+/** The history's answer to a media request while it is still being made (replaced by the result). */
+export function mediaPendingNote(kind: "image" | "video" | "audio"): string {
+  return kind === "image" ? "⏳ أعمل على إنشاء الصورة الآن وسأرسلها هنا عند اكتمالها." : kind === "audio" ? "⏳ أعمل على إنشاء الصوت الآن وسأرسله هنا عند اكتماله." : "⏳ أعمل على إنشاء المقطع الآن وسأرسله هنا عند اكتماله.";
+}
+
 async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, content: string, db: Db): Promise<boolean> {
   const selectedModel = st.model || "coder";
   if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
-  const { detectMediaIntent } = await import("@/lib/coderMediaFast");
-  const intent = detectMediaIntent(content);
-  if (!intent) return false;
-  const ownVideo = intent.kind === "video" && selectedModel !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(selectedModel) : null;
-  if (intent.kind === "video" && selectedModel !== "coder" && !ownVideo) {
-    const why = "لم يتم تجهيز مولّد فيديو مستقل لهذا النموذج بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
+  const mf = await import("@/lib/coderMediaFast");
+  const lastOf = (role: "user" | "assistant") => { for (let i = st.messages.length - 1; i >= 0; i--) { const m = st.messages[i]; if (m.role === role && typeof m.content === "string") return m.content; } return ""; };
+  const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
+  if (!mf.mediaRouteNeeded(content, context)) return false;
+  // the selected model itself decides (one short call on its own Studio, thinking off) and writes the generator prompt in the same call
+  const routed = mf.reconcileRoute(await routeMediaByModel(chatId, content, context), content, context);
+  let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
+  if (routed?.kind === "chat") return false;
+  if (mf.sexualMinorRequest(content) || (routed && "prompt" in routed && mf.sexualMinorRequest(routed.prompt))) {
+    const why = "لا أنشئ محتوى جنسيًا يخص القاصرين.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
     return true;
   }
-  if (intent.kind === "video" && !ownVideo) {
-    const nm = await import("@/lib/novaMedia");
-    if (!nm.novaMediaEnabled()) {
-      const why = "استوديو الفيديو الخاص بنوفا غير مفعّل (NOVA_MEDIA_STUDIO_URL=off).";
-      st.messages.push({ role: "user", content }, { role: "assistant", content: why });
-      await saveState(chatId, st, db);
-      await send(bot, chatId, why);
-      return true;
-    }
+  if (routed) intent = { kind: routed.kind, subject: content, prompt: routed.prompt, ...(routed.kind !== "audio" && routed.aspect ? { aspect: routed.aspect } : {}), ...(routed.kind === "video" ? { seconds: routed.seconds } : {}) };
+  else {
+    // the model did not answer in time: only an explicit "make a picture / video of X" still goes straight to the generator (its prompt is then written by the same model)
+    const d = mf.detectMediaIntent(content, context);
+    if (!d) return false;
+    intent = d;
+  }
+  // every model makes all three kinds on ITS OWN Studios (src/lib/modelMedia.ts); a model without its own generator says so: nothing is made elsewhere
+  const mm = await import("@/lib/modelMedia");
+  if (!mm.modelMediaConfigured(selectedModel, intent.kind)) {
+    const why = "لم يتم تجهيز مولّد " + (intent.kind === "image" ? "صور" : intent.kind === "audio" ? "صوت" : "فيديو") + " مستقل لنموذج " + mm.mediaModelName(selectedModel) + " بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
+    st.messages.push({ role: "user", content }, { role: "assistant", content: why });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, why);
+    return true;
   }
   const runId = randomUUID().slice(0, 12);
-  st.messages.push({ role: "user", content });
+  // the request is answered in the history right away (replaced by the real result when it ends): a message sent while the picture is still being made
+  // must not see an unanswered picture request and "answer" it with "here is the picture" (owner's live test 2026-11-04: «مرحبا» got the media failure note)
+  st.messages.push({ role: "user", content }, { role: "assistant", content: mediaPendingNote(intent.kind) });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
   const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
@@ -688,19 +725,39 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
 }
 
 
+/** Asks the selected model (its own Studio pool, thinking off, one short line) whether the message asks for media now, and for the generator prompt.
+ *  null = no answer in time / unreadable (the caller then decides conservatively). */
+async function routeMediaByModel(chatId: number, content: string, context: { previousUser?: string; previousAssistant?: string }): Promise<import("@/lib/coderMediaFast").RoutedMedia | null> {
+  const mf = await import("@/lib/coderMediaFast");
+  const messages: CoderMessage[] = [
+    { role: "system", content: mf.MEDIA_ROUTER_SYSTEM },
+    { role: "user", content: mf.mediaRouterInput(content, context) },
+  ];
+  try {
+    const o = await coderChat(messages, { maxTokens: 110, think: false, temperature: 0, waitS: 20, timeoutMs: 35000, tag: "media-route", affinity: coderChatKey(chatId), priority: await queuePriority(chatId) });
+    let r: CoderReply | null | undefined = o?.reply;
+    for (let i = 0; r?.type === "pending" && r.job && i < 12; i++) {
+      await new Promise((res) => setTimeout(res, 2500));
+      r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
+    }
+    if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
+    return r?.type === "done" ? mf.parseMediaRoute(r.text || "") : null;
+  } catch { return null; }
+}
+
 async function englishMediaPrompt(subject: string, original: string, modelId = "coder", rawTest = false): Promise<string | null> {
   const mf = await import("@/lib/coderMediaFast");
   // test mode skips content rewriting, NEVER the translation: the picture models cannot read Arabic (an untranslated Arabic prompt gave unrelated pictures)
   if (/^[\x00-\x7f]+$/.test(subject)) return mf.cleanEnglishPrompt(subject);
-  // The picture / video models read English only. The MODEL writes the English prompt (owner's rule: models understand the request, code does not guess):
-  // Nova asks its own coder Studio; a selected model's media prompt is never sent through another model.
-  // owner 2026-11-03: translation is a shared utility on the fast LFM replica for every model that uses an English-only picture model (the pictures themselves stay in each model's own Studio)
+  // The picture / video models read English only. The SELECTED model writes the prompt on its own Studio pool (owner 2026-11-04: no model
+  // translates for another one; the old shared translator on another replica is gone). Used only when the router did not already write it.
+  void modelId; void rawTest;
   const messages: CoderMessage[] = [
     { role: "system", content: mf.MEDIA_TRANSLATE_SYSTEM },
     { role: "user", content: original.slice(0, 300) },
   ];
   try {
-    const o = await coderChat(messages, { maxTokens: 90, temperature: 0, waitS: 15, timeoutMs: 30000, prefer: process.env.NOVA_TRANSLATOR_STUDIO ?? "coder-inference-server-4", tag: "media-prompt" });
+    const o = await coderChat(messages, { maxTokens: 90, think: false, temperature: 0, waitS: 15, timeoutMs: 30000, tag: "media-prompt" });
     let r: CoderReply | null | undefined = o?.reply;
     for (let i = 0; r?.type === "pending" && r.job && i < 15; i++) {
       await new Promise((res) => setTimeout(res, 3000));
@@ -716,7 +773,7 @@ async function fastMedia(
   bot: TelegramBot,
   chatId: number,
   runId: string,
-  intent: { kind: "image" | "video"; subject: string; seconds?: number },
+  intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" },
   content: string,
   modelId: string,
   db: Db,
@@ -736,42 +793,40 @@ async function fastMedia(
     if (!slot.ok) { say = mq.mediaQuotaMessage(slot); result = "quota"; }
     else {
       reserved = true;
-      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
+      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : kind === "audio" ? "upload_voice" : "upload_photo").catch(() => null);
       const rbm = realBot(bot) as never;
-      const needsPromptHelp = !/^[\x00-\x7f]+$/.test(intent.subject);
-      if (needsPromptHelp) await cardTool(rbm, chatId, card, "تحويل الوصف إلى صيغة مناسبة للمولّد");
-      const prompt = await englishMediaPrompt(intent.subject, content, modelId, rawTest);
-      if (needsPromptHelp) await cardStepDone(rbm, chatId, card, Boolean(prompt));
+      // the prompt was written by the selected model in the routing call; only when that call did not answer does the same model write it now (silently: the card never talks about prompts or translation)
+      const written = intent.prompt
+        ? { prompt: intent.prompt, aspect: intent.aspect }
+        : kind === "audio" ? { prompt: intent.subject, aspect: undefined }
+        : (await import("@/lib/coderMediaFast")).splitAspect(await englishMediaPrompt(intent.subject, content, modelId, rawTest));
+      const { prompt, aspect } = written;
       if (!prompt) {
-        say = "لم أستطع تحويل هذا الوصف العربي المختصر إلى وصف " + (kind === "video" ? "مقطع" : "صورة") + " موثوق. اكتب وصفاً إنجليزياً أو استخدم كلمات عربية بسيطة معروفة؛ لم يُستدعَ أي مولّد آخر.";
+        say = "لم أفهم وصف " + (kind === "video" ? "المقطع" : "الصورة") + " بما يكفي لإنشائه. صِف ما تريد أن يظهر بكلمات أوضح؛ لم يُحسب شيء من حصتك.";
         result = "no prompt";
       } else {
         await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);
         const { vetMedia } = await import("@/lib/mediaQuality");
         await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
-        let raw: any;
-        if (kind === "image") {
-          const photo = await import("@/lib/photoWeightMedia");
-          raw = await photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest });
-        } else {
-          const nm = await import("@/lib/novaMedia");
-          const own = modelId !== "coder" ? (await import("@/lib/photoWeightMedia")).candidateMediaStudio(modelId) : null;   // a candidate's clip is made by ITS OWN media Studio, never Nova's
-          raw = await nm.novaMakeMedia("video", prompt, { seconds: intent.seconds ?? 10, timeoutMs: 300000, bypassContentHeuristics: rawTest, ...(own ? { base: own.base } : {}) });
-        }
+        // the selected model's OWN generator for every kind (never another model's Studio)
+        const raw: any = await (await import("@/lib/modelMedia")).makeModelMedia(modelId, kind, prompt, { seconds: intent.seconds ?? 10, aspect, raw: rawTest });
         const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
-        if (media?.b64 && (media.type === "image" || media.type === "video")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
+        if (media?.b64 && (media.type === "image" || media.type === "video" || media.type === "audio")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
         if (media?.b64 && media.type === "image" && kind === "image") {
-          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04); it is in the task log for the owner
           delivered = true;
         } else if (media?.b64 && media.type === "video" && kind === "video") {
           await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
           delivered = true;
+        } else if (media?.b64 && media.type === "audio" && kind === "audio") {
+          await (rb.api as any).sendAudio(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
+          delivered = true;
         }
         if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
-        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة من مولّد " + modelId + " المستقل." : "🎬 أُرسل المقطع.";
+        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة." : kind === "audio" ? "🎙️ أُرسل الصوت." : "🎬 أُرسل المقطع.";
         else {
-          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
+          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : kind === "audio" ? "الصوت" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
           result = "failed";
         }
       }
@@ -784,7 +839,12 @@ async function fastMedia(
     await taskEvent(runId, delivered ? "done" : "failed", delivered ? result : say || result, db);
     const cur = await loadState(chatId, db).catch(() => null);
     if (cur) {
-      cur.messages.push({ role: "assistant", content: delivered ? result : say || result });
+      const final = delivered ? result : say || result;
+      const pending = mediaPendingNote(kind);
+      let at = -1;
+      for (let i = cur.messages.length - 1; i >= 0 && at < 0; i--) if (cur.messages[i].role === "assistant" && cur.messages[i].content === pending) at = i;
+      if (at >= 0) cur.messages[at] = { role: "assistant", content: final };
+      else cur.messages.push({ role: "assistant", content: final });
       await saveState(chatId, cur, db);
       if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(coderChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
     }
@@ -834,7 +894,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
   const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
-  let messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }) }, ...w.msgs.map(wire), { role: "user", content: "." }];
+  let messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, notes: "", date: false }), novaModelOf(st.model)) }, ...w.msgs.map(wire), { role: "user", content: "." }];
   // A warm-up reads the whole conversation to fill the Studio's cache: on a cold Studio that is MINUTES of the one worker (measured 2026-10-25: a 35k-character conversation held a Studio for 7+ minutes
   // while the owner's real request waited behind it). So it is small-only, and the moment a real request of the same chat is sent it is cancelled (cancelWarm).
   // A long conversation is not read ahead (minutes of the one worker), but the START every conversation shares (system text + the whole fixed tool list, ~9k tokens) still is:
@@ -1162,7 +1222,7 @@ async function finishDonorRun(
   const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
   {
     if (!(await taskIsActive(runId, db))) return;
-    const answer = String(result.text || "").trim();
+    const answer = stripThinkTags(String(result.text || "")).trim();       // a thought block never reaches the chat or the Mini App (any model)
     const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
     const executedTools = Array.isArray(result.executed_tools) ? result.executed_tools : [];
     const auditForHistory = executedTools.length
@@ -1668,7 +1728,7 @@ async function typing(bot: TelegramBot, chatId: number): Promise<void> {
 
 /** The clock on the progress card: the user's local time (CODER_DEFAULT_TZ, Syria / Türkiye UTC+3 by default), never the server's UTC. */
 export function localClock(now: Date = new Date(), tz: string = defaultTz()): string {
-  return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
+  return clock12(now.getTime(), tz);
 }
 
 /** The ack the model wrote after the card was opened (same process only); the persisted run picks it up on its next render. */
@@ -1893,6 +1953,7 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
 
 /** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
 async function sendRich(bot: TelegramBot, chatId: number, text: string) {
+  text = stripThinkTags(text);
   const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
   const html = markdownToTelegramHtml(text);
   if (html.length <= 4096) {
@@ -1954,7 +2015,37 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
   }
 }
 
+/** The name a model introduces itself with (owner 2026-11-04: LFM2.5 answered «من انت» with the repository name). Nova keeps "Nova AI". */
+export function modelDisplayName(modelId?: string): string {
+  const m = DEFAULT_MODELS.find((x) => x.id === (modelId || "coder"));
+  return (m?.name.en || "Nova AI").replace(/\s*\([^)]*\)\s*$/, "").trim() || "Nova AI";
+}
+
+/** The system text with this model's own identity, plus what it can do (it makes pictures, videos and speech; live 2026-11-04 LFM2.5 said "I can't
+ *  generate images, use the dedicated tool") and that a repository in the context is the user's project, never its name. Same text every time per model. */
+export function withModelIdentity(system: string, modelId?: string): string {
+  const name = modelDisplayName(modelId);
+  let s = system;
+  if (name !== "Nova AI") s = s.replace(/Nova AI/g, name).replace(new RegExp(`I'm ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\w)`, "g"), `I'm ${name} on Sham AI`);
+  return s + "\n" + [
+    `CAPABILITIES: you are ${name}${name === "Nova AI" ? "" : " on Sham AI"}. You CAN make pictures, short videos and Arabic speech yourself: the app makes them as soon as the user asks for one (or with make_media). Never say you cannot make images, videos or audio, and never send the user to another tool or site for them.`,
+    "Never call yourself by a repository, GitHub account, file or project name: a default repository in the context is the user's project, not your name.",
+  ].join("\n");
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
+  // a model's thought block is never shown (live 2026-11-04: LFM2.5 answered «مرحبا» with "<think></think>" twice before the greeting); an unclosed one at the tail is held back until it closes
+  text = stripThinkTags(text);
+  if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0)) {
+    // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture). Only the false sentence goes:
+    // the rest of the answer stays (a greeting answered with "here is the picture" from an earlier turn keeps its greeting), and the "media did not finish"
+    // note is used only when this run really tried to make media.
+    const mf = await import("@/lib/coderMediaFast");
+    if (mf.claimsMediaSent(text)) {
+      text = mf.dropMediaClaims(text, Boolean(run.mediaTried));
+      await taskEvent(run.id, "info", "removed a sentence that claimed a media file was sent while none was delivered in this run", db).catch(() => undefined);
+    }
+  }
   if (run.surface === "app") {
     const from = Math.max(0, Math.min(text.length, run.logged || 0));
     const delta = text.slice(from);
@@ -2100,13 +2191,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         let from = "";
         try {
           if (call.function.name === "make_media") {
+            run.mediaTried = (run.mediaTried || 0) + 1;
             const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
             const prompt = String(a.prompt || "").trim().slice(0, 600);
             const modelId = st.model || "coder";
             const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
             const { vetMedia } = await import("@/lib/mediaQuality");
             if (!kind || !prompt) out = "error: kind (image | audio | video) and prompt are required";
-            else if (kind !== "image" && modelId !== "coder") {
+            else if (!(await import("@/lib/modelMedia")).modelMediaConfigured(modelId, kind)) {
               out = "error: this selected model has no dedicated " + kind + " generator configured yet. Nothing was sent to Nova or another model.";
             } else {
               const mq = await import("@/lib/coderMedia");
@@ -2117,33 +2209,25 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
               } else {
                 let delivered = false;
                 try {
-                  let raw: any;
-                  if (kind === "image") {
-                    const photo = await import("@/lib/photoWeightMedia");
-                    raw = await withHeartbeat(ioBot, chatId, run, "جارٍ توليد صورة من أوزان النموذج المختار", () =>
-                      photo.makePhotoMedia(modelId, prompt, { timeoutMs: 420000, bypassNegativePrompt: rawTest }));
-                  } else {
-                    const nm = await import("@/lib/novaMedia");
-                    raw = nm.novaMediaEnabled()
-                      ? await withHeartbeat(ioBot, chatId, run, "جارٍ صنع " + kind, () =>
-                          nm.novaMakeMedia(kind, prompt, { timeoutMs: kind === "video" ? 300000 : 240000, bypassContentHeuristics: rawTest }))
-                      : { type: "error", text: "Nova's own speech/video Studio is disabled." };
-                  }
+                  const mm = await import("@/lib/modelMedia");
+                  const raw: any = await withHeartbeat(ioBot, chatId, run, kind === "image" ? "جارٍ توليد صورة من أوزان النموذج المختار" : "جارٍ صنع " + kind, () =>
+                    mm.makeModelMedia(modelId, kind, prompt, { timeoutMs: kind === "image" ? 420000 : kind === "video" ? 300000 : 240000, raw: rawTest }));
                   const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
                   const rb = realBot(bot);
                   if (media?.b64 && media.type === "image" && kind === "image") {
-                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04)
                     out = "image generated by the selected model's own dedicated weight Studio and sent";
                   } else if (media?.b64 && media.type === "audio" && kind === "audio") {
                     await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
-                    out = "audio generated by Nova's own media Studio and sent";
+                    out = "audio generated by the selected model's own media Studio and sent";
                   } else if (media?.b64 && media.type === "video" && kind === "video") {
                     await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
-                    out = "video generated by Nova's own media Studio and sent";
+                    out = "video generated by the selected model's own media Studio and sent";
                   } else {
                     out = "error: " + String(media?.text || media?.reason || media?.type || "the selected generator returned no result").slice(0, 260) + ". Nothing was sent; no different model was used.";
                   }
                   delivered = !out.startsWith("error:");
+                  if (delivered) run.mediaSent = (run.mediaSent || 0) + 1;   // a later "I sent the picture" is true only when this counter moved
                 } finally {
                   if (!delivered) await mq.releaseMedia(chatId, kind, db);
                 }
@@ -2733,14 +2817,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return w.msgs;
     };
     const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }) }, ...histOf().map(wireOf)];
+    const messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }), novaModelOf(st.model)) }, ...histOf().map(wireOf)];
     // greetings / thanks (class "trivial"): the short system text, no tool list and only the plain conversation, so the reply comes in seconds instead of reading ~9k tokens of tools.
     // Only on the first step of a task, never while a question is pending, and never when the last assistant turn was a tool call or a question.
     const lastAsst = [...st.messages].reverse().find((m) => m.role === "assistant");
     const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
     if (lite) {
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
-      messages.splice(0, messages.length, { role: "system", content: prof.liteSystem }, ...plain);
+      messages.splice(0, messages.length, { role: "system", content: withModelIdentity(prof.liteSystem, novaModelOf(st.model)) }, ...plain);
     }
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
@@ -2830,6 +2914,10 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+  const model = await engineModelOf(chatId, db, slot);
+  return withEngineModel(model, () => driveInner(bot, botRow, chatId, chain, db, budgetMs, slot));
+}
+async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   if (isAgentSlot(slot)) bot = silentBot(bot);
   let runId = "";
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -2919,6 +3007,15 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
   const st = await loadState(chatId, db, slot);
   const run = st.run;
   if (!run || run.id !== runId || run.pending || run.asking) return false;
+  run.resumes = (run.resumes || 0) + 1;
+  if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
+    // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
+    if (run.job) await coderCancel(run.job).catch(() => null);
+    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", coderChatKey(chatId));
+    await saveState(chatId, st, db, slot);
+    return false;
+  }
+  await saveState(chatId, st, db, slot);
   await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
   later(() => continueRun(botRow, chatId, run.chain, db, slot));
   return true;

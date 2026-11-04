@@ -6,6 +6,8 @@ Why it exists: the Sham v2 chat Studio (8 GB RAM) already holds the text model; 
 The deploy workflow copies colab/sham_small/cpu_video.py and media_quality.py next to this file. API (Gradio call protocol, private Studio, account token):
   status()                    -> JSON {phase, disk, ram, video:{ready, profile}}
   generate_video(body_json)   -> JSON {"type": "video", "b64": <mp4>, "text"} | {"type": "busy"} | {"type": "error", "text"}
+  generate_video_start(body)  -> JSON {"type": "job", "job": id} | {"type": "busy"}   (the clip runs in the background)
+  job({"job": id, "wait": s}) -> the finished answer above, {"type": "running", "phase", "elapsed_s"}, or {"type": "error", "reason": "job_lost"}
 """
 from __future__ import annotations
 
@@ -27,52 +29,6 @@ import cpu_video  # noqa: E402  (copied next to app.py by the deploy workflow)
 from media_quality import MediaQualityError, check_mp4  # noqa: E402
 
 ENVS = ("SHAM_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")
-
-# Sham v2's own free computer (shell, files, jobs, headless browser) lives in this Studio: Sham v2's own, never shared with Nova or a candidate.
-try:
-    import browser_computer
-except Exception:                                                             # noqa: BLE001  (the video Studio works without the browser)
-    browser_computer = None
-try:
-    import computer_box
-except Exception:                                                             # noqa: BLE001  (the video Studio works without the computer)
-    computer_box = None
-try:
-    import desktop_computer
-except Exception:                                                             # noqa: BLE001  (the video Studio remains usable without the graphical desktop)
-    desktop_computer = None
-
-
-def api_desktop_do(body: str) -> str:
-    """Authenticated graphical desktop API, scoped to the same private Studio session as computer_box."""
-    if desktop_computer is None:
-        return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
-    wire = str(body or "{}")
-    if wire.startswith("b64:"):
-        encoded = wire[4:]
-        if len(encoded) > 128_000:
-            return json.dumps({"ok": False, "error": "desktop request is too large"})
-        try:
-            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
-        except (ValueError, UnicodeDecodeError):
-            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
-    try:
-        request = json.loads(wire or "{}")
-    except (TypeError, ValueError):
-        return json.dumps({"ok": False, "error": "invalid desktop request"})
-    if not isinstance(request, dict):
-        return json.dumps({"ok": False, "error": "desktop request must be an object"})
-    normalized = json.dumps(request, ensure_ascii=False)
-    if str(request.get("action") or "").lower() == "start":
-        if not _LOCK.acquire(blocking=False):
-            return json.dumps({"ok": False, "phase": "busy", "error": "video generation is using this Studio; retry desktop start when it finishes"})
-        try:
-            return desktop_computer.api_desktop_do(normalized)
-        finally:
-            _LOCK.release()
-    return desktop_computer.api_desktop_do(normalized)
-
-
 
 def _ram() -> dict:
     try:
@@ -120,6 +76,58 @@ def generate_video(body: str) -> str:
         _LOCK.release()
 
 
+# A clip takes minutes. One long result read through the ModelScope gateway gets cut, and with no request in flight the serverless Studio stops giving the job
+# CPU (Nova/LFM run logs 2026-11-04: sampling stuck at 0/4 for 13+ min, then every request 500/502). The clip runs in a background thread instead and the caller
+# asks `job` back-to-back; each call waits at most 20 s.
+_JOBS: dict = {}
+_JOBS_LOCK = threading.Lock()
+JOB_KEEP_S = 1800
+
+
+def _job_thread(jid: str, body: str) -> None:
+    try:
+        out = json.loads(generate_video(body))
+    except Exception as exc:  # noqa: BLE001
+        out = {"type": "error", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    with _JOBS_LOCK:
+        job = _JOBS.setdefault(jid, {})
+        job["result"], job["done_at"] = out, time.time()
+        ev = job.get("event")
+    if ev is not None:
+        ev.set()
+
+
+def generate_video_start(body: str) -> str:
+    import uuid
+    if _LOCK.locked():
+        return json.dumps({"type": "busy"})
+    jid = uuid.uuid4().hex[:16]
+    now = time.time()
+    with _JOBS_LOCK:
+        for old in [j for j, v in _JOBS.items() if v.get("done_at") and now - v["done_at"] > JOB_KEEP_S]:
+            _JOBS.pop(old, None)
+        _JOBS[jid] = {"started": now, "event": threading.Event()}
+    threading.Thread(target=_job_thread, args=(jid, body), daemon=True).start()
+    return json.dumps({"type": "job", "job": jid})
+
+
+def job(body: str) -> str:
+    req = json.loads(body or "{}")
+    jid = str(req.get("job") or "")
+    wait = max(0.0, min(20.0, float(req.get("wait", 15) or 0)))
+    with _JOBS_LOCK:
+        entry = _JOBS.get(jid)
+    if entry is None:
+        return json.dumps({"type": "error", "reason": "job_lost", "text": "the video job is unknown (the Studio restarted or the result expired)"})
+    if "result" not in entry and entry.get("event") is not None:
+        entry["event"].wait(wait)
+    with _JOBS_LOCK:
+        entry = _JOBS.get(jid) or entry
+        if "result" in entry:
+            return json.dumps(entry["result"])
+    return json.dumps({"type": "running", "phase": STATE.get("phase", ""), "elapsed_s": round(time.time() - entry.get("started", time.time()), 1)})
+
+
 def status() -> str:
     ready = bool(cpu_video._CV["pipe"] is not None or cpu_video.cv_find_weights(HERE, ENVS))
     return json.dumps({**STATE, "cpus": os.cpu_count(), "ram": _ram(), "disk": _disk(),
@@ -142,25 +150,16 @@ def _warm() -> None:
             time.sleep(120)
 
 
+
 if __name__ == "__main__":
     import gradio as gr
     threading.Thread(target=_warm, daemon=True).start()
-    if browser_computer is not None:
-        threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
-    if computer_box is not None:
-        threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
     with gr.Blocks() as demo:
-        gr.Markdown("Sham v2 video Studio — real text-to-video on CPU for Sham v2.")
+        gr.Markdown("Sham v2 video Studio — real text-to-video on CPU. Computer tools run on the separate isolated computer hub.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
         gr.Button("generate_video", visible=False).click(generate_video, box, out, api_name="generate_video")
+        gr.Button("generate_video_start", visible=False).click(generate_video_start, box, out, api_name="generate_video_start")
+        gr.Button("job", visible=False).click(job, box, out, api_name="job")
         gr.Button("status", visible=False).click(status, None, out, api_name="status")
-        if browser_computer is not None:
-            gr.Button("browser_do", visible=False).click(browser_computer.api_browser_do, box, out, api_name="browser_do")
-            gr.Button("browser_status", visible=False).click(browser_computer.api_browser_status, box, out, api_name="browser_status")
-        if computer_box is not None:
-            gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
-            gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
-        if desktop_computer is not None:
-            gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

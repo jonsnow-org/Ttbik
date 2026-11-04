@@ -1,3 +1,5 @@
+import { pgDb } from "./pgDb";
+import { saveState, loadState, resumeOrphan } from "@/lib/coderSections";
 import { claimOrphanTasks, taskStart } from "@/lib/coderTasks";
 import { encryptToken } from "@/lib/coderAuth";
 
@@ -28,7 +30,7 @@ describe("runs orphaned by a replaced server", () => {
         if (!sql.includes("UPDATE coder_tasks SET updated_at = now()")) return [];
         expect(sql).toContain("status = 'running'");
         expect(sql).toContain("RETURNING");
-        expect(a).toEqual(["90000", String(30 * 60000)]);
+        expect(a).toEqual(["90000", String(6 * 3600000)]);      // long tasks (hours) are resumed too, not dropped after 30 min
         return [
           { run_id: "r1", chat_enc: encryptToken("4242"), bot_id: "bot1", slot: "" },
           { run_id: "r2", chat_enc: encryptToken("4242"), bot_id: "bot1", slot: "s:abc" },
@@ -41,5 +43,17 @@ describe("runs orphaned by a replaced server", () => {
       { run_id: "r1", chatId: 4242, botId: "bot1", slot: "" },
       { run_id: "r2", chatId: 4242, botId: "bot1", slot: "s:abc" },
     ]);
+  });
+});
+
+describe("resuming a lost worker is capped", () => {
+  it("a run that keeps dying is closed after CODER_MAX_RESUMES instead of looping forever", async () => {
+    process.env.CODER_MAX_RESUMES = "2";
+    const db: any = pgDb();
+    const botRow: any = { id: "bot1", token: "T", webhookSecret: "w", isActive: true, template: "NOVA_BOT" };
+    await saveState(77, { mode: "coder", think: false, messages: [], notes: "", inbox: [], run: { id: "run-x", chain: "c", sent: 0, step: 1, lease: 0, resumes: 2 } } as any, db);
+    expect(await resumeOrphan(77, "run-x", "", botRow, db)).toBe(false);
+    expect((await loadState(77, db)).run).toBeFalsy();
+    delete process.env.CODER_MAX_RESUMES;
   });
 });

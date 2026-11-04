@@ -29,9 +29,9 @@ export type PubModel = { id: string; name: { ar: string; en: string }; desc: { a
 export type PubPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars: number | null; days: number; current: boolean; tier: number };
 export type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
 export type OwnPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars?: number | null; days?: number; active: boolean };
-export async function api<T = any>(op: string, body: Record<string, unknown> = {}): Promise<T> {
+export async function api<T = any>(op: string, body: Record<string, unknown> = {}, timeoutMs = 20000): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), Math.max(1000, Math.min(120000, timeoutMs)));
   try {
     const r = await fetch("/api/coder/app", {
       method: "POST",
@@ -71,7 +71,7 @@ export function ago(iso: string | null, t: Str): string {
 export function fmtTime(iso: string | null, tz: string, lang: Lang): string {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || "Asia/Damascus", weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }).format(toDate(iso));
+    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || "Asia/Damascus", weekday: "short", hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" }).format(toDate(iso));
   } catch {
     return iso.slice(0, 16);
   }
@@ -668,7 +668,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
     }
     setBusy("");
   };
-  const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) + " TRT" : "—");
+  const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso)) + " TRT" : "—");
   if (fail) return <Fail t={STR[lang]} msg={fail} retry={load} />;
   if (!d) return <Loading />;
   const tr = d.training, g = tr?.gpu, nova = tr?.nova;

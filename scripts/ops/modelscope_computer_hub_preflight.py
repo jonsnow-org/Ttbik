@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -68,7 +69,7 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
             status = request_run(api, "status", token)
             if not isinstance(status, dict):
                 raise RuntimeError("status endpoint returned a non-object")
-            if status.get("app_revision") != "computer-hub-16gb-2026-11-02-r2":
+            if status.get("app_revision") != "computer-hub-16gb-2026-11-04-r6":
                 raise RuntimeError("wrong computer-only app revision: " + str(status.get("app_revision")))
             if status.get("role") != "computer-only" or status.get("model_loaded") is not False:
                 fail("The Studio is not in the required computer-only / no-model state.")
@@ -85,8 +86,15 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
                 preserved = set(cleanup.get("preserved") or [])
                 if not {"/mnt/workspace/computer", "/mnt/workspace/browser"}.issubset(preserved):
                     fail("Cache-cleanup report does not confirm preservation of computer/browser data: " + json.dumps(cleanup))
-                if limits.get("minimum_available_mb") != 2048 or limits.get("global_jobs") != 1:
-                    fail("Terminal memory/concurrency policy does not match the 2-GB / single-job configuration: " + json.dumps(limits))
+                if limits.get("minimum_available_mb") != 2048 or limits.get("global_jobs") != 6:
+                    fail("Terminal memory/concurrency policy must match the 2-GB admission floor and six isolated global jobs: " + json.dumps(limits))
+                if computer.get("toolchain") != "ready":
+                    fail("Required terminal base toolchain is not ready: " + str(computer.get("toolchain")))
+                required_tools = ("python3", "pip", "git", "curl", "unzip", "jq")  # language compilers/runtimes (node, gcc, etc.) are checked after DEV_TIERS completes
+                installed_tools = computer.get("tools") or {}
+                missing_tools = [name for name in required_tools if not installed_tools.get(name)]
+                if missing_tools:
+                    fail("Missing base developer commands: " + ", ".join(missing_tools))
                 if not isinstance(hardware.get("mem_total_gb"), (int, float)) or hardware["mem_total_gb"] < 14:
                     fail("Studio did not report the expected 16-GB memory class: " + json.dumps(hardware))
                 print("COMPUTER_APP_READY", json.dumps({
@@ -113,6 +121,47 @@ def wait_for_core(api: str, token: str, minutes: int) -> dict:
                 print(f"Computer API not ready yet: {last_error}", flush=True)
         time.sleep(10)
     fail(f"Computer-only app/core bootstrap did not become ready within {minutes} minutes; last={last_error}")
+    return {}
+
+
+
+
+
+def wait_for_devtools(api: str, token: str, minutes: int) -> dict:
+    """Wait for the complete programmer toolchain, not just the shell bootstrap."""
+    deadline = time.monotonic() + max(1, minutes) * 60
+    attempt = 0
+    last_state = "not started"
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            status = request_run(api, "status", token)
+            if not isinstance(status, dict):
+                raise RuntimeError("status endpoint returned a non-object")
+            last_state = str(status.get("devtools") or "not started").strip()
+            if last_state.startswith("done:"):
+                match = re.search(r"\b(\d+)\s+skipped\b", last_state)
+                if not match:
+                    fail("Developer toolchain completion did not report a skipped-package count: " + last_state)
+                skipped = int(match.group(1))
+                if skipped:
+                    fail("Some programmer packages are missing; refusing to declare the computer complete: " + last_state)
+                computer = status.get("computer") or {}
+                if computer.get("toolchain") != "ready":
+                    fail("The core terminal toolchain stopped reporting ready: " + str(computer.get("toolchain")))
+                print("COMPUTER_DEVTOOLS_READY", last_state, flush=True)
+                return status
+            if last_state.startswith(("failed:", "error:")):
+                fail("Programmer toolchain installation failed: " + last_state)
+            if attempt % 6 == 0:
+                print(f"Developer toolchain state={last_state}; waiting ({attempt})", flush=True)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            if attempt % 6 == 0:
+                print(f"Developer toolchain status unavailable: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+        time.sleep(10)
+    fail(f"All developer tool tiers did not finish within {minutes} minutes; last state={last_state}")
     return {}
 
 
@@ -164,6 +213,7 @@ def main() -> int:
     parser.add_argument("--api", required=True)
     parser.add_argument("--bootstrap-minutes", type=int, default=45)
     parser.add_argument("--browser-minutes", type=int, default=20)
+    parser.add_argument("--devtools-minutes", type=int, default=90)
     args = parser.parse_args()
     token = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
     if not token:
@@ -175,6 +225,7 @@ def main() -> int:
         return 2
     try:
         wait_for_core(api, token, args.bootstrap_minutes)
+        wait_for_devtools(api, token, args.devtools_minutes)
         browser_ready = warm_browser(api, token, args.browser_minutes)
         env_file = os.environ.get("GITHUB_ENV")
         if env_file:

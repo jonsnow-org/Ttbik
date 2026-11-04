@@ -240,8 +240,10 @@ def check_mp4(
     blank = [f for f in frames if f.std() < 2.0 or (f.max() - f.min()) < 12]
     if len(blank) == len(frames):
         raise MediaQualityError("static_video", "every frame is blank")
-    if float(np.abs(frames[1:] - frames[:-1]).mean()) < 0.05:
-        raise MediaQualityError("static_video", "all frames are identical (no motion)")
+    # Motion = change that is NOT a brightness shift: each frame's mean is removed first, so a clip whose only change is lighting (a flicker/fade) counts as static.
+    centred = frames - frames.mean(axis=(1, 2), keepdims=True)
+    if float(np.abs(centred[1:] - centred[:-1]).mean()) < 0.35:
+        raise MediaQualityError("static_video", "no real motion (only lighting changes or identical frames)")
     return info
 
 
@@ -311,15 +313,15 @@ def _token() -> str:
 def _root() -> Path:
     if _MODELS["root"]:
         return _MODELS["root"]
-    from modelscope import snapshot_download
-    from modelscope.hub.api import HubApi
-    try:                                                    # the repo is public: anonymous first (a login can poison the download)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
-    except Exception:                                       # noqa: BLE001
-        tok = _token()
-        if tok:
-            HubApi().login(tok)
-        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE)))
+    from modelscope_hub.compat import snapshot_download
+    token = _token().strip() or None
+    try:
+        _MODELS["root"] = Path(snapshot_download(REPO, cache_dir=str(MODEL_STORE), token=token))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"ModelScope media repository access failed for {REPO}: "
+            f"{type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
     return _MODELS["root"]
 
 
@@ -365,8 +367,8 @@ def _make_image(prompt: str, size: int, seed: int):
 # Real text-to-video on CPU: AnimateDiff-Lightning (motion adapter, 4 steps) on an SD-1.5 realistic base (epiCRealism). Open weights (CreativeML OpenRAIL-M),
 # about 3 GB on disk, run by our own process. The frames come out of one temporal diffusion pass (never stills stitched into a slideshow).
 _CV = {"pipe": None, "dtype": None}
-CV_MS_BASE, CV_HF_BASE = "songkey/epicrealism_naturalSinRC1VAE", "emilianJR/epiCRealism"
-CV_MS_ADAPTER, CV_HF_ADAPTER, CV_ADAPTER_FILE = "AI-ModelScope/AnimateDiff-Lightning", "ByteDance/AnimateDiff-Lightning", "animatediff_lightning_4step_diffusers.safetensors"
+CV_MS_BASE = "songkey/epicrealism_naturalSinRC1VAE"
+CV_MS_ADAPTER, CV_ADAPTER_FILE = "AI-ModelScope/AnimateDiff-Lightning", "animatediff_lightning_4step_diffusers.safetensors"
 _CV_BASE_FILES = ["model_index.json", "scheduler/scheduler_config.json", "feature_extractor/preprocessor_config.json", "tokenizer/*", "text_encoder/config.json",
                   "unet/config.json", "vae/config.json", "text_encoder/*.safetensors", "unet/*.safetensors", "vae/*.safetensors"]
 
@@ -409,48 +411,33 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     return None
 
 
-CV_HF_LEAN_BASE = "stable-diffusion-v1-5/stable-diffusion-v1-5"      # the same SD-1.5 family, published with fp16 files: ~2.1 GB instead of 4.3 GB
-_CV_LEAN_FILES = ["model_index.json", "scheduler/scheduler_config.json", "feature_extractor/preprocessor_config.json", "tokenizer/*", "text_encoder/config.json",
-                  "unet/config.json", "vae/config.json", "text_encoder/model.fp16.safetensors", "unet/diffusion_pytorch_model.fp16.safetensors", "vae/diffusion_pytorch_model.fp16.safetensors"]
-CV_FULL_NEED, CV_LEAN_NEED = 6 * 1024 ** 3, int(3.05 * 1024 ** 3)
+CV_REQUIRED_FREE = int(3.05 * 1024 ** 3)
 
 
 def cv_fetch_weights(root):
-    """Download the (open) weights once into <root>/video_animatediff. epiCRealism (fp16-sized files, ~2.1 GB) + the 0.9 GB adapter from ModelScope (~2.9 GiB in total); Hugging Face is the fallback (with a small disk: the fp16 SD-1.5 base). Weights only; all inference stays local."""
+    """Download a private local copy of the video weights from ModelScope only."""
     import shutil as _sh
     from pathlib import Path as _P
     dest = _P(root) / "video_animatediff"
     dest.mkdir(parents=True, exist_ok=True)
+    existing = cv_find_weights(root, ())
+    if existing:
+        return existing
     free = _sh.disk_usage(dest).free
-    if free < CV_LEAN_NEED:
-        raise RuntimeError(f"native-video-unavailable: the video model needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
-    lean = free < CV_FULL_NEED
-    errors = []
-    for source in ("modelscope", "huggingface"):          # ModelScope first: epiCRealism there is already fp16-sized (unet 1.72 GB), ~2.9 GiB with the adapter; the Studios cannot always reach Hugging Face
-        try:
-            if source == "modelscope":
-                from modelscope import snapshot_download
-                snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES)
-                snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-            else:
-                from huggingface_hub import snapshot_download as hf_download
-                hf_download(CV_HF_LEAN_BASE if lean else CV_HF_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_LEAN_FILES if lean else _CV_BASE_FILES)
-                if lean:                                            # the adapter is the same file on ModelScope; use it first, it is closer to the Studio
-                    try:
-                        from modelscope import snapshot_download
-                        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-                    except Exception:  # noqa: BLE001
-                        hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-                else:
-                    hf_download(CV_HF_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE])
-            found = cv_find_weights(root)
-            if found:
-                return found
-            errors.append(f"{source}: files incomplete")
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{source}: {type(exc).__name__}: {str(exc)[:120]}")
-    raise RuntimeError("native-video-unavailable: could not fetch the video weights (" + "; ".join(errors) + ")")
-
+    if free < CV_REQUIRED_FREE:
+        raise RuntimeError(f"native-video-unavailable: this Studio needs about 3 GiB free disk; only {free / 1024 ** 3:.1f} GiB is free")
+    try:
+        import os as _os
+        from modelscope_hub.compat import snapshot_download
+        token = (_os.environ.get("MODELSCOPE_API_TOKEN") or _os.environ.get("MODELSCOPE_TOKEN") or "").strip() or None
+        snapshot_download(CV_MS_BASE, local_dir=str(dest / "base"), allow_patterns=_CV_BASE_FILES, token=token)
+        snapshot_download(CV_MS_ADAPTER, local_dir=str(dest / "adapter"), allow_patterns=[CV_ADAPTER_FILE], token=token)
+        found = cv_find_weights(root, ())
+        if found:
+            return found
+        raise RuntimeError("ModelScope download completed but the required base or AnimateDiff adapter files are missing")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"native-video-unavailable: ModelScope-only video weights could not be prepared: {type(exc).__name__}: {str(exc)[:180]}") from exc
 
 def cv_pipe(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
     if _CV["pipe"] is not None:
@@ -525,20 +512,20 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
             return fh.read()
 
 
-CV_SUPPORTED_DURATIONS = (2, 4, 10, 15, 30, 60, 120)
+CV_SUPPORTED_DURATIONS = (2, 4, 6, 10, 15, 30, 60, 120)
 
 
 def cv_chunk_plan(seconds: int | float) -> list[int]:
     """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
     import math
     if isinstance(seconds, bool):
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     try:
         requested = float(seconds)
     except (TypeError, ValueError) as exc:
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds") from exc
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds") from exc
     if not math.isfinite(requested) or not requested.is_integer() or int(requested) not in CV_SUPPORTED_DURATIONS:
-        raise ValueError("native-video-duration-limit: choose 2, 4, 10, 15, 30, 60 or 120 seconds")
+        raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     remaining = int(requested)
     chunks = []
     while remaining > 4:
@@ -580,7 +567,9 @@ def cv_generate(root, prompt: str, seconds: float = 4.0, seed: int = 0, env_name
     keep = __import__("os").environ.get("CPU_VIDEO_KEEP", "") == "1"
     # The sampling result stays as latents; unless the pipeline is kept, the UNet and text encoder (~2 GB) are dropped BEFORE the float32 VAE decode, and the frames are decoded one at a time.
     # (The Sham v2 Studio holds a text model too, with ~1.4 GB RAM free: the all-in-one decode killed the Studio right after the 4 sampling steps: 502.)
-    out = pipe(prompt=prompt[:300], guidance_scale=1.0, num_inference_steps=4, num_frames=frames, height=prof["side"], width=prof["side"],
+    # AnimateDiff-Lightning (4 steps, guidance 1.0) barely moves a still-looking prompt: ask for visible subject and camera motion explicitly.
+    motion_prompt = prompt[:260] + (", the subject is clearly moving, natural body motion, smooth camera pan" if "motion" not in prompt.lower() else "")
+    out = pipe(prompt=motion_prompt, guidance_scale=1.0, num_inference_steps=4, num_frames=frames, height=prof["side"], width=prof["side"],
                generator=torch.Generator(device="cpu").manual_seed(int(seed)), output_type="latent")
     latents = out.frames
     del out
@@ -688,35 +677,71 @@ def cv_generate_long(
 # --- cpu_video END ---
 
 
+def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
+    """Runs in a fresh process: makes the clip, writes the MP4 to out_path (or the error text to out_path + '.err')."""
+    try:
+        data = cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        with open(out_path, "wb") as fh:
+            fh.write(data)
+    except BaseException as exc:  # noqa: BLE001
+        traceback.print_exc()
+        with open(out_path + ".err", "w", encoding="utf-8") as fh:
+            fh.write(f"{type(exc).__name__}: {str(exc)[:400]}")
+
+
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4."""
-    return cv_generate_long(HERE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4.
+
+    Each clip runs in a FRESH process (2026-11-04 run logs: the first clip after a restart always finished, the SECOND one in the same process stalled
+    while loading or sampling, 13+ minutes without progress — the RAM the first pipeline left behind was never returned to the system). A child process
+    gives every byte back when it exits. NOVA_VIDEO_SUBPROCESS=0 runs in-process (tests)."""
+    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
+        return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    import multiprocessing as _mp
+    with tempfile.TemporaryDirectory(prefix="clip-") as d:
+        out = os.path.join(d, "clip.mp4")
+        proc = _mp.get_context("spawn").Process(target=_video_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
+        proc.start()
+        try:
+            passes = len(cv_chunk_plan(seconds))
+        except ValueError:
+            passes = 1                               # the child raises the same duration error with its message
+        limit = 300 + 240 * passes
+        proc.join(limit)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(10)
+            raise TimeoutError(f"video timed out after {limit}s")
+        if os.path.exists(out + ".err"):
+            raise RuntimeError(open(out + ".err", encoding="utf-8").read())
+        if proc.exitcode != 0 or not os.path.exists(out):
+            raise RuntimeError(f"native-video-failed: the clip process ended with code {proc.exitcode} (killed: out of memory?)")
+        with open(out, "rb") as fh:
+            return fh.read()
 
 
 def _run(kind: str, payload: dict) -> dict:
-    if desktop_computer is not None and desktop_computer.any_active():
-        return {"type": "busy", "reason": "the model's graphical desktop currently uses this Studio's execution slot"}
     if not _LOCK.acquire(blocking=False):
         return {"type": "busy"}
     t0 = time.time()
     try:
         # Recheck after acquiring the media lock to close the desktop/generation race.
-        if desktop_computer is not None and desktop_computer.any_active():
-            return {"type": "busy", "reason": "the model's graphical desktop currently uses this Studio's execution slot"}
         STATE["phase"] = f"making {kind}"
         if kind == "image":
             img = _make_image(str(payload.get("prompt", "")), payload.get("size", 512), payload.get("seed", 0))
-            # check_image(img)  - quality gate bypassed for testing (owner's request)
+            check_image(img)
             out = {"type": "image", "b64": base64.b64encode(_png(img)).decode()}
         elif kind == "speech":
             wav = _speech_wav(str(payload.get("text", "")))
-            # check_wav(wav)  - quality gate bypassed for testing
+            check_wav(wav)
             out = {"type": "audio", "b64": base64.b64encode(wav).decode()}
         else:
             prompt = str(payload.get("prompt", "")).strip()
             requested_seconds = float(payload.get("seconds", 4))
             clip = _make_video(prompt, requested_seconds, payload.get("seed", 0))
-            # check_mp4(clip, ...)  - quality gate bypassed for testing
+            # Validate the final artifact at the Studio boundary as well as each
+            # temporal segment. Never send a malformed, static, short or low-res MP4.
+            check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
             out = {"type": "video", "b64": base64.b64encode(clip).decode(), "text": prompt[:120]}
         STATE[{"image": "images", "speech": "speech", "video": "videos"}[kind]] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
@@ -744,6 +769,68 @@ def api_video(body: str) -> str:
     return json.dumps(_run("video", json.loads(body or "{}")))
 
 
+# --- background video jobs (2026-11-04) ---
+# A clip takes minutes (about 2.5 min per 4 s pass on the free CPU). One long SSE read through the ModelScope gateway was cut after ~20 s - 4 min
+# ("unreadable" / 502), and with no request in flight the serverless instance stopped giving the job CPU: sampling sat at 0/4 for 13+ minutes
+# (run-log 2026-11-04 08:41 Beijing) and every later request answered 500/502. Now the clip runs in a background thread and the caller asks
+# `job` back-to-back; each call waits at most ~20 s, so a request is always in flight and none is long enough to be cut.
+_JOBS: dict = {}
+_JOBS_LOCK = threading.Lock()
+JOB_KEEP_S = 1800
+
+
+def _job_gc(now: float) -> None:
+    for jid in [j for j, v in _JOBS.items() if v.get("done_at") and now - v["done_at"] > JOB_KEEP_S]:
+        _JOBS.pop(jid, None)
+
+
+def _job_thread(jid: str, payload: dict) -> None:
+    try:
+        out = _run("video", payload)
+    except Exception as exc:  # noqa: BLE001  (_run already catches; this is a last guard)
+        out = {"type": "error", "reason": "failed", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    with _JOBS_LOCK:                             # a {"type":"busy"} result (a picture took the media lock first) is returned as is; the caller asks again
+        job = _JOBS.setdefault(jid, {})
+        job["result"], job["done_at"] = out, time.time()
+        ev = job.get("event")
+    if ev is not None:
+        ev.set()
+
+
+def api_video_start(body: str) -> str:
+    """Start one clip in the background: {"type":"job","job":id}, or {"type":"busy"} while another media job holds the Studio."""
+    import uuid
+    payload = json.loads(body or "{}")
+    if _LOCK.locked():
+        return json.dumps({"type": "busy"})
+    jid = uuid.uuid4().hex[:16]
+    with _JOBS_LOCK:
+        _job_gc(time.time())
+        _JOBS[jid] = {"started": time.time(), "event": threading.Event(), "seconds": payload.get("seconds")}
+    threading.Thread(target=_job_thread, args=(jid, payload), daemon=True).start()
+    return json.dumps({"type": "job", "job": jid})
+
+
+def api_job(body: str) -> str:
+    """{"job": id, "wait": s<=20} -> the finished result (image/video/error/busy), or {"type":"running","phase":...,"elapsed_s":...}.
+    {"type":"error","reason":"job_lost"} when the id is unknown (the Studio restarted, or the result expired)."""
+    req = json.loads(body or "{}")
+    jid = str(req.get("job") or "")
+    wait = max(0.0, min(20.0, float(req.get("wait", 15) or 0)))
+    with _JOBS_LOCK:
+        job = _JOBS.get(jid)
+    if job is None:
+        return json.dumps({"type": "error", "reason": "job_lost", "text": "the media job is unknown (the Studio restarted or the result expired)"})
+    ev = job.get("event")
+    if "result" not in job and ev is not None:
+        ev.wait(wait)
+    with _JOBS_LOCK:
+        job = _JOBS.get(jid) or job
+        if "result" in job:
+            return json.dumps(job["result"])
+    return json.dumps({"type": "running", "phase": STATE.get("phase", ""), "elapsed_s": round(time.time() - job.get("started", time.time()), 1)})
+
+
 def _disk() -> dict:
     """The Studio's disk in GiB (total / used / free of the volume that holds the weights), for the capacity audit."""
     try:
@@ -754,11 +841,11 @@ def _disk() -> dict:
 
 
 def api_status() -> str:
-    ready = bool(_CV["pipe"] is not None or cv_find_weights(HERE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
+    ready = bool(_CV["pipe"] is not None or cv_find_weights(MODEL_STORE, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR")))
     return json.dumps({
         **STATE, "repo": REPO, "cpus": os.cpu_count(), "disk": _disk(),
         "video": {"engine": "AnimateDiff-Lightning", "ready": ready, "device": "cpu", "gpu_required": False, "profile": cv_profile(),
-                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
+                  "mode": "native-diffusion-segments", "supported_seconds": [2, 4, 6, 10, 15, 30, 60, 120], "segment_seconds": [2, 3, 4], "note": "local AnimateDiff weights generate 2-4 second temporal segments and join them into one MP4; final duration, decode, motion and resolution are checked"},
     })
 
 
@@ -779,86 +866,15 @@ def _warm() -> None:
             time.sleep(120)
 
 
-try:
-    import browser_computer
-except Exception:                                                             # noqa: BLE001  (the media Studio works without the browser)
-    browser_computer = None
-try:
-    import computer_box
-except Exception:                                                             # noqa: BLE001  (the media Studio works without the computer)
-    computer_box = None
-try:
-    import desktop_computer
-except Exception:                                                             # noqa: BLE001  (optional GUI; the model/media Studio remains usable without it)
-    desktop_computer = None
-
-
-def api_desktop_do(body: str) -> str:
-    if desktop_computer is None:
-        return json.dumps({"ok": False, "error": "the graphical desktop module is unavailable in this Studio"})
-    # The app-server sends computer/browser/desktop calls as "b64:<base64>"
-    # because the Studio gateway rejects some shell-like text in ordinary JSON.
-    # Accept both the protected wire format and plain JSON for older clients.
-    wire = str(body or "{}")
-    if wire.startswith("b64:"):
-        encoded = wire[4:]
-        if len(encoded) > 128_000:
-            return json.dumps({"ok": False, "error": "desktop request is too large"})
-        try:
-            wire = base64.b64decode(encoded, validate=True).decode("utf-8")
-        except (ValueError, UnicodeDecodeError):
-            return json.dumps({"ok": False, "error": "invalid encoded desktop request"})
-    try:
-        request = json.loads(wire or "{}")
-    except (TypeError, ValueError):
-        return json.dumps({"ok": False, "error": "invalid desktop request"})
-    if not isinstance(request, dict):
-        return json.dumps({"ok": False, "error": "desktop request must be an object"})
-    normalized = json.dumps(request, ensure_ascii=False)
-    if str(request.get("action") or "").lower() == "start":
-        if not _LOCK.acquire(blocking=False):
-            return json.dumps({"ok": False, "phase": "busy", "error": "this Studio is generating media; retry desktop start after it finishes"})
-        try:
-            return desktop_computer.api_desktop_do(normalized)
-        finally:
-            _LOCK.release()
-    return desktop_computer.api_desktop_do(normalized)
-
-
-def api_browser_do(body: str) -> str:
-    if desktop_computer is not None and desktop_computer.any_active():
-        return json.dumps({"ok": False, "error": "the graphical desktop is active; stop it before using the headless browser"})
-    if browser_computer is None:
-        return json.dumps({"ok": False, "error": "the browser module is unavailable"})
-    return browser_computer.api_browser_do(body)
-
-
-def api_browser_status() -> str:
-    if browser_computer is None:
-        return json.dumps({"phase": "unavailable", "error": "the browser module is unavailable"})
-    return browser_computer.api_browser_status()
-
 
 if __name__ == "__main__":
     import gradio as gr
     threading.Thread(target=_warm, daemon=True).start()
-    if browser_computer is not None:
-        threading.Timer(90, lambda: threading.Thread(target=browser_computer.bootstrap, daemon=True, name="browser-bootstrap").start()).start()
-    if computer_box is not None:      # git / ripgrep / jq / unzip / curl installed once, in the background, so the first repository read is fast
-        threading.Timer(150, lambda: threading.Thread(target=computer_box.ensure_toolchain, daemon=True, name="box-toolchain").start()).start()
     with gr.Blocks() as demo:
-        gr.Markdown("Nova Media Studio — image / speech / video for Nova's make_media tool.")
+        gr.Markdown("Nova Media Studio — image, Arabic speech and real video. Computer tools run on the separate isolated computer hub.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
-        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video)):
+        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video), ("video_start", api_video_start), ("job", api_job)):
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
         gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
-        if browser_computer is not None:      # this model's own free headless browser (see browser_computer.py)
-            gr.Button("browser_do", visible=False).click(api_browser_do, box, out, api_name="browser_do")
-            gr.Button("browser_status", visible=False).click(api_browser_status, None, out, api_name="browser_status")
-        if computer_box is not None:          # this model's own free persistent Linux computer: shell, files, background jobs (see computer_box.py)
-            gr.Button("box_do", visible=False).click(computer_box.api_box_do, box, out, api_name="box_do")
-            gr.Button("box_status", visible=False).click(computer_box.api_box_status, box, out, api_name="box_status")
-        if desktop_computer is not None:       # graphical desktop: Xvfb/Openbox over the authenticated Gradio API
-            gr.Button("desktop_do", visible=False).click(api_desktop_do, box, out, api_name="desktop_do")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

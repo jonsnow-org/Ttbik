@@ -1,4 +1,4 @@
-import { Archive, Home, Layers, Users } from 'lucide-react'
+import { Archive, Home, Layers, ShieldCheck, Users } from 'lucide-react'
 import { t } from '../lib/i18n'
 import { useFadaa } from '../lib/store'
 import type { Screen } from '../lib/types'
@@ -14,10 +14,12 @@ export function BottomNav() {
   const locale = useFadaa((s) => s.locale)
   const screen = useFadaa((s) => s.screen)
   const go = useFadaa((s) => s.go)
+  const supervisor = useFadaa((s) => s.supervisor)
+  const visibleItems = supervisor ? [...items, { id: 'admin' as Screen, icon: ShieldCheck, label: 'nav_admin' as const }] : items
 
   return (
     <nav className="mx-auto flex max-w-lg items-stretch justify-around gap-1 px-2 pt-2 pb-1.5" aria-label="التنقل">
-      {items.map(({ id, icon: Icon, label }) => {
+      {visibleItems.map(({ id, icon: Icon, label }) => {
         const active = screen === id || (id === 'sessions' && (screen === 'join' || screen === 'room' || screen === 'create' || screen === 'summary'))
         return (
           <button

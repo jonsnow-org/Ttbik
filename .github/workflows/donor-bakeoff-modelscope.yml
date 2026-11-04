@@ -4,6 +4,7 @@ on:
     branches: [claude/free-services-marketplace-h6rwk2, realistic-vision-v6-isolated-test, feat/cloud-computer-owner-mvp-20261031]
     paths:
       - "experiments/donor-bakeoff/**"
+      - "ai-system/app/media_quality.py"
       - ".github/workflows/donor-bakeoff-modelscope.yml"
   workflow_dispatch:
     inputs:
@@ -106,6 +107,14 @@ jobs:
           print("Available free CPU Studio hardware: "+json.dumps([{"name":n,"memory_gb":m,"vcpus":c} for m,c,n in free]),file=sys.stderr)
           PY
           echo "ModelScope account authenticated; token and account identifiers were not printed."
+      - name: Mirror the exact candidate GGUF and projector into its private ModelScope weight repository (once)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q "huggingface_hub>=0.30,<2" "modelscope==1.35.0" "modelscope-hub==0.6.1"
+          python3 experiments/donor-bakeoff/stage_candidate_weights.py --config "experiments/donor-bakeoff/candidates/$CANDIDATE_CONFIG"
       - name: Create or safely upgrade only this private candidate Studio
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -205,14 +214,16 @@ jobs:
           git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" experiment-studio 2>&1 | sed "s/$T/***/g"
           cp experiments/donor-bakeoff/app.py experiment-studio/app.py
           cp experiments/donor-bakeoff/tool_parsing.py experiment-studio/tool_parsing.py
+          cp experiments/donor-bakeoff/modelscope_weights.py experiment-studio/modelscope_weights.py
           cp experiments/donor-bakeoff/requirements.txt experiment-studio/requirements.txt
           cp "experiments/donor-bakeoff/candidates/$CANDIDATE_CONFIG" experiment-studio/candidate.json
           mkdir -p experiment-studio/vendor
           cp experiments/donor-bakeoff/vendor/llama_cpp_server.py experiment-studio/vendor/llama_cpp_server.py
           cp experiments/donor-bakeoff/vendor/LICENSE.md experiment-studio/vendor/LICENSE.md
+          cp ai-system/app/media_quality.py experiment-studio/media_quality.py
           printf '%s\n' "# Isolated donor experiment: $REPO" "Private test only; does not load or modify Sham v1, Nova, or current Sham v2." "This candidate has a unique private image-weight ModelScope repository and Studio configured in candidate.json. The candidate runtime verifies that exact repo and checkpoint SHA-256 before image generation; there is no cross-candidate fallback." "Generated images and final text are delivered to the owner through a short-lived signed callback. No Telegram token or connector credential is stored in this Studio." "Only read-only GitHub/Vercel status tools are available; repository writes and production changes are not exposed." > experiment-studio/README.md
           cd experiment-studio
-          git add app.py tool_parsing.py requirements.txt candidate.json README.md vendor/llama_cpp_server.py vendor/LICENSE.md
+          git add app.py tool_parsing.py modelscope_weights.py requirements.txt candidate.json README.md media_quality.py vendor/llama_cpp_server.py vendor/LICENSE.md
           git diff --cached --quiet || git commit -m "Add isolated donor evaluation app for $CANDIDATE_ID"
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
       - name: Install the private ModelScope read token in this candidate Studio only
@@ -222,21 +233,21 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$T"
-          python3 -m pip install -q "modelscope>=1.26.0"
+          python3 -m pip install -q "modelscope-hub==0.6.1"
           python3 - <<'PY'
           import os
-          from modelscope.hub.api import HubApi
-          api = HubApi()
+          from modelscope_hub import HubApi
           token = os.environ["T"]
+          api = HubApi()
           api.login(token)
           studio = "novaai2026/" + os.environ["REPO"]
           try:
-              api.add_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+              api.add_secret(studio, "MODELSCOPE_API_TOKEN", token)
           except Exception as exc:
               message = str(exc).lower()
               if not any(x in message for x in ("exist", "already", "duplicate")):
                   raise
-              api.update_studio_secret(studio, "MODELSCOPE_API_TOKEN", token)
+              api.update_secret(studio, "MODELSCOPE_API_TOKEN", token)
           print("Private model-read token configured inside this candidate Studio only.")
           PY
       - name: Deploy isolated Studio and wait for the model

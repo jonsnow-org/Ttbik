@@ -4,6 +4,19 @@ const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice
 import { candidateToolsFor } from "@/lib/donorToolBridge";
 
 describe("the model's own persistent computer", () => {
+  test("computer_batch maps every step to its Studio action, refuses unknown or nested steps, and renders each result", () => {
+    const b = boxActionFor("computer_batch", { steps: [{ tool: "computer_read", path: "a" }, { tool: "computer_run", command: "ls", continue_on_error: true }] });
+    expect(b).toMatchObject({ action: "batch", steps: [{ action: "read", path: "a" }, { action: "run", command: "ls", continue_on_error: true }] });
+    expect(cleanBoxArgs(b!)).toMatchObject({ action: "batch", steps: [{ action: "read" }, { action: "run", continue_on_error: true }] });
+    expect(boxActionFor("computer_batch", { steps: [{ tool: "computer_batch" }] })).toBeNull();
+    expect(boxActionFor("computer_batch", { steps: [{ tool: "rm_rf" }] })).toBeNull();
+    expect(boxActionFor("computer_batch", { steps: [] })).toBeNull();
+    expect(cleanBoxArgs({ action: "batch", steps: [{ action: "batch" }] })).toBeNull();
+    const out = renderBoxReply("batch", { ok: true, seconds: 0.4, results: [{ action: "write", ok: true, path: "x", bytes: 1 }, { action: "run", ok: false, skipped: true, error: "not run: time budget" }] });
+    expect(out).toContain("[1] write: wrote x (1 bytes)");
+    expect(out).toContain("[2] run: not run");
+  });
+
   test("the four tools map to the Studio's actions and nothing else", () => {
     expect(boxActionFor("computer_run", { command: "ls", timeout: 5 })).toMatchObject({ action: "run", command: "ls", timeout: 5 });
     expect(boxActionFor("computer_write", { path: "a.txt", content: "x" })).toMatchObject({ action: "write", path: "a.txt" });
@@ -13,6 +26,13 @@ describe("the model's own persistent computer", () => {
     expect(boxActionFor("computer_repo", { url: "https://github.com/a/b", ref: "main" })).toEqual({ action: "repo", url: "https://github.com/a/b", ref: "main" });
     expect(boxActionFor("computer_search", { pattern: "needle", glob: "*.ts" })).toMatchObject({ action: "search", pattern: "needle", path: ".", glob: "*.ts" });
     expect(boxActionFor("sandbox_exec", {})).toBeNull();
+    expect(boxActionFor("computer_patch", { diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" })).toEqual({ action: "patch", diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" });
+    expect(boxActionFor("computer_test", { cwd: "repos/a-b" })).toEqual({ action: "test", cwd: "repos/a-b", command: "" });
+    expect(boxActionFor("computer_tools", {})).toEqual({ action: "tools" });
+    expect(cleanBoxArgs({ action: "patch", diff: "d".repeat(500_000) })?.diff).toHaveLength(400_000);
+    expect(renderBoxReply("patch", { ok: true, files: ["a.ts", "b.ts"], output: "PATCH_OK via git" })).toMatch(/a\.ts, b\.ts/);
+    expect(renderBoxReply("test", { ok: true, id: "j1", command: "npm test --silent", cwd: "p" })).toMatch(/TESTS_EXIT/);
+    expect(renderBoxReply("patch", { ok: false, error: "the patch does not apply here (nothing was changed)", output: "hunk FAILED" })).toMatch(/does not apply[\s\S]*hunk FAILED/);
   });
 
   test("fields are bounded before they reach the Studio", () => {
@@ -125,12 +145,12 @@ describe("writing fast: edit in place and publish in one commit", () => {
     expect(gh).not.toHaveBeenCalled();
   });
 
-  test("publishing to a default or protected branch asks for confirmation like every other push, and candidates cannot publish at all", async () => {
+  test("publishing to a default or protected branch asks for confirmation like every other push, and candidates can publish like Nova (the same confirmation)", async () => {
     const gh = async (_m: string, p: string) => p === "/repos/o/r" ? { status: 200, data: { default_branch: "main" } } : p.includes("/branches/") ? { status: 200, data: { protected: false } } : { status: 404, data: {} };
     const guard = await guardCall(call("computer_publish", { repo: "o/r", branch: "main", message: "m" }), gh as any, "user");
     expect(guard.confirm).toBe(true);
     const names = candidateToolsFor(["computer", "github"], true, false).map((t) => t.function.name);
-    expect(names).not.toContain("computer_publish");
+    expect(names).toContain("computer_publish");                          // owner 2026-11-02: candidates have the same tools as Nova; a push to a default / protected branch still asks (guard above)
     expect(names).toContain("computer_edit");
   });
 });

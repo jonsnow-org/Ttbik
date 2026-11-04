@@ -1,0 +1,69 @@
+name: Delete the old Nova vision weights (owner's order 2026-11-03, one-time, exact repos only)
+# The owner ordered the permanent deletion of the OLD Nova vision model (Qwen2.5-VL-7B fine-tune, Sept 2026): it is older than every current candidate, has no recorded evaluation, and nothing running uses it.
+# Exactly two repositories are touched, named below. Nothing else. Needs the typed confirmation so it can never run by accident.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'type exactly: DELETE nova-vision-7b'
+        required: true
+permissions:
+  contents: read
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: test "$CONFIRM" = "DELETE nova-vision-7b" || { echo "::error::wrong confirmation"; exit 1; }
+      - name: Delete the Hugging Face repo Novasy/nova-vision-7b
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install -q huggingface_hub
+          python3 - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          from huggingface_hub.utils import RepositoryNotFoundError
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          repo = "Novasy/nova-vision-7b"          # the only HF repo this job may touch
+          try:
+              files = api.list_repo_files(repo)
+              print("HF files before:", len(files), "->", ", ".join(sorted(files))[:300])
+              api.delete_repo(repo_id=repo, repo_type="model")
+              print("HF delete: requested")
+          except RepositoryNotFoundError:
+              print("HF: repo not found (already gone)")
+          try:
+              api.model_info(repo); print("HF STILL EXISTS")
+          except RepositoryNotFoundError:
+              print("HF: confirmed gone:", repo)
+          PY
+      - name: Delete the ModelScope repo novaai2026/nova-vision-7b-gguf
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          pip install -q modelscope requests
+          python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi()
+          api.login(os.environ["T"])
+          repo = "novaai2026/nova-vision-7b-gguf"   # the only ModelScope repo this job may touch
+          try:
+              info = api.get_model(repo)
+              print("ModelScope repo exists before:", bool(info))
+          except Exception as exc:
+              print("ModelScope before:", type(exc).__name__, str(exc)[:120])
+          try:
+              api.delete_model(repo)
+              print("ModelScope delete: requested")
+          except Exception as exc:
+              print("ModelScope delete error:", type(exc).__name__, str(exc)[:200])
+          try:
+              api.get_model(repo); print("ModelScope STILL EXISTS")
+          except Exception as exc:
+              print("ModelScope after:", type(exc).__name__, str(exc)[:120])
+          PY

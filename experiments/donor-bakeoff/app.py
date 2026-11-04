@@ -25,16 +25,15 @@ from pathlib import Path, PurePosixPath
 
 import gradio as gr
 import requests
-from huggingface_hub import hf_hub_download
+from modelscope_weights import download_candidate_file
 from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-02-r16"
+APP_REVISION = "donor-bakeoff-2026-11-03-r17"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
-    """ModelScope keeps only /mnt/workspace across a Studio restart: weights and finished jobs live there so a restart does not re-download several GB.
-    Used only when it is writable and has room for the model; otherwise the local (ephemeral) folder is used as before."""
+    """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
     base = Path(os.environ.get("DONOR_PERSIST_DIR", "/mnt/workspace"))
     try:
         if not base.is_dir():
@@ -43,9 +42,9 @@ def _persistent_root() -> Path | None:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
         import shutil
-        if shutil.disk_usage(base).free < 9 * 1024 ** 3 and not (base / "donor-bakeoff").exists():
-            return None
         target = base / "donor-bakeoff" / str(CONFIG.get("id") or "candidate")
+        if shutil.disk_usage(base).free < int(6.5 * 1024 ** 3) and not target.exists():
+            return None
         target.mkdir(parents=True, exist_ok=True)
         return target
     except Exception:
@@ -86,6 +85,7 @@ STATE = {
     "started_at": time.time(),
     "candidate": CONFIG.get("label", CONFIG.get("id", "unknown")),
     "media": {"vision": False, "audio": False, "video": False},
+    "weight_manifest": None,
 }
 LOCK = threading.RLock()
 
@@ -291,27 +291,14 @@ TESTS = [
 TEST_BY_ID = {test["id"]: test for test in TESTS}
 
 def _download_file(filename: str, label: str) -> str:
-    configured_endpoint = os.environ.get("DONOR_HF_ENDPOINT") or os.environ.get("HF_ENDPOINT")
-    endpoints = []
-    for endpoint in (configured_endpoint, "https://hf-mirror.com", "https://huggingface.co"):
-        if endpoint and endpoint.rstrip("/") not in endpoints:
-            endpoints.append(endpoint.rstrip("/"))
-    errors = []
-    for endpoint in endpoints:
-        try:
-            print(f"Downloading {label} from configured Hub endpoint.", flush=True)
-            return hf_hub_download(
-                repo_id=CONFIG["repo_id"],
-                filename=filename,
-                local_dir=str(CACHE),
-                endpoint=endpoint,
-                etag_timeout=8,
-            )
-        except Exception as exc:
-            detail = f"{type(exc).__name__}: {str(exc)[:350]}"
-            errors.append(f"{endpoint}: {detail}")
-            print(f"{label} endpoint failed: {detail}", flush=True)
-    raise RuntimeError(f"Could not download {label}: " + " | ".join(errors))
+    """Load one pinned candidate file from its assigned private ModelScope repo only."""
+    token = (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or "").strip()
+    try:
+        path = download_candidate_file(CONFIG, filename, CACHE, token=token)
+        print(f"Verified {label} from the selected private ModelScope weight repository.", flush=True)
+        return str(path)
+    except Exception as exc:
+        raise RuntimeError(f"Could not load {label} from the selected private ModelScope repository: {type(exc).__name__}: {str(exc)[:500]}") from exc
 
 def _prepare_server_source() -> None:
     if SERVER_SCRIPT.is_file() and SERVER_SCRIPT.stat().st_size > 300_000:
@@ -441,12 +428,15 @@ def load_model() -> None:
     started = time.monotonic()
     process = None
     try:
+        if PERSIST is None:
+            raise RuntimeError("Persistent /mnt/workspace storage is unavailable or too small. Refusing to download multi-GB candidate weights to an ephemeral container filesystem.")
         CACHE.mkdir(parents=True, exist_ok=True)
         model_path = _download_file(CONFIG["filename"], "candidate GGUF")
         mmproj_filename = CONFIG.get("mmproj_filename")
         if not mmproj_filename:
             raise RuntimeError("This candidate has no configured multimodal projector.")
         mmproj_path = _download_file(mmproj_filename, "multimodal projector")
+        weight_manifest = json.loads((CACHE / "candidate-weights-manifest.json").read_text(encoding="utf-8"))
         _prepare_server_source()
         _write_server_config(model_path, mmproj_path)
         MEDIA_CAPS_FILE.unlink(missing_ok=True)
@@ -535,6 +525,7 @@ def load_model() -> None:
                 "model_path": model_path,
                 "mmproj_path": mmproj_path,
                 "media": media_caps,
+                "weight_manifest": weight_manifest,
                 "load_seconds": round(time.monotonic() - started, 2),
             })
         print("Candidate and MTMD server ready; detected media: " + json.dumps(media_caps), flush=True)
@@ -553,6 +544,7 @@ def load_model() -> None:
                 "error": error_detail[:7200],
                 "load_seconds": round(time.monotonic() - started, 2),
                 "media": {"vision": False, "audio": False, "video": False},
+                "weight_manifest": None,
             })
         print("Candidate load failed: " + error_detail[-6500:], flush=True)
         if process is not None and process.poll() is None:
@@ -574,7 +566,9 @@ def status() -> str:
             "app_revision": APP_REVISION,
             "phase": STATE["phase"],
             "candidate": STATE["candidate"],
-            "repo_id": CONFIG.get("repo_id"),
+            "repo_id": CONFIG.get("modelscope_repo_id"),
+            "source_repo_id": CONFIG.get("repo_id"),
+            "weight_manifest": STATE.get("weight_manifest"),
             "filename": CONFIG.get("filename"),
             "mmproj_filename": CONFIG.get("mmproj_filename"),
             "backend": "llama.cpp MTMD / CPU only",
@@ -723,6 +717,18 @@ def _walk_objects(value):
                 yield from _walk_objects(child)
 
 
+def _gateway_retry(method: str, url: str, **kwargs):
+    """requests.<method> with a bounded retry on the ModelScope gateway's burst answers (429 Too Many Requests, 502/503/504): the account allows few concurrent calls, a second request seconds later usually passes."""
+    last = None
+    for attempt, wait in enumerate((0, 4, 10, 20)):
+        if wait:
+            time.sleep(wait + (hash((url, attempt)) % 3))
+        last = requests.request(method, url, **kwargs)
+        if last.status_code not in (429, 502, 503, 504):
+            return last
+    return last
+
+
 def _photo_status(profile: dict, token: str) -> dict:
     base = str(profile.get("studio_api") or "").rstrip("/")
     repo = str(profile.get("model_repo") or "")
@@ -730,7 +736,7 @@ def _photo_status(profile: dict, token: str) -> dict:
         raise RuntimeError("Candidate image Studio address is not an approved private ModelScope endpoint.")
     if not repo.startswith("novaai2026/"):
         raise RuntimeError("Candidate image model repo is not in the private ModelScope namespace.")
-    start = requests.post(
+    start = _gateway_retry("POST",
         base + "/gradio_api/call/status",
         json={"data": []},
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
@@ -740,7 +746,7 @@ def _photo_status(profile: dict, token: str) -> dict:
     event_id = str((start.json() or {}).get("event_id") or "")
     if not event_id:
         raise RuntimeError("Image Studio status returned no event id.")
-    poll = requests.get(
+    poll = _gateway_retry("GET",
         base + "/gradio_api/call/status/" + event_id,
         headers={"Authorization": "Bearer " + token},
         timeout=(8, 45),
@@ -801,7 +807,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
             float(profile.get("cfg") or 5.5),
             seed,
         ]
-        submit = requests.post(
+        submit = _gateway_retry("POST",
             proof["base"] + "/gradio_api/call/image",
             json={"data": request_data},
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
@@ -811,7 +817,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
         event_id = str((submit.json() or {}).get("event_id") or "")
         if not event_id:
             raise RuntimeError("Image Studio returned no generation event id.")
-        result = requests.get(
+        result = _gateway_retry("GET",
             proof["base"] + "/gradio_api/call/image/" + event_id,
             headers={"Authorization": "Bearer " + token},
             timeout=(8, 540),
@@ -838,7 +844,7 @@ def _generate_candidate_image(arguments: dict) -> dict:
         if not relative or ".." in Path(relative).parts or "\x00" in relative or relative.startswith("http"):
             raise RuntimeError("Image Studio returned an unsafe file path.")
         from urllib.parse import quote
-        file_response = requests.get(
+        file_response = _gateway_retry("GET",
             proof["base"] + "/gradio_api/file=/" + quote(relative, safe="/"),
             headers={"Authorization": "Bearer " + token},
             timeout=(8, 90),
@@ -1903,9 +1909,12 @@ def _check_candidate_video(data: bytes, expected_seconds: int) -> dict:
         blank = [frame for frame in frames if float(frame.std()) < 2.0 or int(frame.max()) - int(frame.min()) < 12]
         if len(blank) == len(frames):
             raise RuntimeError("static_video: all decoded frames are blank")
-        motion = float(np.abs(frames[1:].astype(np.float32) - frames[:-1].astype(np.float32)).mean())
-        if motion < 0.05:
-            raise RuntimeError("static_video: decoded frames contain no measurable motion")
+        # Brightness-only change is not motion: remove each frame's mean first.
+        flat = frames.astype(np.float32)
+        flat = flat - flat.mean(axis=(1, 2), keepdims=True)
+        motion = float(np.abs(flat[1:] - flat[:-1]).mean())
+        if motion < 0.35:
+            raise RuntimeError("static_video: decoded frames contain no real motion (only lighting changes)")
         return {
             "duration_seconds": round(actual_seconds, 2), "width": width, "height": height,
             "decoded_frames": int(len(frames)), "motion_score": round(motion, 3),
@@ -2088,7 +2097,8 @@ def smoke_test(test_id: str) -> str:
     result = _run_one(test)
     payload = {
         "candidate": CONFIG.get("label"),
-        "repo_id": CONFIG.get("repo_id"),
+        "repo_id": CONFIG.get("modelscope_repo_id"),
+            "source_repo_id": CONFIG.get("repo_id"),
         "phase": "complete",
         "context_tokens": N_CTX,
         "media_capabilities": state["media"],

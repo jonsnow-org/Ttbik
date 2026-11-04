@@ -25,12 +25,6 @@ CACHE = ROOT / "juggernaut_cache"
 OUTPUTS = ROOT / "juggernaut_outputs"
 RAM_TARGET_GB = 8.0
 
-MINOR = re.compile(r"\b(?:child|children|minor|underage|teen|teenager|schoolgirl|schoolboy|loli|shota)\b|طفل|طفلة|قاصر|قاصرة|مراهق|مراهقة|تلميذ|تلميذة", re.I)
-SEXUAL = re.compile(r"\b(?:nude|naked|nudity|sex|sexual|erotic|porn|explicit|undress)\b|عاري|عارية|تعري|جنس|جنسي|إباحي|إباحية", re.I)
-NONCONSENSUAL = re.compile(r"\b(?:non[- ]consensual|without consent|revenge porn|deepfake|undress (?:her|him|them))\b|بدون موافقة|دون موافقة|صور حميمة مسربة|تعرية شخص", re.I)
-REAL_PERSON = re.compile(r"\b(?:real person|celebrity|public figure|my ex|my wife|my girlfriend|my colleague)\b|شخص حقيقي|مشهور|مشاهير|زوجتي|طليقتي|حبيبتي|زميلتي|زميلي", re.I)
-
-
 def memory_gb() -> float:
     values = []
     try:
@@ -236,10 +230,7 @@ def generate(prompt: str, negative: str, resolution: str, steps: int, cfg: float
     prompt = str(prompt or "").strip()
     if len(prompt) < 8 or len(prompt) > 1800:
         raise gr.Error("طول الوصف يجب أن يكون بين 8 و1800 حرف.")
-    if MINOR.search(prompt) and SEXUAL.search(prompt):
-        raise gr.Error("لا يمكن إنشاء تصوير جنسي لقاصر أو لشخص يبدو قاصراً.")
-    if NONCONSENSUAL.search(prompt) and REAL_PERSON.search(prompt):
-        raise gr.Error("لا ننشئ صوراً حميمة أو تزييفاً جنسياً لأشخاص حقيقيين دون موافقتهم.")
+
     sizes = {"512 × 512": (512, 512), "512 × 768": (512, 768)}
     width, height = sizes.get(resolution, (512, 512))
     steps = max(15, min(25, int(steps)))

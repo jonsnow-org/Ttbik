@@ -3,10 +3,11 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "patch", "test", "tools", "batch"]);
+const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo"]);
 
 /** The tool names a model sees → what the Studio understands. */
 export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs | null {
@@ -16,6 +17,19 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_edit") return { action: "edit", path: a.path as string, old: a.old as string, new: a.new as string, replace_all: Boolean(a.replace_all), edits: Array.isArray(a.edits) ? (a.edits as any[]) : undefined };
   if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string };
   if (tool === "computer_search") return { action: "search", pattern: a.pattern as string, path: (a.path as string) || ".", glob: a.glob as string };
+  if (tool === "computer_patch") return { action: "patch", diff: a.diff as string, cwd: (a.cwd as string) || "." };
+  if (tool === "computer_test") return { action: "test", cwd: (a.cwd as string) || ".", command: (a.command as string) || "" };
+  if (tool === "computer_tools") return { action: "tools" };
+  if (tool === "computer_batch") {
+    // several computer actions in ONE round trip: each step is {tool: "computer_run"|..., ...its arguments}
+    const steps = (Array.isArray(a.steps) ? a.steps : []).slice(0, 8).map((st: any) => {
+      const t = String(st?.tool || "");
+      const m = BATCH_TOOLS.has(t) ? boxActionFor(t, st || {}) : null;
+      return m ? { ...m, ...(st?.continue_on_error ? { continue_on_error: true } : {}) } : null;
+    });
+    if (!steps.length || steps.some((x) => !x)) return null;
+    return { action: "batch", steps: steps as BoxArgs[] };
+  }
   if (tool === "computer_job") {
     const sub = String(a.action || "").toLowerCase();
     if (!["start", "log", "stop", "list"].includes(sub)) return null;
@@ -47,6 +61,13 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (Array.isArray(a.edits)) out.edits = a.edits.slice(0, 40).map((e) => ({ old: String(e?.old ?? "").slice(0, 200_000), new: String(e?.new ?? "").slice(0, 200_000), ...(e?.replace_all ? { replace_all: true } : {}) }));
   if (a.repo !== undefined) out.repo = String(a.repo).slice(0, 200);
   if (a.dir !== undefined) out.dir = String(a.dir).slice(0, 300);
+  if (a.diff !== undefined) out.diff = String(a.diff).slice(0, 400_000);
+  if (a.continue_on_error) out.continue_on_error = true;
+  if (action === "batch") {
+    const steps = (a.steps || []).slice(0, 8).map((st) => (String(st?.action || "") === "batch" ? null : cleanBoxArgs(st)));
+    if (!steps.length || steps.some((x) => !x)) return null;
+    out.steps = steps;
+  }
   return out;
 }
 
@@ -78,6 +99,14 @@ function renderBody(action: string, r: Record<string, any>): string {
       return `job ${r.id} ${r.running ? "running" : "finished with exit " + r.exit_code} · ${r.seconds}s\n${r.output || "(no output yet)"}`;
     case "job_stop":
       return `job ${r.id} ${r.running ? "still running" : "stopped"}`;
+    case "patch":
+      return `patch applied to ${((r.files as string[]) || []).join(", ") || "the files"}\n${String(r.output || "").slice(0, 1500)}`.trim();
+    case "test":
+      return `tests started as job ${r.id} (${r.command} in ${r.cwd}). Read the result with computer_job action=log id=${r.id}; the last line is TESTS_EXIT=<code>.`;
+    case "tools":
+      return "installed: " + Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => v).map(([k]) => k).join(" ") + `\nnot yet: ${Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => !v).map(([k]) => k).join(" ") || "-"}\nbackground install: ${typeof r.devtools === "string" ? r.devtools : JSON.stringify(r.devtools || "").slice(0, 200)}`;
+    case "batch":
+      return [`${((r.results as any[]) || []).length} step(s) in one call · ${r.seconds}s`, ...((r.results as any[]) || []).map((x, i) => `[${i + 1}] ${x.action}: ${x.skipped ? "not run (" + x.error + ")" : x.ok === false ? "error: " + String(x.error || "").slice(0, 300) + (x.output ? "\n" + String(x.output).slice(0, 400) : "") : renderBody(String(x.action), x)}`)].join("\n\n").slice(0, 12000);
     case "job_list":
       return ((r.jobs as any[]) || []).map((j) => `${j.id} ${j.running ? "running" : "exit " + j.exit_code} ${j.name ? j.name + " · " : ""}${j.command}`).join("\n") || "(no jobs)";
     default:

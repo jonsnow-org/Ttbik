@@ -118,5 +118,24 @@ class Pooling(unittest.TestCase):
             bc.STORE = old
 
 
+
+
+class WorkerLaunchEnvTest(unittest.TestCase):
+    """2026-11-04: the worker's in-process Chromium must get the same library path the bootstrap's launch test used."""
+
+    def test_worker_env_includes_persistent_libs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            old = bc.STORE
+            try:
+                bc.STORE = Path(d)
+                (Path(d) / "libs" / "usr" / "lib" / "x86_64-linux-gnu").mkdir(parents=True)
+                env = bc.worker_launch_env()
+                self.assertIn(str(Path(d) / "libs" / "usr" / "lib" / "x86_64-linux-gnu"), env.get("LD_LIBRARY_PATH", ""))
+                self.assertIn("PLAYWRIGHT_BROWSERS_PATH", env)
+                self.assertTrue(all(isinstance(v, str) for v in env.values()))
+            finally:
+                bc.STORE = old
+
 if __name__ == "__main__":
     unittest.main()

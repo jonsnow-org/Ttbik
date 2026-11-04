@@ -216,11 +216,13 @@ export type OrphanTask = { run_id: string; chatId: number; botId: string; slot: 
  * heartbeat, so two ticks (or a tick and a live runner) never resume the same run. A live runner beats every 15 s, so 90 s of silence
  * means it is gone. Tasks that STARTED more than `maxAgeMs` ago are never claimed again (claiming bumped the heartbeat, so a dead run used to look alive for ever: it stayed in "running" for days) and are closed by reapStaleTasks.
  */
-export async function claimOrphanTasks(db: Db = prismaDb, staleMs = 90000, maxAgeMs = 30 * 60000): Promise<OrphanTask[]> {
+// a long task may run for hours (owner 2026-11-04: long tasks must survive disconnects): a worker lost after 30 min used to be abandoned.
+// Only runs silent for 90 s … 10 min are claimed: one silent longer belongs to reapStaleTasks (a ghost whose state is gone is never re-bumped forever).
+export async function claimOrphanTasks(db: Db = prismaDb, staleMs = 90000, maxAgeMs = Number(process.env.CODER_ORPHAN_MAX_AGE_MS || 6 * 3600000)): Promise<OrphanTask[]> {
   try {
     await ensureTaskTables(db);
     const rows = await db.query<{ run_id: string; chat_enc: string; bot_id: string; slot: string }>(
-      `UPDATE coder_tasks SET updated_at = now() WHERE status = 'running' AND chat_enc IS NOT NULL AND bot_id IS NOT NULL AND updated_at < now() - ($1 || ' milliseconds')::interval AND started_at > now() - ($2 || ' milliseconds')::interval RETURNING run_id, chat_enc, bot_id, slot`,
+      `UPDATE coder_tasks SET updated_at = now() WHERE status = 'running' AND chat_enc IS NOT NULL AND bot_id IS NOT NULL AND updated_at < now() - ($1 || ' milliseconds')::interval AND updated_at > now() - interval '10 minutes' AND started_at > now() - ($2 || ' milliseconds')::interval RETURNING run_id, chat_enc, bot_id, slot`,
       String(staleMs), String(maxAgeMs),
     );
     const out: OrphanTask[] = [];

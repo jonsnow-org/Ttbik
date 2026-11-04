@@ -134,7 +134,9 @@ export function describeCron(cron: string, lang: "ar" | "en" = "ar"): string {
   try {
     const c = parseCron(cron);
     const [mi, h, dom, , dow] = c.src.split(" ");
-    const time = /^\d+$/.test(h) && /^\d+$/.test(mi) ? `${h.padStart(2, "0")}:${mi.padStart(2, "0")}` : "";
+    // owner 2026-11-04: the 12-hour clock (7:30 PM / 7:30 م), never 19:30
+    const h12 = (x: number) => (x % 12 === 0 ? 12 : x % 12);
+    const time = /^\d+$/.test(h) && /^\d+$/.test(mi) ? `${h12(Number(h))}:${mi.padStart(2, "0")} ${Number(h) < 12 ? (lang === "ar" ? "ص" : "AM") : lang === "ar" ? "م" : "PM"}` : "";
     const names = lang === "ar" ? ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     if (time && dom === "*" && dow === "*") return lang === "ar" ? `يومياً ${time}` : `Daily ${time}`;
     if (time && dom === "*" && dow === "1-5") return lang === "ar" ? `أيام العمل ${time}` : `Weekdays ${time}`;

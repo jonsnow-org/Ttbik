@@ -22,7 +22,7 @@ The host runs no LLM, image, audio or video weights. It provides:
 - Private unprivileged UID and home for every user+model key under \`/mnt/workspace/computer\`; browser data lives under \`/mnt/workspace/browser\`.
 - Eight-GB per-session workspace quota, a memory watcher, clean terminal environment and no provider credentials passed into shell processes.
 
-The two-vCPU CPU limit remains: only one shell job executes globally at a time. One graphical desktop may be active at a time; terminal execution can operate alongside that desktop, subject to the live memory admission gate. The desktop requires at least 3 GB free RAM, and new terminal jobs require at least 2 GB available. With inference weights removed, the computer is no longer competing with MiniCPM for the Studio's memory.
+The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to six shell jobs globally (and a per-session job cap of four), guarded by the live free-memory admission gate. The 16 GB app config supports up to five separate graphical desktop slots when total memory is above 12 GB; each new desktop requires at least 3 GB free RAM, while new terminal jobs require at least 2 GB available. `COMPUTER_QUOTA_GB=8` is the per-session workspace disk allowance, not the Studio RAM allocation. Compiler and language runtimes (Node.js, GCC, Go, Java, Rust, Ruby, PHP, etc.) are installed in the extended developer-tool phase and are checked separately from the initial terminal bootstrap. With inference weights removed, the computer is no longer competing with MiniCPM for the Studio's memory.
 
 ## Router
 
@@ -30,4 +30,4 @@ The two-vCPU CPU limit remains: only one shell job executes globally at a time. 
 
 ## Verification
 
-The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-02-r2\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.
+The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-03-r4\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.

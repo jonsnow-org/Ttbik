@@ -29,11 +29,12 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1024"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "768"))))
+WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
+HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
 MAX_TYPE = 1200
-MAX_FRAME_BYTES = 450_000
-PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm")
+MAX_FRAME_BYTES = 560_000
+INPUT_ACTIONS = {"click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "clipboard_get", "clipboard_set"}
+PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm", "xclip")   # xclip: copy / paste between the Mini App and the desktop (optional)
 
 _LOCK = threading.RLock()
 _INSTALL_LOCK = threading.Lock()
@@ -450,7 +451,12 @@ def _run_input(args: list[str]) -> None:
         raise RuntimeError((result.stderr or result.stdout or "Desktop input failed.")[-180:])
 
 
-def _screenshot() -> dict:
+_LAST_FRAME = {"hash": "", "raw": b""}
+
+
+def _screenshot(quality: int = 62, scale: float = 1.0, since: str = "") -> dict:
+    """One JPEG frame. quality / scale make it smaller for a faster live view; `since` = the hash the client already shows:
+    an unchanged screen answers {unchanged: true} without the picture (most frames of an idle desktop)."""
     from PIL import Image, ImageGrab
 
     old_display = os.environ.get("DISPLAY")
@@ -471,18 +477,30 @@ def _screenshot() -> dict:
     if image.size[0] > WIDTH or image.size[1] > HEIGHT:
         image.thumbnail((WIDTH, HEIGHT))
     image = image.convert("RGB")
+    screen_w, screen_h = image.size
+    digest_now = hashlib.blake2b(image.tobytes(), digest_size=10).hexdigest()
+    if since and since == digest_now:
+        return {"unchanged": True, "hash": digest_now, "width": screen_w, "height": screen_h}
+    scale = max(0.35, min(1.0, float(scale or 1.0)))
+    if scale < 0.999:
+        image = image.resize((max(1, int(screen_w * scale)), max(1, int(screen_h * scale))), Image.BILINEAR)
+    quality = max(25, min(85, int(quality or 62)))
     from io import BytesIO
     out = BytesIO()
-    image.save(out, format="JPEG", quality=56, optimize=True)
+    image.save(out, format="JPEG", quality=quality, optimize=False)
     raw = out.getvalue()
     if len(raw) > MAX_FRAME_BYTES:
         out = BytesIO()
-        image.save(out, format="JPEG", quality=38, optimize=True)
+        image.save(out, format="JPEG", quality=min(quality, 45), optimize=True)
         raw = out.getvalue()
+    # width/height are the REAL screen size (click coordinates); the picture may be smaller (scale)
     return {
         "screenshot_b64": base64.b64encode(raw).decode("ascii"),
-        "width": image.size[0],
-        "height": image.size[1],
+        "hash": digest_now,
+        "width": screen_w,
+        "height": screen_h,
+        "frame_width": image.size[0],
+        "frame_height": image.size[1],
     }
 
 
@@ -546,7 +564,7 @@ def api_desktop_do(body: str) -> str:
         action = str(job.get("action") or "").lower()
         if not session or len(session) > 240:
             return json.dumps({"ok": False, "error": "a valid session is required"})
-        if action not in {"status", "start", "stop", "frame", "launch", "click", "move", "type", "key", "scroll"}:
+        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer"}:
             return json.dumps({"ok": False, "error": "unknown desktop action"})
         if action == "status":
             return json.dumps(_desktop_status(session), ensure_ascii=False)
@@ -561,76 +579,131 @@ def api_desktop_do(body: str) -> str:
         if action == "frame":
             _check_live(session)
             _touch()
-            return json.dumps({"ok": True, "phase": "running", **_screenshot()})
+            shot = _screenshot(int(job.get("quality") or 62), float(job.get("scale") or 1.0), str(job.get("since") or "")[:40])
+            extra = box.activity_since(session, int(job["activity_since"]), 12) if job.get("activity_since") is not None else {}
+            return json.dumps({"ok": True, "phase": "running", **shot, **({"activity": extra.get("activity", []), "activity_seq": extra.get("seq", 0), "running_jobs": extra.get("running_jobs", [])} if extra else {})}, ensure_ascii=False)
         _check_live(session)
         _touch()
-        if action == "launch":
-            app = str(job.get("app") or "")
-            if app == "terminal":
-                cmd = _terminal_command()
-            elif app == "files":
-                if not shutil.which("pcmanfm"):
-                    return json.dumps({"ok": False, "error": "The file manager is not installed in this Studio."})
-                cmd = ["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))]
-            elif app == "browser":
-                url = str(job.get("url") or "about:blank").strip()
-                if url != "about:blank":
-                    import browser_computer
-                    url = browser_computer.safe_url(url)
-                if box.STATE.get("egress", "").startswith("partly blocked"):
-                    raise RuntimeError("The browser is disabled because this Studio could not confirm its private-network egress block.")
-                import browser_computer
-                executable = next((p for p in browser_computer.STORE.rglob("chrome") if p.is_file() and "headless" not in str(p).lower()), None)
-                if executable is None:
-                    raise RuntimeError("Chromium is not installed in this Studio yet. The model's headless browser can still be used in the Browser tab.")
-                profile = box.session_home(session) / ".desktop" / "chrome-profile"
-                profile.mkdir(parents=True, exist_ok=True, mode=0o700)
-                if box.is_root():
-                    os.chown(profile.parent, box.session_uid(session), box.session_uid(session))
-                    os.chown(profile, box.session_uid(session), box.session_uid(session))
-                os.chmod(profile, 0o700)
-                cmd = [
-                    str(executable), "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-                    "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
-                    "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
-                    f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
-                ]
-            else:
-                return json.dumps({"ok": False, "error": "app must be terminal, files or browser"})
-            proc = _spawn(cmd, _ENV, "app-" + app)
-            _PROCESSES.append(proc)
-            return json.dumps({"ok": True, "phase": "running", "app": app})
-        if action == "click":
-            x, y = clamp_point(job.get("x"), job.get("y"))
-            button = str(job.get("button") or "left").lower()
-            button_id = {"left": "1", "middle": "2", "right": "3"}.get(button)
-            if button_id is None:
-                raise ValueError("button must be left, middle or right")
-            _run_input(["xdotool", "mousemove", str(x), str(y), "click", button_id])
-        elif action == "move":
-            x, y = clamp_point(job.get("x"), job.get("y"))
-            _run_input(["xdotool", "mousemove", str(x), str(y)])
-        elif action == "type":
-            value = str(job.get("text") or "")[:MAX_TYPE]
-            if value:
-                _run_input(["xdotool", "type", "--clearmodifiers", "--delay", "5", "--", value])
-        elif action == "key":
-            key = str(job.get("key") or "")
-            if not valid_key(key):
-                raise ValueError("invalid key name")
-            _run_input(["xdotool", "key", "--clearmodifiers", key])
-        elif action == "scroll":
-            direction = str(job.get("direction") or "down").lower()
-            button_id = "4" if direction == "up" else "5" if direction == "down" else ""
-            if not button_id:
-                raise ValueError("direction must be up or down")
-            amount = max(1, min(8, int(job.get("amount", 3) or 3)))
-            _run_input(["xdotool", "click", "--repeat", str(amount), "--delay", "80", button_id])
-        else:
-            raise ValueError("unknown desktop action")
-        return json.dumps({"ok": True, "phase": "running"}, ensure_ascii=False)
+        if action == "pointer":                       # where the pointer is (the live view draws it; the smoke test checks clicks land exactly)
+            got = subprocess.run(["xdotool", "getmouselocation", "--shell"], env=_ENV, capture_output=True, text=True, timeout=5,
+                                 preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
+            vals = dict(line.split("=", 1) for line in (got.stdout or "").split() if "=" in line)
+            return json.dumps({"ok": True, "phase": "running", "x": int(vals.get("X", -1)), "y": int(vals.get("Y", -1))})
+        # typed text and clipboard contents are never written to the feed (they can be passwords): only their length
+        detail = str(job.get("app") or job.get("key") or job.get("url") or "")
+        if action in ("type", "clipboard_set"):
+            detail = f"{len(str(job.get('text') or ''))} characters"
+        elif job.get("x") is not None:
+            detail = detail or f"{job.get('x')},{job.get('y')}"
+        entry = box.note_activity(session, "desktop", action, detail[:240], "start")
+        try:
+            reply = _input_action(session, action, job)
+        except Exception as exc:
+            box.finish_activity(entry, {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+            raise
+        box.finish_activity(entry, {"ok": bool(reply.get("ok", True))})
+        return json.dumps(reply, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:280]}"}, ensure_ascii=False)
+
+
+def _input_action(session: str, action: str, job: dict) -> dict:
+    """The input / launch actions of a running desktop (called by api_desktop_do after the live check); returns the reply object."""
+    if action == "launch":
+        app = str(job.get("app") or "")
+        if app == "terminal":
+            cmd = _terminal_command()
+        elif app == "files":
+            if not shutil.which("pcmanfm"):
+                return {"ok": False, "error": "The file manager is not installed in this Studio."}
+            cmd = ["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))]
+        elif app == "browser":
+            url = str(job.get("url") or "about:blank").strip()
+            if url != "about:blank":
+                import browser_computer
+                url = browser_computer.safe_url(url)
+            if box.STATE.get("egress", "").startswith("partly blocked"):
+                raise RuntimeError("The browser is disabled because this Studio could not confirm its private-network egress block.")
+            import browser_computer
+            executable = next((p for p in browser_computer.STORE.rglob("chrome") if p.is_file() and "headless" not in str(p).lower()), None)
+            if executable is None:
+                raise RuntimeError("Chromium is not installed in this Studio yet. The model's headless browser can still be used in the Browser tab.")
+            profile = box.session_home(session) / ".desktop" / "chrome-profile"
+            profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if box.is_root():
+                os.chown(profile.parent, box.session_uid(session), box.session_uid(session))
+                os.chown(profile, box.session_uid(session), box.session_uid(session))
+            os.chmod(profile, 0o700)
+            cmd = [
+                str(executable), "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+                "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+                "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
+                f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
+            ]
+        else:
+            return {"ok": False, "error": "app must be terminal, files or browser"}
+        proc = _spawn(cmd, _ENV, "app-" + app)
+        _PROCESSES.append(proc)
+        return {"ok": True, "phase": "running", "app": app}
+    if action == "click":
+        x, y = clamp_point(job.get("x"), job.get("y"))
+        button = str(job.get("button") or "left").lower()
+        button_id = {"left": "1", "middle": "2", "right": "3"}.get(button)
+        if button_id is None:
+            raise ValueError("button must be left, middle or right")
+        _run_input(["xdotool", "mousemove", str(x), str(y), "click", button_id])
+    elif action == "dblclick":
+        x, y = clamp_point(job.get("x"), job.get("y"))
+        _run_input(["xdotool", "mousemove", str(x), str(y), "click", "--repeat", "2", "--delay", "90", "1"])
+    elif action == "move":
+        x, y = clamp_point(job.get("x"), job.get("y"))
+        _run_input(["xdotool", "mousemove", str(x), str(y)])
+    elif action in ("mousedown", "mouseup"):
+        x, y = clamp_point(job.get("x"), job.get("y"))
+        button_id = {"left": "1", "middle": "2", "right": "3"}.get(str(job.get("button") or "left").lower(), "1")
+        _run_input(["xdotool", "mousemove", str(x), str(y), action, button_id])
+    elif action == "drag":
+        x, y = clamp_point(job.get("x"), job.get("y"))
+        x2, y2 = clamp_point(job.get("x2"), job.get("y2"))
+        steps = 6
+        path = []
+        for i in range(1, steps + 1):
+            path += ["mousemove", str(x + (x2 - x) * i // steps), str(y + (y2 - y) * i // steps), "sleep", "0.03"]
+        _run_input(["xdotool", "mousemove", str(x), str(y), "mousedown", "1", *path, "mouseup", "1"])
+    elif action == "clipboard_set":
+        if not shutil.which("xclip"):
+            raise RuntimeError("xclip is not installed in this Studio; type the text instead")
+        value = str(job.get("text") or "")[:20000]
+        subprocess.run(["xclip", "-selection", "clipboard"], input=value, env=_ENV, text=True, timeout=5, check=True,
+                       preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
+    elif action == "clipboard_get":
+        if not shutil.which("xclip"):
+            raise RuntimeError("xclip is not installed in this Studio")
+        got = subprocess.run(["xclip", "-selection", "clipboard", "-o"], env=_ENV, capture_output=True, text=True, timeout=5,
+                             preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
+        return {"ok": True, "phase": "running", "text": (got.stdout or "")[:20000]}
+    elif action == "type":
+        value = str(job.get("text") or "")[:MAX_TYPE]
+        if value:
+            _run_input(["xdotool", "type", "--clearmodifiers", "--delay", "5", "--", value])
+    elif action == "key":
+        key = str(job.get("key") or "")
+        if not valid_key(key):
+            raise ValueError("invalid key name")
+        _run_input(["xdotool", "key", "--clearmodifiers", key])
+    elif action == "scroll":
+        direction = str(job.get("direction") or "down").lower()
+        button_id = {"up": "4", "down": "5", "left": "6", "right": "7"}.get(direction, "")
+        if not button_id:
+            raise ValueError("direction must be up, down, left or right")
+        if job.get("x") is not None and job.get("y") is not None:
+            x, y = clamp_point(job.get("x"), job.get("y"))
+            _run_input(["xdotool", "mousemove", str(x), str(y)])
+        amount = max(1, min(8, int(job.get("amount", 3) or 3)))
+        _run_input(["xdotool", "click", "--repeat", str(amount), "--delay", "80", button_id])
+    else:
+        raise ValueError("unknown desktop action")
+    return {"ok": True, "phase": "running"}
 
 
 threading.Thread(target=_reaper, daemon=True, name="desktop-idle-reaper").start()

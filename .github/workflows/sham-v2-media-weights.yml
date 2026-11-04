@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install modelscope
+      - run: pip install modelscope "modelscope-hub==0.6.1"
       - name: Copy media/ into the Sham v2 model repo
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -38,7 +38,7 @@ jobs:
           python - <<'PY'
           import os, shutil
           from pathlib import Path
-          from modelscope import snapshot_download
+          from modelscope_hub.compat import snapshot_download
           from modelscope.hub.api import HubApi
           from modelscope.hub.constants import Visibility
 
@@ -47,10 +47,13 @@ jobs:
           # Keep at least ~0.8 GiB of the Studio's 8 GiB storage free. Never push a
           # media bundle if the resulting model snapshot would exceed this budget.
           max_total = int(float(os.environ.get("SHAM_V2_MAX_MODEL_GIB", "7.2")) * (1024 ** 3))
+          token = os.environ["MODELSCOPE_TOKEN"].strip()
+          if not token:
+              raise SystemExit("MODELSCOPE_TOKEN is empty; refusing to read or publish private Sham v2 weights")
           api = HubApi()
-          api.login(os.environ["MODELSCOPE_TOKEN"])
-          src = Path(snapshot_download(media_id, cache_dir="src"))
-          existing = Path(snapshot_download(target_id, cache_dir="existing"))
+          api.login(token)  # retained for the existing private push_model operation
+          src = Path(snapshot_download(media_id, cache_dir="src", token=token))
+          existing = Path(snapshot_download(target_id, cache_dir="existing", token=token))
 
           sdxs = src / "sdxs"
           piper = src / "piper"

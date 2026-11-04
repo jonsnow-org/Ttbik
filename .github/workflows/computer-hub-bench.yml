@@ -1,0 +1,39 @@
+name: "Computer hub benchmark (read-mostly: times common operations in a throwaway session)"
+
+# Times the operations models use most on the live 16 GB computer hub (Bash round trip, file write/read, repo clone, search, patch, tools).
+# It runs on a pull request that changes the computer (= BEFORE, against the hub that is live now) and after every hub deploy (= AFTER).
+# Only a fresh ci-bench session is touched; no model or media weight is read or changed. Nothing secret is printed.
+on:
+  pull_request:
+    paths:
+      - ai-system/modelscope-media/computer_box.py
+      - scripts/ops/modelscope_computer_smoke.py
+      - .github/workflows/computer-hub-bench.yml
+  workflow_run:
+    workflows:
+      - "Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio"
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    types:
+      - completed
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computer-hub-bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time the common operations on the live hub
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net --model-id computer_hub --no-gui --bench

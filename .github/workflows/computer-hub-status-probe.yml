@@ -1,6 +1,7 @@
 name: Inspect dedicated computer Studio status
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - claude/free-services-marketplace-h6rwk2

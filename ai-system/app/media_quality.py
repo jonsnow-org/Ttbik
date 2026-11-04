@@ -203,8 +203,10 @@ def check_mp4(
     blank = [f for f in frames if f.std() < 2.0 or (f.max() - f.min()) < 12]
     if len(blank) == len(frames):
         raise MediaQualityError("static_video", "every frame is blank")
-    if float(np.abs(frames[1:] - frames[:-1]).mean()) < 0.05:
-        raise MediaQualityError("static_video", "all frames are identical (no motion)")
+    # Motion = change that is NOT a brightness shift: each frame's mean is removed first, so a clip whose only change is lighting (a flicker/fade) counts as static.
+    centred = frames - frames.mean(axis=(1, 2), keepdims=True)
+    if float(np.abs(centred[1:] - centred[:-1]).mean()) < 0.35:
+        raise MediaQualityError("static_video", "no real motion (only lighting changes or identical frames)")
     return info
 
 

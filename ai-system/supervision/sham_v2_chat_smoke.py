@@ -8,21 +8,29 @@ import os
 import re
 import time
 import uuid
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
-COMPUTER_BASE = (os.environ.get("SHAM_V2_COMPUTER_URL") or "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net").strip().rstrip("/")
+COMPUTER_BASE = (os.environ.get("COMPUTER_STUDIO_URL") or "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").strip().rstrip("/")
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = json.dumps(payload or {}, ensure_ascii=False).encode("utf-8") if payload is not None else None
-    req = Request(url, data=data, headers=headers, method=method)
-    with urlopen(req, timeout=timeout) as res:
-        return json.loads(res.read().decode("utf-8"))
+    # the shared gateway answers 429/502-504 when several live checks hit it at once: wait and retry a few times
+    waits = [3, 8, 15, 30]
+    for attempt in range(len(waits) + 1):
+        req = Request(url, data=data, headers=headers, method=method)
+        try:
+            with urlopen(req, timeout=timeout) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except HTTPError as exc:
+            if exc.code not in (429, 502, 503, 504) or attempt == len(waits):
+                raise
+            time.sleep(waits[attempt])
 
 
 def unwrap_line(line: str):
@@ -87,8 +95,8 @@ def chat(messages: list[dict], max_new_tokens: int = 256) -> str:
 
 
 def call_computer_box(payload: dict, timeout: int = 90):
-    if "sham-v2-video-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
-        raise RuntimeError("Refusing to send Sham v2 computer calls to a non-dedicated Studio")
+    if "nova-inference-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
+        raise RuntimeError("Refusing to send Sham v2 computer calls outside the reserved shared computer Studio")
     wire = "b64:" + base64.b64encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
     submitted = request_json(f"{COMPUTER_BASE}/gradio_api/call/box_do", "POST", {"data": [wire]}, timeout=40)
     event_id = submitted.get("event_id")

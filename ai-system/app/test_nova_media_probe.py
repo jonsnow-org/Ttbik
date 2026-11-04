@@ -121,6 +121,22 @@ def payload_for(api):
     return {"type": {"image": "image", "speech": "audio"}.get(api, api), "b64": base64.b64encode(raw).decode()}
 
 
+class Selection(unittest.TestCase):
+    def test_video_only_selection_skips_image_and_audio(self):
+        steps = [("image", "image", {}, None, "probe.png", "image"), ("speech", "audio", {}, None, "probe.wav", "speech"), ("video", "video", {}, None, "probe.mp4", "video")]
+        self.assertEqual([item[5] for item in P.select_probe_steps(steps, "video")], ["video"])
+
+    def test_multiple_selection_is_case_insensitive(self):
+        steps = [("image", "image", {}, None, "probe.png", "image"), ("video", "video", {}, None, "probe.mp4", "video")]
+        self.assertEqual([item[5] for item in P.select_probe_steps(steps, "VIDEO,image")], ["image", "video"])
+
+    def test_unknown_or_empty_selection_is_refused(self):
+        steps = [("video", "video", {}, None, "probe.mp4", "video")]
+        with self.assertRaises(P.ProbeError):
+            P.select_probe_steps(steps, "")
+        with self.assertRaises(P.ProbeError):
+            P.select_probe_steps(steps, "image")
+
 class Sse(unittest.TestCase):
     def test_heartbeat_before_the_result_is_skipped(self):
         body = 'event: heartbeat\ndata: null\n\nevent: heartbeat\ndata: null\n\nevent: complete\ndata: ["{\\"type\\": \\"video\\", \\"b64\\": \\"QQ==\\"}"]\n\n'
@@ -140,6 +156,16 @@ class Waiting(unittest.TestCase):
         st = self.studio(http).wait_ready(timeout=600)
         self.assertEqual(st["phase"], "ready")
         self.assertEqual(http.n, 3)
+
+    def test_accepts_segmented_engine_descriptor(self):
+        http = FakeStudio([{"phase": "ready", "video": {"engine": "AnimateDiff-Lightning (segmented)", "ready": True}}])
+        st = self.studio(http).wait_ready(timeout=60)
+        self.assertEqual(st["phase"], "ready")
+        self.assertTrue(P.supports_video_engine(st["video"]["engine"]))
+
+    def test_rejects_unrelated_video_engine(self):
+        self.assertFalse(P.supports_video_engine("AnimateDiff-SomethingElse"))
+        self.assertFalse(P.supports_video_engine(None))
 
     def test_old_studio_without_the_video_engine_is_named_as_stale(self):
         http = FakeStudio([{"phase": "ready"}], apis=("image", "status"))     # the old slideshow Studio: no `video` block in its status

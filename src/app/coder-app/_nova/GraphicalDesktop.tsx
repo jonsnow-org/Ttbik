@@ -112,8 +112,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       </div>
       <div className="n-meta" style={{ marginBottom: 8 }}>
         {ar
-          ? "ذاكرة الاستوديو المتاحة: " + available + ". يتطلب البدء 3072 MB على الأقل. تُحدّث الصورة كل نحو ثانيتين؛ هذا ليس بثاً فورياً بسرعة 60 إطاراً."
-          : "Studio memory available: " + available + ". Start requires at least 3072 MB. The screen refreshes about every two seconds; this is not 60-fps streaming."}
+          ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل. تُحدّث الصورة كل نحو ثانيتين؛ هذا ليس بثاً فورياً بسرعة 60 إطاراً."
+          : "Computer hub memory available: " + available + ". Start requires at least 3072 MB. The screen refreshes about every two seconds; this is not 60-fps streaming."}
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
@@ -128,14 +128,14 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             event.preventDefault();
             void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
           }}
-          style={{ display: "block", width: "100%", maxHeight: "80vh", objectFit: "fill", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
+          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
         />
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>
           <div className="n-meta">
             {preparing
               ? (ar ? "يتم تجهيز خادم الشاشة ومدير النوافذ والطرفية. ستظهر الشاشة عند اكتمال التشغيل." : "Preparing the display server, window manager and terminal. The screen appears when startup completes.")
-              : (ar ? "هذا سطح مكتب Linux رسومي مستقل داخل استوديو النموذج المختار. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux desktop inside the selected model's own Studio. Start it to view and control the screen.")}
+              : (ar ? "هذا سطح مكتب Linux رسومي على الحاسوب المركزي؛ لكل مستخدم ونموذج جلسة وملفات منفصلة. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux session on the shared computer hub, isolated by user and selected model. Start it to view and control the screen.")}
           </div>
         </div>
       )}

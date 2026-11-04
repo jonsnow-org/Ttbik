@@ -2,8 +2,10 @@
   "id": "gemma4-e4b-low-refusal",
   "label": "Gemma 4 E4B — Heretic uncensored community checkpoint (Q4_K_M)",
   "repo_id": "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF",
-  "filename": "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf",
-  "mmproj_filename": "gemma-4-E4B-it-mmproj-BF16.gguf",
+  "filename": "gemma4-e4b-Q4_K_M.gguf",
+  "source_filename": "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf",
+  "mmproj_filename": "gemma4-e4b-mmproj-BF16.gguf",
+  "source_mmproj_filename": "gemma-4-E4B-it-mmproj-BF16.gguf",
   "family": "Gemma 4",
   "quantization": "Q4_K_M",
   "approx_file_size_gb": 5.34,
@@ -34,5 +36,7 @@
     "for_candidate": "gemma4-e4b",
     "studio_api": "https://studio-novaai2026-sham-donor-gemma4-e4b-media.api-inference.modelscope.net",
     "media_repo": "novaai2026/gemma4-e4b-media-models"
-  }
+  },
+  "modelscope_repo_id": "novaai2026/sham-donor-gemma4-e4b-weights",
+  "modelscope_weights_revision": "2026-11-03-r1"
 }

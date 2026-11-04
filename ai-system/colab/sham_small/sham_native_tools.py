@@ -6,11 +6,56 @@ consent and side effects remain in the Sham web runtime.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 
 from sham_toolcall import CLOSE_TAG, OPEN_TAG, repair_call, tool_names_from_prompt
 
+
+def _python_style_tool_call(raw: str, prompt: str, available_tool_names: list[str] | None) -> dict | None:
+    """Parse one literal-only function call; never evaluate model-generated Python."""
+    source = str(raw or "").strip()
+    if not source or len(source) > 16000:
+        return None
+    try:
+        expression = ast.parse(source, mode="eval").body
+    except (SyntaxError, ValueError, TypeError):
+        return None
+    if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Name):
+        return None
+    name = expression.func.id
+    allowed = set(tool_names_from_prompt(prompt))
+    if available_tool_names is not None:
+        allowed.intersection_update(str(item).strip() for item in available_tool_names)
+    if name not in allowed:
+        return None
+    signature = re.search(r"^- " + re.escape(name) + r"\(([^)]*)\)", prompt, re.M)
+    if not signature:
+        return None
+    parameters = []
+    for item in signature.group(1).split(","):
+        parameter = item.strip().rstrip("?").strip()
+        if not parameter:
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parameter):
+            return None
+        parameters.append(parameter)
+    if not parameters or len(expression.args) > len(parameters):
+        return None
+    arguments: dict[str, object] = {}
+    try:
+        for index, node in enumerate(expression.args):
+            if isinstance(node, ast.Starred):
+                return None
+            arguments[parameters[index]] = ast.literal_eval(node)
+        for keyword in expression.keywords:
+            if keyword.arg is None or keyword.arg not in parameters or keyword.arg in arguments:
+                return None
+            arguments[keyword.arg] = ast.literal_eval(keyword.value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+    return {"name": name, "arguments": arguments, "text": ""}
 
 def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | None = None) -> dict | None:
     """Return one allowed call as {name, arguments, text}; reject unknown names or invalid arguments."""
@@ -34,7 +79,7 @@ def extract_tool_call(text: str, prompt: str, available_tool_names: list[str] | 
         elif repaired.startswith("{") and repaired.endswith("}"):
             payload_text = repaired
         else:
-            return None
+            return _python_style_tool_call(repaired, prompt, available_tool_names)
 
     try:
         payload = json.loads(payload_text)

@@ -10,11 +10,6 @@ ROOT=Path(__file__).resolve().parent
 CACHE=ROOT/"epicrealism-model-cache"
 OUTPUTS=ROOT/"epicrealism-outputs"
 MAX_MEMORY_GB=8.0
-MINOR=re.compile(r"\b(?:child|children|minor|underage|teen|teenager|schoolgirl|schoolboy|loli|shota)\b|طفل|طفلة|قاصر|قاصرة|مراهق|مراهقة|تلميذ|تلميذة",re.I)
-SEXUAL=re.compile(r"\b(?:nude|naked|nudity|sex|sexual|erotic|porn|explicit|undress)\b|عاري|عارية|تعري|جنس|جنسي|إباحي|إباحية",re.I)
-NONCONSENSUAL=re.compile(r"\b(?:non[- ]consensual|without consent|revenge porn|deepfake|undress (?:her|him|them))\b|بدون موافقة|دون موافقة|صور حميمة مسربة|تعرية شخص",re.I)
-REAL_PERSON=re.compile(r"\b(?:real person|celebrity|public figure|my ex|my wife|my girlfriend|my colleague)\b|شخص حقيقي|مشهور|مشاهير|زوجتي|طليقتي|حبيبتي|زميلتي|زميلي",re.I)
-
 
 def _cpu_has_bf16() -> bool:
     """bfloat16 maths is fast only on CPUs with AVX512-BF16 / AMX (the Xeon Studios have both). PHOTO_FAST=0 turns the fast path off."""
@@ -177,8 +172,7 @@ def generate(prompt,negative,resolution,steps,cfg,seed):
     if STATE.get("phase")!="ready" or PIPE is None: raise gr.Error("epiCRealism Studio is not ready.")
     prompt=str(prompt or "").strip()
     if len(prompt)<8 or len(prompt)>1800: raise gr.Error("Prompt must be between 8 and 1800 characters.")
-    if MINOR.search(prompt) and SEXUAL.search(prompt): raise gr.Error("Sexual depiction of minors is not allowed.")
-    if NONCONSENSUAL.search(prompt) and REAL_PERSON.search(prompt): raise gr.Error("Non-consensual intimate imagery of real people is not allowed.")
+    
     sizes={"512 × 512":(512,512),"512 × 768":(512,768),"768 × 512":(768,512)}
     width,height=sizes.get(resolution,(512,768))
     steps=max(18,min(35,int(steps))); cfg=max(3.0,min(9.0,float(cfg))); seed=int(seed)

@@ -181,6 +181,84 @@ def gradio_call(
     fail(f"{name}: Studio stream ended without a complete result")
 
 
+def live_stream(api: str, token: str, payload: dict[str, Any], timeout: int = 40) -> list[tuple[float, dict[str, Any]]]:
+    """Reads the Studio's `live` generator: every intermediate event with its arrival time (seconds since the request)."""
+    wire = "b64:" + base64.b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    t0 = time.time()
+    started = request_json("POST", f"{api}/gradio_api/call/live", token, {"data": [wire]}, timeout=35)
+    event_id = started.get("event_id")
+    if not isinstance(event_id, str) or not event_id:
+        fail("live: Studio did not return an event id")
+    url = f"{api}/gradio_api/call/live/{urllib.parse.quote(event_id, safe='')}"
+    headers = {"Authorization": "Bearer " + token, "Accept": "text/event-stream", "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0"}
+    events: list[tuple[float, dict[str, Any]]] = []
+    with open_with_retry(url, headers, None, "GET", timeout, "live stream") as response:
+        while True:
+            line = response.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", "replace").strip()
+            if not text.startswith("data:"):
+                continue
+            try:
+                value: Any = json.loads(text[5:].strip())
+                if isinstance(value, list):
+                    value = value[0] if value else None
+                if isinstance(value, str):
+                    value = json.loads(value)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, dict):
+                events.append((round(time.time() - t0, 2), value))
+                if value.get("end"):
+                    break
+    return events
+
+
+def check_live(api: str, token: str, session: str, marker: str, frames_dir: str = "") -> dict[str, Any]:
+    """Live view numbers on a RUNNING desktop: one-frame poll latency, the streamed frame rate, live terminal output while a command runs,
+    and pointer accuracy (a click lands on the exact pixel). Frames are saved to frames_dir as evidence (a CI test desktop, no user data)."""
+    out: dict[str, Any] = {}
+    polls = []
+    for _ in range(4):
+        t = time.time()
+        f = desktop_call(api, token, {"action": "frame", "session": session, "quality": 50, "scale": 0.75}, timeout=60)
+        assert_ok(f, "live poll frame")
+        polls.append(round(time.time() - t, 2))
+    out["poll_frame_s"] = polls
+    out["poll_frame_bytes"] = len(str(f.get("screenshot_b64") or "")) * 3 // 4
+    # something visibly changing on screen + a command printing lines while the stream is read
+    desktop_call(api, token, {"action": "launch", "session": session, "app": "terminal"}, timeout=40)
+    import threading
+    runner = threading.Thread(target=lambda: box_call(api, token, {"action": "run", "session": session, "timeout": 25,
+                                                                    "command": f"for i in 1 2 3 4 5 6; do echo LIVE_{marker}_$i; sleep 1.5; done"}, timeout=60), daemon=True)
+    stream_payload = {"session": session, "seconds": 14, "interval": 0.4, "quality": 50, "scale": 0.75}
+    runner.start()
+    events = live_stream(api, token, stream_payload, timeout=60)
+    runner.join(40)
+    frames = [(t, e) for t, e in events if e.get("screenshot_b64")]
+    gaps = [round(b[0] - a[0], 2) for a, b in zip(frames, frames[1:])]
+    live_out = " ".join(str(a.get("output") or "") for _, e in events for a in (e.get("activity") or []) if a.get("state") == "start")
+    out.update({"stream_events": len(events), "stream_frames": len(frames), "stream_first_s": events[0][0] if events else None,
+                "stream_frame_gap_avg_s": round(sum(gaps) / len(gaps), 2) if gaps else None, "stream_frame_gap_max_s": max(gaps) if gaps else None,
+                "live_terminal_seen_while_running": f"LIVE_{marker}_1" in live_out,
+                "activity_actions": sorted({a.get("action") for _, e in events for a in (e.get("activity") or [])})})
+    if frames_dir:
+        os.makedirs(frames_dir, exist_ok=True)
+        for i, (t, e) in enumerate(frames[:40]):
+            with open(os.path.join(frames_dir, f"frame-{i:03d}-{t:06.2f}s.jpg"), "wb") as fh:
+                fh.write(base64.b64decode(e["screenshot_b64"]))
+    # pointer accuracy: click / drag land on the exact screen pixel
+    hits = []
+    for x, y in ((321, 123), (1000, 700), (12, 830)):
+        desktop_call(api, token, {"action": "move", "session": session, "x": x, "y": y}, timeout=40)
+        p = desktop_call(api, token, {"action": "pointer", "session": session}, timeout=40)
+        hits.append([x, y, p.get("x"), p.get("y")])
+    out["pointer_hits"] = hits
+    out["pointer_exact"] = all(h[0] == h[2] and h[1] == h[3] for h in hits)
+    return out
+
+
 def box_call(api: str, token: str, payload: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     return gradio_call(api, "box_do", payload, token, timeout)
 
@@ -210,8 +288,8 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
         fail(f"terminal requires at least 2048 MB available; reported {available_mb} MB")
     if not isinstance(minimum_mb, (int, float)) or minimum_mb < 2048:
         fail(f"terminal admission limit is too low or missing: {minimum_mb} MB")
-    if limits.get("global_jobs") != 1:
-        fail(f"2-vCPU Studio must enforce one global execution job; reported {limits.get('global_jobs')}")
+    if limits.get("global_jobs") != 6:
+        fail(f"Studio global execution limit must match the owner-approved six isolated sessions; reported {limits.get('global_jobs')}")
     print(f"Computer capacity: {available_mb} MB available; terminal floor {minimum_mb} MB; global jobs={limits.get('global_jobs')}", flush=True)
     print("Network egress isolation:", status.get("egress", "not reported"), flush=True)
     if status.get("egress", "").startswith(("not available", "partly blocked")):
@@ -346,6 +424,8 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         assert_ok(ran, "terminal command while GUI is running")
         if ran.get("exit_code") != 0 or f"BASH_WITH_GUI_OK:{marker}" not in str(ran.get("output", "")):
             fail("model terminal did not work while the graphical desktop was running")
+        if os.environ.get("SMOKE_LIVE") == "1":
+            print("LIVE " + json.dumps(check_live(api, token, session, marker, os.environ.get("SMOKE_FRAMES_DIR", "")), separators=(",", ":")), flush=True)
     finally:
         stopped = desktop_call(api, token, {"action": "stop", "session": session}, timeout=55)
         assert_ok(stopped, "desktop stop")
@@ -359,12 +439,78 @@ def check_browser(api: str, token: str, session: str) -> None:
         token,
         timeout=180,
     )
-    assert_ok(opened, "headless browser open")
+    if opened.get("ok") is not True:
+        # Include the browser worker's launch diagnostics; never expose the ModelScope token.
+        try:
+            raw = request_json("POST", f"{api}/gradio_api/run/browser_status", token, {"data": []}, timeout=35)
+            state = raw.get("data", raw)
+            if isinstance(state, list):
+                state = state[0] if state else {}
+            if isinstance(state, str):
+                try:
+                    state = json.loads(state)
+                except ValueError:
+                    state = {"raw": state[:1000]}
+        except Exception as exc:  # noqa: BLE001
+            state = {"status_error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        fail("headless browser open: " + str(opened.get("error") or "unknown error")[:1800]
+             + "; browser diagnostics: " + json.dumps(state, ensure_ascii=False)[:2600])
     url = str(opened.get("url") or "")
     title = str(opened.get("title") or "")
     page_text = str(opened.get("text") or "")
     if "example.com" not in url.lower() or not title or not page_text:
         fail("headless browser did not return the expected public page URL, title and text")
+
+
+def bench(api: str, token: str, session: str) -> dict[str, Any]:
+    """Wall-clock seconds of the operations models use most (each through the real Gradio RPC, so it includes the hub's round trip).
+    An action the deployed hub does not know yet is reported as unsupported, so the same script measures before and after an upgrade."""
+    out: dict[str, Any] = {}
+
+    def timed(name: str, payload: dict[str, Any], timeout: int = 150) -> dict[str, Any]:
+        t0 = time.time()
+        try:
+            r = box_call(api, token, {"session": session, **payload}, timeout)
+        except Exception as exc:  # noqa: BLE001
+            out[name] = {"ok": False, "error": str(exc)[:120]}
+            return {}
+        ok = bool(r.get("ok")) and (r.get("exit_code") in (None, 0))
+        out[name] = {"s": round(time.time() - t0, 2), "ok": ok, **({} if ok else {"error": str(r.get("error") or r.get("output") or "")[:120]})}
+        return r
+
+    timed("echo", {"action": "run", "command": "echo hi"})
+    timed("echo_2", {"action": "run", "command": "echo hi"})
+    timed("write_200kb", {"action": "write", "path": "bench/big.txt", "content": "x" * 200_000})
+    timed("read_dir", {"action": "read", "path": "bench"})
+    t_repo = time.time()
+    repo = timed("repo_clone", {"action": "repo", "url": "https://github.com/psf/requests"}, 240)
+    job = str(repo.get("job") or "")
+    if job:                                   # still downloading when the call answered: time the whole clone through the job log
+        for _ in range(60):
+            try:
+                log = box_call(api, token, {"session": session, "action": "job_log", "id": job, "tail": 5}, 60)
+            except Exception:  # noqa: BLE001
+                break
+            if not log.get("running"):
+                out["repo_clone_total"] = {"s": round(time.time() - t_repo, 2), "ok": log.get("exit_code") == 0, **({} if log.get("exit_code") == 0 else {"tail": str(log.get("output") or "")[-300:]})}
+                break
+            time.sleep(3)
+    timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
+    tv = timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
+    out["tools_present"] = " ".join(x for x in str(tv.get("output") or "").split() if x.endswith("=yes")).replace("=yes", "")
+    if job:
+        try:
+            fin = box_call(api, token, {"session": session, "action": "job_log", "id": job, "tail": 200}, 60)
+            out["repo_clone_markers"] = " | ".join(l for l in str(fin.get("output") or "").splitlines() if "fetched" in l or "baseline" in l or "failed at" in l)[:200]
+        except Exception:  # noqa: BLE001
+            pass
+    timed("write_src", {"action": "write", "path": "bench/p/a.txt", "content": "one\ntwo\n"})
+    timed("patch", {"action": "patch", "cwd": "bench/p", "diff": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n"})
+    timed("tools", {"action": "tools"})
+    b = timed("batch_5", {"action": "batch", "steps": [{"action": "run", "command": "echo 1"}, {"action": "write", "path": "bench/b.txt", "content": "b"}, {"action": "read", "path": "bench/b.txt"}, {"action": "search", "pattern": "b", "path": "bench"}, {"action": "run", "command": "echo 5"}]})
+    if b:
+        out["batch_5"]["steps_ok"] = sum(1 for r in (b.get("results") or []) if r.get("ok"))
+    return out
 
 
 def main() -> int:
@@ -373,6 +519,7 @@ def main() -> int:
     parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
     parser.add_argument("--no-gui", action="store_true", help="Run only persistent terminal/file/job smoke tests")
     parser.add_argument("--browser", action="store_true", help="Also open a public page in the isolated headless browser")
+    parser.add_argument("--bench", action="store_true", help="Also time the common operations (prints one BENCH json line)")
     args = parser.parse_args()
     token = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
     if not token:
@@ -397,11 +544,13 @@ def main() -> int:
             print(f"[{args.model_id}] checking the isolated Chromium browser", flush=True)
             check_browser(api, token, session)
             print(f"[{args.model_id}] PASS: Chromium opened a real public page", flush=True)
+        if args.bench:
+            print("BENCH " + json.dumps(bench(api, token, session), separators=(",", ":")), flush=True)
         print(f"[{args.model_id}] PASS: selected Studio computer smoke test complete", flush=True)
         return 0
     except Exception as exc:
         # Keep secrets, prompts, file contents, and screenshots out of CI logs.
-        print(f"[{args.model_id}] FAIL: {str(exc)[:320]}", file=sys.stderr, flush=True)
+        print(f"[{args.model_id}] FAIL: {str(exc)[:1200]}", file=sys.stderr, flush=True)
         return 1
 
 

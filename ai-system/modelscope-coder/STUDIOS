@@ -1,7 +1,9 @@
 # One Studio per line. The primary and its replicas are deployed together from the same app.py (workflow deploy-modelscope-coder.yml).
 # A new replica: add its name here (coder-inference-server-<n>, never Sham's), then put its address in OPEN_CODER_STUDIO_URLS (docs/coder/CODER.md).
+# lfm25-inference-server is NOT a Nova replica: it is LFM2.5's own Studio (same app.py, its own model via MODEL_OVERRIDES, its own pool LFM_STUDIO_URLS).
 coder-inference-server
 coder-inference-server-2
 coder-inference-server-3
 coder-inference-server-4
 coder-inference-server-5
+lfm25-inference-server

@@ -1,0 +1,64 @@
+name: Image model bench (Z-Image-Turbo 6B on 2 CPU cores, free, read-only)
+# Owner order 2026-11-03 (option 3): is there an image model that follows a multi-subject request better than the SD1.5 checkpoints, and can it run on our free CPU Studios?
+# Measures REAL seconds with stable-diffusion.cpp pinned to 2 cores: Z-Image-Turbo (6B, 8 steps, GGUF) + Qwen3-4B text encoder. The picture is uploaded as an artifact for the owner to judge.
+on:
+  workflow_dispatch:
+    inputs:
+      width:
+        default: "768"
+      height:
+        default: "512"
+      steps:
+        default: "8"
+      prompt:
+        default: "a beautiful girl and a man walking in nature among flowers"
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Machine
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)" | cut -c1-200
+          free -g | head -2
+          df -h / | tail -1
+      - name: Build stable-diffusion.cpp (CPU)
+        run: |
+          git clone --depth 1 --recursive https://github.com/leejet/stable-diffusion.cpp sdcpp
+          cd sdcpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j4
+          ls build/bin
+      - name: Download Z-Image-Turbo (GGUF Q3_K), the text encoder and the VAE
+        run: |
+          mkdir -p models
+          B=https://huggingface.co
+          curl -sSL --fail -o models/zimage.gguf "$B/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q3_K.gguf"
+          curl -sSL --fail -o models/llm.gguf "$B/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+          curl -sSL --fail -o models/ae.safetensors "$B/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+          ls -la models
+      - name: Generate on 2 cores and time it
+        env:
+          W: ${{ inputs.width }}
+          H: ${{ inputs.height }}
+          S: ${{ inputs.steps }}
+          P: ${{ inputs.prompt }}
+        run: |
+          SD=$(ls sdcpp/build/bin/sd-cli sdcpp/build/bin/sd 2>/dev/null | head -1); echo "binary: $SD"
+          START=$(date +%s)
+          set +e
+          taskset -c 0,1 $SD --diffusion-model models/zimage.gguf --vae models/ae.safetensors --llm models/llm.gguf \
+            -p "$P" --cfg-scale 1.0 --steps "$S" -t 2 -W "$W" -H "$H" --diffusion-fa -o out.png -v > run.log 2>&1
+          echo "EXIT=$?"
+          grep -E "sampling completed|generate_image completed|taking|per step|it/s|s/it" run.log | tail -12 | cut -c1-200
+          tail -8 run.log | cut -c1-240
+          echo "WALL_SECONDS=$(( $(date +%s) - START ))"
+          ls -la out* 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zimage-bench
+          path: out*
+          if-no-files-found: ignore

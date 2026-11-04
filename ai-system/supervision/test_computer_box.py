@@ -522,8 +522,6 @@ class EgressRules(unittest.TestCase):
         self.assertIn("refused by the host", result)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class DevTools(unittest.TestCase):
@@ -549,3 +547,121 @@ class DevTools(unittest.TestCase):
             self.assertIn("only 0.5 GB of disk left", cb.ensure_dev_tools())
         finally:
             cb.apt_install, cb._free_gb, cb.is_root = old_apt, old_free, old_root
+
+
+class PatchAndTests(Box):
+    """2026-11-04: computer_patch applies a unified diff all-or-nothing; computer_test detects the runner and runs it as a job."""
+
+    def test_patch_applies_in_git_and_without_git_and_refuses_a_misfit(self):
+        s = "user-p:model-x"
+        self.assertTrue(self.run_box(session=s, action="write", path="g/a.py", content="def f():\n    return 1\n")["ok"])
+        self.assertEqual(self.run_box(session=s, action="run", command="cd g && git init -q && git add . && git -c user.email=a@b -c user.name=a commit -qm i && echo ok")["exit_code"], 0)
+        diff = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
+        r = self.run_box(session=s, action="patch", diff=diff, cwd="g")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["files"], ["a.py"])
+        self.assertIn("return 2", self.run_box(session=s, action="read", path="g/a.py")["text"])
+        again = self.run_box(session=s, action="patch", diff=diff, cwd="g")      # no longer fits: nothing changes
+        self.assertFalse(again["ok"])
+        self.assertIn("return 2", self.run_box(session=s, action="read", path="g/a.py")["text"])
+        self.assertTrue(self.run_box(session=s, action="write", path="p/b.txt", content="x\n")["ok"])
+        self.assertTrue(self.run_box(session=s, action="patch", diff="--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-x\n+y\n", cwd="p")["ok"])
+        self.assertEqual(self.run_box(session=s, action="read", path="p/b.txt")["text"].strip(), "y")
+
+    @unittest.skipUnless(__import__("shutil").which("make"), "make is not installed here")
+    def test_tests_run_as_a_job_with_an_exit_marker(self):
+        old = cb._mem_available_mb
+        self.addCleanup(setattr, cb, "_mem_available_mb", old)
+        cb._mem_available_mb = lambda: 8192
+        s = "user-t:model-x"
+        self.run_box(session=s, action="write", path="m/Makefile", content="test:\n\t@echo all-good\n")
+        r = self.run_box(session=s, action="test", cwd="m")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["command"], "make test")
+        for _ in range(50):
+            log = self.run_box(session=s, action="job_log", id=r["id"])
+            if not log.get("running"):
+                break
+            time.sleep(0.1)
+        self.assertIn("all-good", log["output"])
+        self.assertIn("TESTS_EXIT=0", log["output"])
+        none = self.run_box(session=s, action="test", cwd=".")
+        self.assertFalse(none["ok"])
+
+    def test_tools_inventory_and_persistent_apt_cache(self):
+        t = self.run_box(session="user-q:model-x", action="tools")
+        self.assertTrue(t["ok"])
+        self.assertIn("rg", t["tools"])
+        opts = cb.apt_cache_options()
+        self.assertTrue(any(o.startswith("-oDir::Cache::Archives=") for o in opts))
+
+
+class Batch(Box):
+    """2026-11-04: several actions in ONE gateway round trip; order kept, first failure stops, a budget keeps the call inside the gateway's cut."""
+
+    def test_steps_run_in_order_and_stop_at_the_first_error(self):
+        s = "user-b:model-x"
+        r = self.run_box(session=s, action="batch", steps=[{"action": "write", "path": "q/a.txt", "content": "hi"}, {"action": "read", "path": "q/a.txt"},
+                                                          {"action": "run", "command": "exit 3"}, {"action": "nope"}, {"action": "run", "command": "echo NEVER_RAN"}])
+        self.assertTrue(r["ok"], r)
+        acts = [x["action"] for x in r["results"]]
+        self.assertEqual(acts, ["write", "read", "run"])          # the non-zero exit stopped the batch
+        self.assertEqual(r["results"][1]["text"], "hi")
+        self.assertNotIn("NEVER_RAN", json.dumps(r["results"]))
+
+    def test_no_nested_batch_and_budget_skips_the_rest(self):
+        s = "user-b2:model-x"
+        nested = self.run_box(session=s, action="batch", steps=[{"action": "batch", "steps": []}])
+        self.assertFalse(nested["results"][0]["ok"])
+        old = cb.BATCH_BUDGET_S
+        self.addCleanup(setattr, cb, "BATCH_BUDGET_S", old)
+        cb.BATCH_BUDGET_S = 0
+        r = self.run_box(session=s, action="batch", steps=[{"action": "run", "command": "sleep 0.2"}, {"action": "run", "command": "echo late"}])
+        self.assertTrue(r["results"][-1].get("skipped"), r)
+
+    def test_a_tip_failure_never_blanks_a_good_answer(self):
+        s = "user-b3:model-x"
+        with patch.object(cb, "welcome", side_effect=RuntimeError("boom")):
+            self.assertTrue(self.run_box(session=s, action="run", command="echo ok")["ok"])
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class LiveActivity(Box):
+    """The live screen's feed: what the session is doing, with a running command's output while it runs; never another session's."""
+    def test_feed_records_actions_and_their_results(self):
+        self.run_box(session="u1:coder", action="write", path="a.txt", content="hi")
+        self.run_box(session="u1:coder", action="run", command="echo LIVE_OK")
+        feed = self.run_box(session="u1:coder", action="activity", since=0)
+        acts = [(e["action"], e["state"]) for e in feed["activity"]]
+        self.assertIn(("write", "done"), acts)
+        self.assertIn(("run", "done"), acts)
+        run = [e for e in feed["activity"] if e["action"] == "run"][-1]
+        self.assertIn("LIVE_OK", run["output"])
+        self.assertEqual(run["detail"], "echo LIVE_OK")
+        later = self.run_box(session="u1:coder", action="activity", since=feed["seq"])
+        self.assertEqual(later["activity"], [])
+
+    def test_feed_is_per_session(self):
+        self.run_box(session="u1:coder", action="run", command="echo SECRET_A")
+        other = self.run_box(session="u2:coder", action="activity", since=0)
+        self.assertFalse(any("SECRET_A" in json.dumps(e) for e in other["activity"]))
+
+    def test_running_command_output_is_visible_before_it_ends(self):
+        import threading
+        done = {}
+        t = threading.Thread(target=lambda: done.update(r=self.run_box(session="u3:coder", action="run", command="echo FIRST_LINE; sleep 3; echo SECOND", timeout=20)))
+        t.start()
+        seen = ""
+        deadline = time.time() + 2.5
+        while time.time() < deadline and "FIRST_LINE" not in seen:
+            time.sleep(0.2)
+            feed = self.run_box(session="u3:coder", action="activity", since=0)
+            seen = " ".join(e.get("output", "") for e in feed["activity"] if e["state"] == "start")
+        self.assertIn("FIRST_LINE", seen)
+        t.join(10)
+        self.assertIn("SECOND", done["r"]["output"])
+
+    def test_typed_text_is_never_in_the_feed(self):
+        self.assertEqual(cb._act_detail("type", {"text": "hunter2"}), "")

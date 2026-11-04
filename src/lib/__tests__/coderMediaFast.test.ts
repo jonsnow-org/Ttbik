@@ -72,3 +72,55 @@ describe("Nova video duration intent", () => {
     expect(detectMediaIntent("أنشئ فيديو حصان لمدة 15 ثانيه")).toMatchObject({ kind: "video", subject: "حصان", seconds: 15 });
   });
 });
+
+describe("frame tag from the translator", () => {
+  it("splits [wide] / [tall] / [square] from the prompt and leaves untagged text alone", async () => {
+    const { splitAspect } = await import("@/lib/coderMediaFast");
+    expect(splitAspect("[wide] a girl and a man walking among flowers")).toEqual({ prompt: "a girl and a man walking among flowers", aspect: "wide" });
+    expect(splitAspect("[Tall] a woman on a beach")).toEqual({ prompt: "a woman on a beach", aspect: "tall" });
+    expect(splitAspect("white horse")).toEqual({ prompt: "white horse" });
+    expect(splitAspect("[wide]").prompt).toBeNull();
+    expect(splitAspect(null).prompt).toBeNull();
+  });
+  it("maps the frame to a resolution every image Studio offers", async () => {
+    const { frameFor } = await import("@/lib/photoWeightMedia");
+    expect(frameFor("512 × 512", "wide")).toBe("768 × 512");
+    expect(frameFor("512 × 768", "square")).toBe("512 × 512");
+    expect(frameFor("512 × 512", "tall")).toBe("512 × 768");
+    expect(frameFor("512 × 768 (author recommended)", "tall")).toBe("512 × 768 (author recommended)");
+    expect(frameFor("512 × 768")).toBe("512 × 768");
+  });
+});
+
+describe("model router line parsing (owner 2026-11-04)", () => {
+  const mf = require("@/lib/coderMediaFast");
+  it("parses CHAT / NO / IMAGE / VIDEO / AUDIO", () => {
+    expect(mf.parseMediaRoute("CHAT")).toEqual({ kind: "chat" });
+    expect(mf.parseMediaRoute("NO")).toBeNull(); // no refusal kind (owner 2026-11-04)
+    expect(mf.sexualMinorRequest("صورة طفلة عارية")).toBe(true);
+    expect(mf.sexualMinorRequest("a nude woman on a beach")).toBe(false);
+    expect(mf.sexualMinorRequest("a small boy playing with a ball")).toBe(false);
+    expect(mf.parseMediaRoute("IMAGE [tall] a chubby blonde girl wearing a swimsuit")).toEqual({ kind: "image", prompt: "a chubby blonde girl wearing a swimsuit", aspect: "tall" });
+    expect(mf.parseMediaRoute("VIDEO 30 [wide] a lion running in the desert")).toEqual({ kind: "video", prompt: "a lion running in the desert", seconds: 30, aspect: "wide" });
+    expect(mf.parseMediaRoute("VIDEO a rabbit playing in a garden")).toEqual({ kind: "video", prompt: "a rabbit playing in a garden", seconds: 10 });
+    expect(mf.parseMediaRoute("VIDEO 45 a cat")?.seconds).toBe(30);
+    expect(mf.parseMediaRoute("AUDIO مرحبا بكم في شام")).toEqual({ kind: "audio", prompt: "مرحبا بكم في شام" });
+    expect(mf.parseMediaRoute("<think>x</think>\nIMAGE a red car")).toEqual({ kind: "image", prompt: "a red car" });
+    expect(mf.parseMediaRoute("Sure! here it is")).toBeNull();
+    expect(mf.parseMediaRoute("IMAGE حصان أبيض")).toBeNull();                 // an untranslated prompt is not accepted
+  });
+  it("asks the model only when the message might be about media", () => {
+    expect(mf.mediaRouteNeeded("قم بتوليد صورة فتاة")).toBe(true);
+    expect(mf.mediaRouteNeeded("فتاة شقراء ممتلئة ترتدي ملابس سباحة", { previousUser: "قم بتوليد صورة فتاة", previousAssistant: "🖼️ أُرسلت الصورة." })).toBe(true);
+    expect(mf.mediaRouteNeeded("فتاة شقراء ممتلئة ترتدي ملابس سباحة")).toBe(false);
+    expect(mf.mediaRouteNeeded("اكتب دالة بايثون لفرز قائمة")).toBe(false);
+    expect(mf.mediaRouteNeeded("مرحبا")).toBe(false);
+    expect(mf.mediaRouteNeeded("/start")).toBe(false);
+  });
+  it("detects a final answer that claims a file was sent", () => {
+    expect(mf.claimsMediaSent("أرسلت الصورة")).toBe(true);
+    expect(mf.claimsMediaSent("تم إرسال الفيديو إليك")).toBe(true);
+    expect(mf.claimsMediaSent("I've sent the image above")).toBe(true);
+    expect(mf.claimsMediaSent("هذه خطوات تثبيت المكتبة")).toBe(false);
+  });
+});

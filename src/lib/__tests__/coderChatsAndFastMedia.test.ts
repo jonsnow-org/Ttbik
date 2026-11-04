@@ -8,7 +8,7 @@ import { claimOrphanTasks, reapStaleTasks, taskStart, listTasks } from "@/lib/co
 import { coderChatKey } from "@/lib/coderAuth";
 import { detectMediaIntent, cleanEnglishPrompt } from "@/lib/coderMediaFast";
 import { fakeBot } from "./coderFakes";
-import { photoStudioFake, b64, png } from "./mediaFixtures";
+import { photoStudioFake, b64, png, wav } from "./mediaFixtures";
 import { pgDb, resetPg } from "./pgDb";
 
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.216.34", family: 4 }]) }));
@@ -36,15 +36,17 @@ describe("which requests take the fast media lane", () => {
     expect(detectMediaIntent("قم بتوليد صورة فرس ابيض")).toEqual({ kind: "image", subject: "فرس ابيض" });
     expect(detectMediaIntent("ولد لي صورة أسد")?.kind).toBe("image");
     expect(detectMediaIntent("ارسم قطة سوداء")?.kind).toBe("image");
-    expect(detectMediaIntent("generate an image of a white horse")).toEqual({ kind: "image", subject: "white horse" });
+    expect(detectMediaIntent("generate an image of a white horse")).toEqual({ kind: "image", subject: "a white horse" });
     expect(detectMediaIntent("اعمل فيديو عن غروب الشمس")).toEqual({ kind: "video", subject: "عن غروب الشمس" });
   });
   it("code, questions, files, existing pictures and greetings are for the general worker", () => {
-    for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "كيف أرسم", "مرحبا", "حلل الصورة", "/start", "make a python script", "ارسم لي موقع", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
+    // ("كيف أرسم" and "ارسم لي موقع" are ambiguous for words alone: since 2026-11-04 the selected model decides it, see the router tests below)
+    for (const t of ["اكتب كود html لموقع", "اشرح هذه الصورة", "مرحبا", "حلل الصورة", "/start", "make a python script", "ولد صورة من الملف https://x.test/a.png"]) expect(detectMediaIntent(t)).toBeNull();
   });
   it("raw model output can be kept without the fixed translation glossary", () => {
     expect(cleanEnglishPrompt('"a white horse, studio light"\nextra')).toBe("a white horse, studio light");
     expect(cleanEnglishPrompt("حصان أبيض")).toBeNull();
+    expect(cleanEnglishPrompt("a woman in a swimsuit on a beach at sunset")).toBe("a woman in a swimsuit on a beach at sunset");
     expect(cleanEnglishPrompt("\u56fe\u7247\u6d4b\u8bd5", { preserveRaw: true })).toBe("\u56fe\u7247\u6d4b\u8bd5");
     expect(cleanEnglishPrompt("حصان أبيض", { preserveRaw: true })).toBe("حصان أبيض");
   });
@@ -176,11 +178,14 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
       "nova-alive-1": "running", "nova-capped": "failed", "nova-dead-1": "failed", "sham-1-dead": "failed", "sham-2-beating": "running", "sham-3-capped": "failed", "wait-old-1": "waiting", "young-run-1": "running",
     });
   });
-  it("the orphan claim no longer re-bumps a run that started over 30 minutes ago", async () => {
+  it("the orphan claim never re-bumps a run silent for 10 minutes (the reaper closes it), and a long task lost 2 minutes ago is resumed even hours in", async () => {
     const d = db();
     await taskStart(OWNER, { runId: "ghost-run-1", slot: "", source: "interactive", title: "ghost", botId: "bot1" }, d);
     await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '3 hours', updated_at = now() - interval '10 minutes' WHERE run_id = 'ghost-run-1'`);
     expect(await claimOrphanTasks(d)).toEqual([]);
+    await taskStart(OWNER, { runId: "long-run-1", slot: "", source: "interactive", title: "long", botId: "bot1" }, d);
+    await d.exec(`UPDATE coder_tasks SET started_at = now() - interval '3 hours', updated_at = now() - interval '2 minutes' WHERE run_id = 'long-run-1'`);
+    expect((await claimOrphanTasks(d)).map((o) => o.run_id)).toEqual(["long-run-1"]);
   });
   it("Home can stop one running task or all of them", async () => {
     const d = db();
@@ -241,5 +246,93 @@ describe("the background executor (terminal): the chat and the app are front-end
     const tg2: any = { api: { sendMessage: async () => undefined, sendDocument: async (...a: any[]) => void docs.push(a) } };
     await sendShamReply(tg2, 1, { type: "text", text: text + text });                 // beyond ~24k characters: the whole report as a file
     expect(docs.length).toBe(1);
+  });
+});
+
+describe("owner 2026-11-04: the selected model decides media requests (follow-ups too), never a false 'sent'", () => {
+  const say = (text: string, from = FREE) => ({ message: { chat: { id: from }, from: { id: from, first_name: "Ali" }, text } });
+  async function net(route: (body: string) => string) {
+    const urls: string[] = [];
+    const studio = photoStudioFake("coder", [await png("gradient", 256)]);
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      urls.push(url + (init?.body ? " " + String(init.body).slice(0, 4000) : ""));
+      const ph = studio(url, init); if (ph) return ph;
+      if (url.endsWith("/api/coder/continue")) return new Response("{}", { status: 202 });
+      if (url.includes("/gradio_api/call/v2/")) { (global as any).__lastBody = String(init?.body || ""); return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/")) return new Response(sse({ type: "done", job: "j", text: route((global as any).__lastBody || ""), tool_calls: [] }), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    return urls;
+  }
+  it("a verb-less follow-up after a picture ('فتاة شقراء ممتلئة ترتدي ملابس سباحة') is understood by the model and made at once, with no thinking and no prompt talk", async () => {
+    const urls = await net((body) => (/You route ONE new chat message/.test(body) ? "IMAGE [tall] a chubby blonde girl wearing a swimsuit" : "CHAT"));
+    const st: any = await loadState(FREE, db());
+    st.messages.push({ role: "user", content: "قم بتوليد صورة فتاة" }, { role: "assistant", content: "🖼️ أُرسلت الصورة." });
+    await saveState(FREE, st, db());
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("فتاة شقراء ممتلئة ترتدي ملابس سباحة"), db());
+    expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
+    expect((api as any).sendPhoto.mock.calls[0][2]?.caption).toBeUndefined();
+    expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /chubby blonde girl wearing a swimsuit/.test(u))).toBe(true);
+    const chats = urls.filter((u) => u.includes("/gradio_api/call/v2/chat"));
+    expect(chats.length).toBe(1);                                                              // one routing call wrote the prompt: no agent loop, no second translation call
+    expect(chats[0]).not.toMatch(/"think":"1/);                                                 // thinking off for the routing call
+    expect(sent.some((s) => /إنجليزي|English|الوصف إلى صيغة/.test(s.text))).toBe(false);          // never talks about writing an English prompt
+  });
+  it("the model says CHAT: the message goes to the general worker (no picture is made)", async () => {
+    const urls = await net(() => "CHAT");
+    const { bot, api } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("ما هو أفضل برنامج لتعديل الصور؟"), db());
+    await wait(300);
+    expect((api as any).sendPhoto).not.toHaveBeenCalled();
+    expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
+  });
+  it("speech: the model answers AUDIO and the words are spoken by the model's own media Studio and sent as audio", async () => {
+    const urls = await net((body) => (/You route ONE new chat message/.test(body) ? "AUDIO مرحباً، هذا اختبار الصوت" : "CHAT"));
+    const fetch0 = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.startsWith("https://media.test")) { urls.push(url + " " + String(init?.body || "")); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "a1" }), { status: 200 }) : new Response(sse({ type: "audio", b64: b64(wav("tone", 1.2)) }), { status: 200 }); }
+      return fetch0(url, init);
+    });
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendAudio = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت"), db());
+    expect(await until(() => (api as any).sendAudio.mock.calls.length === 1)).toBe(true);
+    expect(urls.some((u) => u.startsWith("https://media.test") && /speech/.test(u))).toBe(true);
+    expect(sent.some((s) => /خطأ داخلي/.test(s.text))).toBe(false);
+  });
+  it("the worker path: the model calls make_media(audio) itself and the run ends without an internal error", async () => {
+    let step = 0;
+    const urls = await net((body) => {
+      if (/You route ONE new chat message/.test(body)) return "CHAT";
+      return "";
+    });
+    const fetch0 = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (url: string, init?: any) => {
+      if (url.startsWith("https://media.test")) { urls.push(url); return url.includes("/call/v2/") ? new Response(JSON.stringify({ event_id: "a1" }), { status: 200 }) : new Response(sse({ type: "audio", b64: b64(wav("tone", 1.2)) }), { status: 200 }); }
+      if (url.includes("/gradio_api/call/") && !url.includes("/call/v2/") && !/You route ONE new chat message/.test((global as any).__lastBody || "") && url.includes("coder.test")) {
+        step++;
+        if (step === 1) return new Response(sse({ type: "done", job: "j", text: "", tool_calls: [{ id: "c1", type: "function", function: { name: "make_media", arguments: JSON.stringify({ kind: "audio", prompt: "مرحباً بكم" }) } }] }), { status: 200 });
+        return new Response(sse({ type: "done", job: "j", text: "تم.", tool_calls: [] }), { status: 200 });
+      }
+      return fetch0(url, init);
+    });
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendDocument = jest.fn(async () => ({ message_id: 1 }));
+    (api as any).sendAudio = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("اقرأ هذه الجملة بصوت: مرحباً بكم", OWNER), db());
+    expect(await until(() => (api as any).sendDocument.mock.calls.length + (api as any).sendAudio.mock.calls.length >= 1, 15000)).toBe(true);
+    await wait(300);
+    expect(sent.some((s) => /خطأ داخلي/.test(s.text))).toBe(false);
+  });
+  it("only sexual content involving minors is declined (one short Arabic line, nothing generated)", async () => {
+    const urls = await net(() => "IMAGE [tall] a child");
+    const { bot, api, sent } = fakeBot();
+    (api as any).sendPhoto = jest.fn(async () => ({ message_id: 1 }));
+    await handleCoderSections(bot, botRow, say("ارسم صورة طفلة عارية"), db());
+    expect(await until(() => sent.some((s) => /القاصرين/.test(s.text)))).toBe(true);
+    expect(urls.some((u) => u.includes("/gradio_api/call/image "))).toBe(false);
   });
 });

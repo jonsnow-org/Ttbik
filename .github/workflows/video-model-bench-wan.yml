@@ -1,0 +1,65 @@
+name: Video model bench (Wan2.1 1.3B on 2 CPU cores, free, read-only)
+# Owner order 2026-11-02: replace AnimateDiff with a newer and better video model, if it can run on our free CPU Studios (2 vCPU, 8 GB).
+# This measures REAL time: stable-diffusion.cpp (CPU) with Wan2.1 T2V 1.3B pinned to 2 cores, few steps, small clip; the log prints seconds per step so the full cost is known before anything is deployed.
+on:
+  workflow_dispatch:
+    inputs:
+      width:
+        default: "480"
+      height:
+        default: "272"
+      frames:
+        default: "17"
+      steps:
+        default: "4"
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Machine
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-200
+          free -g | head -2
+          df -h / | tail -1
+      - name: Build stable-diffusion.cpp (CPU)
+        run: |
+          git clone --depth 1 --recursive https://github.com/leejet/stable-diffusion.cpp sdcpp
+          cd sdcpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j4
+          ls build/bin
+      - name: Download the Wan2.1 files
+        run: |
+          mkdir -p models
+          B=https://huggingface.co
+          curl -sSL --fail -o models/wan.safetensors "$B/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors"
+          curl -sSL --fail -o models/vae.safetensors "$B/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+          curl -sSL --fail -o models/t5.gguf "$B/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_S.gguf"
+          ls -la models
+      - name: Generate on 2 cores and time it
+        env:
+          W: ${{ inputs.width }}
+          H: ${{ inputs.height }}
+          F: ${{ inputs.frames }}
+          S: ${{ inputs.steps }}
+        run: |
+          SD=$(ls sdcpp/build/bin/sd-cli sdcpp/build/bin/sd 2>/dev/null | head -1); echo "binary: $SD"; ls sdcpp/build/bin
+          $SD --help 2>&1 | grep -iE "vid_gen|mode|video|diffusion-model|t5xxl|offload|flow" | head -20
+          START=$(date +%s)
+          set +e
+          taskset -c 0,1 $SD -M vid_gen --diffusion-model models/wan.safetensors --vae models/vae.safetensors --t5xxl models/t5.gguf \
+            -p "a beautiful girl walking on the beach at sunset, cinematic" --cfg-scale 6.0 --sampling-method euler -t 2 -W "$W" -H "$H" \
+            --diffusion-fa --video-frames "$F" --flow-shift 3.0 --steps "$S" -o out.avi -v > run.log 2>&1
+          echo "EXIT=$?"
+          tail -40 run.log | cut -c1-240
+          echo "WALL_SECONDS=$(( $(date +%s) - START ))"
+          ls -la out* 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wan-bench
+          path: out*
+          if-no-files-found: ignore

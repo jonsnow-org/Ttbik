@@ -8,7 +8,8 @@ import { overflowConfigured, overflowVerdict } from "@/lib/shamPool";
 import { SHAM_ENGINE_OPTIONS, shamEngine, type ShamEngine, type ShamModelId } from "@/lib/shamMediaEngine";
 import { photoWeightStatus } from "@/lib/photoWeightMedia";
 
-export type StudioProbe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string };
+export type StudioProbe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } };
+export type CandidateMediaProbe = { id: string; studio: string; ok: boolean; phase: string; detail: string; media: { image: boolean; audio: boolean; video: boolean } };
 export type MediaLine = { kind: "image" | "audio" | "video"; ar: string; en: string; studio: string };
 export type EngineOption = { id: ShamEngine; ar: string; en: string; hint: { ar: string; en: string } };
 export type ModelMedia = {
@@ -28,20 +29,41 @@ const opts = (m: ShamModelId): EngineOption[] => SHAM_ENGINE_OPTIONS[m].map((e) 
 const hostOf = (u: string) => u.replace(/^https?:\/\/(studio-novaai2026-)?/, "").replace(/\.api-inference\.modelscope\.net.*$/, "");
 
 /** One Studio's own `status` answer (POST call/v2/status, then the event). Never throws. */
-export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000): Promise<{ ok: boolean; phase: string; detail: string }> {
+async function fetchStudioResponse(url: string, init: RequestInit, f: typeof fetch, timeoutMs: number): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    response = await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    if (![429, 502, 503, 504].includes(response.status) || attempt === 3) return response;
+    const retryAfter = Number(response.headers.get("retry-after") || 0);
+    const delay = retryAfter > 0 ? Math.min(8000, retryAfter * 1000) : [1000, 2500, 5000][attempt];
+    await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : delay));
+  }
+  return response as Response;
+}
+
+export async function probeStudio(base: string, token: string, f: typeof fetch = fetch, ms = 7000, requireVideo = false): Promise<{ ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } }> {
   if (!base) return { ok: false, phase: "off", detail: "no address" };
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   try {
-    const sub = await f(`${base}/gradio_api/call/v2/status`, { method: "POST", headers, body: "{}", signal: AbortSignal.timeout(ms) });
+    const sub = await fetchStudioResponse(`${base}/gradio_api/call/v2/status`, { method: "POST", headers, body: "{}" }, f, ms);
     if (!sub.ok) return { ok: false, phase: "down", detail: `HTTP ${sub.status}` };
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return { ok: false, phase: "down", detail: "no event id" };
-    const res = await f(`${base}/gradio_api/call/status/${event_id}`, { headers, signal: AbortSignal.timeout(ms) });
+    const res = await fetchStudioResponse(`${base}/gradio_api/call/status/${event_id}`, { headers }, f, ms);
+    if (!res.ok) return { ok: false, phase: "down", detail: `HTTP ${res.status}` };
     const line = (await res.text()).split("\n").find((l) => l.startsWith("data:")) || "";
     const arr = JSON.parse(line.slice(5).trim()) as unknown[];
-    const st = (typeof arr[0] === "string" ? JSON.parse(arr[0]) : arr[0]) as { phase?: string; error?: string; model?: string };
+    const st = (typeof arr[0] === "string" ? JSON.parse(arr[0]) : arr[0]) as { phase?: string; error?: string; model?: string; video?: { ready?: boolean } };
     const phase = String(st?.phase || "unknown");
-    return { ok: phase === "ready", phase, detail: String(st?.error || (st?.model ? `model ${st.model}` : "")).slice(0, 120) };
+    const videoReady = st?.video?.ready === true;
+    const media = phase === "ready" ? { image: true, audio: true, video: videoReady } : { image: false, audio: false, video: false };
+    const videoMissing = requireVideo && phase === "ready" && !videoReady;
+    return {
+      ok: phase === "ready" && !videoMissing,
+      phase: videoMissing ? "video_weights_missing" : phase,
+      media,
+      detail: videoMissing ? "video weights are not installed in this Studio yet" : String(st?.error || (st?.model ? `model ${st.model}` : "")).slice(0, 120),
+    };
   } catch (e) {
     return { ok: false, phase: "down", detail: String((e as Error)?.message || e).slice(0, 80) };
   }
@@ -56,14 +78,26 @@ const ROLE = {
   v1: { ar: "استوديو شام القديم", en: "Old Sham Studio" },
 };
 
-export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; checkedAt: string }> {
+export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; candidateMedia: CandidateMediaProbe[]; checkedAt: string }> {
   const msToken = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   const novaToken = (process.env.OPEN_CODER_STUDIO_TOKEN || msToken).trim();
   const novaUrl = novaMediaUrl();
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
-  const [pNova, pV2, pV2v, pV1, photoWeights] = await Promise.all([probeStudio(novaUrl, novaToken, f), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f)]);
-  const S = (id: string, role: { ar: string; en: string }, p: { ok: boolean; phase: string; detail: string }): StudioProbe => ({ id, role, ...p });
+  const candidateSpecs = [
+    { id: "qwen35-9b", studio: "sham-donor-qwen35-9b-media" },
+    { id: "gemma4-e4b", studio: "sham-donor-gemma4-e4b-media" },
+    { id: "minicpmo45", studio: "sham-donor-minicpmo45-media" },
+  ];
+  const [pNova, pV2, pV2v, pV1, photoWeights, candidateMedia] = await Promise.all([
+    probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
+    Promise.all(candidateSpecs.map(async (candidate) => {
+      const base = "https://studio-novaai2026-" + candidate.studio + ".api-inference.modelscope.net";
+      const status = await probeStudio(base, msToken, f, 7000, true);
+      return { id: candidate.id, studio: candidate.studio, ...status, media: status.media || { image: false, audio: false, video: false } };
+    })),
+  ]);
+  const S = (id: string, role: { ar: string; en: string }, p: Pick<StudioProbe, "ok" | "phase" | "detail" | "media">): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();
   const overflow: StudioProbe[] = over ? [S(hostOf(over), ROLE.v2over, { ok: ov.ok, phase: ov.ok ? "ready" : "unverified", detail: ov.ok ? "" : ov.why })] : [];
   const e2 = await shamEngine("sham_v2", db), e1 = await shamEngine("sham", db);
@@ -73,6 +107,7 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   return {
     checkedAt: new Date().toISOString(),
     photoWeights,
+    candidateMedia,
     models: [
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
         lines: [{ kind: "image", ar: "صورة: epiCRealism (وزن Nova المستقل)", en: "Image: epiCRealism dedicated Nova weight", studio: "epicrealism-image-test" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },

@@ -51,6 +51,7 @@ UID_BASE = 100000
 UID_SPAN = 400000
 
 _LOCK = threading.RLock()
+_LIVE_ENTRY: dict[int, dict] = {}          # thread -> the activity entry of the command it is running
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
@@ -155,9 +156,24 @@ def apt_install(packages: list[str], timeout: int = 900) -> subprocess.Completed
     # lowest CPU / disk priority: after every restart the tools are installed again, and at normal priority that starved the 2 vCPUs for many minutes (users' calls answered slowly or with nothing)
     prefix = ["nice", "-n", "19"] + (["ionice", "-c3"] if shutil.which("ionice") else []) if shutil.which("nice") else []
     return subprocess.run(
-        [*prefix, "apt-get", "install", "-y", "--no-install-recommends", *packages],
+        [*prefix, "apt-get", *apt_cache_options(), "install", "-y", "--no-install-recommends", *packages],
         capture_output=True, text=True, timeout=timeout, env=apt_environment()
     )
+
+
+def apt_cache_dir() -> Path:
+    """Downloaded .deb files live on the persistent disk (2026-11-04): a Studio restart reinstalls the toolchain from this cache instead of
+    downloading ~1 GB again, so the computer is fully equipped minutes sooner and the 2 vCPUs are not tied up by downloads."""
+    return Path(os.environ.get("BOX_APT_CACHE", str(ROOT.parent / "apt-archives")))
+
+
+def apt_cache_options() -> list[str]:
+    cache = apt_cache_dir()
+    try:
+        (cache / "partial").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return []
+    return [f"-oDir::Cache::Archives={cache}", "-oAPT::Keep-Downloaded-Packages=true", "-oBinary::apt::APT::Keep-Downloaded-Packages=true"]
 
 
 PLAYBOOK = """YOUR COMPUTER - how to work fast
@@ -168,7 +184,10 @@ PLAYBOOK = """YOUR COMPUTER - how to work fast
 5. Install into your home (pip install --target ~/pylib, npm in ~/proj). Your files and caches stay between chats.
 6. Pages that need JavaScript: the browser. Plain pages: web_fetch is faster.
 7. Output is cut at 12 KB: send big output to a file and read parts of it.
-8. Change a file with computer_edit and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
+8. Change a file with computer_edit (exact text) or computer_patch (a unified diff for many changes at once) and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
+10. Tests: computer_test finds the runner (npm / pytest / go / cargo / make) and runs it as a job; read it with computer_job action=log.
+11. Tools here: git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node (computer_tools lists what is installed now).
+12. Several small steps (read + search + run + write): ONE computer_batch call with up to 8 steps; every separate call costs about 2 s of network time.
 9. When your work is done and tested: computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.
 """
 
@@ -605,15 +624,35 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, preexec_fn=_child_setup(uid, drop, timeout + 15))
             timed_out = False
             watch(proc.pid, "command")
+            # read the output while it runs (not only at the end): the live activity entry of this command shows it in the Mini App's terminal panel
+            chunks: list[bytes] = []
+            live = _LIVE_ENTRY.get(threading.get_ident())
+            def _reader() -> None:
+                try:
+                    for chunk in iter(lambda: proc.stdout.read1(8192), b""):
+                        chunks.append(chunk)
+                        if live is not None:
+                            live["live"] = True
+                            live["output"] = b"".join(chunks[-8:]).decode("utf-8", "replace")[-ACTIVITY_OUT:]
+                except Exception:                              # noqa: BLE001
+                    pass
+            reader = threading.Thread(target=_reader, daemon=True)
+            reader.start()
             try:
-                raw, _ = proc.communicate(timeout=timeout)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _kill_group(proc.pid)
                 try:
-                    raw, _ = proc.communicate(timeout=5)
+                    proc.wait(timeout=5)
                 except Exception:                              # noqa: BLE001
-                    raw = b""
+                    pass
+            reader.join(timeout=5)                             # a background child that keeps the pipe open must not hold the answer
+            raw = b"".join(chunks)
+            try:
+                proc.stdout.close()                            # never leak the pipe (a long-lived Studio runs thousands of commands)
+            except Exception:                                  # noqa: BLE001
+                pass
     finally:
         with _LOCK:
             _ACTIVE_COMMANDS.discard(reservation)
@@ -637,6 +676,73 @@ def _log_activity(home: Path, command: str, reply: dict) -> None:
             handle.write(text)
     except Exception:                                          # noqa: BLE001
         pass
+
+
+# --- live activity feed: what each session's model (or user) is doing right now, read by the Mini App's live computer screen ---
+# One bounded ring per session (never across sessions). A running command's entry grows with its output while it runs (live terminal).
+ACTIVITY_MAX = 60
+ACTIVITY_OUT = 4000
+_ACTIVITY: dict[str, list] = {}
+_ACT_SEQ = [0]
+_QUIET_ACTIONS = {"status", "activity", "job_list"}
+
+
+def _act_detail(action: str, job: dict) -> str:
+    for key in ("command", "path", "url", "pattern", "repo", "id", "app", "key"):
+        value = job.get(key)
+        if value:
+            return str(value)[:240]
+    return ""
+
+
+def note_activity(session: str, source: str, action: str, detail: str = "", state: str = "start") -> dict:
+    """Adds one entry (state start) and returns it; the caller updates state/output in place. Never raises."""
+    try:
+        with _LOCK:
+            _ACT_SEQ[0] += 1
+            entry = {"seq": _ACT_SEQ[0], "t": round(time.time(), 2), "source": source, "action": action[:40], "detail": detail[:240], "state": state, "output": ""}
+            ring = _ACTIVITY.setdefault(digest(session), [])
+            ring.append(entry)
+            del ring[:-ACTIVITY_MAX]
+            return entry
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def finish_activity(entry: dict, out: dict | None) -> None:
+    if not entry:
+        return
+    try:
+        with _LOCK:
+            out = out or {}
+            entry["state"] = "done" if out.get("ok") and out.get("exit_code") in (None, 0) else "failed"
+            text = out.get("output") if isinstance(out.get("output"), str) else (out.get("error") or out.get("summary") or out.get("message") or "")
+            if text:
+                entry["output"] = str(text)[-ACTIVITY_OUT:]
+            entry.pop("live", None)
+            if out.get("exit_code") is not None:
+                entry["exit_code"] = out.get("exit_code")
+            entry["seq_done"] = _ACT_SEQ[0] = _ACT_SEQ[0] + 1
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def activity_since(session: str, since: int = 0, limit: int = 20) -> dict:
+    """Entries started or changed after `since` (an entry whose output grew counts as changed), plus live tails of running jobs."""
+    with _LOCK:
+        ring = list(_ACTIVITY.get(digest(session), []))
+        latest = _ACT_SEQ[0]
+    since = int(since or 0)
+    rows = [dict(e) for e in ring if e.get("seq", 0) > since or e.get("seq_done", 0) > since or (e.get("state") == "start" and e.get("live"))][-max(1, min(40, int(limit or 20))):]
+    jobs = []
+    try:
+        for job_id, job in list(_jobs(session).items())[-4:]:
+            _refresh(job)
+            if job.get("exit_code") is None:
+                jobs.append({"id": job_id, "name": job.get("name", "") or job.get("command", "")[:60], "tail": _tail(Path(job["log"]), 25)[-ACTIVITY_OUT:] if job.get("log") else ""})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "seq": latest, "activity": rows, "running_jobs": jobs}
 
 
 def _kill_group(pid: int) -> None:
@@ -684,12 +790,12 @@ def ensure_toolchain() -> str:
 # Everything a programmer reaches for, installed in the background AFTER the computer is already usable (the required toolchain above stays small so a full disk can never keep the
 # computer down). Tiers are installed in order; a tier is skipped when free disk is short, and a package that does not exist is skipped, never fatal.
 DEV_TIERS = [
-    ("core", ["build-essential", "cmake", "pkg-config", "make", "python3-pip", "python3-venv", "python3-dev", "nodejs", "npm", "sqlite3", "vim", "nano", "tmux", "htop", "tree",
+    ("core", ["build-essential", "cmake", "pkg-config", "make", "python3-pip", "python3-venv", "python3-dev", "python3-pytest", "nodejs", "npm", "sqlite3", "vim", "nano", "tmux", "htop", "tree",
               "less", "procps", "wget", "zip", "p7zip-full", "rsync", "openssh-client", "patch", "file", "bc", "git-lfs", "iputils-ping", "dnsutils", "net-tools", "netcat-openbsd",
               "traceroute", "lsof", "strace", "man-db", "locales", "ca-certificates"]),
-    ("languages", ["golang-go", "default-jdk-headless", "ruby", "php-cli", "lua5.4", "perl", "rustc", "cargo"]),
     ("tools", ["clang", "gdb", "valgrind", "ninja-build", "shellcheck", "fd-find", "fzf", "httpie", "postgresql-client", "redis-tools", "default-mysql-client", "universal-ctags",
-               "silversearcher-ag", "bat", "ffmpeg", "imagemagick", "pandoc", "graphviz"]),
+               "silversearcher-ag", "bat", "ffmpeg", "imagemagick", "pandoc", "graphviz", "poppler-utils", "sqlite3", "moreutils", "entr"]),
+    ("languages", ["golang-go", "default-jdk-headless", "ruby", "php-cli", "lua5.4", "perl", "rustc", "cargo"]),
 ]
 DEV_MIN_FREE_GB = {"core": 1.5, "languages": 3.0, "tools": 3.0}
 
@@ -1019,15 +1125,31 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     tar_ref = ref or "HEAD"
     q = shell_quote(folder)
     tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
-    # github.com itself is slow or blocked from the Studio (a live probe: `git clone` gave up after 44 s) while codeload.github.com answers in under a second:
-    # the tarball goes first and becomes a local git checkout (a baseline commit, so `changes` / publish still see what the model edits); a real clone is the fallback
+    marker = re.sub(r"[^A-Za-z0-9_.-]", "_", tar_ref)[:100]          # a snapshot of THIS ref fetched minutes ago is reused (the Studio's GitHub link is slow)
+    api_url = shell_quote(f"https://api.github.com/repos/{owner}/{name}/tarball/{tar_ref}")
+    # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
+    # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
+    # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
+    # publish still see what the model edits).
+    t_dir, g_dir = shell_quote(folder + ".tar.part"), shell_quote(folder + ".git.part")
     script = (
         f"set -e; mkdir -p repos; "
         f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
-        f"else rm -rf {q}; mkdir -p {q}; "
-        f"if curl -fsSL --max-time 70 {tar_url} | tar xz -C {q} --strip-components=1; then "
-        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); "
-        f"else rm -rf {q}; git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone --depth 1 --single-branch {branch}{shell_quote(clone_url)} {q}; fi; fi; "
+        f"elif [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
+        f"else rm -rf {q} {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; mkdir -p {t_dir}; set +e; "
+        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
+        f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
+        f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; fetch_tar {api_url} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
+        f"( git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone -q --depth 1 --single-branch {branch}{shell_quote(clone_url)} {g_dir} && touch {g_dir}.ok || echo \"git clone failed at ${{SECONDS}}s\" ) & pg=$!; "
+        f"win=; while :; do "
+        f"if [ -f {t_dir}.ok ]; then win=tar; break; fi; if [ -f {g_dir}.ok ]; then win=git; break; fi; "
+        f"if ! kill -0 $pt 2>/dev/null && ! kill -0 $pg 2>/dev/null; then [ -f {t_dir}.ok ] && win=tar; [ -f {g_dir}.ok ] && win=git; break; fi; sleep 0.5; done; "
+        f"killtree $pt; killtree $pg; wait 2>/dev/null; set -e; "
+        f"if [ \"$win\" = tar ]; then mv {t_dir} {q}; echo \"fetched (tarball) in ${{SECONDS}}s\"; "
+        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); echo \"git baseline at ${{SECONDS}}s\"; "
+        f"elif [ \"$win\" = git ]; then mv {g_dir} {q}; echo \"fetched (git clone) in ${{SECONDS}}s\"; "
+        f"else rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
+        f"rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; touch {q}/.git/FETCHED_{marker}; fi; "
         f"{repo_summary_command(folder)}"
     )
     # a big repository (tar + git baseline commit) used to starve the 2 vCPUs so that the Studio answered the next calls with nothing: run it at the lowest priority
@@ -1035,7 +1157,9 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     if not started.get("ok"):
         return started
     job_id = started["id"]
-    deadline = time.time() + 25          # the ModelScope gateway cuts a call after ~45 s: stay well under it; the download keeps running as a job
+    # the ModelScope gateway can end a long call with an empty (null) result well before 45 s (the bench saw it at ~30 s):
+    # answer within 12 s; the download keeps running as a job the model reads with computer_job action=log
+    deadline = time.time() + 12
     while time.time() < deadline:
         log = job_log(session, job_id, 60)
         if log.get("ok") and not log.get("running"):
@@ -1051,7 +1175,7 @@ def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
     g = f"-g {shell_quote(glob)} " if glob else ""
     inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
     return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
-            f"else grep -rIn --max-count=20 {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+            f"else grep -rIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
 def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
@@ -1076,7 +1200,7 @@ def status(session: str = "") -> dict:
         disk = {"free_gb": None if unbounded else round(usage.free / 1024 ** 3, 1), "total_gb": None if unbounded else round(usage.total / 1024 ** 3, 1), "note": "filesystem reports no real limit" if unbounded else ""}
     except OSError:
         disk = {}
-    tools = {name: bool(shutil.which(name)) for name in ("python3", "pip", "node", "npm", "git", "gcc", "make", "curl", "unzip", "jq")}
+    tools = {name: bool(shutil.which(name)) for name in TOOL_NAMES}
     with _LOCK:
         active_jobs, active_commands, active_desktops = _global_counts_locked()
         available_mb = _mem_available_mb()
@@ -1100,6 +1224,78 @@ def status(session: str = "") -> dict:
     return reply
 
 
+
+# ---------------------------------------------------------------- patch + test (2026-11-04: fewer tokens per change, one call per test run)
+TOOL_NAMES = ("python3", "pip", "node", "npm", "git", "gh", "rg", "fdfind", "jq", "gcc", "make", "curl", "unzip", "patch", "ffmpeg", "convert", "pandoc",
+              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java")
+MAX_PATCH = 400_000
+
+
+def patch_files(session: str, diff: str, cwd: str = ".") -> dict:
+    """Apply a unified diff (git format or plain `diff -u`) inside the session's home: `git apply` in a git checkout, else `patch -p1`, with a
+    dry run first so a patch that does not fit changes nothing. Far fewer generated tokens than rewriting files."""
+    text = str(diff or "")
+    if not text.strip():
+        return {"ok": False, "error": "empty patch"}
+    if len(text.encode("utf-8")) > MAX_PATCH:
+        return {"ok": False, "error": f"a patch is limited to {MAX_PATCH // 1000} KB; split it"}
+    if not text.endswith("\n"):
+        text += "\n"
+    name = ".cache/patches/" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12] + ".diff"
+    wrote = write_file(session, name, text)
+    if not wrote.get("ok"):
+        return wrote
+    cmd = (f"P=\"$HOME\"/{shell_quote(name)}; "
+           "if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then "
+           "git apply --check --recount --whitespace=nowarn \"$P\" && git apply --recount --whitespace=nowarn -v \"$P\" 2>&1 && echo PATCH_OK via git; "
+           "else for n in 1 0; do if patch -p$n --dry-run --forward -s < \"$P\" >/dev/null 2>&1; then patch -p$n --forward < \"$P\" && echo PATCH_OK via patch -p$n; exit 0; fi; done; "
+           "patch -p1 --dry-run --forward < \"$P\"; exit 1; fi")
+    out = run_command(session, cmd, cwd, 60)
+    if not out.get("ok"):
+        return out
+    applied = "PATCH_OK" in str(out.get("output", ""))
+    files = sorted(set(re.findall(r"^\+\+\+ (?:b/)?(\S+)", text, re.M)) - {"/dev/null"})
+    return {"ok": applied, "files": files[:200], "output": out.get("output", ""), **({} if applied else {"error": "the patch does not apply here (nothing was changed)"}), "cwd": out.get("cwd", cwd)}
+
+
+TEST_DETECT = (
+    "if [ -f package.json ] && grep -q '\"test\"' package.json; then if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null; then echo 'pnpm test'; "
+    "elif [ -f yarn.lock ] && command -v yarn >/dev/null; then echo 'yarn test'; else echo 'npm test --silent'; fi; "
+    "elif [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f setup.cfg ] || [ -d tests ] || compgen -G 'test_*.py' >/dev/null || compgen -G '*_test.py' >/dev/null; then echo 'python3 -m pytest -q -x || python3 -m unittest discover -q'; "
+    "elif [ -f go.mod ]; then echo 'go test ./...'; elif [ -f Cargo.toml ]; then echo 'cargo test --quiet'; "
+    "elif [ -f Makefile ] && grep -q '^test:' Makefile; then echo 'make test'; else echo ''; fi"
+)
+
+
+def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
+    """Run the project's tests in the background (they often take longer than one call): the runner is detected from the project files
+    unless `command` is given. Returns a job id to read with job_log."""
+    cmd = str(command or "").strip()
+    if not cmd:
+        found = run_command(session, TEST_DETECT, cwd, 15)
+        if not found.get("ok"):
+            return found
+        lines = str(found.get("output") or "").strip().splitlines()
+        cmd = lines[-1].strip() if lines else ""
+        if not cmd:
+            return {"ok": False, "error": "no test runner found here (package.json test script, pytest, go.mod, Cargo.toml or a Makefile test target); pass command"}
+    try:
+        workdir = safe_path(session, cwd)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    rel = str(workdir.relative_to(session_home(session))) if workdir != session_home(session) else "."
+    started = job_start(session, f"cd {shell_quote(rel)} && ( {cmd} ) 2>&1 | tail -n 400; echo TESTS_EXIT=${{PIPESTATUS[0]}}", "tests")
+    if started.get("ok"):
+        started["command"] = cmd
+        started["cwd"] = rel
+    return started
+
+
+def tools_inventory(session: str = "") -> dict:
+    """Which tools this computer has right now (and how the background installation is going)."""
+    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "toolchain": STATE.get("toolchain", "not checked"),
+            "devtools": STATE.get("devtools", "not started"), "apt_cache": str(apt_cache_dir())}
+
 def api_box_status(body: str = "") -> str:
     session = ""
     try:
@@ -1120,6 +1316,93 @@ def unwrap_body(body: str) -> str:
     return text
 
 
+BATCH_MAX_STEPS = 8
+BATCH_BUDGET_S = float(os.environ.get("BOX_BATCH_BUDGET_S", "20"))   # the gateway can drop a call near 30 s: start no new step after this
+
+
+def _dispatch_inner(session: str, action: str, job: dict) -> dict:
+    if action == "run":
+        out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
+    elif action == "write":
+        out = write_file(session, job.get("path", ""), job.get("content", ""))
+    elif action == "read":
+        out = read_path(session, job.get("path", "."))
+    elif action == "job_start":
+        out = job_start(session, job.get("command", ""), job.get("name", ""))
+    elif action == "job_log":
+        out = job_log(session, job.get("id", ""), int(job.get("tail") or 60))
+    elif action == "job_stop":
+        out = job_stop(session, job.get("id", ""))
+    elif action == "job_list":
+        out = job_list(session)
+    elif action == "edit":
+        out = edit_file(session, job.get("path", ""), job.get("old", ""), job.get("new", ""), bool(job.get("replace_all")), job.get("edits"))
+    elif action == "changes":
+        out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
+    elif action == "repo":
+        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+    elif action == "search":
+        out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
+    elif action == "status":
+        out = status(session)
+    elif action == "patch":
+        out = patch_files(session, job.get("diff", ""), job.get("cwd", "."))
+    elif action == "test":
+        out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
+    elif action == "tools":
+        out = tools_inventory(session)
+    else:
+        out = {"ok": False, "error": "unknown action " + action[:30]}
+    return out
+
+
+def _dispatch(session: str, action: str, job: dict) -> dict:
+    """One action, recorded in the session's live activity feed (start -> done / failed, with live output for commands)."""
+    if action == "activity":
+        return activity_since(session, int(job.get("since") or 0), int(job.get("limit") or 20))
+    if action in _QUIET_ACTIONS:
+        return _dispatch_inner(session, action, job)
+    entry = note_activity(session, "shell", action, _act_detail(action, job))
+    _LIVE_ENTRY[threading.get_ident()] = entry
+    out: dict = {}
+    try:
+        out = _dispatch_inner(session, action, job)
+        return out
+    finally:
+        _LIVE_ENTRY.pop(threading.get_ident(), None)
+        finish_activity(entry, out if isinstance(out, dict) else {})
+
+
+def run_batch(session: str, steps) -> dict:
+    """Several actions in ONE round trip (each Studio call costs ~1.8 s of gateway time). Steps run in order; the first failure stops the rest
+    unless continue_on_error is set; a step that would start after the time budget is reported as not run, so the call always answers in time."""
+    if not isinstance(steps, list) or not steps:
+        return {"ok": False, "error": "give steps: a list of actions"}
+    t0 = time.time()
+    results = []
+    for i, step in enumerate(steps[:BATCH_MAX_STEPS]):
+        if not isinstance(step, dict):
+            results.append({"ok": False, "error": "step is not an object"}); break
+        act = str(step.get("action") or "")
+        if act in ("batch", "changes"):
+            results.append({"action": act, "ok": False, "error": "not allowed inside a batch"}); break
+        if time.time() - t0 > BATCH_BUDGET_S:
+            results.extend({"action": str((s or {}).get("action") or ""), "ok": False, "skipped": True, "error": "not run: time budget of this call used; send it again"} for s in steps[i:BATCH_MAX_STEPS] if isinstance(s, dict))
+            break
+        if act == "run":                     # a long command must not carry the whole call past the gateway's cut
+            step = {**step, "timeout": max(5, min(int(step.get("timeout") or DEFAULT_TIMEOUT), int(BATCH_BUDGET_S + 8 - (time.time() - t0))))}
+        try:
+            r = _dispatch(session, act, step)
+        except Exception as exc:  # noqa: BLE001
+            r = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+        r["action"] = act
+        results.append(r)
+        if (not r.get("ok") or r.get("exit_code") not in (None, 0)) and not step.get("continue_on_error"):
+            break                                # a failed step or a command that exited non-zero stops the rest
+
+    return {"ok": True, "results": results, "seconds": round(time.time() - t0, 2), "dropped": max(0, len(steps) - BATCH_MAX_STEPS)}
+
+
 def api_box_do(body: str) -> str:
     try:
         job = json.loads(unwrap_body(body) or "{}")
@@ -1132,36 +1415,14 @@ def api_box_do(body: str) -> str:
         return json.dumps({"ok": False, "error": "no session"})
     action = str(job.get("action") or "")
     try:
-        if action == "run":
-            out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
-        elif action == "write":
-            out = write_file(session, job.get("path", ""), job.get("content", ""))
-        elif action == "read":
-            out = read_path(session, job.get("path", "."))
-        elif action == "job_start":
-            out = job_start(session, job.get("command", ""), job.get("name", ""))
-        elif action == "job_log":
-            out = job_log(session, job.get("id", ""), int(job.get("tail") or 60))
-        elif action == "job_stop":
-            out = job_stop(session, job.get("id", ""))
-        elif action == "job_list":
-            out = job_list(session)
-        elif action == "edit":
-            out = edit_file(session, job.get("path", ""), job.get("old", ""), job.get("new", ""), bool(job.get("replace_all")), job.get("edits"))
-        elif action == "changes":
-            out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
-        elif action == "repo":
-            out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
-        elif action == "search":
-            out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
-        elif action == "status":
-            out = status(session)
-        else:
-            out = {"ok": False, "error": "unknown action " + action[:30]}
+        out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start"):
-        tips = welcome(session)                            # once per session, never repeated
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
+        try:
+            tips = welcome(session)                        # once per session, never repeated
+        except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error
+            tips = ""
         if tips:
             out["tips"] = tips
     return json.dumps(out, ensure_ascii=False)

@@ -31,6 +31,13 @@ class ShamV2ChatRouteTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "deploy-modelscope-sham-v2.yml").read_text(encoding="utf-8")
         self.assertIn('set_secret SHAM_NATIVE_TOOL_CALLS "1"', workflow)
 
+    def test_computer_calls_use_the_reserved_shared_computer_hub_not_the_video_studio(self):
+        source = SMOKE.read_text(encoding="utf-8")
+        self.assertIn('os.environ.get("COMPUTER_STUDIO_URL")', source)
+        self.assertIn("https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net", source)
+        self.assertIn('"nova-inference-server" not in COMPUTER_BASE.lower()', source)
+        self.assertNotIn("sham-v2-video-server", source)
+
     def test_live_smoke_requires_the_model_to_choose_and_execute_its_own_terminal_tool(self):
         source = SMOKE.read_text(encoding="utf-8")
         self.assertIn('call("agent_step"', source)

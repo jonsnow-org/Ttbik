@@ -166,9 +166,16 @@ async function submitAndRead(
 }
 
 /** Generate with exactly the image Studio assigned to the selected chat model. */
+/** wide = 768 × 512 (scenes, several subjects), square = 512 × 512, tall = the portrait frame; no aspect = the model profile\'s own frame. Every image Studio offers these three. */
+export function frameFor(profileResolution: string, aspect?: "wide" | "tall" | "square"): string {
+  if (aspect === "wide") return "768 × 512";
+  if (aspect === "square") return "512 × 512";
+  if (aspect === "tall") return profileResolution.startsWith("512 × 768") ? profileResolution : "512 × 768";
+  return profileResolution;
+}
 export async function makePhotoMedia(
   model: string | undefined, prompt: string,
-  opts: { negativePrompt?: string; seed?: number; timeoutMs?: number; fetchImpl?: typeof fetch; bypassNegativePrompt?: boolean } = {},
+  opts: { negativePrompt?: string; seed?: number; timeoutMs?: number; fetchImpl?: typeof fetch; bypassNegativePrompt?: boolean; aspect?: "wide" | "tall" | "square" } = {},
 ): Promise<PhotoMediaReply> {
   const profile = photoWeightProfile(model);
   if (!profile) return { type: "error", reason: "model_not_mapped", text: "No independent image weight is assigned to model " + (model || "unknown") + ". Nothing was sent to another Studio." };
@@ -200,7 +207,7 @@ export async function makePhotoMedia(
     const seed = Number.isInteger(opts.seed) ? Number(opts.seed) : Math.floor(Date.now() / 1000) % 2147483647;
     const payload = { data: [
       description, opts.bypassNegativePrompt ? "" : String(opts.negativePrompt ?? profile.negative).slice(0, 1800),
-      profile.resolution, profile.steps, profile.cfg, seed,
+      frameFor(profile.resolution, opts.aspect), profile.steps, profile.cfg, seed,
     ] };
     const outputSse = await submitAndRead(base, "image", payload, headers, timeoutMs, fetchImpl);
     const found = findImageAndMetadata(dataValues(outputSse));

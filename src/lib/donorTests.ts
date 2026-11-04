@@ -21,18 +21,30 @@ export const DONOR_TESTS = [
   {
     id: "qwen35-9b",
     studio: "sham-donor-qwen35-9b-test",
+    weightsRepo: "novaai2026/sham-donor-qwen35-9b-weights",
+    sourceRepo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+    weightFile: "qwen35-9b-Q4_K_M.gguf",
+    mmprojFile: "qwen35-9b-mmproj-BF16.gguf",
     name: { ar: "Qwen3.5-9B", en: "Qwen3.5-9B" },
     desc: { ar: "مسار مستقل داخل محادثة البوت", en: "Isolated Qwen candidate · Telegram bot route" },
   },
   {
     id: "gemma4-e4b",
     studio: "sham-donor-gemma4-e4b-test",
+    weightsRepo: "novaai2026/sham-donor-gemma4-e4b-weights",
+    sourceRepo: "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF",
+    weightFile: "gemma4-e4b-Q4_K_M.gguf",
+    mmprojFile: "gemma4-e4b-mmproj-BF16.gguf",
     name: { ar: "Gemma 4 E4B", en: "Gemma 4 E4B" },
     desc: { ar: "مسار مستقل داخل محادثة البوت", en: "Isolated Gemma candidate · Telegram bot route" },
   },
   {
     id: "minicpmo45",
     studio: "sham-donor-minicpmo45-test",
+    weightsRepo: "novaai2026/sham-donor-minicpmo45-weights",
+    sourceRepo: "openbmb/MiniCPM-o-4_5-gguf",
+    weightFile: "MiniCPM-o-4_5-Q4_K_M.gguf",
+    mmprojFile: "vision/MiniCPM-o-4_5-vision-F16.gguf",
     name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" },
     desc: { ar: "متعدد الوسائط · مرفقات تيليغرام", en: "Multimodal candidate · Telegram media according to runtime capabilities" },
   },
@@ -49,7 +61,7 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-02-r16";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-03-r17";
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -312,6 +324,26 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
         studio: "deploying",
         detail: "يجري تحديث مشغّل النموذج قبل إتاحته.",
       };
+    }
+    const weightManifest = statusValue?.weight_manifest as Record<string, any> | undefined;
+    const files = weightManifest?.files as Record<string, any> | undefined;
+    const manifestMatches =
+      weightManifest?.candidate_id === config.id &&
+      weightManifest?.source_repo_id === config.sourceRepo &&
+      weightManifest?.modelscope_repo_id === config.weightsRepo &&
+      weightManifest?.modelscope_weights_revision === "2026-11-03-r1" &&
+      weightManifest?.filename === config.weightFile &&
+      weightManifest?.mmproj_filename === config.mmprojFile &&
+      [config.weightFile, config.mmprojFile].every((name) =>
+        typeof files?.[name]?.sha256 === "string" &&
+        /^[a-f0-9]{64}$/i.test(files[name].sha256) &&
+        Number(files[name].size_bytes) > 1_000_000
+      );
+    if (phase === "ready" && statusValue?.repo_id !== config.weightsRepo) {
+      return { id: config.id, phase: "error", studio: "running", detail: "مستودع الأوزان الذي أبلغ عنه Studio لا يطابق تعيين هذا المرشح؛ تم رفض التوجيه." };
+    }
+    if (phase === "ready" && !manifestMatches) {
+      return { id: config.id, phase: "error", studio: "running", detail: "لم يجتز manifest أوزان النموذج والـprojector فحص الهوية وSHA-256؛ تم رفض التوجيه." };
     }
     const caps = statusValue?.media_capabilities;
     const imageAssignment = statusValue?.image_generation_assignment;

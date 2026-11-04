@@ -7,6 +7,7 @@ const routeCalls: any[][] = [];
 let routeReply: any = null;
 let mockLastMemory: any = null;
 jest.mock("@/lib/shamMediaRoutes", () => ({ generateShamMediaThroughRoute: jest.fn(async (...a: any[]) => { routeCalls.push(a); return routeReply; }) }));
+jest.mock("@/lib/shamStudio", () => ({ ...jest.requireActual("@/lib/shamStudio"), shamChatAuto: jest.fn(async () => ({ type: "text", text: "white horse" })) }));
 jest.mock("@/lib/shamThreads", () => ({ loadChatMemory: jest.fn(async () => mockLastMemory), saveChatTurn: jest.fn(async () => undefined) }));
 jest.mock("@/lib/coderTasks", () => ({ ...jest.requireActual("@/lib/coderTasks"), taskStart: jest.fn(async () => undefined), taskEvent: jest.fn(async () => undefined), taskStatus: jest.fn(async () => undefined) }));
 
@@ -28,20 +29,20 @@ describe("Sham media fast lane", () => {
       ? new Response(JSON.stringify({ event_id: "e1" }), { status: 200 })
       : new Response("event: complete\ndata: " + JSON.stringify(JSON.stringify({ type: "text", text: "white horse" })) + "\n\n", { status: 200 }));
   });
-  it("'قم بتوليد صورة فرس ابيض' -> raw Arabic subject reaches the media route without translation", async () => {
+  it("'قم بتوليد صورة فرس ابيض' on Sham v2 -> always translated (the picture model reads English only), no prompt caption", async () => {
     routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
     const { bot: b, calls } = bot();
     expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "قم بتوليد صورة فرس ابيض"))).toBe(true);
     expect(routeCalls[0][0]).toBe("image");
-    expect(routeCalls[0][1]).toBe("فرس ابيض");
+    expect(routeCalls[0][1]).toBe("white horse");
     expect(routeCalls[0][2]).toMatchObject({ bypassContentHeuristics: true });
     const photo = calls.find((c) => c.m === "sendPhoto")!;
     expect(photo).toBeTruthy();
-    expect(photo.a[2]).toBeUndefined();                                    // no caption at all
+    expect(photo.a[2]?.caption).toBeUndefined();                             // owner 2026-11-04: the English prompt is never shown (MEDIA_SHOW_PROMPT=1 brings it back for tests)
     const msgs = calls.filter((c) => c.m === "sendMessage");
     expect(msgs).toHaveLength(1);                                          // the ONE message: the card (opened at once, with date + time) ...
-    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d\d:\d\d:\d\d\n💬 /);
+    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n💬 /);
     expect(msgs[0].a[1]).not.toMatch(/فهمت طلبك/);                          // no canned echo of the request
     expect(calls.some((c) => c.m === "deleteMessage")).toBe(true);         // ... which goes when the picture is sent (media is its own message)
   });
@@ -55,8 +56,16 @@ describe("Sham media fast lane", () => {
     const { bot: b, calls } = bot();
     expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "حصان أبيض"))).toBe(true);
     expect(routeCalls[0][0]).toBe("image");
-    expect(routeCalls[0][1]).toBe("حصان أبيض");
+    expect(routeCalls[0][1]).toBe("white horse");
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
+  });
+  it("old Sham (v1) reads the user's language as written: no translation", async () => {
+    routeReply = { type: "image", b64: tiny, route: "sham_v1" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b } = bot();
+    expect(await shamVariant.run("v1", () => shamMediaFastLane(b, 77, "قم بتوليد صورة فرس ابيض"))).toBe(true);
+    expect(routeCalls[0][0]).toBe("image");
+    expect(routeCalls[0][1]).toBe("فرس ابيض");
   });
 
   it("a failed route says so plainly and sends nothing", async () => {

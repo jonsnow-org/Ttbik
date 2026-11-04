@@ -32,7 +32,7 @@ type Thread = { id: string; title: string; legacy: boolean; messages_count?: num
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
-type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
+type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void | Promise<void>; mode: Resolved };
 
 const TABS: Tab[] = ["home", "chats", "computer", "auto", "settings"];
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
@@ -334,7 +334,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false, model = "all" }: { 
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
-        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
+        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
         {selLive && lastNoise && <div style={{ color: "#64748b", padding: "4px 0" }}>⏳ {lastNoise.text}</div>}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
       </div>}
@@ -423,9 +423,23 @@ function Options<T extends string>({ open, title, value, items, onPick, onClose 
 // ---------------------------------------------------------------- model popover (Mira: anchored under the pill)
 function useModels() {
   const [d, setD] = useState<Models | null>(null);
-  const load = useCallback(() => api<Models>("models").then(setD).catch(() => setD((x) => x || { models: [] })), []);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setD(await api<Models>("models"));
+      setError("");
+      return true;
+    } catch (e: any) {
+      setError(String(e?.message || "تعذّر تحميل قائمة النماذج."));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
   useEffect(() => { void load(); }, [load]);
-  return { d, load };
+  return { d, load, error, loading };
 }
 const modelName = (d: Models | null, lang: Lang) => {
   const l = d ? d.owner || d.models : [];
@@ -438,7 +452,7 @@ const anchorOf = (el: HTMLElement): Anchor => {
   const r = el.getBoundingClientRect();
   return r.bottom > window.innerHeight * 0.5 ? { bottom: Math.max(16, window.innerHeight - r.top + 4) } : { top: r.bottom + 8 };
 };
-function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; onPicked: () => void; onClose: () => void }) {
+function ModelPopover({ at, d, lang, n, modelsError, modelsLoading, onRetry, onPicked, onClose }: { at: Anchor; d: Models | null; lang: Lang; n: NStr; modelsError: string; modelsLoading: boolean; onRetry: () => void; onPicked: () => void | Promise<void>; onClose: () => void }) {
   const [pickError, setPickError] = useState("");
   const [switching, setSwitching] = useState(false);
   const switchingRef = useRef(false);
@@ -447,7 +461,7 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
   useEffect(() => {
     if (at === null) return;
     let stop = false;
-    const tick = () => { api<{ health?: Record<string, "ok" | "busy" | "down"> }>("model_health").then((r) => { if (!stop && r.health) setHealth(r.health); }).catch(() => undefined); };
+    const tick = () => { api<{ health?: Record<string, "ok" | "busy" | "down"> }>("model_health", {}, 40000).then((r) => { if (!stop && r.health) setHealth(r.health); }).catch(() => undefined); };
     tick();
     const timer = setInterval(tick, 15000);
     return () => { stop = true; clearInterval(timer); };
@@ -463,10 +477,10 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
     haptic("select");
     setPickError("");
     try {
-      const saved = await api<{ ok?: boolean; model?: string }>("settings", { model: id });
+      const saved = await api<{ ok?: boolean; model?: string }>("settings", { model: id }, 60000);
       if (!saved.ok || saved.model !== id) throw new Error("لم يؤكد الخادم حفظ النموذج المختار.");
       haptic("success");
-      onPicked();
+      await onPicked();
       onClose();
     } catch (e: any) {
       haptic("error");
@@ -482,7 +496,8 @@ function ModelPopover({ at, d, lang, n, onPicked, onClose }: { at: Anchor; d: Mo
       <style>{"@keyframes ndotpulse{0%,100%{opacity:1}50%{opacity:.35}}"}</style>
       <div className="n-pop" role="listbox" aria-label={n.modelPick} style={at}>
         {pickError && <p role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{pickError}</p>}
-        {!d ? <Loading /> : list.map((m) => {
+        {modelsError && <div role="alert" className="n-s" style={{ color: "var(--c-danger)", padding: "8px 12px" }}>{modelsError} <button type="button" className="n-btn n-ghost" disabled={modelsLoading} onClick={onRetry}>{lang === "ar" ? "إعادة التحميل" : "Retry"}</button></div>}
+        {!d && modelsLoading ? <Loading /> : !d ? <div className="n-s" style={{ padding: 12 }}>{lang === "ar" ? "لم تُحمّل النماذج بعد." : "Models have not loaded yet."} <button type="button" className="n-btn n-ghost" disabled={modelsLoading} onClick={onRetry}>{lang === "ar" ? "إعادة المحاولة" : "Retry"}</button></div> : list.map((m) => {
           const o = d.owner?.find((x) => x.id === m.id);
           return (
             <button key={m.id} type="button" role="option" aria-selected={m.selected} disabled={switching} className={`n-opt${m.selected ? " n-sel" : ""}`} onClick={() => pick(m.id)}>
@@ -550,7 +565,7 @@ function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
     </Card>
   );
 }
-function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: string; models: Models | null; reloadModels: () => void }) {
+function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }: { c: Ctx; firstName: string; models: Models | null; modelsError: string; modelsLoading: boolean; reloadModels: () => Promise<boolean> }) {
   const { t, n, lang, me, owner, open, go } = c;
   const { b } = useBilling(!owner);
   const [conns, setConns] = useState<ConnView[] | null>(null);
@@ -663,7 +678,11 @@ function Home({ c, firstName, models, reloadModels }: { c: Ctx; firstName: strin
           <button type="button" className="mt-2 font-semibold underline" onClick={() => { setConnError(""); open({ k: "connect" }); }}>{lang === "ar" ? "فتح إعدادات الموصلات" : "Open connector settings"}</button>
         </div>}
       </div>
-      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
+      <ModelPopover at={pop} d={models} lang={lang} n={n} modelsError={modelsError} modelsLoading={modelsLoading} onRetry={() => { void reloadModels(); }} onPicked={async () => {
+        const ok = await reloadModels();
+        await c.reload();
+        if (!ok) throw new Error(lang === "ar" ? "تم حفظ اختيار النموذج لكن تعذّر تحديث القائمة؛ أعد المحاولة." : "The model was saved, but the list could not refresh. Please retry.");
+      }} onClose={() => setPop(null)} />
     </>
   );
 }
@@ -1002,7 +1021,7 @@ function Schedules({ c }: { c: Ctx }) {
 }
 
 // ---------------------------------------------------------------- Settings (Mira's grouped cards)
-function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
+function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; modelsError: string; modelsLoading: boolean; reloadModels: () => Promise<boolean> }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
   useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
@@ -1099,7 +1118,11 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         onPick={async (v) => { try { const d = await api<{ forced: Record<string, string> }>("mode_force", { for: s.model, mode: v || "" }); setS({ ...s, forced: d.forced }); haptic("success"); } catch { haptic("error"); } }}
         items={[{ id: "", label: n.force_none, sub: n.force_noneSub }, ...(["fast", "balanced", "precise"] as const).map((a) => ({ id: a as string, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))]} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
-      <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={() => { reloadModels(); void reload(); }} onClose={() => setPop(null)} />
+      <ModelPopover at={pop} d={models} lang={lang} n={n} modelsError={modelsError} modelsLoading={modelsLoading} onRetry={() => { void reloadModels(); }} onPicked={async () => {
+        const ok = await reloadModels();
+        await reload();
+        if (!ok) throw new Error(lang === "ar" ? "تم حفظ اختيار النموذج لكن تعذّر تحديث القائمة؛ أعد المحاولة." : "The model was saved, but the list could not refresh. Please retry.");
+      }} onClose={() => setPop(null)} />
     </div>
   );
 }
@@ -1186,7 +1209,7 @@ export default function NovaApp() {
   const [page, setPage] = useState<Page>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState("");
-  const { d: models, load: reloadModels } = useModels();
+  const { d: models, load: reloadModels, error: modelsError, loading: modelsLoading } = useModels();
   useFonts();
   const reload = useCallback(async () => {
     try { setMe(await api<Me>("me")); setErr(""); } catch (e: any) { setErr(e.status === 401 ? "__tg" : e.message); }
@@ -1237,7 +1260,7 @@ export default function NovaApp() {
   const owner = me?.tier === "owner";
   const go = (x: Tab) => { haptic("select"); setPage(null); setTab(x); };
   const open = (p: Page) => setPage(p);
-  const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload: () => void reload(), mode: resolved } : null;
+  const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved } : null;
   const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "pricing" ? n.s_pricing : page.k === "panel" ? n.s_panel
     : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? n.s_mem : n.s_policy;
   return (
@@ -1265,13 +1288,13 @@ export default function NovaApp() {
                 : <div className="n-tg"><List><PolicySection t={t} me={ctx.me} lang={lang} /></List></div>}
             </>
           )
-          : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} reloadModels={reloadModels} />
+          : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
           : tab === "computer" ? (ctx.me.features?.computer
             ? <FreeComputer lang={lang} defaultModel={ctx.me.settings.model || "coder"} logs={<TerminalScreen lang={lang} model="all" />} />
             : <div className="n-page"><Fail t={t} msg={lang === "ar" ? "الحاسوب السحابي غير متاح لهذه الخطة." : "Cloud computer is not available on this plan."} retry={() => go("home")} /></div>)
           : tab === "auto" ? <Schedules c={ctx} />
-          : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} reloadModels={reloadModels} />}
+          : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}
       </main>
       {!page && ctx && (
         <nav className="n-nav" aria-label="Nova">

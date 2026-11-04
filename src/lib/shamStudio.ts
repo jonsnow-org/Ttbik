@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShamTool } from "@/lib/shamTypes";
 import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { stripThinkTags } from "@/lib/thinkTags";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
@@ -152,7 +153,10 @@ export function parseShamReply(body: string): ShamReply | null {
   if (!raw) return null;
   try {
     const obj = JSON.parse(raw);
-    if (obj && typeof obj === "object" && typeof obj.type === "string") return obj as ShamReply;
+    if (obj && typeof obj === "object" && typeof obj.type === "string") {
+      if (typeof obj.text === "string") obj.text = stripThinkTags(obj.text);     // Sham v2 answers with an empty <think></think>: never shown
+      return obj as ShamReply;
+    }
   } catch {
     /* not JSON: the Studio is still on the older text-only app */
   }
@@ -184,6 +188,27 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
     note(base, api, `${(e as { name?: string })?.name || "error"} (limit ${Math.round(timeoutMs / 1000)} s): ${String((e as Error)?.message || "").slice(0, 80)}`);
     return null;
   }
+}
+
+/** Sham v2's video Studio runs a clip as a background job (`generate_video_start`), and `job` is asked back-to-back (each call at most ~20 s): one long read was cut by
+ *  the gateway and the idle Studio then stalled the clip (2026-11-04). null = no job API on this Studio (an older app) or the start failed: the caller makes the single call. */
+export async function shamVideoByJob(base: string, videoBody: string, timeoutMs: number): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  const started = await shamCallAt(base, "generate_video_start", { body: videoBody }, Math.min(30000, timeoutMs));
+  const s = started ? (parseShamReply(started) as unknown as { type: string; job?: string } | null) : null;
+  if (!s) return null;
+  if (s.type !== "job" || !s.job) return started;                       // busy / error answered at once
+  const pause = process.env.NODE_ENV === "test" ? 0 : 5000;
+  for (let misses = 0; Date.now() < deadline;) {
+    const wait = Math.max(0, Math.min(20, Math.floor((deadline - Date.now()) / 1000) - 5));
+    const polled = await shamCallAt(base, "job", { body: JSON.stringify({ job: s.job, wait }) }, Math.min(Math.max(1000, deadline - Date.now()), (wait + 25) * 1000));
+    const r = polled ? (parseShamReply(polled) as unknown as { type: string } | null) : null;
+    if (r?.type === "running") { misses = 0; continue; }
+    if (r) return polled;
+    if (++misses >= 8) return JSON.stringify({ type: "error", reason: "studio_unreadable", text: "انقطع استوديو الفيديو أثناء الإنشاء ولم يصل ناتج صالح" });
+    await new Promise((res) => setTimeout(res, pause));
+  }
+  return JSON.stringify({ type: "error", reason: "studio_timeout", text: "لم ينتهِ استوديو الفيديو في الوقت المتاح" });
 }
 
 /** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
@@ -296,7 +321,8 @@ export async function shamGenerateMedia(
     // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
     const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
     const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const body = await shamCallAt(base, "generate_video", { body: JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) }) }, timeoutMs);
+    const videoBody = JSON.stringify({ prompt: clipPrompt, seconds: pressureMedia().videoSeconds, seed: Math.floor(Math.random() * 2 ** 31) });
+    const body = (await shamVideoByJob(base, videoBody, timeoutMs)) ?? await shamCallAt(base, "generate_video", { body: videoBody }, timeoutMs);
     const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
     if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
     if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");

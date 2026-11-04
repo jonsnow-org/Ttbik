@@ -1,0 +1,47 @@
+name: "HF account inventory (read-only: plan and existing Spaces, for the Sham v2 free host decision)"
+# Owner t88u: find a permanently free host for a Sham v2 copy without a new sign-up. Reads only: whoami (plan) and the account's Spaces
+# (sdk, hardware, stage). Prints no token. Never creates, changes or restarts anything.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read plan and Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN1: ${{ secrets.HF_TOKEN1 }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          def get(url, tok):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok, "User-Agent": "ttbik-inventory"})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+          for label in ("HF_TOKEN", "HF_TOKEN1"):
+              tok = os.environ.get(label, "").strip()
+              if not tok:
+                  print(label, "not set"); continue
+              try:
+                  me = get("https://huggingface.co/api/whoami-v2", tok)
+              except Exception as e:
+                  print(label, "whoami failed:", type(e).__name__, str(e)[:120]); continue
+              name = me.get("name", "?")
+              print("ACCOUNT", label, "user=" + name, "isPro=" + str(me.get("isPro")), "orgs=" + ",".join(o.get("name", "") + ("(plan=" + str(o.get("plan") or o.get("subscription") or "") + ")") for o in me.get("orgs", [])))
+              owners = [name] + [o.get("name") for o in me.get("orgs", []) if o.get("name")]
+              for owner in owners:
+                  try:
+                      spaces = get(f"https://huggingface.co/api/spaces?author={owner}&full=true&limit=100", tok)
+                  except Exception as e:
+                      print("  spaces of", owner, "failed:", type(e).__name__); continue
+                  for s in spaces:
+                      sid = s.get("id", "")
+                      try:
+                          rt = get(f"https://huggingface.co/api/spaces/{sid}/runtime", tok)
+                      except Exception:
+                          rt = {}
+                      print("  SPACE", sid, "sdk=" + str(s.get("sdk")), "private=" + str(s.get("private")), "stage=" + str(rt.get("stage")), "hardware=" + str((rt.get("hardware") or {}).get("current") if isinstance(rt.get("hardware"), dict) else rt.get("hardware")), "sleep=" + str(rt.get("gcTimeout") or rt.get("sleep_time")), "updated=" + str(s.get("lastModified")))
+          PY

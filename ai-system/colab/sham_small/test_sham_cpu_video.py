@@ -66,7 +66,7 @@ class RequestedDuration(unittest.TestCase):
 
     def test_all_user_requested_durations_have_exact_segment_plans(self):
         expected = {
-            2: [2], 4: [4], 10: [4, 4, 2], 15: [4, 4, 4, 3],
+            2: [2], 4: [4], 6: [4, 2], 10: [4, 4, 2], 15: [4, 4, 4, 3],
             30: [4, 4, 4, 4, 4, 4, 4, 2],
             60: [4] * 15, 120: [4] * 30,
         }
@@ -77,7 +77,7 @@ class RequestedDuration(unittest.TestCase):
                 self.assertTrue(all(2 <= part <= 4 for part in chunks))
 
     def test_unsupported_or_fractional_durations_are_rejected_without_truncation(self):
-        for requested in (1, 3, 5, 6, 8, 12, 20, 45, 90, 121, 2.5, "four"):
+        for requested in (1, 3, 5, 7, 8, 12, 20, 45, 90, 121, 2.5, "four"):      # 6 s is supported since 2026-11-04 (owner: 6 s, 10 s, 15 s, 30 s, 1 min, 2 min)
             with self.assertRaises(ValueError) as caught:
                 cpu_video.cv_chunk_plan(requested)
             self.assertIn("native-video-duration-limit", str(caught.exception))
@@ -180,62 +180,47 @@ class RealGeneration(unittest.TestCase):
 
 
 class SmallDiskFetch(unittest.TestCase):
-    """The Sham v2 Studio had 3.2 GiB free (deploy run 40611229169: 'needs about 6 GiB'): the fetch now has a lean fp16 path that fits."""
+    """Each Studio downloads its own persistent video-weight copy from ModelScope only; no Hugging Face runtime fallback is allowed."""
 
     def _run(self, free_gib):
         import shutil
         import sys
         import types
         calls = []
-        hf = types.ModuleType("huggingface_hub")
-        hf.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("hf", repo, tuple(allow_patterns)))
-        ms = types.ModuleType("modelscope")
-        ms.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("ms", repo, tuple(allow_patterns)))
+        hub = types.ModuleType("modelscope_hub")
+        compat = types.ModuleType("modelscope_hub.compat")
+        def snapshot(repo, local_dir, allow_patterns, token=None):
+            calls.append((repo, tuple(allow_patterns), token))
+        compat.snapshot_download = snapshot
         usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(free_gib * 1024 ** 3))
-        with tempfile.TemporaryDirectory() as d, patch.dict(sys.modules, {"huggingface_hub": hf, "modelscope": ms}), \
-                patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", return_value=("base", "adapter")):
-            return cpu_video.cv_fetch_weights(d), calls
+        with tempfile.TemporaryDirectory() as d:
+            with patch.dict(sys.modules, {"modelscope_hub": hub, "modelscope_hub.compat": compat, "huggingface_hub": None}), patch.dict(os.environ, {"MODELSCOPE_API_TOKEN": "test-token"}), patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[None, ("base", "adapter")]):
+                found = cpu_video.cv_fetch_weights(d)
+        return found, calls
 
-    def test_small_disk_uses_modelscope_base_first(self):
+    def test_small_disk_uses_only_its_modelscope_base_and_adapter(self):
         found, calls = self._run(3.2)
         self.assertEqual(found, ("base", "adapter"))
-        self.assertEqual(calls[0][:2], ("ms", cpu_video.CV_MS_BASE))     # the Studio cannot always reach Hugging Face: ModelScope first
-        self.assertFalse(any(c[0] == "hf" for c in calls))
-        sizes = 1719125304 + 246144864 + 167335342 + 907702248      # real file sizes of the four weight files on ModelScope
-        self.assertLess(sizes + 100 * 1024 ** 2, 3.2 * 1024 ** 3)
+        self.assertEqual([item[0] for item in calls], [cpu_video.CV_MS_BASE, cpu_video.CV_MS_ADAPTER])
+        self.assertTrue(all(item[1] for item in calls))
+        self.assertTrue(all(item[2] == "test-token" for item in calls))
 
-    def test_small_disk_falls_back_to_the_fp16_hf_base(self):
-        import shutil
-        import sys
-        import types
-        calls = []
-        hf = types.ModuleType("huggingface_hub")
-        hf.snapshot_download = lambda repo, local_dir, allow_patterns: calls.append(("hf", repo, tuple(allow_patterns)))
-        ms = types.ModuleType("modelscope")
-
-        def ms_fail(repo, local_dir, allow_patterns):
-            if repo == cpu_video.CV_MS_BASE:
-                raise OSError("unreachable")
-            calls.append(("ms", repo, tuple(allow_patterns)))
-        ms.snapshot_download = ms_fail
-        usage = shutil._ntuple_diskusage(10 * 1024 ** 3, 0, int(3.2 * 1024 ** 3))
-        with tempfile.TemporaryDirectory() as d, patch.dict(sys.modules, {"huggingface_hub": hf, "modelscope": ms}), \
-                patch("shutil.disk_usage", return_value=usage), patch.object(cpu_video, "cv_find_weights", side_effect=[("base", "adapter")]):
-            found = cpu_video.cv_fetch_weights(d)
+    def test_big_disk_still_uses_the_same_private_modelscope_sources(self):
+        found, calls = self._run(20)
         self.assertEqual(found, ("base", "adapter"))
-        base = [c for c in calls if c[0] == "hf" and c[1] == cpu_video.CV_HF_LEAN_BASE]
-        self.assertEqual(len(base), 1)
-        self.assertFalse(any(p in base[0][2] for p in ("unet/*.safetensors", "text_encoder/*.safetensors", "vae/*.safetensors")))
+        self.assertEqual([item[0] for item in calls], [cpu_video.CV_MS_BASE, cpu_video.CV_MS_ADAPTER])
 
-    def test_big_disk_keeps_the_realistic_base(self):
-        _, calls = self._run(20)
-        self.assertEqual(calls[0][:2], ("ms", cpu_video.CV_MS_BASE))
-
-    def test_too_little_disk_is_refused_clearly(self):
+    def test_too_little_disk_is_refused_before_any_download(self):
         with self.assertRaises(RuntimeError) as cm:
             self._run(2.0)
         self.assertIn("native-video-unavailable", str(cm.exception))
         self.assertIn("2.0 GiB", str(cm.exception))
+
+    def test_video_runtime_has_no_huggingface_fallback(self):
+        source = (HERE / "cpu_video.py").read_text(encoding="utf-8")
+        self.assertNotIn("huggingface_hub", source)
+        self.assertNotIn("CV_HF_", source)
+        self.assertIn("modelscope_hub.compat", source)
 
 
 

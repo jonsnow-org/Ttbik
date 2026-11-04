@@ -15,7 +15,13 @@ export function cardTz(): string {
   const z = (process.env.CARD_TZ || process.env.CODER_DEFAULT_TZ || "Europe/Istanbul").trim();
   try { new Intl.DateTimeFormat("en", { timeZone: z }); return z; } catch { return "Europe/Istanbul"; }
 }
-export const clockAt = (t: number, tz = cardTz()): string => new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
+/** 12-hour clock with the Arabic day half (owner 2026-11-04): "3:00:05 م", "9:41:00 ص". */
+export function clock12(t: number, tz = cardTz()): string {
+  const parts = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: tz }).formatToParts(new Date(t));
+  const get = (k: string) => parts.find((p) => p.type === k)?.value || "";
+  return `${get("hour")}:${get("minute")}:${get("second")} ${get("dayPeriod").toUpperCase().startsWith("P") ? "م" : "ص"}`;
+}
+export const clockAt = (t: number, tz = cardTz()): string => clock12(t, tz);
 export const dateAt = (t: number, tz = cardTz()): string => new Intl.DateTimeFormat("ar-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: tz }).format(new Date(t)).replace("،", "");
 export function fmtDur(ms: number): string {
   if (ms < 950) return `${(Math.max(0, ms) / 1000).toFixed(1)}ث`;

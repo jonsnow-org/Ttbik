@@ -44,7 +44,7 @@ function ago(iso: string | null, t: Str): string {
 const fmtTime = (iso: string | null, tz: string, lang: Lang) => {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || undefined, weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }).format(new Date(iso.replace(" ", "T").replace(/\+00$/, "Z")));
+    return new Intl.DateTimeFormat(lang === "ar" ? "ar-SY" : "en-GB", { timeZone: tz || undefined, weekday: "short", hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" }).format(new Date(iso.replace(" ", "T").replace(/\+00$/, "Z")));
   } catch {
     return iso.slice(0, 16);
   }
@@ -875,7 +875,7 @@ function PanelTab({ lang }: { lang: Lang }) {
     }
     setBusy("");
   };
-  const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) + " TRT" : "—");
+  const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso)) + " TRT" : "—");
   if (fail) return <ErrorBox t={STR[lang]} msg={fail} retry={load} />;
   if (!d) return <div className="space-y-3"><Skel className="h-28" /><Skel className="h-16" /><Skel className="h-16" /></div>;
   const t = d.training, g = t?.gpu, nova = t?.nova;

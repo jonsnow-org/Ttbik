@@ -12,6 +12,7 @@ on:
       - ai-system/colab/sham_small/cpu_video.py
       - ai-system/colab/sham_small/media_quality.py
       - ai-system/app/sham_v2_video_probe.py
+      - ai-system/app/nova_media_probe.py
       - .github/workflows/deploy-modelscope-sham-v2-video.yml
   workflow_dispatch:
 
@@ -78,9 +79,9 @@ jobs:
           git config --global user.name "sham video CI"
           git config --global user.email "ci@sham-video.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-sham-video/app.py ai-system/modelscope-sham-video/requirements.txt ai-system/colab/sham_small/cpu_video.py ai-system/colab/sham_small/media_quality.py ai-system/modelscope-media/computer_box.py ai-system/modelscope-media/browser_computer.py ai-system/modelscope-media/desktop_computer.py ms-studio/
+          cp ai-system/modelscope-sham-video/app.py ai-system/modelscope-sham-video/requirements.txt ai-system/colab/sham_small/cpu_video.py ai-system/colab/sham_small/media_quality.py ms-studio/
           cd ms-studio
-          git add app.py requirements.txt cpu_video.py media_quality.py computer_box.py browser_computer.py desktop_computer.py
+          git add app.py requirements.txt cpu_video.py media_quality.py
           git diff --cached --quiet && echo "no change" || git commit -m "sham-v2-video: app (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
@@ -138,12 +139,6 @@ jobs:
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
           exit 1
 
-
-      - name: Live test Sham v2's own persistent computer and graphical desktop
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          API: https://studio-${{ env.OWNER }}-${{ env.REPO }}.api-inference.modelscope.net
-        run: python3 scripts/ops/modelscope_computer_smoke.py --api "$API" --model-id sham_v2
 
       - name: Install what the content checks need
         run: python3 -m pip install -q numpy pillow imageio-ffmpeg
