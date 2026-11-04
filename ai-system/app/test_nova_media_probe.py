@@ -212,6 +212,36 @@ class Waiting(unittest.TestCase):
             self.studio(gone).call("video", {"prompt": "x"})
         self.assertIn("restarted", str(c.exception))
 
+    def test_submit_retries_modelscope_429_until_the_job_is_accepted(self):
+        inner = FakeStudio([{"phase": "ready"}])
+        state = {"rejected": 2}
+        waits = []
+        def throttled(method, url, payload=None):
+            if method == "POST" and "/call/v2/image" in url and state["rejected"] > 0:
+                state["rejected"] -= 1
+                return 429, '{"detail":"temporarily rate limited"}'
+            return inner(method, url, payload)
+        t = [0.0]
+        studio = P.Studio("https://x.test", "tok", throttled,
+                          sleep=lambda seconds: (waits.append(seconds), t.__setitem__(0, t[0] + seconds)),
+                          now=lambda: t[0])
+        out = studio.call("image", {"prompt": "x"}, timeout=60)
+        self.assertEqual(out["type"], "image")
+        self.assertEqual(waits, [2, 5])
+        self.assertEqual(state["rejected"], 0)
+        self.assertEqual(sum(1 for method, url in inner.calls if method == "POST"), 1)
+
+    def test_repeated_429_fails_with_an_explicit_retry_count(self):
+        calls = []
+        def throttled(method, url, payload=None):
+            calls.append((method, url))
+            return 429, '{"detail":"temporarily rate limited"}'
+        with self.assertRaises(P.ProbeError) as err:
+            self.studio(throttled).call("speech", {"text": "مرحبا"}, timeout=50)
+        self.assertIn("HTTP 429", str(err.exception))
+        self.assertIn("7 submit attempt(s)", str(err.exception))
+        self.assertEqual(len(calls), 7)
+
     def test_call_returns_decoded_json(self):
         out = self.studio(FakeStudio([{"phase": "ready"}])).call("image", {"prompt": "x"})
         self.assertEqual(out["type"], "image")
