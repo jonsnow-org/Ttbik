@@ -92,13 +92,13 @@ class CandidateImageSettings(unittest.TestCase):
 
 class CandidateToolRouting(unittest.TestCase):
     def test_computer_tasks_preload_the_selected_model_computer_without_an_extra_generation_round(self):
-        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         self.assertEqual(f("شغّل الاختبارات على الحاسوب وافحص ملف package.json", bridge), ["computer"])
         self.assertEqual(f("run the build and debug the failing test in the terminal", bridge), ["computer"])
 
     def test_github_read_tasks_do_not_preload_the_computer(self):
-        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
         prompt = "Use github_repo_scan to inspect the repository root and github_read_files to read package.json."
@@ -106,20 +106,20 @@ class CandidateToolRouting(unittest.TestCase):
         self.assertEqual(f(prompt, with_github), ["github"])
 
     def test_project_edits_preload_both_computer_and_linked_github(self):
-        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         no_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         with_github = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": ["github"]}
         self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", no_github), ["computer"])
         self.assertEqual(f("افحص مستودعي على GitHub وعدّل الكود", with_github), ["computer", "github"])
 
     def test_media_output_file_does_not_preload_the_computer(self):
-        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
         prompt = "Create an image with generate_image and only say it was created when the image file is returned."
         self.assertEqual(f(prompt, bridge), [])
 
     def test_unlinked_or_missing_bridge_does_not_offer_remote_tools(self):
-        f = load("_requested_tool_groups", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        f = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
         self.assertEqual(f("run code in the computer", None), [])
         self.assertEqual(f("run code in the computer", {"url": "", "connectors": []}), [])
 
@@ -134,22 +134,26 @@ class CandidateToolRouting(unittest.TestCase):
 
 class ComputerExecutionContract(unittest.TestCase):
     def test_actionable_arabic_and_english_computer_requests_are_detected(self):
-        f = load("_requires_computer_execution", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
         self.assertTrue(f("افحص ملف package.json على الحاسوب وشغّل الاختبارات"))
         self.assertTrue(f("Open the browser and click the Settings button"))
         self.assertTrue(f("Run the build in the terminal and inspect the failing file"))
         self.assertTrue(f("Run the tests in the repository project and fix the failing code"))
 
     def test_github_reads_and_image_generation_do_not_require_a_computer(self):
-        f = load("_requires_computer_execution", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
         self.assertFalse(f("Execute the task in two phases: use github_repo_scan to inspect the repository and then use vercel_deployment_status."))
         self.assertFalse(f("Read package.json and src/lib/donorTests.ts from the GitHub repository, then summarize the results."))
         self.assertFalse(f("أنشئ صورة فوتوغرافية واقعية، واستخدم generate_image، ولا تقل إنها أُنشئت حتى يرجع ملف الصورة."))
 
     def test_capability_questions_are_not_mistaken_for_execution_requests(self):
-        f = load("_requires_computer_execution", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
+        f = load("_requires_computer_execution", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requires_computer_execution"]
         self.assertFalse(f("ما الذي يمكنك فعله على الحاسوب؟"))
         self.assertFalse(f("What computer tools are available?"))
+        bridge = {"url": "https://example.test/api/coder/app/donor-tools", "connectors": []}
+        groups = load("_requested_tool_groups", "_computer_action_request", "_explicit_computer_target", "_project_execution_request")["_requested_tool_groups"]
+        self.assertEqual(groups("ما الذي يمكنك فعله على الحاسوب؟", bridge), [])
+        self.assertEqual(groups("What computer tools are available?", bridge), [])
 
     def test_preload_must_expose_a_real_computer_tool(self):
         f = load("_has_computer_tools")["_has_computer_tools"]
