@@ -478,6 +478,11 @@ def cv_release():
     import gc
     _CV["pipe"] = None
     gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)      # the freed pipeline goes back to the system; without it the next clip stalled (2026-11-04)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
@@ -689,6 +694,16 @@ def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
             fh.write(f"{type(exc).__name__}: {str(exc)[:400]}")
 
 
+def _mem_available_gb() -> float:
+    try:
+        for line in open("/proc/meminfo", encoding="utf-8"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1048576
+    except Exception:  # noqa: BLE001
+        pass
+    return 0.0
+
+
 def _free_parent_ram() -> None:
     """Before a clip process starts, the parent gives back what it holds (live 2026-11-04 05:3x: a 6 s clip right after a picture was killed with
     code -9, out of memory: the parent still held the picture pipeline while the child loaded AnimateDiff). The picture pipeline reloads on the
@@ -709,8 +724,12 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
 
     Each clip runs in a FRESH process (2026-11-04 run logs: the first clip after a restart always finished, the SECOND one in the same process stalled
     while loading or sampling, 13+ minutes without progress — the RAM the first pipeline left behind was never returned to the system). A child process
-    gives every byte back when it exits. NOVA_VIDEO_SUBPROCESS=0 runs in-process (tests)."""
-    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
+    gives every byte back when it exits. NOVA_VIDEO_SUBPROCESS=0 runs in-process, =1 always uses the child, auto (default) uses the child only with 9+ GB available."""
+    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "auto") == "0" or (os.environ.get("NOVA_VIDEO_SUBPROCESS", "auto") == "auto" and _mem_available_gb() < 9.0):
+        # live 2026-11-04 (8 GB Studio): the clip process was killed -9 twice, even with the parent's picture pipeline released, because a second
+        # Python + torch runtime does not fit next to the parent. In-process, the pipeline is dropped after every clip and the freed heap is
+        # handed back to the system (cv_release + malloc_trim), which is what the fresh process was for.
+        _free_parent_ram()
         return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
     import multiprocessing as _mp
     _free_parent_ram()
