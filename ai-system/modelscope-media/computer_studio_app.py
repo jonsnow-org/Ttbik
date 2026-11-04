@@ -4,7 +4,7 @@ This Studio is computer-only: no LLM, image/audio/video weights or MiniCPM
 runtime. Inference and media remain in the selected model's own Studios.
 """
 from __future__ import annotations
-import json, os, shutil, threading
+import json, os, shutil, threading, time
 from pathlib import Path
 
 os.environ.setdefault("BOX_STORE", "/mnt/workspace/computer")
@@ -17,7 +17,7 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-04-r6"
+APP_REVISION = "computer-hub-16gb-2026-11-04-r7-live"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
@@ -112,10 +112,44 @@ def api_status():
         "legacy_minicpm_cache_cleanup":LEGACY_CACHE_CLEANUP
     },ensure_ascii=False)
 
+BROWSER_WITH_DESKTOP_MIN_MB=int(os.environ.get("BROWSER_WITH_DESKTOP_MIN_MB","2500"))
+_VIEWERS={}            # session digest -> last time a live screen (Mini App) asked for this session: the model's browser pages are then captured for it
+
+def _watched(session):
+    return time.time()-_VIEWERS.get(computer_box.digest(session),0)<45
+
 def api_browser_do(body):
-    if desktop_computer.any_active():
-        return json.dumps({"ok":False,"error":"the graphical desktop is active; stop it before using the headless browser"})
-    return browser_computer.api_browser_do(body)
+    """The headless browser. It runs beside graphical desktops while memory allows (16 GB hub), and every action is recorded in the session's
+    live activity feed; while someone watches this session's live screen, the page picture is captured for that screen too."""
+    try:
+        job=json.loads(computer_box.unwrap_body(body) or "{}")
+        session=str(job.get("session") or "").strip(); action=str(job.get("action") or "")
+    except Exception:
+        job,session,action={}, "", ""
+    if desktop_computer.any_active() or any(m.any_active() for m in SLOTS):
+        free=computer_box._mem_available_mb()
+        if free is not None and free<BROWSER_WITH_DESKTOP_MIN_MB:
+            return json.dumps({"ok":False,"error":f"not enough free memory for the browser next to the running desktops ({free} MB free); try again shortly"})
+    if not session or action in ("status",):
+        return browser_computer.api_browser_do(body)
+    entry=computer_box.note_activity(session,"browser",action,str(job.get("url") or job.get("selector") or "")[:240])
+    asked=bool(job.get("screenshot")); capture=_watched(session) and not asked and action not in ("close","stop","text","content")
+    send=body
+    if capture:
+        send="b64:"+__import__("base64").b64encode(json.dumps({**job,"screenshot":True},ensure_ascii=False).encode()).decode()
+    raw=browser_computer.api_browser_do(send)
+    reply=_json_obj(raw)
+    shot=reply.get("screenshot_b64") if isinstance(reply,dict) else None
+    computer_box.finish_activity(entry,{"ok":bool(reply.get("ok")) if isinstance(reply,dict) else False,"output":str(reply.get("title") or reply.get("url") or reply.get("error") or "")[:300] if isinstance(reply,dict) else ""})
+    if shot and entry:
+        with computer_box._LOCK:
+            for e in computer_box._ACTIVITY.get(computer_box.digest(session),[]):
+                e.pop("image_b64",None)
+            entry["image_b64"]=shot
+    if capture and isinstance(reply,dict):
+        reply.pop("screenshot_b64",None)
+        return json.dumps(reply,ensure_ascii=False)
+    return raw
 
 def api_browser_status():
     return browser_computer.api_browser_status()
@@ -161,6 +195,7 @@ def api_desktop_do(body):
     except Exception:
         return desktop_computer.api_desktop_do(body)
     if not session: return desktop_computer.api_desktop_do(body)
+    if action=="frame": _VIEWERS[computer_box.digest(session)]=time.time()
     with _DISPATCH_LOCK:
         own=[m for m in SLOTS if m.any_active() and m._same_session(session)]
         if own: return own[0].api_desktop_do(body)
@@ -169,6 +204,63 @@ def api_desktop_do(body):
             if action=="start": return json.dumps({"ok":False,"phase":"busy","error":f"all {len(SLOTS)} desktop slots are in use; try again when another desktop is stopped"})
             return SLOTS[0].api_desktop_do(body)
         return free[0].api_desktop_do(body)
+
+def _own_slot(session):
+    own=[m for m in SLOTS if m.any_active() and m._same_session(session)]
+    return own[0] if own else None
+
+def api_live(body):
+    """The live screen as a STREAM (one call, many frames): yields a JSON event whenever the desktop picture changed or the session's activity moved,
+    for up to `seconds` (<= 25: the gateway ends long calls). Without a running desktop it still streams the activity (live terminal)."""
+    try:
+        job=json.loads(computer_box.unwrap_body(body) or "{}")
+    except Exception:
+        yield json.dumps({"ok":False,"error":"bad request"}); return
+    session=str(job.get("session") or "").strip()
+    if not session or len(session)>240:
+        yield json.dumps({"ok":False,"error":"a valid session is required"}); return
+    seconds=max(1.0,min(25.0,float(job.get("seconds") or 20)))
+    interval=max(0.25,min(3.0,float(job.get("interval") or 0.5)))
+    quality=int(job.get("quality") or 50); scale=float(job.get("scale") or 0.75)
+    since=str(job.get("since") or "")[:40]; act=int(job.get("activity_since") or 0)
+    t0=time.time(); sent=0; last_beat=0.0
+    while time.time()-t0<seconds:
+        _VIEWERS[computer_box.digest(session)]=time.time()
+        ev={"ok":True,"t":round(time.time()-t0,2)}
+        slot=_own_slot(session)
+        if slot is not None and slot._PHASE=="running":
+            try:
+                with slot._LOCK:
+                    shot=slot._screenshot(quality,scale,since)
+                slot._touch()
+                if not shot.get("unchanged"):
+                    since=shot["hash"]; ev.update(shot)
+                ev["phase"]="running"
+            except Exception as exc:  # noqa: BLE001
+                ev["frame_error"]=f"{type(exc).__name__}: {str(exc)[:120]}"
+        else:
+            ev["phase"]="stopped"
+        a=computer_box.activity_since(session,act,12)
+        if a.get("activity") or a.get("running_jobs"):
+            ev["activity"]=a["activity"]; ev["running_jobs"]=a["running_jobs"]
+        act=max(act,int(a.get("seq") or 0)); ev["activity_seq"]=act; ev["hash"]=since
+        if "screenshot_b64" in ev or ev.get("activity") or ev.get("running_jobs") or time.time()-last_beat>5:
+            last_beat=time.time(); sent+=1
+            yield json.dumps(ev,ensure_ascii=False)
+        time.sleep(interval)
+    yield json.dumps({"ok":True,"end":True,"events":sent,"hash":since,"activity_seq":act})
+
+def api_live_once(body):
+    """The same as one stream event, as a plain call (for clients that cannot read the stream)."""
+    last=None
+    try:
+        job=json.loads(computer_box.unwrap_body(body) or "{}")
+        job["seconds"]=1
+        for last in api_live("b64:"+__import__("base64").b64encode(json.dumps(job).encode()).decode()):
+            break
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok":False,"error":str(exc)[:200]})
+    return last or json.dumps({"ok":False,"error":"no frame"})
 
 def main():
     global LEGACY_CACHE_CLEANUP
@@ -188,6 +280,8 @@ def main():
         gr.Button("browser_do",visible=False).click(api_browser_do,body,out,api_name="browser_do")
         gr.Button("browser_status",visible=False).click(api_browser_status,None,out,api_name="browser_status")
         gr.Button("browser_bootstrap",visible=False).click(api_browser_bootstrap,None,out,api_name="browser_bootstrap")
+        gr.Button("live",visible=False).click(api_live,body,out,api_name="live",concurrency_limit=12)
+        gr.Button("live_once",visible=False).click(api_live_once,body,out,api_name="live_once",concurrency_limit=12)
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0",server_port=int(os.environ.get("PORT","7860")),show_error=True)
 
 LEGACY_CACHE_CLEANUP={"removed":[],"preserved":["/mnt/workspace/computer","/mnt/workspace/browser"]}

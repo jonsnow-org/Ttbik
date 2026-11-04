@@ -32,7 +32,17 @@ jobs:
       - name: Test persistent Bash, files, background jobs and a real Chromium page
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SMOKE_LIVE: "1"                                   # live view numbers: poll latency, streamed frame rate, live terminal, pointer accuracy
+          SMOKE_FRAMES_DIR: ${{ runner.temp }}/live-frames
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/ops/modelscope_computer_smoke.py
           python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net --model-id computer_hub --browser
+      - name: Live-view frame sequence (CI test desktop only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-frames
+          path: ${{ runner.temp }}/live-frames
+          if-no-files-found: ignore
+          retention-days: 7

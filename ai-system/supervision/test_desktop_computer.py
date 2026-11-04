@@ -172,3 +172,49 @@ class Desktop(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(__import__("shutil").which("Xvfb") and __import__("shutil").which("xdotool"), "needs Xvfb and xdotool")
+class RealScreen(unittest.TestCase):
+    """A real X server: frame hashing / scaling (live view) and the new pointer actions land where they were sent."""
+    @classmethod
+    def setUpClass(cls):
+        import os, time
+        subprocess.run(["rm", "-f", "/tmp/.X77-lock"])
+        cls.proc = subprocess.Popen(["Xvfb", ":77", "-screen", "0", f"{desktop.WIDTH}x{desktop.HEIGHT}x24", "-nolisten", "tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1.5)
+        cls.saved = (desktop._DISPLAY, desktop._ENV, desktop._UID, desktop._AUTH_FILE)
+        desktop._DISPLAY = ":77"; desktop._AUTH_FILE = ""; desktop._UID = os.getuid()
+        desktop._ENV = {"DISPLAY": ":77", "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+
+    @classmethod
+    def tearDownClass(cls):
+        desktop._DISPLAY, desktop._ENV, desktop._UID, desktop._AUTH_FILE = cls.saved
+        cls.proc.kill(); cls.proc.wait()
+
+    def where(self):
+        out = subprocess.run(["xdotool", "getmouselocation", "--shell"], env={"DISPLAY": ":77", "PATH": "/usr/bin:/bin"}, capture_output=True, text=True).stdout
+        vals = dict(line.split("=", 1) for line in out.split())
+        return int(vals["X"]), int(vals["Y"])
+
+    def test_unchanged_screen_sends_no_picture_and_scale_keeps_real_coordinates(self):
+        first = desktop._screenshot(50, 0.5)
+        self.assertTrue(first["screenshot_b64"])
+        self.assertEqual((first["width"], first["height"]), (desktop.WIDTH, desktop.HEIGHT))
+        self.assertEqual(first["frame_width"], desktop.WIDTH // 2)
+        again = desktop._screenshot(50, 0.5, first["hash"])
+        self.assertTrue(again.get("unchanged"))
+        self.assertNotIn("screenshot_b64", again)
+
+    def test_pointer_actions_land_exactly(self):
+        subprocess.run(["xdotool", "mousemove", "3", "4"], env={"DISPLAY": ":77", "PATH": "/usr/bin:/bin"})
+        if self.where() != (3, 4):
+            self.skipTest("this X server ignores synthetic pointer moves (some sandboxes); the Studio smoke checks it live")
+        desktop._input_action("s", "click", {"x": 321, "y": 123})
+        self.assertEqual(self.where(), (321, 123))
+        desktop._input_action("s", "drag", {"x": 10, "y": 20, "x2": 700, "y2": 500})
+        self.assertEqual(self.where(), (700, 500))
+        desktop._input_action("s", "dblclick", {"x": 5, "y": 6})
+        self.assertEqual(self.where(), (5, 6))
+        desktop._input_action("s", "scroll", {"direction": "left", "amount": 1, "x": 40, "y": 41})
+        self.assertEqual(self.where(), (40, 41))

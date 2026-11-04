@@ -51,6 +51,7 @@ UID_BASE = 100000
 UID_SPAN = 400000
 
 _LOCK = threading.RLock()
+_LIVE_ENTRY: dict[int, dict] = {}          # thread -> the activity entry of the command it is running
 _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
@@ -623,15 +624,35 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, preexec_fn=_child_setup(uid, drop, timeout + 15))
             timed_out = False
             watch(proc.pid, "command")
+            # read the output while it runs (not only at the end): the live activity entry of this command shows it in the Mini App's terminal panel
+            chunks: list[bytes] = []
+            live = _LIVE_ENTRY.get(threading.get_ident())
+            def _reader() -> None:
+                try:
+                    for chunk in iter(lambda: proc.stdout.read1(8192), b""):
+                        chunks.append(chunk)
+                        if live is not None:
+                            live["live"] = True
+                            live["output"] = b"".join(chunks[-8:]).decode("utf-8", "replace")[-ACTIVITY_OUT:]
+                except Exception:                              # noqa: BLE001
+                    pass
+            reader = threading.Thread(target=_reader, daemon=True)
+            reader.start()
             try:
-                raw, _ = proc.communicate(timeout=timeout)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _kill_group(proc.pid)
                 try:
-                    raw, _ = proc.communicate(timeout=5)
+                    proc.wait(timeout=5)
                 except Exception:                              # noqa: BLE001
-                    raw = b""
+                    pass
+            reader.join(timeout=5)                             # a background child that keeps the pipe open must not hold the answer
+            raw = b"".join(chunks)
+            try:
+                proc.stdout.close()                            # never leak the pipe (a long-lived Studio runs thousands of commands)
+            except Exception:                                  # noqa: BLE001
+                pass
     finally:
         with _LOCK:
             _ACTIVE_COMMANDS.discard(reservation)
@@ -655,6 +676,73 @@ def _log_activity(home: Path, command: str, reply: dict) -> None:
             handle.write(text)
     except Exception:                                          # noqa: BLE001
         pass
+
+
+# --- live activity feed: what each session's model (or user) is doing right now, read by the Mini App's live computer screen ---
+# One bounded ring per session (never across sessions). A running command's entry grows with its output while it runs (live terminal).
+ACTIVITY_MAX = 60
+ACTIVITY_OUT = 4000
+_ACTIVITY: dict[str, list] = {}
+_ACT_SEQ = [0]
+_QUIET_ACTIONS = {"status", "activity", "job_list"}
+
+
+def _act_detail(action: str, job: dict) -> str:
+    for key in ("command", "path", "url", "pattern", "repo", "id", "app", "key"):
+        value = job.get(key)
+        if value:
+            return str(value)[:240]
+    return ""
+
+
+def note_activity(session: str, source: str, action: str, detail: str = "", state: str = "start") -> dict:
+    """Adds one entry (state start) and returns it; the caller updates state/output in place. Never raises."""
+    try:
+        with _LOCK:
+            _ACT_SEQ[0] += 1
+            entry = {"seq": _ACT_SEQ[0], "t": round(time.time(), 2), "source": source, "action": action[:40], "detail": detail[:240], "state": state, "output": ""}
+            ring = _ACTIVITY.setdefault(digest(session), [])
+            ring.append(entry)
+            del ring[:-ACTIVITY_MAX]
+            return entry
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def finish_activity(entry: dict, out: dict | None) -> None:
+    if not entry:
+        return
+    try:
+        with _LOCK:
+            out = out or {}
+            entry["state"] = "done" if out.get("ok") and out.get("exit_code") in (None, 0) else "failed"
+            text = out.get("output") if isinstance(out.get("output"), str) else (out.get("error") or out.get("summary") or out.get("message") or "")
+            if text:
+                entry["output"] = str(text)[-ACTIVITY_OUT:]
+            entry.pop("live", None)
+            if out.get("exit_code") is not None:
+                entry["exit_code"] = out.get("exit_code")
+            entry["seq_done"] = _ACT_SEQ[0] = _ACT_SEQ[0] + 1
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def activity_since(session: str, since: int = 0, limit: int = 20) -> dict:
+    """Entries started or changed after `since` (an entry whose output grew counts as changed), plus live tails of running jobs."""
+    with _LOCK:
+        ring = list(_ACTIVITY.get(digest(session), []))
+        latest = _ACT_SEQ[0]
+    since = int(since or 0)
+    rows = [dict(e) for e in ring if e.get("seq", 0) > since or e.get("seq_done", 0) > since or (e.get("state") == "start" and e.get("live"))][-max(1, min(40, int(limit or 20))):]
+    jobs = []
+    try:
+        for job_id, job in list(_jobs(session).items())[-4:]:
+            _refresh(job)
+            if job.get("exit_code") is None:
+                jobs.append({"id": job_id, "name": job.get("name", "") or job.get("command", "")[:60], "tail": _tail(Path(job["log"]), 25)[-ACTIVITY_OUT:] if job.get("log") else ""})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "seq": latest, "activity": rows, "running_jobs": jobs}
 
 
 def _kill_group(pid: int) -> None:
@@ -1232,7 +1320,7 @@ BATCH_MAX_STEPS = 8
 BATCH_BUDGET_S = float(os.environ.get("BOX_BATCH_BUDGET_S", "20"))   # the gateway can drop a call near 30 s: start no new step after this
 
 
-def _dispatch(session: str, action: str, job: dict) -> dict:
+def _dispatch_inner(session: str, action: str, job: dict) -> dict:
     if action == "run":
         out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
     elif action == "write":
@@ -1266,6 +1354,23 @@ def _dispatch(session: str, action: str, job: dict) -> dict:
     else:
         out = {"ok": False, "error": "unknown action " + action[:30]}
     return out
+
+
+def _dispatch(session: str, action: str, job: dict) -> dict:
+    """One action, recorded in the session's live activity feed (start -> done / failed, with live output for commands)."""
+    if action == "activity":
+        return activity_since(session, int(job.get("since") or 0), int(job.get("limit") or 20))
+    if action in _QUIET_ACTIONS:
+        return _dispatch_inner(session, action, job)
+    entry = note_activity(session, "shell", action, _act_detail(action, job))
+    _LIVE_ENTRY[threading.get_ident()] = entry
+    out: dict = {}
+    try:
+        out = _dispatch_inner(session, action, job)
+        return out
+    finally:
+        _LIVE_ENTRY.pop(threading.get_ident(), None)
+        finish_activity(entry, out if isinstance(out, dict) else {})
 
 
 def run_batch(session: str, steps) -> dict:
