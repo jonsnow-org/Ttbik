@@ -28,6 +28,15 @@ describe("Arabic subject-only media follow-ups", () => {
 });
 
 describe("Media intent without an excluded-word dictionary", () => {
+  it("keeps an empty subject when the user delegates the image choice to Sham", () => {
+    expect(detectMediaIntent("اعطني صورة")).toEqual({ kind: "image", subject: "" });
+    expect(detectMediaIntent("اصنع فيديو")).toEqual({ kind: "video", subject: "" });
+  });
+
+  it("keeps the explicit subject when the user gives one", () => {
+    expect(detectMediaIntent("اعطني صورة فتاة جميلة")).toEqual({ kind: "image", subject: "فتاة جميلة" });
+  });
+
   it.each([
     ["قم بتوليد صورة لكود Python على شاشة", "لكود Python على شاشة"],
     ["أنشئ صورة لموقع شركة وتطبيق الهاتف", "لموقع شركة وتطبيق الهاتف"],
