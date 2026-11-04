@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { parseLocalizedNumber } from "@/lib/numberInput";
+import { calculatePercentageChange } from "@/lib/percentageChange";
 
 const num = (v: string) => parseLocalizedNumber(v, { fallback: NaN });
 const fmt = (n: number) => (Number.isFinite(n) ? n.toLocaleString("ar-SA", { maximumFractionDigits: 4 }) : "—");
@@ -15,6 +16,14 @@ function In({ value, set, label }: { value: string; set: (v: string) => void; la
   );
 }
 const Out = ({ v }: { v: string }) => <div className="rounded-xl bg-emerald-50 px-4 py-2 text-lg font-extrabold text-emerald-900">{v}</div>;
+
+function changeLabel(oldValue: number, newValue: number): string {
+  if (!Number.isFinite(oldValue) || !Number.isFinite(newValue)) return "—";
+  if (oldValue === 0) return "لا يمكن حساب نسبة التغيير من صفر";
+  const pct = calculatePercentageChange(oldValue, newValue);
+  if (pct === null) return "لا يمكن حساب نسبة التغيير من صفر";
+  return `${fmt(pct)}٪ ${newValue >= oldValue ? "زيادة" : "نقصان"}`;
+}
 
 export default function PercentageCalculator() {
   const [a1, setA1] = useState("15");
@@ -38,7 +47,7 @@ export default function PercentageCalculator() {
       </Row>
       <Row>
         <p className="font-bold text-slate-800">نسبة التغيير من <In value={a3} set={setA3} label="القيمة القديمة" /> إلى <In value={b3} set={setB3} label="القيمة الجديدة" /></p>
-        <Out v={`${fmt(((num(b3) - num(a3)) / Math.abs(num(a3))) * 100)}٪ ${num(b3) >= num(a3) ? "زيادة" : "نقصان"}`} />
+        <Out v={changeLabel(num(a3), num(b3))} />
       </Row>
       <Row>
         <p className="font-bold text-slate-800">سعر <In value={a4} set={setA4} label="السعر" /> بعد خصم <In value={b4} set={setB4} label="الخصم" />٪</p>
