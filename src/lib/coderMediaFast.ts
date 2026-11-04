@@ -181,6 +181,16 @@ export function mediaRouterInput(text: string, context: MediaFollowupContext = {
   return (prev ? prev + "\n" : "") + "NEW message: " + String(text).slice(0, 400);
 }
 
+export const MEDIA_NOT_DONE = "لم يُرسَل أي ملف هذه المرة: لم يكتمل إنشاء الوسائط. أعد إرسال طلبك وسأحاول مجدداً (لم يُحسب من حصتك).";
+/** The answer without its sentences that claim a file was sent (nothing was delivered in this run). When nothing else is left:
+ *  the "media did not finish" note if this run tried to make media, else a short honest line. */
+export function dropMediaClaims(text: string, mediaTried: boolean): string {
+  const parts = String(text || "").split(/(?<=[.!؟?。\n])/);
+  const kept = parts.filter((p) => !claimsMediaSent(p)).join("").replace(/\n{3,}/g, "\n\n").trim();
+  if (kept.replace(/[\s\p{P}\p{S}]/gu, "").length >= 2) return kept;
+  return mediaTried ? MEDIA_NOT_DONE : "لم أُرسل أي ملف في هذا الرد.";
+}
+
 /** A final answer that says a picture / video / audio WAS sent. Used only to stop a false claim when nothing was delivered in that run. */
 export function claimsMediaSent(text: string): boolean {
   const t = String(text || "");

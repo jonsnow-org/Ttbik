@@ -54,6 +54,7 @@ export type Run = {
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
   mediaSent?: number;                                                 // media files really delivered to the chat in this run (make_media)
+  mediaTried?: number;                                                // make_media calls in this run (delivered or not)
 };
 export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
 export type { Db };
@@ -667,6 +668,11 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
 }
 
 /** Takes a clear media request out of the general worker's hands. False = not a media request (or media is off here): the normal path runs. */
+/** The history's answer to a media request while it is still being made (replaced by the result). */
+export function mediaPendingNote(kind: "image" | "video" | "audio"): string {
+  return kind === "image" ? "⏳ أعمل على إنشاء الصورة الآن وسأرسلها هنا عند اكتمالها." : kind === "audio" ? "⏳ أعمل على إنشاء الصوت الآن وسأرسله هنا عند اكتماله." : "⏳ أعمل على إنشاء المقطع الآن وسأرسله هنا عند اكتماله.";
+}
+
 async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, content: string, db: Db): Promise<boolean> {
   const selectedModel = st.model || "coder";
   if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
@@ -702,7 +708,9 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
     return true;
   }
   const runId = randomUUID().slice(0, 12);
-  st.messages.push({ role: "user", content });
+  // the request is answered in the history right away (replaced by the real result when it ends): a message sent while the picture is still being made
+  // must not see an unanswered picture request and "answer" it with "here is the picture" (owner's live test 2026-11-04: «مرحبا» got the media failure note)
+  st.messages.push({ role: "user", content }, { role: "assistant", content: mediaPendingNote(intent.kind) });
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
   const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
@@ -803,9 +811,8 @@ async function fastMedia(
         const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
         await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
         if (media?.b64 && (media.type === "image" || media.type === "video" || media.type === "audio")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
-        const showPrompt = rawTest && process.env.MEDIA_SHOW_PROMPT === "1";   // off by default (owner 2026-11-04: never talk about the English prompt)
         if (media?.b64 && media.type === "image" && kind === "image") {
-          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), showPrompt ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);
+          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04); it is in the task log for the owner
           delivered = true;
         } else if (media?.b64 && media.type === "video" && kind === "video") {
           await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
@@ -830,7 +837,12 @@ async function fastMedia(
     await taskEvent(runId, delivered ? "done" : "failed", delivered ? result : say || result, db);
     const cur = await loadState(chatId, db).catch(() => null);
     if (cur) {
-      cur.messages.push({ role: "assistant", content: delivered ? result : say || result });
+      const final = delivered ? result : say || result;
+      const pending = mediaPendingNote(kind);
+      let at = -1;
+      for (let i = cur.messages.length - 1; i >= 0 && at < 0; i--) if (cur.messages[i].role === "assistant" && cur.messages[i].content === pending) at = i;
+      if (at >= 0) cur.messages[at] = { role: "assistant", content: final };
+      else cur.messages.push({ role: "assistant", content: final });
       await saveState(chatId, cur, db);
       if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(coderChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
     }
@@ -2001,10 +2013,15 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
 }
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
-  if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0) && (await import("@/lib/coderMediaFast")).claimsMediaSent(text)) {
-    // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture)
-    text = "لم يُرسَل أي ملف هذه المرة: لم يكتمل إنشاء الوسائط. أعد إرسال طلبك وسأحاول مجدداً (لم يُحسب من حصتك).";
-    await taskEvent(run.id, "info", "blocked a final answer that claimed a media file was sent while none was delivered", db).catch(() => undefined);
+  if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0)) {
+    // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture). Only the false sentence goes:
+    // the rest of the answer stays (a greeting answered with "here is the picture" from an earlier turn keeps its greeting), and the "media did not finish"
+    // note is used only when this run really tried to make media.
+    const mf = await import("@/lib/coderMediaFast");
+    if (mf.claimsMediaSent(text)) {
+      text = mf.dropMediaClaims(text, Boolean(run.mediaTried));
+      await taskEvent(run.id, "info", "removed a sentence that claimed a media file was sent while none was delivered in this run", db).catch(() => undefined);
+    }
   }
   if (run.surface === "app") {
     const from = Math.max(0, Math.min(text.length, run.logged || 0));
@@ -2151,6 +2168,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         let from = "";
         try {
           if (call.function.name === "make_media") {
+            run.mediaTried = (run.mediaTried || 0) + 1;
             const kind = ["image", "audio", "video"].includes(String(a.kind)) ? (String(a.kind) as "image" | "audio" | "video") : null;
             const prompt = String(a.prompt || "").trim().slice(0, 600);
             const modelId = st.model || "coder";
@@ -2174,7 +2192,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
                   const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
                   const rb = realBot(bot);
                   if (media?.b64 && media.type === "image" && kind === "image") {
-                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"), rawTest && process.env.MEDIA_SHOW_PROMPT === "1" ? { caption: ("🔎 " + prompt).slice(0, 900) } : undefined);   // the prompt is never shown unless MEDIA_SHOW_PROMPT=1 (owner 2026-11-04)
+                    await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04)
                     out = "image generated by the selected model's own dedicated weight Studio and sent";
                   } else if (media?.b64 && media.type === "audio" && kind === "audio") {
                     await (rb.api as any).sendDocument(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
