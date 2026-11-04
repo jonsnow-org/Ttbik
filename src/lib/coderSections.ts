@@ -684,8 +684,8 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const routed = mf.reconcileRoute(await routeMediaByModel(chatId, content, context), content, context);
   let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
   if (routed?.kind === "chat") return false;
-  if (routed?.kind === "refuse") {
-    const why = "لا أستطيع إنشاء هذا المحتوى لأنه يخالف قواعد السلامة. يمكنك طلب صورة أو مقطع آخر.";
+  if (mf.sexualMinorRequest(content) || (routed && "prompt" in routed && mf.sexualMinorRequest(routed.prompt))) {
+    const why = "لا أنشئ محتوى جنسيًا يخص القاصرين.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
