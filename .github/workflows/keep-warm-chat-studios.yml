@@ -1,0 +1,25 @@
+name: "Keep the chat Studios awake (read-only ping)"
+# A sleeping free Studio adds a cold start (minutes) to the first message after a quiet hour. Every 10 minutes this sends one light HTTP GET
+# to each chat model's OWN Studio; no inference, no queue slot, nothing shared between models. Free: GitHub Actions on this repo.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: keep-warm-chat-studios
+  cancel-in-progress: true
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Ping each chat Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          for n in sham-donor-minicpmo45-test sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test lfm25-inference-server sham-v2-server; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
+            echo "$n HTTP $code"
+          done
