@@ -677,9 +677,47 @@ def cv_generate_long(
 # --- cpu_video END ---
 
 
+def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
+    """Runs in a fresh process: makes the clip, writes the MP4 to out_path (or the error text to out_path + '.err')."""
+    try:
+        data = cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        with open(out_path, "wb") as fh:
+            fh.write(data)
+    except BaseException as exc:  # noqa: BLE001
+        traceback.print_exc()
+        with open(out_path + ".err", "w", encoding="utf-8") as fh:
+            fh.write(f"{type(exc).__name__}: {str(exc)[:400]}")
+
+
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4."""
-    return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4.
+
+    Each clip runs in a FRESH process (2026-11-04 run logs: the first clip after a restart always finished, the SECOND one in the same process stalled
+    while loading or sampling, 13+ minutes without progress — the RAM the first pipeline left behind was never returned to the system). A child process
+    gives every byte back when it exits. NOVA_VIDEO_SUBPROCESS=0 runs in-process (tests)."""
+    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
+        return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    import multiprocessing as _mp
+    with tempfile.TemporaryDirectory(prefix="clip-") as d:
+        out = os.path.join(d, "clip.mp4")
+        proc = _mp.get_context("spawn").Process(target=_video_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
+        proc.start()
+        try:
+            passes = len(cv_chunk_plan(seconds))
+        except ValueError:
+            passes = 1                               # the child raises the same duration error with its message
+        limit = 300 + 240 * passes
+        proc.join(limit)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(10)
+            raise TimeoutError(f"video timed out after {limit}s")
+        if os.path.exists(out + ".err"):
+            raise RuntimeError(open(out + ".err", encoding="utf-8").read())
+        if proc.exitcode != 0 or not os.path.exists(out):
+            raise RuntimeError(f"native-video-failed: the clip process ended with code {proc.exitcode} (killed: out of memory?)")
+        with open(out, "rb") as fh:
+            return fh.read()
 
 
 def _run(kind: str, payload: dict) -> dict:

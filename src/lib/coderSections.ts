@@ -2012,7 +2012,15 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
   }
 }
 
+/** Drop <think>…</think> blocks (and an unclosed one at the end, still being written) from text the user will read. */
+export function stripThinkTags(text: string): string {
+  if (!/<\/?think>/i.test(text)) return text;
+  return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").replace(/<think>[\s\S]*$/i, "").replace(/<\/think>\s*/gi, "");
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
+  // a model's thought block is never shown (live 2026-11-04: LFM2.5 answered «مرحبا» with "<think></think>" twice before the greeting); an unclosed one at the tail is held back until it closes
+  text = stripThinkTags(text);
   if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0)) {
     // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture). Only the false sentence goes:
     // the rest of the answer stays (a greeting answered with "here is the picture" from an earlier turn keeps its greeting), and the "media did not finish"

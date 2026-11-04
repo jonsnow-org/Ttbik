@@ -64,3 +64,23 @@ class VideoJobs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VideoInFreshProcess(unittest.TestCase):
+    """A clip runs in a child process (the RAM of one clip is returned before the next); the child's error comes back to the caller."""
+
+    def test_child_error_reaches_the_caller(self):
+        import subprocess
+        import sys
+        script = (
+            "import sys; sys.path.insert(0, %r)\n"
+            "import app\n"
+            "if __name__ == '__main__':\n"
+            "    try:\n"
+            "        app._make_video('a cat', 5)\n"
+            "    except Exception as e:\n"
+            "        print('RAISED', type(e).__name__, e)\n"
+        ) % str(PATH.parent)
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertIn("RAISED RuntimeError", out.stdout)
+        self.assertIn("native-video-duration-limit", out.stdout)

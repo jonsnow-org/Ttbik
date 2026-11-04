@@ -62,6 +62,10 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
   }
 }
 
+/** How long a clip may take on the free CPU Studio: each 4 s pass loads the pipeline (~15 s), samples (~130 s) and decodes/encodes; 2 min start-up slack.
+ *  Live 2026-11-04: a 6 s clip (two passes) was given 300 s and timed out while the Studio was still working. */
+export const videoDeadlineMs = (seconds: number): number => 120000 + Math.ceil(seconds / 4) * 210000;
+
 /** kind image | audio | video. A video is ONE prompt (+ seconds) given to the Studio's text-to-video model; `scenes` / `narration` are accepted for old callers but never become stills.
  *  Every picture / sound / clip that comes back is vetted (src/lib/mediaQuality.ts): a blank or empty result is returned as a typed error, never as media. */
 export async function novaMakeMedia(
@@ -77,7 +81,7 @@ export async function novaMakeMedia(
     return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
   }
   const effectiveOpts = kind === "video"
-    ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(7200000, Math.max(Number(opts.timeoutMs) || 0, 300000, (videoSeconds as number) * 45000)) }
+    ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(7200000, Math.max(Number(opts.timeoutMs) || 0, 300000, videoDeadlineMs(videoSeconds as number))) }
     : opts;
   let last: MediaReply | null = null;
   const deadline = Date.now() + (effectiveOpts.timeoutMs ?? 240000);
