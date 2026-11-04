@@ -66,6 +66,8 @@ jobs:
           cache: npm
       - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
       - run: npm ci
+      - name: Run project source regression tests
+        run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tests/*.test.mjs
       - run: npm run build
       - name: Test Cloudflare gate failover with simulated origin outages
         run: node cloudflare/site-gate/selftest.mjs
