@@ -117,9 +117,21 @@ export async function POST(req: NextRequest) {
       case "follow": {
         if (!target || target === me.id) return bad("invalid target");
         if (await isBlockedEitherWay(db, me.id, target)) return bad("blocked", 403);
-        const { error } = await db.from("media_follows").upsert({ follower_id: me.id, followee_id: target }, { onConflict: "follower_id,followee_id" });
+        const { data: inserted, error } = await db
+          .from("media_follows")
+          .upsert(
+            { follower_id: me.id, followee_id: target },
+            { onConflict: "follower_id,followee_id", ignoreDuplicates: true },
+          )
+          .select("follower_id")
+          .maybeSingle();
         if (error) throw error;
-        await notify(db, { toId: target, fromId: me.id, fromName: me.name, type: "follow" }).catch(() => null);
+
+        // Notify only for a newly-created relation. A retry after a lost
+        // response is idempotent and must not send another follow notification.
+        if (inserted) {
+          await notify(db, { toId: target, fromId: me.id, fromName: me.name, type: "follow" }).catch(() => null);
+        }
         return ok();
       }
       case "set_avatar": {

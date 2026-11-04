@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
 type Format = "image/webp" | "image/jpeg" | "image/png";
 
@@ -178,7 +179,7 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
           return;
         }
 
-        const limit = parseInt(maxWidth, 10);
+        const limit = Math.floor(parseLocalizedNumber(maxWidth));
         if (limit > 0 && width > limit) {
           height = Math.round((height * limit) / width);
           width = limit;

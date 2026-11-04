@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import ShareCard from "@/components/ShareCard";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
 function parseNum(v: string): number {
-  const n = parseFloat(v.replace(/,/g, "").replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? Math.max(0, n) : 0;
+  return Math.max(0, parseLocalizedNumber(v));
 }
 
 function fmt(n: number, digits = 2): string {

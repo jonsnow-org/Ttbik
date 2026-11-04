@@ -1,40 +1,25 @@
 "use client";
 
 import { useMemo, useState } from "react";
-
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const DAY = 86400000;
+import { parseLocalizedNumber } from "@/lib/numberInput";
+import {
+  addCalendarDays,
+  addDaysForDisplay,
+  calculateDateDifference,
+  formatLocalDate,
+} from "@/lib/dateDifference";
 
 export default function DateDifference() {
-  const [from, setFrom] = useState(iso(new Date()));
-  const [to, setTo] = useState(iso(new Date(Date.now() + 30 * DAY)));
+  const [from, setFrom] = useState(() => formatLocalDate(new Date()));
+  const [to, setTo] = useState(() => addCalendarDays(formatLocalDate(new Date()), 30));
   const [add, setAdd] = useState("90");
 
-  const diff = useMemo(() => {
-    const a = new Date(from + "T00:00:00Z");
-    const b = new Date(to + "T00:00:00Z");
-    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-    const [s, e] = a <= b ? [a, b] : [b, a];
-    let y = e.getUTCFullYear() - s.getUTCFullYear();
-    let m = e.getUTCMonth() - s.getUTCMonth();
-    let d = e.getUTCDate() - s.getUTCDate();
-    if (d < 0) {
-      m -= 1;
-      d += new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), 0)).getUTCDate();
-    }
-    if (m < 0) {
-      y -= 1;
-      m += 12;
-    }
-    const days = Math.round((e.getTime() - s.getTime()) / DAY);
-    return { y, m, d, days, weeks: Math.floor(days / 7), hours: days * 24 };
-  }, [from, to]);
+  const diff = useMemo(() => calculateDateDifference(from, to), [from, to]);
 
   const added = useMemo(() => {
-    const a = new Date(from + "T00:00:00Z");
-    const n = parseInt(add, 10);
-    if (Number.isNaN(a.getTime()) || !Number.isFinite(n)) return "";
-    return new Date(a.getTime() + n * DAY).toLocaleDateString("ar-SA-u-ca-gregory", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+    const days = parseLocalizedNumber(add, { fallback: NaN });
+    if (!Number.isFinite(days)) return "";
+    return addDaysForDisplay(from, days);
   }, [from, add]);
 
   return (
@@ -47,8 +32,8 @@ export default function DateDifference() {
         </div>
         {diff && (
           <div className="rounded-xl bg-emerald-50 p-4 text-emerald-900">
-            <div className="text-lg font-extrabold">{diff.y} سنة و{diff.m} شهر و{diff.d} يوم</div>
-            <div className="mt-1 text-sm">= {diff.days.toLocaleString("ar-SA")} يوماً = {diff.weeks.toLocaleString("ar-SA")} أسبوعاً = {diff.hours.toLocaleString("ar-SA")} ساعة</div>
+            <div className="text-lg font-extrabold">{diff.years} سنة و{diff.months} شهر و{diff.days} يوم</div>
+            <div className="mt-1 text-sm">= {diff.totalDays.toLocaleString("ar-SA")} يوماً = {diff.weeks.toLocaleString("ar-SA")} أسبوعاً = {diff.hours.toLocaleString("ar-SA")} ساعة</div>
           </div>
         )}
       </div>

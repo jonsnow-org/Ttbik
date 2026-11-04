@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
 type Rates = {
   ton: { usd: number; sar: number };
@@ -63,18 +64,21 @@ export default function CryptoConverter() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        "https://api.coingecko.com/api/v3/simple/price?ids=the-open-network,bitcoin,ethereum,tether&vs_currencies=usd,sar",
-        { next: { revalidate: 60 } as RequestInit["next"] }
-      );
+      const res = await fetch("/api/tools/crypto-rates", { cache: "no-store" });
       if (!res.ok) throw new Error("فشل جلب الأسعار");
       const data = await res.json();
-      setRates({
-        ton: { usd: data["the-open-network"]?.usd ?? 0, sar: data["the-open-network"]?.sar ?? 0 },
-        btc: { usd: data.bitcoin?.usd ?? 0, sar: data.bitcoin?.sar ?? 0 },
-        eth: { usd: data.ethereum?.usd ?? 0, sar: data.ethereum?.sar ?? 0 },
-        usdt: { usd: data.tether?.usd ?? 1, sar: data.tether?.sar ?? 3.75 },
-      });
+      if (
+        !data.rates ||
+        !["ton", "btc", "eth", "usdt"].every((coin) =>
+          Number.isFinite(data.rates[coin]?.usd) &&
+          data.rates[coin].usd > 0 &&
+          Number.isFinite(data.rates[coin]?.sar) &&
+          data.rates[coin].sar > 0
+        )
+      ) {
+        throw new Error("بيانات الأسعار غير مكتملة");
+      }
+      setRates(data.rates as Rates);
     } catch {
       setError("تعذّر جلب الأسعار الحية. حاول مجدداً بعد دقيقة.");
       setRates(null);
@@ -87,7 +91,7 @@ export default function CryptoConverter() {
     load();
   }, [load]);
 
-  const num = parseFloat(amount.replace(/,/g, "")) || 0;
+  const num = parseLocalizedNumber(amount);
   let result = 0;
   if (rates && num > 0) {
     // Direct path when both have native rates

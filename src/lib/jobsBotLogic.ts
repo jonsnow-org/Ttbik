@@ -8,6 +8,7 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
   TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
@@ -1490,13 +1491,11 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       await setPending(tgUserId, null);
       const recipients = await prisma.jobsUser.findMany({ where: { id: { not: SUPER_ADMIN_ID } }, select: { id: true } });
       const messageText = formatBroadcastText(text);
-      let sent = 0;
-      for (const r of recipients) {
-        try {
-          await bot.api.sendMessage(Number(r.id), messageText);
-          sent++;
-        } catch {}
-      }
+      const { sent } = await sendTelegramBroadcast(
+        recipients.map((recipient) => recipient.id),
+        messageText,
+        (recipientId, payload) => bot.api.sendMessage(recipientId, payload),
+      );
       await bot.api.sendMessage(chatId, `✅ تم الإرسال إلى ${sent} من أصل ${recipients.length}.`);
       return;
     }

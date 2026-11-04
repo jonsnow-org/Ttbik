@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
-const num = (v: string) => {
-  const n = parseFloat(v.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : NaN;
-};
+const num = (v: string) => parseLocalizedNumber(v, { fallback: NaN });
 const fmt = (n: number) => (Number.isFinite(n) ? n.toLocaleString("ar-SA", { maximumFractionDigits: 4 }) : "—");
 
 function Row({ children }: { children: React.ReactNode }) {

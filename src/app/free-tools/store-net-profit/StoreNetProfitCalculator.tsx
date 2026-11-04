@@ -2,11 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { storeNetProfit } from "@/lib/storeProfit";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
-const parseNum = (v: string) => {
-  const n = parseFloat(v.replace(/,/g, "").replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))));
-  return Number.isFinite(n) ? n : 0;
-};
+const parseNum = (v: string) => parseLocalizedNumber(v);
 const fmt = (n: number, d = 2) => n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: d });
 
 const FIELDS = [

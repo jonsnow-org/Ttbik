@@ -9,6 +9,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, MIN_USD, MAX_USD, type Chain } from "@/lib/chainDeposits";
 import { ownerWalletSummary, sweepOwnerProfits, setPayoutsPaused } from "@/lib/ownerPayout";
 import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
@@ -1587,16 +1588,11 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // BotVisit is the accurate "who has actually started this bot" list.
     const visits = await prisma.botVisit.findMany({ where: { botId: botRow.id }, select: { tgUserId: true } });
     const messageText = formatBroadcastText(text);
-    let sent = 0;
-    let failed = 0;
-    for (const v of visits) {
-      try {
-        await bot.api.sendMessage(Number(v.tgUserId), messageText);
-        sent++;
-      } catch {
-        failed++;
-      }
-    }
+    const { sent, failed } = await sendTelegramBroadcast(
+      visits.map((visit) => visit.tgUserId),
+      messageText,
+      (recipientId, payload) => bot.api.sendMessage(recipientId, payload),
+    );
     await setPending(user.id, null);
     await bot.api.sendMessage(chatId, `تم الإرسال: ${sent} نجح، ${failed} فشل.`, { reply_markup: ownerMainMenu(lang) });
     return;

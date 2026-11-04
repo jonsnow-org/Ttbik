@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { parseLocalizedNumber } from "@/lib/numberInput";
 
 const DAY = 86400000;
 const fmtDate = (d: Date) => d.toLocaleDateString("ar-SA-u-ca-gregory", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -13,7 +14,8 @@ export default function PregnancyCalculator() {
     if (!lmp) return null;
     const start = new Date(lmp + "T00:00:00");
     if (Number.isNaN(start.getTime())) return null;
-    const adj = (Math.min(45, Math.max(21, parseInt(cycle, 10) || 28)) - 28) * DAY;
+    const cycleDays = Math.trunc(parseLocalizedNumber(cycle, { fallback: 28 })) || 28;
+    const adj = (Math.min(45, Math.max(21, cycleDays)) - 28) * DAY;
     const due = new Date(start.getTime() + 280 * DAY + adj);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
