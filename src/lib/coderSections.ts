@@ -1476,6 +1476,10 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
 
 /** The Mini App's ⏹ and /stop: the Studio job is cancelled, the request ends as stopped, its queued messages are dropped. */
 export async function stopRun(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
+  const selected = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db, slot))).model || "coder");
+  return withEngineModel(selected, () => stopRunInner(chatId, slot, runId, db));
+}
+async function stopRunInner(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
   if (!st.run || (runId && st.run.id !== runId)) return false;
   if (st.run.job) await coderCancel(st.run.job).catch(() => null);
@@ -1522,6 +1526,12 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
  * the Telegram buttons are removed, the app sees the pending card disappear). Returns false when nothing was pending under that nonce.
  */
 export async function resolvePending(
+  bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
+): Promise<boolean> {
+  const selected = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder");
+  return withEngineModel(selected, () => resolvePendingInner(bot, botRow, chatId, runId, nonce, answer, db, msgId));
+}
+async function resolvePendingInner(
   bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
 ): Promise<boolean> {
   const slot = (await taskSlot(runId, chatId, db)) ?? "";
