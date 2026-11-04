@@ -24,6 +24,20 @@ export function normalizeLocalizedDigits(value: string): string {
 }
 
 /**
+ * A single comma (Western or Arabic) followed by one or two digits is read as
+ * a decimal mark ("2،5" -> "2.5"). Three digits after it keep the thousands
+ * meaning ("1,250" -> "1250").
+ */
+function readSingleCommaAsDecimal(value: string): string {
+  const digits = String(value ?? "")
+    .trim()
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - "٠".charCodeAt(0)))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - "۰".charCodeAt(0)));
+  const match = digits.match(/^([+-]?\d+)[،,](\d{1,2})$/);
+  return match ? `${match[1]}.${match[2]}` : value;
+}
+
+/**
  * Parse numeric text entered with Western, Arabic-Indic or Persian digits.
  * Arabic decimal/thousands marks are normalized without changing the
  * calculator's downstream arithmetic or currency conventions.
@@ -33,7 +47,9 @@ export function parseLocalizedNumber(
   options: LocalizedNumberOptions = {},
 ): number {
   const fallback = options.fallback ?? 0;
-  let normalized = normalizeLocalizedDigits(value);
+  let normalized = normalizeLocalizedDigits(
+    options.commaDecimal ? value : readSingleCommaAsDecimal(value),
+  );
 
   if (options.commaDecimal) {
     normalized = normalized.replace(/,/g, ".");
