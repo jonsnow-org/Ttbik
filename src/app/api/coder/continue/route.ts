@@ -11,11 +11,12 @@ export async function POST(req: NextRequest) {
   if (!body?.botId || !body.chatId || !body.chain || !body.sig) return NextResponse.json({ error: "bad request" }, { status: 400 });
   const botRow = await prisma.bot.findUnique({ where: { id: body.botId } }).catch(() => null);
   if (!botRow || !botRow.isActive) return NextResponse.json({ status: "ignored" });
-  if (!verifyContinue(botRow.webhookSecret || "", botRow.id, body.chatId, body.chain, body.sig)) return NextResponse.json({ error: "bad signature" }, { status: 401 });
+  if (body.engineModel !== undefined && body.engineModel !== "coder" && body.engineModel !== "lfm25") return NextResponse.json({ error: "invalid engine model" }, { status: 400 });
+  if (!verifyContinue(botRow.webhookSecret || "", botRow.id, body.chatId, body.chain, body.sig, body.engineModel)) return NextResponse.json({ error: "bad signature" }, { status: 401 });
   const [who, ...rest] = body.chatId.split("#");                    // "<chatId>" or "<chatId>#s:<scheduleId>" (a scheduled task's slot; signed)
   const chatId = Number(who);
   const slot = rest.join("#");
   const chain = body.chain;
-  later(() => continueRun(botRow, chatId, chain, undefined, slot));
+  later(() => continueRun(botRow, chatId, chain, undefined, slot, body.engineModel === "lfm25" ? "lfm25" : "coder"));
   return NextResponse.json({ status: "accepted" }, { status: 202 });
 }
