@@ -1,6 +1,25 @@
-import { cleanDesktopArgs } from "@/lib/desktopComputer";
+import { cleanDesktopArgs, desktopLive } from "@/lib/desktopComputer";
 
 describe("the graphical Linux desktop RPC contract", () => {
+  test("opens the bounded live stream using the selected model's private session", async () => {
+    process.env.COMPUTER_STUDIO_URL = "https://computer.test";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "live-1" }), { status: 200 });
+      return new Response("event: generating\\ndata: []\\n\\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const response = await desktopLive("lfm25", "77:lfm25", 40, fetchMock);
+    expect(response.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe("https://computer.test/gradio_api/call/live");
+    const encoded = JSON.parse(String(calls[0].init?.body)).data[0] as string;
+    const args = JSON.parse(Buffer.from(encoded.slice(4), "base64").toString("utf8"));
+    expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.5 });
+    expect(calls[1].url).toBe("https://computer.test/gradio_api/call/live/live-1");
+    delete process.env.COMPUTER_STUDIO_URL;
+  });
+
   test("accepts only supported actions and validates keyboard events", () => {
     expect(cleanDesktopArgs({ action: "status" })).toEqual({ action: "status" });
     expect(cleanDesktopArgs({ action: "start" })).toEqual({ action: "start" });
