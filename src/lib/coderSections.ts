@@ -192,19 +192,17 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
 export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): Promise<ChatState> {
   const shared = await withEngineModel("coder", () => loadStateStrict(chatId, db));
   const current = await withEngineModel("lfm25", () => loadStateStrict(chatId, db));
-  if (current.model === "lfm25") return current;
-  const fresh: ChatState = {
-    ...emptyState(),
-    model: "lfm25",
-    lang: shared.lang,
-    tz: shared.tz,
-    repo: shared.repo,
-    menu: shared.menu,
-    perModel: { lfm25: shared.perModel?.lfm25 },
-    memPer: { lfm25: shared.memPer?.lfm25 },
-  };
-  await withEngineModel("lfm25", () => saveStateStrict(chatId, fresh, db));
-  return fresh;
+  const privateState: ChatState = current.model === "lfm25" ? current : { ...emptyState(), model: "lfm25" };
+  // Keep account-wide preferences/settings fresh without ever copying the selected model's conversation.
+  privateState.model = "lfm25";
+  privateState.lang = shared.lang;
+  privateState.tz = shared.tz;
+  privateState.repo = shared.repo;
+  privateState.menu = shared.menu;
+  privateState.perModel = { ...(privateState.perModel || {}), lfm25: shared.perModel?.lfm25 };
+  privateState.memPer = { ...(privateState.memPer || {}), lfm25: shared.memPer?.lfm25 };
+  await withEngineModel("lfm25", () => saveStateStrict(chatId, privateState, db));
+  return privateState;
 }
 
 // ---------------------------------------------------------------- signing of the self-continuation
@@ -419,14 +417,15 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     if (!chatId) return false;
     if (data.startsWith("model_pick|")) {
       const id = data.slice("model_pick|".length);
-      const state = await loadStateStrict(chatId, db);
+      // The selected model is account-level routing state; persist it in Nova's shared selector row even when this callback came from LFM2.5.
+      const state = await withEngineModel("coder", () => loadStateStrict(chatId, db));
       const models = await listModels(db);
       if (!chooseModel(state, models, id, owner)) {
         await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب.", show_alert: true }).catch(() => null);
         return true;
       }
       state.donorTestModel = undefined;
-      await saveStateStrict(chatId, state, db);
+      await withEngineModel("coder", () => saveStateStrict(chatId, state, db));
       await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
       const selected = models.find((m) => m.id === id);
       await send(bot, chatId, "✅ النموذج المحدد: " + (selected?.name.ar || id) + ". كل الرسائل التالية ستذهب إلى مساره فقط، دون تحويلها إلى نموذج آخر.");
