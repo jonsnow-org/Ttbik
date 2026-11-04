@@ -129,7 +129,6 @@ export const MEDIA_ROUTER_SYSTEM = "You route ONE new chat message of a user who
   + "IMAGE [wide|tall|square] <English prompt> — make a picture now.\n"
   + "VIDEO <seconds> [wide|tall|square] <English prompt> — make a video now; seconds = what the user asked (6, 10, 15, 30, 60 or 120), 10 when not stated. A message that says video / فيديو / فديو / مقطع is a VIDEO, never an IMAGE.\n"
   + "AUDIO <the exact words to speak, in the user's language> — read text aloud / make speech now.\n"
-  + "NO — a media request the safety rules forbid (any sexual content involving minors, explicit sexual acts or nudity, sexual images of real people, graphic gore).\n"
   + "A short message that only describes a subject, sent right after a picture or video request or result, continues it: same kind, the NEW subject.\n"
   + "English prompt rules: translate the user's description FAITHFULLY (every subject, number, colour, gender, age, body type, clothing, action and setting, in order of importance); never add, soften, replace or invent anything; drop only the command words and the duration; words of beauty (حسناء, جميلة, فاتنة, وسيم) mean beautiful / pretty / stunning / handsome and say nothing about clothing or the body; never add clothing, undressing, body or pose details the user did not write; up to 40 words. Ordinary portraits, people at a beach or pool, swimwear, everyday clothing, sports, and non-graphic medical or educational scenes are allowed. [wide] for scenes or several subjects, [tall] for one standing person, [square] otherwise.\n"
   + "Examples:\n"
