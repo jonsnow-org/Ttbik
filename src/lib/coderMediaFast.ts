@@ -200,7 +200,8 @@ export function dropMediaClaims(text: string, mediaTried: boolean): string {
   const parts = String(text || "").split(/(?<=[.!؟?。\n])/);
   const kept = parts.filter((p) => !claimsMediaSent(p)).join("").replace(/\n{3,}/g, "\n\n").trim();
   if (kept.replace(/[\s\p{P}\p{S}]/gu, "").length >= 2) return kept;
-  return mediaTried ? MEDIA_NOT_DONE : "لم أُرسل أي ملف في هذا الرد.";
+  // nothing but a false claim, and no media was asked for in this run (live 2026-11-04: «مرحبا» got "I sent no file in this reply"): answer like a reply would
+  return mediaTried ? MEDIA_NOT_DONE : "كيف يمكنني مساعدتك؟";
 }
 
 /** A final answer that says a picture / video / audio WAS sent. Used only to stop a false claim when nothing was delivered in that run. */

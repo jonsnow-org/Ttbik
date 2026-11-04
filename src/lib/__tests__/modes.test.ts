@@ -1,7 +1,7 @@
 // ONE mode system for every model (src/lib/modes.ts, docs/MODES.md): classification, the mode table, thinking rules, Nova's real loop, Sham's agent, the owner's force.
 import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM } from "@/lib/modes";
 import { _setForcedForTests, forcedMode, refreshForced } from "@/lib/modeForce";
-import { drive, saveState, loadState, type Db } from "@/lib/coderSections";
+import { drive, saveState, loadState, withModelIdentity, type Db } from "@/lib/coderSections";
 import { shamAgentRun } from "@/lib/shamAgent";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 import { shamToolDefs } from "@/lib/shamAgent";
@@ -149,7 +149,7 @@ describe("Nova's real loop uses the profile", () => {
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const first = chats(calls)[0].body;
     expect(first.tools).toBe(""); expect(first.think).toBe(""); expect(first.max_tokens).toBe(200);
-    expect(JSON.parse(first.messages)[0].content).toBe(NOVA_LITE_SYSTEM);
+    expect(JSON.parse(first.messages)[0].content).toBe(withModelIdentity(NOVA_LITE_SYSTEM, "coder"));
     expect(sent.map((s) => s.text)).toContain("أهلاً بك!");
   });
   it("a greeting right after a question or a tool call keeps the full path (it may be the answer to it)", async () => {
@@ -166,7 +166,7 @@ describe("Nova's real loop uses the profile", () => {
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const first = chats(calls)[0].body;
     expect(first.tools).not.toBe(""); expect(first.think).toBe("1"); expect(first.max_tokens).toBe(0);
-    expect(JSON.parse(first.messages)[0].content).not.toBe(NOVA_LITE_SYSTEM);
+    expect(JSON.parse(first.messages)[0].content).not.toBe(withModelIdentity(NOVA_LITE_SYSTEM, "coder"));
   });
   it("agent work, adaptive (default): a thought at the PLAN stage only; the tool steps do not think", async () => {
     const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };

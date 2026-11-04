@@ -18,3 +18,41 @@ describe("video deadline follows the number of 4 s passes", () => {
     expect(videoDeadlineMs(120)).toBeLessThan(7200000);
   });
 });
+
+import { withModelIdentity, modelDisplayName } from "@/lib/coderSections";
+import { NOVA_LITE_SYSTEM } from "@/lib/modes";
+import { coderSystemPrompt } from "@/lib/coderAgent";
+import { dropMediaClaims } from "@/lib/coderMediaFast";
+import { parseShamReply } from "@/lib/shamStudio";
+
+describe("each model knows who it is and what it can do (live 2026-11-04: LFM2.5 «من انت» → the repo name, 'I can't make images')", () => {
+  it("LFM2.5 introduces itself as LFM2.5 on Sham AI, never as Nova AI, and knows it makes media", () => {
+    expect(modelDisplayName("lfm25")).toBe("LFM2.5");
+    for (const base of [NOVA_LITE_SYSTEM, coderSystemPrompt({ github: true, notes: "", date: false })]) {
+      const s = withModelIdentity(base, "lfm25");
+      expect(s).not.toMatch(/Nova AI/);
+      expect(s).toMatch(/I'm LFM2\.5 on Sham AI/);
+      expect(s).toMatch(/CAN make pictures, short videos and Arabic speech/);
+      expect(s).toMatch(/Never call yourself by a repository/);
+    }
+  });
+  it("Nova stays Nova AI and gets the same capabilities line; the text is the same every call (prompt cache)", () => {
+    const a = withModelIdentity(NOVA_LITE_SYSTEM, "coder");
+    expect(a).toMatch(/I'm Nova AI/);
+    expect(a).toMatch(/CAN make pictures/);
+    expect(withModelIdentity(NOVA_LITE_SYSTEM, "coder")).toBe(a);
+    expect(modelDisplayName("qwen35-9b")).toBe("Qwen3.5-9B");
+  });
+});
+
+describe("greeting never gets a 'no file' note (live 2026-11-04 5:07 AM)", () => {
+  it("a reply that was only a false claim, with no media asked for, becomes a normal question back", () => {
+    expect(dropMediaClaims("ها هي الصورة.", false)).toBe("كيف يمكنني مساعدتك؟");
+  });
+});
+
+describe("Sham v2's empty thought never shows", () => {
+  it("parseShamReply strips <think></think> from text", () => {
+    expect(parseShamReply(JSON.stringify({ type: "text", text: "<think></think>\nأهلاً" }))?.text).toBe("أهلاً");
+  });
+});
