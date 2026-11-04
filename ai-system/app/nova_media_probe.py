@@ -168,6 +168,45 @@ class Studio:
             self.sleep(3)
         raise ProbeError(f"{api}: no result after {timeout:.0f}s")
 
+    def video_job(self, payload: dict, timeout: float = 2400) -> dict:
+        """Exercise Nova's production video route: video_start, then short job polls; never the legacy synchronous video API."""
+        end = self.now() + timeout
+        last = None
+        while self.now() < end:
+            left = max(1.0, end - self.now())
+            started = self.call("video_start", payload, timeout=min(60.0, left))
+            if started.get("type") == "busy":
+                self.sleep(min(5.0, max(0.0, end - self.now())))
+                last = started
+                continue
+            if started.get("type") == "video":
+                return started
+            if started.get("type") == "error":
+                raise ProbeError("video_start returned an error: " + str(started.get("text") or started.get("reason") or "unknown")[:180])
+            if started.get("type") != "job" or not started.get("job"):
+                raise ProbeError("video_start returned no job id: " + str(started)[:180])
+            job_id = str(started["job"])
+            while self.now() < end:
+                left = end - self.now()
+                wait = max(1, min(20, int(left) - 3))
+                result = self.call("job", {"job": job_id, "wait": wait}, timeout=min(60.0, wait + 30.0, left))
+                kind = str(result.get("type") or "")
+                if kind == "running":
+                    continue
+                if kind == "video":
+                    return result
+                if kind == "busy":
+                    last = result
+                    break
+                if kind == "error":
+                    reason = str(result.get("reason") or "unknown")
+                    detail = str(result.get("text") or reason)[:180]
+                    raise ProbeError("video job failed (" + reason + "): " + detail)
+                raise ProbeError("video job returned an unexpected result: " + str(result)[:180])
+            if self.now() < end:
+                self.sleep(min(5.0, max(0.0, end - self.now())))
+        raise ProbeError("video job did not finish within " + str(int(timeout)) + "s; last state: " + str(last or "running"))
+
     def status(self) -> dict:
         return self.call("status", {}, timeout=60)
 
@@ -223,7 +262,7 @@ def main() -> int:
     steps = [
         ("image", "image", {"prompt": os.environ.get("PROBE_PROMPT", "").strip() or "a small red apple on a clean white table, natural light", "size": 512, "seed": int(os.environ.get("PROBE_SEED", "17") or 17)}, verify_image, "probe.png", "image"),
         ("speech", "audio", {"text": "مرحبا، هذا اختبار صوت نوفا العربي."}, verify_audio, "probe.wav", "speech"),
-        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": 2, "seed": 17}, verify_video, "probe.mp4", "video"),
+        ("video", "video", {"prompt": "a red apple slowly rotating on a white table, camera slowly orbiting", "seconds": int(os.environ.get("VIDEO_SECONDS", "6") or 6), "seed": 17}, verify_video, "probe.mp4", "video"),
     ]
     try:
         steps = select_probe_steps(steps)
@@ -233,7 +272,8 @@ def main() -> int:
     for api, kind, payload, verify, fname, label in steps:
         t0 = time.time()
         try:
-            raw = _bytes(st.call(api, payload), kind, label)
+            reply = st.video_job(payload, timeout=float(os.environ.get("VIDEO_TIMEOUT", "2400"))) if label == "video" else st.call(api, payload)
+            raw = _bytes(reply, kind, label)
             with open(os.path.join(outdir, fname), "wb") as fh:
                 fh.write(raw)
             print(f"PASS {label}: {len(raw)} bytes in {time.time() - t0:.0f}s {json.dumps(verify(raw))}")
