@@ -989,12 +989,14 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     else if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
     else {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
+      const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + text.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
       prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
     let aspect: "wide" | "tall" | "square" | undefined;
     if (prompt) { const sp = mf.splitAspect(prompt); prompt = sp.prompt; aspect = sp.aspect; }
     if (!prompt) return await askForDescription();
+    if (mf.sexualMinorRequest(text) || mf.sexualMinorRequest(prompt)) { await bot.api.sendMessage(chatId, "لا أنشئ محتوى جنسيًا يخص القاصرين.").catch(() => null); return true; }
     await taskEvent(runId, "tool", `make_media ${intent.kind}: ${prompt}`).catch(() => null);
     const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
     await cardTool(bot, chatId, card, stepLabel("make_media", { kind: intent.kind }));
