@@ -58,7 +58,7 @@ describe("LFM2.5 conversation isolation", () => {
     expect(lfmAfter.messages.map((m) => m.content)).toEqual(["محادثة LFM2.5 فقط"]);
     expect(lfmAfter.notes).toBe("LFM private notes");
     expect(lfmAfter.threadId).toBe("lfm-thread");
-    expect(stateKey(OWNER, "coder")).not.toBe(stateKey(OWNER, "lfm25"));
+    expect(withEngineModel("coder", () => stateKey(OWNER))).not.toBe(withEngineModel("lfm25", () => stateKey(OWNER)));
   });
 
   it("keeps LFM2.5 chat threads and long-term memory out of Nova's stores", async () => {
