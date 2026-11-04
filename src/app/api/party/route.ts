@@ -26,7 +26,9 @@ const NO_PERSISTENCE_WARNING =
 
 function sb() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+  // Party state and messages are private; only the server-side service-role
+  // client can access them after Telegram identity and membership checks.
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   if (!url || !key) {
     if (!warnedNoSupabase) {
       warnedNoSupabase = true;

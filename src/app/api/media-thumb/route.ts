@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isPlaceholderTitle, isTikTok, mediaDb, tiktokOembed } from "@/lib/mediaSocial";
+import { canAccessMediaPost } from "@/lib/mediaVisibility";
 
 // Preview image for a feed item. TikTok items were saved with no thumbnail
 // at all (owner report 2026-09-24: TikTok cards showed an empty preview),
@@ -16,8 +17,8 @@ export async function GET(req: NextRequest) {
   const db = await mediaDb();
   if (!db) return new NextResponse("not configured", { status: 503 });
 
-  const { data } = await db.from("media_feed").select("id,url,thumbnail,title").eq("id", id).maybeSingle();
-  if (!data) return new NextResponse("not found", { status: 404 });
+  const { data } = await db.from("media_feed").select("id,url,thumbnail,title,hidden,squad_code").eq("id", id).maybeSingle();
+  if (!canAccessMediaPost(data, req.nextUrl.searchParams.get("squad"))) return new NextResponse("not found", { status: 404 });
   const row = data as any;
 
   let imageUrl = String(row.thumbnail || "");
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "content-type": type,
         // TikTok URLs expire in hours; keep our cached copy well inside that.
-        "cache-control": "public, max-age=3600, s-maxage=21600, stale-while-revalidate=86400",
+        "cache-control": row.squad_code ? "private, no-store" : "public, max-age=3600, s-maxage=21600, stale-while-revalidate=86400",
       },
     });
   } catch {

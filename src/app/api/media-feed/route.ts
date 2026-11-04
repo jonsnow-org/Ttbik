@@ -253,11 +253,11 @@ export async function GET(req: NextRequest) {
   }
   if (sharer) items = items.filter((i) => i.sharer_id === sharer);
 
-  if (squad) items = items.filter((i) => (i.squad_code || "") === squad);
-  // Private squads previously hid their content from the owner too --
-  // there was no way to reach or moderate what got posted inside one. The
-  // owner's verified admin view now sees everything, squad or not; the
-  // normal public feed still excludes squad-only posts by default.
+  // A squad code is an invitation secret, not a substitute for the
+  // Telegram-signed owner identity required to browse private room contents.
+  // Only the verified owner admin view may apply a squad filter; normal
+  // visitors always receive public posts even if they guess or supply a code.
+  if (includeHidden && squad) items = items.filter((i) => (i.squad_code || "") === squad);
   else if (!includeHidden) items = items.filter((i) => !i.squad_code);
 
   if (type !== "all") {
@@ -349,7 +349,11 @@ export async function GET(req: NextRequest) {
     liked: likedIds.has(rest.id),
     ...rest,
     // TikTok thumbnails are never stored (and expire) — see /api/media-thumb.
-    thumbnail: isTikTok(rest.url) || !rest.thumbnail ? (isTikTok(rest.url) ? `/api/media-thumb?id=${rest.id}` : "") : rest.thumbnail,
+    thumbnail: isTikTok(rest.url) || !rest.thumbnail
+      ? (isTikTok(rest.url)
+          ? `/api/media-thumb?id=${rest.id}${rest.squad_code ? `&squad=${encodeURIComponent(rest.squad_code)}` : ""}`
+          : "")
+      : rest.thumbnail,
   }));
   return NextResponse.json({
     items: publicItems,

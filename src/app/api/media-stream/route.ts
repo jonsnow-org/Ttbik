@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { canAccessMediaPost } from "@/lib/mediaVisibility";
+
 export const dynamic = "force-dynamic";
 
 // Real inline player support for the mini-app. Downloaded media only ever
@@ -30,8 +32,8 @@ export async function GET(req: NextRequest) {
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data } = await db.from("media_feed").select("file_id,media_type,hidden").eq("id", id).maybeSingle();
-    if (data && !(data as any).hidden) {   // a post the owner hid must not stay playable by its id
+    const { data } = await db.from("media_feed").select("file_id,media_type,hidden,squad_code").eq("id", id).maybeSingle();
+    if (canAccessMediaPost(data, req.nextUrl.searchParams.get("squad"))) {
       fileId = String((data as any).file_id || "") || null;
       mediaType = String((data as any).media_type || "video");
     }
@@ -74,7 +76,7 @@ export async function GET(req: NextRequest) {
     const fallbackType = mediaType === "audio" || mediaType === "voice" ? "audio/mpeg" : "video/mp4";
     const headers: Record<string, string> = {
       "content-type": mediaResp.headers.get("content-type") || fallbackType,
-      "cache-control": "public, max-age=3600, immutable",
+      "cache-control": req.nextUrl.searchParams.get("squad") ? "private, no-store" : "public, max-age=3600, immutable",
     };
     // Only advertise byte-range support when the upstream actually provides
     // it. Some Telegram/CDN responses ignore Range and return the full file

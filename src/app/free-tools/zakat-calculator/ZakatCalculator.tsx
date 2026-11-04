@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import ShareCard from "@/components/ShareCard";
 import { parseLocalizedNumber } from "@/lib/numberInput";
+import { zakatPriceRequirements, zakatMissingPricesMessage } from "@/lib/zakatPriceRequirements";
 
 function parseNum(v: string): number {
   return Math.max(0, parseLocalizedNumber(v));
@@ -83,14 +84,20 @@ export default function ZakatCalculator() {
     }
 
     const hasPrice = goldPrice > 0 || silverPrice > 0;
-    const reached = metByWeight || (hasPrice && nisabThreshold > 0 && net >= nisabThreshold);
-
-    const zakatDue = reached ? net * ZAKAT_RATE : 0;
-
-    // Money to check but no gram price for the chosen standard: the nisab cannot be known,
-    // so ask for the price instead of answering "not reached".
     const selectedPrice = useGoldNisab ? goldPrice : silverPrice;
-    const needsPrice = !reached && net > 0 && selectedPrice <= 0;
+    const priceRequirements = zakatPriceRequirements({
+      goldGrams: goldG,
+      goldPricePerGram: goldPrice,
+      silverGrams: silverG,
+      silverPricePerGram: silverPrice,
+      netAssets: net,
+      nisabPricePerGram: selectedPrice,
+    });
+    // An unpriced holding is missing from the asset total; do not return a
+    // definitive nisab decision until all entered metal and reference prices exist.
+    const needsPrice = priceRequirements.needsPrice;
+    const reached = !needsPrice && (metByWeight || (hasPrice && nisabThreshold > 0 && net >= nisabThreshold));
+    const zakatDue = reached ? net * ZAKAT_RATE : 0;
 
     return {
       assetsValue,
@@ -99,6 +106,7 @@ export default function ZakatCalculator() {
       hasPrice,
       reached,
       zakatDue,
+      ...priceRequirements,
       needsPrice,
       pureGoldG,
       silverG,
@@ -162,7 +170,7 @@ export default function ZakatCalculator() {
         )}
         <div className="flex justify-between text-sm border-t border-slate-200 pt-2">
           <span className="text-slate-700 font-semibold">هل بلغ النصاب؟</span>
-          <span className={`font-extrabold ${result.reached ? "text-emerald-700" : result.needsPrice ? "text-amber-700" : "text-slate-500"}`}>{result.reached ? "نعم — تجب الزكاة" : result.needsPrice ? (useGoldNisab ? "أدخل سعر جرام الذهب لمعرفة النصاب" : "أدخل سعر جرام الفضة لمعرفة النصاب") : "لا — لم يبلغ النصاب"}</span>
+          <span className={`font-extrabold ${result.reached ? "text-emerald-700" : result.needsPrice ? "text-amber-700" : "text-slate-500"}`}>{result.reached ? "نعم — تجب الزكاة" : result.needsPrice ? zakatMissingPricesMessage(result, useGoldNisab) : "لا — لم يبلغ النصاب"}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-slate-700 font-semibold">مبلغ الزكاة (2.5%)</span>

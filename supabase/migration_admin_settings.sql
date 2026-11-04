@@ -5,6 +5,16 @@ alter table public.media_feed add column if not exists hidden boolean default fa
 alter table public.media_feed add column if not exists duration_sec int default 0;
 alter table public.media_feed add column if not exists quality text default '';
 
+-- Public readers must never see owner-hidden or private-squad posts.
+drop policy if exists "public read media_feed" on public.media_feed;
+drop policy if exists "public read visible media_feed" on public.media_feed;
+create policy "public read visible media_feed" on public.media_feed
+  for select to anon, authenticated
+  using (
+    coalesce(hidden, false) = false
+    and coalesce(squad_code, '') = ''
+  );
+
 create table if not exists public.bot_settings (
   key text primary key,
   value jsonb not null default '{}',
