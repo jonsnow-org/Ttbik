@@ -29,3 +29,20 @@ test("normalizes Persian digits for BigInt-safe string consumers", async () => {
   assert.equal(normalizeLocalizedDigits("۹۹۹٬۹۹۹٫۲۵"), "999999.25");
   assert.equal(normalizeLocalizedDigits("١٢٣٤٥٦"), "123456");
 });
+
+test("interprets one or two comma decimals and preserves three-digit thousands groups", () => {
+  assert.equal(parseLocalizedNumber("2,5"), 2.5);
+  assert.equal(parseLocalizedNumber("2،5"), 2.5);
+  assert.equal(parseLocalizedNumber("−٢،٥"), -2.5);
+  assert.equal(parseLocalizedNumber("1,250"), 1250);
+  assert.equal(parseLocalizedNumber("١،٢٥"), 1.25);
+});
+
+
+test("interprets one or two comma decimals and preserves three-digit thousands groups", () => {
+  assert.equal(parseLocalizedNumber("2,5"), 2.5);
+  assert.equal(parseLocalizedNumber("2،5"), 2.5);
+  assert.equal(parseLocalizedNumber("−٢،٥"), -2.5);
+  assert.equal(parseLocalizedNumber("1,250"), 1250);
+  assert.equal(parseLocalizedNumber("١،٢٥"), 1.25);
+});
