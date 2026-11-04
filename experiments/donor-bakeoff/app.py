@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-04-r19"
+APP_REVISION = "donor-bakeoff-2026-11-04-r20"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
@@ -1037,6 +1037,72 @@ def _video_duration_seconds(value=4) -> int:
     return int(seconds)
 
 
+def _candidate_gradio_result(profile: dict, token: str, api: str, payload: dict, read_timeout: int = 45) -> dict:
+    """Call one hidden Gradio API on this candidate's private media Studio and decode its final SSE event."""
+    base = str(profile.get("base") or "").rstrip("/")
+    if not base.startswith("https://studio-novaai2026-sham-donor-") or not base.endswith("-media.api-inference.modelscope.net"):
+        raise RuntimeError("Candidate media Studio address is not approved.")
+    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+    submit = _gateway_retry(
+        "POST", base + "/gradio_api/call/v2/" + api,
+        json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30),
+    )
+    submit.raise_for_status()
+    event_id = str((submit.json() or {}).get("event_id") or "")
+    if not event_id:
+        raise RuntimeError("The candidate media Studio returned no event id for " + api + ".")
+    result = _gateway_retry(
+        "GET", base + "/gradio_api/call/" + api + "/" + event_id,
+        headers={"Authorization": "Bearer " + token}, timeout=(8, max(10, int(read_timeout))),
+    )
+    result.raise_for_status()
+    raw = result.text
+    if "event: error" in raw or "event: complete" not in raw:
+        raise RuntimeError("The candidate media Studio did not complete " + api + ": " + re.sub(r"\s+", " ", raw[-420:]).strip())
+    data = _decode_gradio_data(raw)
+    item = data[0] if isinstance(data, list) and data else data
+    if isinstance(item, str):
+        item = json.loads(item)
+    if not isinstance(item, dict):
+        raise RuntimeError("The candidate media Studio returned an unreadable " + api + " result.")
+    return item
+
+
+def _candidate_video_by_job(profile: dict, token: str, payload: dict, seconds: int) -> dict:
+    """Keep a request in flight while the selected candidate's CPU Studio renders a long clip in its own background job."""
+    deadline = time.monotonic() + 120 + ((int(seconds) + 3) // 4) * 210
+    while time.monotonic() < deadline:
+        started = _candidate_gradio_result(profile, token, "video_start", payload, 35)
+        if started.get("type") == "busy":
+            time.sleep(5)
+            continue
+        job_id = str(started.get("job") or "") if started.get("type") == "job" else ""
+        if not job_id:
+            raise RuntimeError("The candidate media Studio did not start a video job: " + str(started.get("text") or started.get("type") or "unreadable")[:240])
+        misses = 0
+        while time.monotonic() < deadline:
+            wait = max(1, min(18, int(deadline - time.monotonic()) - 5))
+            try:
+                result = _candidate_gradio_result(profile, token, "job", {"job": job_id, "wait": wait}, wait + 25)
+            except Exception:
+                misses += 1
+                if misses >= 8:
+                    raise
+                time.sleep(3)
+                continue
+            if result.get("type") == "running":
+                misses = 0
+                continue
+            if result.get("type") == "busy":
+                time.sleep(3)
+                continue
+            if result.get("type") == "error" and result.get("reason") == "job_lost":
+                raise RuntimeError("The candidate video job was lost because its Studio restarted.")
+            return result
+        raise TimeoutError("The candidate video job exceeded its duration-aware deadline.")
+    raise TimeoutError("The candidate video Studio remained busy beyond its deadline.")
+
+
 def _generate_candidate_media(kind: str, arguments: dict) -> dict:
     """Audio / video from THIS candidate's own media Studio (its own copy of the weights). Nothing else is ever asked."""
     profile = _media_profile()
@@ -1059,23 +1125,8 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         api, payload = "video", {"prompt": prompt, "seconds": seconds, "seed": int(time.time()) % 2147483647}
-    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     try:
-        submit = requests.post(profile["base"] + "/gradio_api/call/v2/" + api, json={"body": json.dumps(payload)}, headers=headers, timeout=(8, 30))
-        submit.raise_for_status()
-        event_id = str((submit.json() or {}).get("event_id") or "")
-        if not event_id:
-            raise RuntimeError("the media Studio returned no event id")
-        result = requests.get(profile["base"] + "/gradio_api/call/" + api + "/" + event_id, headers={"Authorization": "Bearer " + token}, timeout=(8, 600))
-        result.raise_for_status()
-        raw = result.text
-        if "event: error" in raw or "event: complete" not in raw:
-            why = re.sub(r"\s+", " ", raw[-420:]).strip()
-            raise RuntimeError("the media Studio did not complete. Its last answer: " + why)
-        data = _decode_gradio_data(raw)
-        item = data[0] if isinstance(data, list) and data else data
-        if isinstance(item, str):
-            item = json.loads(item)
+        item = _candidate_video_by_job(profile, token, payload, seconds) if kind == "video" else _candidate_gradio_result(profile, token, api, payload, 600)
         if not isinstance(item, dict) or item.get("type") != kind or not item.get("b64"):
             reason = item.get("text") if isinstance(item, dict) else ""
             raise RuntimeError("the media Studio returned no " + kind + " file. " + str(reason or "")[:300])
