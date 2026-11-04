@@ -378,7 +378,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
+  if (!coderEnabled() && currentEngineModel() !== "lfm25" && !selectedDonor && !donorPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -921,7 +921,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   });
 }
 async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void> {
-  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || !coderEnabled()) return;
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || (!coderEnabled() && currentEngineModel() !== "lfm25")) return;
   const warmKey = modelSessionChatKey(chatId);
   if (Date.now() - (warmedAt.get(warmKey) || 0) < 8 * 60000) return;
   warmedAt.set(warmKey, Date.now());
@@ -998,7 +998,7 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
     return { runId, queued: false };
   }
 
-  if (!coderEnabled()) throw new Error("coder service is not configured");
+  if (!coderEnabled() && currentEngineModel() !== "lfm25") throw new Error("coder service is not configured");
   if (st.run?.asking) {                                     // a terminal command answers the agent's question
     await answerAsk(bot, botRow, chatId, st, content, db);
     return { runId: st.run.id, queued: true };
