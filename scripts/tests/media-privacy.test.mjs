@@ -18,7 +18,7 @@ test("public media feed RLS excludes hidden and private-squad posts", () => {
 test("public comments are visible only when their parent post is publicly visible", () => {
   const migration = readFileSync(path.join(root, "supabase/migration_public_media_visibility.sql"), "utf8");
   assert.match(migration, /create policy "public read comments on visible media"/);
-  assert.match(migration, /exists\s*\(\s*select 1\s+from public\.media_feed mf\s+where mf\.id = media_comments\.post_id/s);
+  assert.match(migration, /post_id in \(select id from public\.media_feed\)/);
 });
 
 test("watch-party room and chat rows are not granted to public roles", () => {

@@ -26,11 +26,7 @@ create policy "public read comments on visible media"
   for select
   to anon, authenticated
   using (
-    exists (
-      select 1
-      from public.media_feed mf
-      where mf.id = media_comments.post_id
-    )
+    post_id in (select id from public.media_feed)
   );
 
 -- Watch-party rooms and chat are private application data.
