@@ -1506,7 +1506,7 @@ const novaMemory = (st: ChatState): MemorySettings => memorySettings(st, novaMod
 export async function novaMemoryPrompt(chatId: number, st: ChatState, goal: string, db: Db): Promise<string> {
   if (!novaMemory(st).recall) return "";
   const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
-  return memoryPrompt(chatId, goal, repoOf(goal, st.repo), db).catch(() => "");
+  return memoryPrompt(modelSessionChatId(chatId), goal, repoOf(goal, st.repo), db).catch(() => "");
 }
 
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
@@ -1514,7 +1514,7 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
   if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
   if (!novaMemory(st).remember) return;                                  // the user switched "remember" off for Nova in the app
   const snap = msgs.slice(-40);
-  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
+  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(modelSessionChatId(chatId), snap, { runId, repo }, db)).catch(() => null));
 }
 
 /**
