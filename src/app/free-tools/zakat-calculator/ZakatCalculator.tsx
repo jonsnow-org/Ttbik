@@ -65,32 +65,19 @@ export default function ZakatCalculator() {
     const nisabGold = parseNum(nisabGoldG) || DEFAULT_GOLD_NISAB_G;
     const nisabSilver = parseNum(nisabSilverG) || DEFAULT_SILVER_NISAB_G;
 
-    let nisabThreshold = 0;
-    let metByWeight = false;
-
-    if (useGoldNisab) {
-      if (goldPrice > 0) {
-        nisabThreshold = nisabGold * goldPrice;
-      } else if (pureGoldG >= nisabGold) {
-        metByWeight = true;
-      }
-    } else {
-      if (silverPrice > 0) {
-        nisabThreshold = nisabSilver * silverPrice;
-      } else if (silverG >= nisabSilver) {
-        metByWeight = true;
-      }
-    }
-
+    const selectedPrice = useGoldNisab ? goldPrice : silverPrice;
+    const selectedGrams = useGoldNisab ? pureGoldG : silverG;
+    const nisabThreshold = selectedPrice > 0
+      ? (useGoldNisab ? nisabGold : nisabSilver) * selectedPrice
+      : 0;
     const hasPrice = goldPrice > 0 || silverPrice > 0;
-    const reached = metByWeight || (hasPrice && nisabThreshold > 0 && net >= nisabThreshold);
+
+    // Without the gram price of the chosen metal, neither the nisab nor the
+    // zakat base that includes that metal can be known, so no yes/no answer.
+    const needsPrice = selectedPrice <= 0 && (net > 0 || selectedGrams > 0);
+    const reached = !needsPrice && nisabThreshold > 0 && net >= nisabThreshold;
 
     const zakatDue = reached ? net * ZAKAT_RATE : 0;
-
-    // Money to check but no gram price for the chosen standard: the nisab cannot be known,
-    // so ask for the price instead of answering "not reached".
-    const selectedPrice = useGoldNisab ? goldPrice : silverPrice;
-    const needsPrice = !reached && net > 0 && selectedPrice <= 0;
 
     return {
       assetsValue,
