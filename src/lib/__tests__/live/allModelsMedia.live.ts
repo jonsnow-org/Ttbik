@@ -50,6 +50,9 @@ async function once(model: string, kind: "image" | "video" | "audio", text: stri
     if (sent.some((s) => /تعذّر|لم أستطع|لم يتم|غير مفعّل|not|failed/i.test(s.text) && !/جاري|🕒|⏳/.test(s.text))) break;
   }
   const secs = Math.round((Date.now() - t0) / 1000);
+  // phase timing: when the model's routing answer arrived (the "info" event carries the generator prompt) and when the run ended
+  const evs = await db.query(`SELECT kind, created_at FROM coder_task_events ORDER BY id`).catch(() => [] as any[]);
+  for (const e of evs as any[]) process.stderr.write(`ALLMEDIA_PHASE ${model} ${kind} ${e.kind} at ${Math.round((new Date(e.created_at).getTime() - t0) / 1000)}s\n`);
   if (got.length) return `${model} ${kind}: OK ${got[0].kind} ${got[0].bytes} bytes in ${secs}s`;
   return `${model} ${kind}: NOTHING SENT after ${secs}s; chat shows: ${sent.map((s) => s.text.replace(/\n/g, " / ").slice(0, 260)).join(" || ") || "(no message)"}`;
 }
