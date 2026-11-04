@@ -1,5 +1,5 @@
 import { withEngineModel } from "@/lib/openCoderStudio";
-import { ensureLfmSessionState, loadStateStrict, saveStateStrict, signContinue, stateKey, verifyContinue } from "@/lib/coderSections";
+import { engineModelForRun, ensureLfmSessionState, loadStateStrict, saveStateStrict, signContinue, stateKey, verifyContinue } from "@/lib/coderSections";
 import { saveMemory, listMemories } from "@/lib/coderMemory";
 import * as Threads from "@/lib/coderThreads";
 import { pgDb, resetPg } from "./pgDb";
@@ -68,6 +68,25 @@ describe("LFM2.5 conversation isolation", () => {
     expect(lfmAfter.notes).toBe("LFM private notes");
     expect(lfmAfter.threadId).toBe("lfm-thread");
     expect(withEngineModel("coder", () => stateKey(OWNER))).not.toBe(withEngineModel("lfm25", () => stateKey(OWNER)));
+  });
+
+  it("finds a task's owning model after the account selector has changed", async () => {
+    const db = pgDb();
+    await withEngineModel("coder", async () => {
+      const st = await loadStateStrict(OWNER, db);
+      st.model = "coder";
+      st.run = { id: "nova-live-run", chain: "n", sent: 0, step: 1, lease: Date.now() } as any;
+      await saveStateStrict(OWNER, st, db);
+    });
+    await withEngineModel("lfm25", async () => {
+      const st = await loadStateStrict(OWNER, db);
+      st.model = "lfm25";
+      st.run = { id: "lfm-live-run", chain: "l", sent: 0, step: 1, lease: Date.now() } as any;
+      await saveStateStrict(OWNER, st, db);
+    });
+    expect(await engineModelForRun(OWNER, "nova-live-run", db)).toBe("coder");
+    expect(await engineModelForRun(OWNER, "lfm-live-run", db)).toBe("lfm25");
+    expect(await engineModelForRun(OWNER, "unknown-run", db)).toBeUndefined();
   });
 
   it("keeps LFM2.5 chat threads and long-term memory out of Nova's stores", async () => {
