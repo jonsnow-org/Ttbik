@@ -21,10 +21,17 @@ it("owner runs a command on a model's computer (private session = chat:model); a
   await expect(appOp({ chatId: USER, tier: "user" }, "box", { model: "coder", args: { action: "run", command: "id" } }, d as any)).rejects.toThrow(AppError);
 });
 
-it("Sham v2 has its own computer Studio (not Nova's); the desktop (browser) op is owner-only and returns a screenshot", async () => {
+it("Sham v2 uses the isolated computer hub session; the desktop (browser) op is owner-only and returns a screenshot", async () => {
   const { browserStudioFor } = await import("@/lib/browserComputer");
-  expect(browserStudioFor("sham_v2")).toContain("sham-v2-video-server");
-  expect(browserStudioFor("sham_v2")).not.toBe(browserStudioFor("coder"));
+  const computerStudio = process.env.COMPUTER_STUDIO_URL;
+  delete process.env.COMPUTER_STUDIO_URL;
+  try {
+    expect(browserStudioFor("sham_v2")).toContain("nova-inference-server");
+    expect(browserStudioFor("sham_v2")).toBe(browserStudioFor("coder"));
+  } finally {
+    if (computerStudio !== undefined) process.env.COMPUTER_STUDIO_URL = computerStudio;
+    else delete process.env.COMPUTER_STUDIO_URL;
+  }
   const db: any = pgDb(); const { bot } = fakeBot();
   const fetchImpl = (async (url: string, init?: any) => {
     if (init?.method === "POST") return new Response('{"event_id":"e1"}', { status: 200 });
