@@ -6,9 +6,21 @@ import { shamVariant } from "@/lib/shamStudio";
 const routeCalls: any[][] = [];
 let routeReply: any = null;
 let mockLastMemory: any = null;
+let mockPendingMedia: any = null;
+let mockTranslations: (string | null)[] = ["white horse"];
 jest.mock("@/lib/shamMediaRoutes", () => ({ generateShamMediaThroughRoute: jest.fn(async (...a: any[]) => { routeCalls.push(a); return routeReply; }) }));
-jest.mock("@/lib/shamStudio", () => ({ ...jest.requireActual("@/lib/shamStudio"), shamChatAuto: jest.fn(async () => ({ type: "text", text: "white horse" })) }));
-jest.mock("@/lib/shamThreads", () => ({ loadChatMemory: jest.fn(async () => mockLastMemory), saveChatTurn: jest.fn(async () => undefined) }));
+jest.mock("@/lib/shamStudio", () => ({
+  ...jest.requireActual("@/lib/shamStudio"),
+  shamChatAuto: jest.fn(async () => ({ type: "text", text: "بالطبع! إليك تقريراً موجهاً..." })),
+  shamGenerate: jest.fn(async () => mockTranslations.shift() ?? null),
+}));
+jest.mock("@/lib/shamThreads", () => ({
+  loadChatMemory: jest.fn(async () => mockLastMemory),
+  saveChatTurn: jest.fn(async () => undefined),
+  loadPendingMediaIntent: jest.fn(async () => mockPendingMedia),
+  savePendingMediaIntent: jest.fn(async (_chatId: number, _variant: string, intent: any) => { mockPendingMedia = intent; }),
+  clearPendingMediaIntent: jest.fn(async () => { mockPendingMedia = null; }),
+}));
 jest.mock("@/lib/coderTasks", () => ({ ...jest.requireActual("@/lib/coderTasks"), taskStart: jest.fn(async () => undefined), taskEvent: jest.fn(async () => undefined), taskStatus: jest.fn(async () => undefined) }));
 
 const bot = () => {
@@ -20,7 +32,7 @@ const tiny = Buffer.from("png").toString("base64");
 
 describe("Sham media fast lane", () => {
   beforeEach(() => {
-    routeCalls.length = 0; routeReply = null; mockLastMemory = null;
+    routeCalls.length = 0; routeReply = null; mockLastMemory = null; mockPendingMedia = null; mockTranslations = ["white horse"];
     process.env.CODER_TOKEN_KEY = "k";
     process.env.MODELSCOPE_API_TOKEN = "test-token";
     process.env.SHAM_V2_URL = "https://studio-sham-v2.test";
@@ -59,6 +71,56 @@ describe("Sham media fast lane", () => {
     expect(routeCalls[0][1]).toBe("white horse");
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
   });
+  it("generates the requested image directly when the translation endpoint's first answer is a report", async () => {
+    mockTranslations = ["بالطبع! إليك تقرير مُوجَّه لـ شام (الصورة)...", "[tall] a beautiful girl"];
+    routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "اعطني صورة فتاة جميلة"))).toBe(true);
+    expect(routeCalls[0][0]).toBe("image");
+    expect(routeCalls[0][1]).toBe("a beautiful girl");
+    expect(routeCalls[0][2]).toMatchObject({ aspect: "tall" });
+    expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
+    expect(calls.some((c) => c.m === "sendMessage" && /ما الذي تريد أن يظهر/.test(String(c.a[1])))).toBe(false);
+  });
+
+  it("chooses a scene itself when the user delegates with only 'اعطني صورة'", async () => {
+    mockTranslations = ["[square] a red fox curled up beside a lantern in a quiet snowy forest"];
+    routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "اعطني صورة"))).toBe(true);
+    expect(routeCalls[0][0]).toBe("image");
+    expect(routeCalls[0][1]).toMatch(/red fox/);
+    expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
+    expect(calls.some((c) => c.m === "sendMessage" && /ما الذي تريد أن يظهر/.test(String(c.a[1])))).toBe(false);
+  });
+
+  it("continues a pending image request without depending on optional chat memory", async () => {
+    mockPendingMedia = { kind: "image", source: "اعطني صورة", };
+    mockLastMemory = null;
+    mockTranslations = ["[tall] a beautiful girl"];
+    routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "فتاة جميلة"))).toBe(true);
+    expect(routeCalls[0][1]).toBe("a beautiful girl");
+    expect(calls.some((c) => c.m === "sendPhoto")).toBe(true);
+  });
+
+  it("never delivers a translator report as if it were a picture or asks the old fixed question", async () => {
+    mockTranslations = ["بالطبع! إليك تقرير مُوجَّه...", "الموضوع: فتاة جميلة\\nالتفاصيل: ..."];
+    routeReply = { type: "image", b64: tiny, route: "sham_v2_ready" };
+    const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
+    const { bot: b, calls } = bot();
+    expect(await shamVariant.run("v2", () => shamMediaFastLane(b, 77, "اعطني صورة فتاة جميلة"))).toBe(true);
+    expect(routeCalls).toHaveLength(0);
+    expect(calls.some((c) => c.m === "sendPhoto")).toBe(false);
+    const failure = calls.find((c) => c.m === "editMessageText");
+    expect(String(failure?.a[2] || "")).toContain("لم أتمكن من تجهيز مطالبة صالحة");
+    expect(calls.some((c) => c.m === "sendMessage" && /ما الذي تريد أن يظهر/.test(String(c.a[1])))).toBe(false);
+  });
+
   it("passes an Arabic requested video duration to the Sham v2 video route", async () => {
     routeReply = { type: "video", mime: "video/mp4", b64: tiny, route: "sham_v2_ready" };
     const { shamMediaFastLane } = await import("@/lib/novaBotLogic");
