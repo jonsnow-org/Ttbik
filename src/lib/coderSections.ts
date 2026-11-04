@@ -882,8 +882,8 @@ async function fastMedia(
 }
 
 
-async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
-  if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
+async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db, modelId = "coder"): Promise<void> {
+  if (surface !== "app" || modelId === "lfm25") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
   if (coderStudioUrls().length < 2) return;
   await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
@@ -905,7 +905,7 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   await taskEvent(runId, "info", `🤖 ${text}`, db);
 }
 
-const warmedAt = new Map<number, number>();
+const warmedAt = new Map<string, number>();
 /**
  * Reads the conversation into the Studio's cache BEFORE the user's next message, while they are still typing: when the app is opened or /start is sent and the
  * conversation's Studio is not holding it (restarted, or used by something else), one invisible request with the same start as the next prompt (system, tools,
@@ -913,9 +913,17 @@ const warmedAt = new Map<number, number>();
  * ~110 s. It writes nothing to the chat, runs only when no task is running, at most once per 8 minutes, and CODER_PREWARM=0 turns it off.
  */
 export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<void> {
+  const selected = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selected, async () => {
+    if (selected === "lfm25") await ensureLfmSessionState(chatId, db);
+    return prewarmChatInner(chatId, db);
+  });
+}
+async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void> {
   if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || !coderEnabled()) return;
-  if (Date.now() - (warmedAt.get(chatId) || 0) < 8 * 60000) return;
-  warmedAt.set(chatId, Date.now());
+  const warmKey = modelSessionChatKey(chatId);
+  if (Date.now() - (warmedAt.get(warmKey) || 0) < 8 * 60000) return;
+  warmedAt.set(warmKey, Date.now());
   const st = await loadState(chatId, db);
   if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2") return;
   const ctx = await toolCtx(chatId, st, db, null);
@@ -932,20 +940,21 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   if (messages.reduce((n, m) => n + String((m as { content?: string }).content || "").length, 0) > (Number(process.env.CODER_PREWARM_MAX_CHARS) || 16000)) messages = [messages[0], messages[messages.length - 1]];
   const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000, tag: "prewarm" }).catch(() => null);
   let r = o?.reply || null;
-  if (r?.job) warming.set(chatId, r.job);
+  if (r?.job) warming.set(warmKey, r.job);
   const t0 = Date.now();
-  while (r?.type === "pending" && r.job && warming.get(chatId) === r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
+  while (r?.type === "pending" && r.job && warming.get(warmKey) === r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
     await new Promise((res) => setTimeout(res, Number(process.env.CODER_PREWARM_POLL_MS) || 5000));
     r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
   }
-  if (r?.job && warming.get(chatId) === r.job) warming.delete(chatId);
+  if (r?.job && warming.get(chatId) === r.job) warming.delete(warmKey);
 }
-const warming = new Map<number, string>();                       // chat -> the Studio job of its warm-up, while it runs
+const warming = new Map<string, string>();                       // model-scoped chat key -> Studio warm-up job
 /** A real request is about to be sent for this chat: its warm-up (if still running) must not stand in front of it. */
 export async function cancelWarm(chatId: number): Promise<void> {
-  const job = warming.get(chatId);
+  const key = modelSessionChatKey(chatId);
+  const job = warming.get(key);
   if (!job) return;
-  warming.delete(chatId);
+  warming.delete(key);
   await coderCancel(job).catch(() => null);
 }
 
@@ -1005,7 +1014,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveStateStrict(chatId, st, db);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
-  later(() => frontAck(bot, chatId, runId, content, "app", db));
+  later(() => frontAck(bot, chatId, runId, content, "app", db, selectedModel));
   return { runId, queued: false };
 }
 
