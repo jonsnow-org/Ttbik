@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-03-r17"
+APP_REVISION = "donor-bakeoff-2026-11-04-r18"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
@@ -65,7 +65,7 @@ SERVER_CONFIG = RUNTIME / "server-config.json"
 SERVER_LOG = RUNTIME / "llama-server.log"
 MEDIA_CAPS_FILE = RUNTIME / "media-capabilities.json"
 
-THREADS = max(1, min(int(os.cpu_count() or 2), 2))
+THREADS = max(1, int(os.environ.get("DONOR_THREADS") or min(int(os.cpu_count() or 2), 8)))
 N_CTX = int(os.environ.get("DONOR_N_CTX", CONFIG.get("context_tokens", 2048)))
 MAX_OUTPUT = int(os.environ.get("DONOR_MAX_OUTPUT", CONFIG.get("max_output_tokens", 768)))
 # Prompt processing speed on the 2-vCPU Studio is bounded by the batch size: 32 made every prompt (tool schemas, history, images) crawl.
@@ -1353,6 +1353,50 @@ def _run_reads_in_parallel(calls: list, tool_bridge: dict | None) -> dict:
     return out
 
 
+# r18 speed: a plain chat message ("مرحبا", "من انت") is answered without any tool schema, connector/computer
+# system prompts or media instructions. On the 2-vCPU Studio those added ~2-3k prompt tokens that had to be
+# prefilled before the first word (minutes on an 8B model). Anything that may need a tool keeps the full path.
+_TASK_HINT = re.compile(
+    r"https?://|www\.|\.(?:com|net|org|io|dev|app)\b|"
+    r"\b(image|photo|picture|draw|video|clip|audio|voice|speech|song|music|sing|generate|create|make|build|code|script|"
+    r"file|github|repo|commit|branch|deploy|vercel|search|browse|web|computer|terminal|run|install|test|debug|send|email|"
+    r"telegram|connector|notion|gmail|drive|download|upload|screenshot|open|translate)\b|"
+    r"صور|صوره|صورة|ارسم|رسم|فيديو|مقطع|صوت|صوتي|اغني|أغني|اغنية|أغنية|موسيق|انشئ|أنشئ|اصنع|إصنع|اعمل|سو|ولد|ولّد|توليد|"
+    r"كود|برمج|ملف|مستودع|جيت|فرع|انشر|ابحث|بحث|رابط|حاسوب|كمبيوتر|طرفية|متصفح|نفذ|نفّذ|شغل|شغّل|ثبت|اختبر|افتح|"
+    r"ارسل|أرسل|ابعث|بريد|ايميل|إيميل|حمل|حمّل|نزل|نزّل|ترجم|لقطة|مهمة|مهمه",
+    re.IGNORECASE,
+)
+
+
+def _is_plain_chat(prompt: str, media_labels: list) -> bool:
+    text = str(prompt or "").strip()
+    if media_labels or not text or len(text) > 400:
+        return False
+    return not _TASK_HINT.search(text)
+
+
+_ARABIC = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
+_CJK = re.compile(r"[\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u312F\u3130-\u318F\u31A0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]+")
+
+
+def _identity_system() -> str:
+    name = str(CONFIG.get("display_name") or str(CONFIG.get("label") or "").split(" — ")[0].strip() or CONFIG.get("id") or "this model")
+    return (
+        "You are " + name + ", a model on the Sham AI platform. You can chat, write code, create images, video and audio "
+        "with your own Studios, use GitHub, connectors and your own cloud computer. "
+        "Reply only in the language and script of the user's last message; when the user writes Arabic, write Arabic letters only "
+        "and never Chinese, Japanese, Korean or other scripts. Keep simple replies short."
+    )
+
+
+def _needs_script_fix(prompt: str, text: str) -> bool:
+    return bool(_ARABIC.search(str(prompt or ""))) and bool(_CJK.search(str(text or "")))
+
+
+def _strip_cjk(text: str) -> str:
+    cleaned = _CJK.sub(" ", str(text or ""))
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
 def infer(
     prompt: str,
     max_tokens: int = MAX_OUTPUT,
@@ -1392,7 +1436,13 @@ def infer(
                     "Do not merely describe commands you intend to run, do not repeat the user's request as the answer, and never claim a command succeeded without its returned output."
                 ),
             })
-        messages.insert(0, {"role": "system", "content": "Reply in the language of the user's last message."})
+        plain_chat = bool(use_tools) and _is_plain_chat(prompt, media_labels)
+        if plain_chat:
+            # Fast lane: short identity prompt, the last few turns only, no tools, a short answer budget.
+            use_tools = False
+            messages = [m for m in _read_history(history)][-4:]
+            max_tokens = min(int(max_tokens or MAX_OUTPUT), 320)
+        messages.insert(0, {"role": "system", "content": _identity_system()})
         messages.append({"role": "user", "content": content})
         options = {
             "model": CONFIG.get("id", "isolated-donor"),
@@ -1566,8 +1616,29 @@ def infer(
                     if isinstance(item, dict) and isinstance(item.get("function"), dict) and item["function"].get("name"):
                         by_name[str(item["function"]["name"])] = item
                 options["tools"] = list(by_name.values())
-        elapsed = time.monotonic() - started
         output = str(choice.get("content") or "")
+        if _needs_script_fix(prompt, output) and not executed_tools:
+            # Decode-time guard: the reply leaked Chinese/Japanese/Korean into an Arabic answer. Ask once more,
+            # greedily, with the script rule last; whatever remains of a foreign script is removed.
+            try:
+                retry_messages = messages + [
+                    {"role": "assistant", "content": output},
+                    {"role": "user", "content": "أعد كتابة ردك السابق بالعربية فقط، بحروف عربية فقط ودون أي كلمة صينية أو يابانية أو كورية."},
+                ]
+                retry = requests.post(
+                    SERVER_BASE + "/v1/chat/completions",
+                    json={**{k: v for k, v in options.items() if k not in ("tools", "tool_choice")}, "temperature": 0.0, "messages": _one_system_message(retry_messages)},
+                    timeout=(10, read_timeout),
+                )
+                if retry.ok:
+                    retried = str((((retry.json().get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+                    if retried.strip():
+                        output = retried
+            except Exception:
+                pass
+        if _needs_script_fix(prompt, output):
+            output = _strip_cjk(output)
+        elapsed = time.monotonic() - started
         if pending_calls or executed_tools:
             output = strip_tool_call_markup(output)
         successful_tools = sum(
@@ -1598,6 +1669,7 @@ def infer(
             "tokens_per_second": round(token_count / max(elapsed, 0.01), 2),
             "finish_reason": choice_item.get("finish_reason"),
             "tool_rounds": len(executed_tools),
+            "plain_chat": plain_chat,
         }
     except requests.HTTPError as exc:
         body = exc.response.text[:1200] if exc.response is not None else str(exc)

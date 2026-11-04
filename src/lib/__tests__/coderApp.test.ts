@@ -84,7 +84,7 @@ describe("mini app api", () => {
         };
         const spec = specs[id];
         const weight_manifest = { candidate_id: id, source_repo_id: spec.sourceRepo, modelscope_repo_id: spec.weightsRepo, modelscope_weights_revision: "2026-11-03-r1", filename: spec.filename, mmproj_filename: spec.mmproj, files: { [spec.filename]: { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, [spec.mmproj]: { sha256: "b".repeat(64), size_bytes: 400_000_000 } } };
-        return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", repo_id: spec.weightsRepo, weight_manifest, media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+        return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-04-r18", repo_id: spec.weightsRepo, weight_manifest, media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
       }
       return new Response("unexpected request", { status: 500 });
     }) as any;

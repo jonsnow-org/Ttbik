@@ -561,7 +561,7 @@ describe("isolated primary candidate route", () => {
           files: { "qwen35-9b-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "qwen35-9b-mmproj-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
         };
         return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-03-r17", repo_id: "novaai2026/sham-donor-qwen35-9b-weights", weight_manifest, media_capabilities: { vision: true, audio: false, video: true } })],
+          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-04-r18", repo_id: "novaai2026/sham-donor-qwen35-9b-weights", weight_manifest, media_capabilities: { vision: true, audio: false, video: true } })],
         }), { status: 200 });
       }
       if (url.endsWith("/gradio_api/run/chat_start") && method === "POST") {

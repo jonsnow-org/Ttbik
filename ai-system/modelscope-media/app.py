@@ -689,6 +689,21 @@ def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
             fh.write(f"{type(exc).__name__}: {str(exc)[:400]}")
 
 
+def _free_parent_ram() -> None:
+    """Before a clip process starts, the parent gives back what it holds (live 2026-11-04 05:3x: a 6 s clip right after a picture was killed with
+    code -9, out of memory: the parent still held the picture pipeline while the child loaded AnimateDiff). The picture pipeline reloads on the
+    next picture request (a few seconds); the speech voice is small and stays."""
+    import gc
+    _MODELS["pipe"] = None
+    _CV["pipe"] = None
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)      # hand freed heap pages back to the system, not just to Python's allocator
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
     """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4.
 
@@ -698,6 +713,7 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
     if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
         return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
     import multiprocessing as _mp
+    _free_parent_ram()
     with tempfile.TemporaryDirectory(prefix="clip-") as d:
         out = os.path.join(d, "clip.mp4")
         proc = _mp.get_context("spawn").Process(target=_video_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
