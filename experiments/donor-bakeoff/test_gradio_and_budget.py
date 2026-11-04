@@ -73,10 +73,6 @@ class LongTaskRubric(unittest.TestCase):
         self.assertFalse(f('تم تشغيل "deploy": "make it so"', tools))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CandidateImageSettings(unittest.TestCase):
     """The resolution a candidate sends must be one of the choices of ITS image Studio (a wrong string made Gradio answer with an error event)."""
     PAIRS = {"qwen35-9b": "cyberrealistic-test", "gemma4-e4b": "gemma4-realistic-vision-v6-test", "minicpm-o45": "umranz-image-test"}
@@ -211,7 +207,7 @@ class CandidateVideoJobs(unittest.TestCase):
             calls.append((method, url, kwargs))
             if method == "POST":
                 return Response(event_id="event-1")
-            return Response(text='event: heartbeat\\ndata: null\\n\\nevent: complete\\ndata: [{"type":"job","job":"clip-1"}]\\n\\n')
+            return Response(text='event: heartbeat\ndata: null\n\nevent: complete\ndata: [{"type":"job","job":"clip-1"}]\n\n')
 
         scope = load("_decode_gradio_data", "_candidate_gradio_result", _gateway_retry=gateway)
         profile = {"base": "https://studio-novaai2026-sham-donor-qwen35-9b-media.api-inference.modelscope.net"}
@@ -359,3 +355,7 @@ class ComputerAndToolSpeed(unittest.TestCase):
         self.assertEqual(sorted(out), [0, 2, 3])                   # the write-capable call is left to the ordered loop
         self.assertEqual(out[2]["name"], "fetch_page")
         self.assertEqual(scope["_run_reads_in_parallel"]([{"name": "github_read_file"}], None), {})   # one read: nothing to parallelise
+
+
+if __name__ == "__main__":
+    unittest.main()
