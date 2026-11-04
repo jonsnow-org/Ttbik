@@ -1,7 +1,7 @@
 name: Nova Media Studio Smoke Test
 
 # Live test of Nova's own ModelScope media Studio: a real image (pixel std), Arabic speech (audible samples) and a real AnimateDiff-Lightning
-# video (decoded, more than one frame, real motion). Nothing here touches Sham and nothing is sent to Telegram.
+# video (decoded, more than one frame, real motion) using the SAME video_start/job calls as the Telegram bot. Nothing here touches Sham and nothing is sent to Telegram.
 # It runs AFTER the deploy workflow of the Nova media Studio has finished (workflow_run), never on the same push: a probe that races the deploy hits the
 # previous container (the failed runs 40611229256 / 40613962929: "no 'video' API: still OLD code" while the Studio was being rebuilt). It still WAITS until
 # the Studio reports phase=ready and the AnimateDiff video engine, then checks the CONTENT of each result.
@@ -45,6 +45,8 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           NOVA_MEDIA_URL: https://studio-novaai2026-nova-media-server.api-inference.modelscope.net
           READY_TIMEOUT: "2400"
+          VIDEO_SECONDS: "6"
+          VIDEO_TIMEOUT: "2400"
           PROBE_PROMPT: ${{ inputs.prompt }}
           PROBE_SEED: ${{ inputs.seed }}
           PROBE_OUT: ${{ runner.temp }}
