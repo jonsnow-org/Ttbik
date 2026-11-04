@@ -9,7 +9,7 @@ describe("the graphical Linux desktop RPC contract", () => {
       const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
         calls.push({ url: String(input), init });
         if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "live-1" }), { status: 200 });
-        return new Response("event: generating\\ndata: []\\n\\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+        return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
       }) as typeof fetch;
       const response = await desktopLive("lfm25", "77:lfm25", 40, fetchMock);
       expect(response.ok).toBe(true);
