@@ -35,3 +35,11 @@ test("party API uses a server-only key and checks room membership before returni
   assert.doesNotMatch(source, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
   assert.match(source, /members\.some\(\(member: any\) => String\(member\.id\) === user\.id\)/);
 });
+
+
+test("private squad feed filtering requires the signed Telegram owner admin view", () => {
+  const source = readFileSync(path.join(root, "src/app/api/media-feed/route.ts"), "utf8");
+  assert.match(source, /if \(includeHidden && squad\)/);
+  assert.match(source, /else if \(!includeHidden\) items = items\.filter\(\(i\) => !i\.squad_code\)/);
+  assert.match(source, /Telegram-signed owner identity/);
+});
