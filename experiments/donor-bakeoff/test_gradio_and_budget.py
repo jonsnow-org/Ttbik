@@ -80,6 +80,7 @@ if __name__ == "__main__":
 class CandidateImageSettings(unittest.TestCase):
     """The resolution a candidate sends must be one of the choices of ITS image Studio (a wrong string made Gradio answer with an error event)."""
     PAIRS = {"qwen35-9b": "cyberrealistic-test", "gemma4-e4b": "gemma4-realistic-vision-v6-test", "minicpm-o45": "umranz-image-test"}
+    MINIMUM_STEPS = {"qwen35-9b": 1, "gemma4-e4b": 25, "minicpm-o45": 1}
 
     def test_resolution_is_a_real_choice(self):
         here = Path(__file__).parent
@@ -88,6 +89,9 @@ class CandidateImageSettings(unittest.TestCase):
             res = conf["image_generation"]["resolution"]
             app = (here.parent / studio / "app.py").read_text(encoding="utf-8")
             self.assertIn('"' + res + '"', app, f"{cand}: '{res}' is not a choice of {studio}")
+            steps = int(conf["image_generation"]["steps"])
+            self.assertGreaterEqual(steps, self.MINIMUM_STEPS[cand],
+                                    f"{cand}: this Studio rejects image generation below {self.MINIMUM_STEPS[cand]} steps")
 
 
 class CandidateToolRouting(unittest.TestCase):
