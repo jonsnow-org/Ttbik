@@ -99,3 +99,11 @@ Owner test, 5:10 AM: «من انت يا» on MiniCPM-o 4.5 answered at 5:13 AM, 
 2. If decode is still below about 2 tok/s, try a lighter quant (Q3_K_M or IQ4_XS) or MiniCPM-V 4 (4B), in MiniCPM's own repo only.
 3. Add a keep-warm ping, and stream first tokens to Telegram.
 4. Apply the same fast lane to the LFM2.5 and Sham v2 Studios. Sham v2 leaked Vietnamese; add a Latin-in-Arabic guard there.
+
+### 2026-11-04 05:45 (Istanbul): measurements and follow-up
+- **Before (MiniCPM, Studio r17, live through the bot path, run 41761176625):** «من انت» took 177 s end-to-end. The model took 158.9 s, at 0.25 tok/s including prefill. The reply was correct Arabic this time.
+- **#683 (6ac843ed):** Studio r18 plain-chat fast lane and CJK guard. The redeploy (run 41760486084) deploys qwen → gemma → minicpm one at a time; the MiniCPM job was still queued at 05:45.
+- **#686 (850266c7):** «من انت» / «ما اسمك» / «who are you» are now `trivial`, so they take the lite path (no tools, short system prompt, 200 tokens) on LFM2.5, Nova and Sham v2. `stripThinkTags`, which runs on every send path, now drops CJK and Vietnamese fragments from Arabic replies (`src/lib/scriptGuard.ts`).
+- **Next:**
+  1. After the MiniCPM job turns green, run `candidate-task-live.yml` (model=minicpmo45) with «مرحبا» and «من انت», and compare `⏱ seconds · token/s`.
+  2. If decode is still under about 2 tok/s, switch to `MiniCPM-o-4_5-Q4_0.gguf` (4.77 GB). Q4_0 gets llama.cpp's CPU repacking; it is the lightest quant openbmb publishes, and there is no Q3. Stage it into `novaai2026/sham-donor-minicpmo45-weights` with `stage_candidate_weights.py`, then update `candidates/minicpm-o45.json` and `DONOR_TESTS`.
