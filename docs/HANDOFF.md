@@ -78,3 +78,24 @@ No secrets here: variable names only. Production branch: `claude/free-services-m
 
 ## ملاحظات Studios
 استوديوهات Nova وSham ومرشحو الأوزان تبقى مستقلة للاستدلال والوسائط، بينما `nova-inference-server` مخصص للحاسوب 16GB فقط. Sham v2 overflow في `sham-v2-overflow-server`. التفاصيل والاختبارات: `docs/STUDIOS.md`.
+
+## 2026-11-04 05:30 (Istanbul): MiniCPM-o 4.5 slow reply (~4 min) and Chinese inside Arabic
+
+Owner test, 5:10 AM: «من انت يا» on MiniCPM-o 4.5 answered at 5:13 AM, with «的人工智能助手» mixed into the Arabic text.
+
+**Root causes, from the code (no fresh Studio measurement yet):**
+- Every message, including a greeting, went through the full tool path. The Telegram ingress (`donorJobStart`) always sends `use_tools: true`. In `infer()` the Studio then adds every tool schema to the prompt: the base GitHub and Vercel tools, generate_image, generate_audio and generate_video, and every bridge tool. It also adds 3-5 system prompts covering the computer, connectors and media. That is roughly 2-3k prompt tokens, all prefilled on a 2-vCPU Studio before the first word.
+- The model is 8B Q4_K_M (5 GB) on 2 vCPU. An earlier comment in `app.py` records 0.41 tok/s, with 7.2 of 8 GB resident.
+- The CJK leak: there was no script rule beyond "Reply in the language of the user's last message".
+
+**Changes in branch `fix/minicpm-speed` (app revision r18, shared by all three candidate Studios):**
+- Plain-chat fast lane, `_is_plain_chat`: no attachment, no task, media, link or GitHub words, and at most 400 characters. Such a message gets no tools, one short identity and script system prompt, the last 4 turns, and `max_tokens` capped at 320. Anything else keeps the full tool path, unchanged.
+- `THREADS` now follows `os.cpu_count()` (capped at 8; override with `DONOR_THREADS`). It used to be hard-capped at 2.
+- CJK guard: if the prompt is Arabic and the reply contains CJK, the model is asked once more greedily, then any remaining CJK is stripped. The TS side `stripMixedCjk` in `donorTests.ts` applies the same rule for every candidate.
+- TS accepts r17 and r18 during the rollout.
+
+**Next steps:**
+1. After the Studio redeploy, measure "مرحبا" and "من انت" on MiniCPM: queue wait, `seconds` and `tokens_per_second` from the result.
+2. If decode is still below about 2 tok/s, try a lighter quant (Q3_K_M or IQ4_XS) or MiniCPM-V 4 (4B), in MiniCPM's own repo only.
+3. Add a keep-warm ping, and stream first tokens to Telegram.
+4. Apply the same fast lane to the LFM2.5 and Sham v2 Studios. Sham v2 leaked Vietnamese; add a Latin-in-Arabic guard there.
