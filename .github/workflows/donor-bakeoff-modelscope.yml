@@ -289,7 +289,7 @@ jobs:
           # merely because a GitHub Actions job was retried.
           READY=0
           STALE_RUNNING=0
-          studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \\
+          studio_code=$(curl -sS --connect-timeout 5 --max-time 15 -o studio-status.json -w '%{http_code}' \
             -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
           state=""
           if [ "$studio_code" = "200" ]; then
