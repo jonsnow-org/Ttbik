@@ -135,18 +135,27 @@ class Studio:
         self.base, self.http, self.sleep, self.now = base.rstrip("/"), http or _urllib(token), sleep, now
 
     def call(self, api: str, payload: dict, timeout: float = 900) -> dict:
-        code, text = self.http("POST", f"{self.base}/gradio_api/call/v2/{api}", {} if api == "status" else {"body": json.dumps(payload)})
-        if code == 404:
-            raise ProbeError(f"the Studio has no '{api}' API: it is still running OLD code (deploy not finished or not applied)")
-        if code != 200:
-            raise ProbeError(f"{api}: HTTP {code} from the Studio")
+        end = self.now() + timeout
+        post_payload = {} if api == "status" else {"body": json.dumps(payload)}
+        # ModelScope can temporarily return 429 when several Studio endpoints are
+        # called close together. A rejected submit has no event/job id, so retrying
+        # this POST is safe. Keep the retry budget inside the one overall deadline.
+        waits = (2, 5, 10, 20, 30, 45)
+        for attempt in range(len(waits) + 1):
+            code, text = self.http("POST", f"{self.base}/gradio_api/call/v2/{api}", post_payload)
+            if code == 200:
+                break
+            if code == 404:
+                raise ProbeError(f"the Studio has no '{api}' API: it is still running OLD code (deploy not finished or not applied)")
+            if code != 429 or attempt == len(waits) or self.now() + waits[attempt] >= end:
+                raise ProbeError(f"{api}: HTTP {code} from the Studio after {attempt + 1} submit attempt(s)")
+            self.sleep(waits[attempt])
         try:
             event = json.loads(text).get("event_id")
         except json.JSONDecodeError:
             event = None
         if not event:
             raise ProbeError(f"{api}: the Studio returned no event_id")
-        end = self.now() + timeout
         while self.now() < end:
             code, text = self.http("GET", f"{self.base}/gradio_api/call/{api}/{event}")
             if code in (404, 410):
