@@ -89,12 +89,8 @@ export function newId() {
 }
 
 // ---------------------------------------------------------------- moderation
-// No links, handles or phone numbers (spam/contact harvesting) and a short
-// list of common Arabic/English insults. Reports hide anything else.
-const BAD = [
-  "كس", "زب", "شرموط", "منيوك", "قحب", "عرص", "متناك", "نيك", "خول", "لبوه",
-  "fuck", "shit", "bitch", "porn", "sex",
-];
+// No links, handles or phone numbers (spam/contact harvesting).
+// Reports hide anything else.
 
 export function cleanText(raw: unknown): { ok: true; text: string } | { ok: false; error: string } {
   if (typeof raw !== "string") return { ok: false, error: "النص مطلوب" };
@@ -103,11 +99,6 @@ export function cleanText(raw: unknown): { ok: true; text: string } | { ok: fals
   if (text.length > MAX_LEN) return { ok: false, error: `الحد ${MAX_LEN} حرفاً` };
   if (/(https?:\/\/|www\.|\.com\b|\.net\b|t\.me|@\w{3,})/i.test(text)) return { ok: false, error: "الروابط والمعرّفات غير مسموحة" };
   if (/(\d[\s-]?){8,}/.test(text)) return { ok: false, error: "أرقام الهواتف غير مسموحة" };
-  const norm = text.toLowerCase().replace(/[ً-ْـ]/g, "");
-  const words = norm.split(/[^\p{L}]+/u);
-  if (words.some((w) => BAD.some((b) => w === b || (b.length >= 4 && w.includes(b))))) {
-    return { ok: false, error: "من فضلك بدون ألفاظ مسيئة" };
-  }
   return { ok: true, text };
 }
 

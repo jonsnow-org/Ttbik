@@ -84,3 +84,36 @@ class VideoInFreshProcess(unittest.TestCase):
         out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
         self.assertIn("RAISED RuntimeError", out.stdout)
         self.assertIn("native-video-duration-limit", out.stdout)
+
+class ShamV2VideoJobs(unittest.TestCase):
+    """The Sham v2 video Studio (modelscope-sham-video/app.py) has the same job API."""
+
+    def setUp(self):
+        import sys
+        import types
+        cv = types.ModuleType("cpu_video")
+        cv._CV = {"pipe": None}
+        cv.CV_SUPPORTED_DURATIONS = (2, 4, 6)
+        self.gate = threading.Event()
+
+        def long(root, prompt, seconds, seed, envs):
+            self.gate.wait(5)
+            return b"mp4"
+        cv.cv_generate_long = long
+        mq = types.ModuleType("media_quality")
+        mq.MediaQualityError = type("MediaQualityError", (Exception,), {})
+        mq.check_mp4 = lambda *a, **k: None
+        sys.modules["cpu_video"], sys.modules["media_quality"] = cv, mq
+        p = Path(__file__).resolve().parents[1] / "modelscope-sham-video" / "app.py"
+        spec = importlib.util.spec_from_file_location("sham_video_app_jobs", p)
+        self.app = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.app)
+
+    def test_job_round_trip(self):
+        start = json.loads(self.app.generate_video_start(json.dumps({"prompt": "a girl dancing", "seconds": 6})))
+        self.assertEqual(start["type"], "job")
+        self.assertEqual(json.loads(self.app.job(json.dumps({"job": start["job"], "wait": 0.2})))["type"], "running")
+        self.gate.set()
+        done = json.loads(self.app.job(json.dumps({"job": start["job"], "wait": 5})))
+        self.assertEqual(done["type"], "video")
+        self.assertEqual(json.loads(self.app.job(json.dumps({"job": "x", "wait": 0})))["reason"], "job_lost")
