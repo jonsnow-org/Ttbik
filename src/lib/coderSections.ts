@@ -747,11 +747,11 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
   const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
-  later(() => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
+  later(() => withEngineModel(selectedModel, () => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
     await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة. لم يتم استخدام مولّد آخر.").catch(() => false);
     await taskStatus(runId, "failed", 0, db);
     await taskEvent(runId, "failed", "media fast lane: " + String((e as Error)?.message || e).slice(0, 200), db);
-  }));
+  })));
   return true;
 }
 
