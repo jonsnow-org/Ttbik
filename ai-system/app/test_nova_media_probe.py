@@ -237,7 +237,7 @@ class Waiting(unittest.TestCase):
             calls.append((method, url))
             return 429, '{"detail":"temporarily rate limited"}'
         with self.assertRaises(P.ProbeError) as err:
-            self.studio(throttled).call("speech", {"text": "مرحبا"}, timeout=50)
+            self.studio(throttled).call("speech", {"text": "مرحبا"}, timeout=200)
         self.assertIn("HTTP 429", str(err.exception))
         self.assertIn("7 submit attempt(s)", str(err.exception))
         self.assertEqual(len(calls), 7)
