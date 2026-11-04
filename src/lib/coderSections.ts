@@ -946,7 +946,7 @@ async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void
     await new Promise((res) => setTimeout(res, Number(process.env.CODER_PREWARM_POLL_MS) || 5000));
     r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
   }
-  if (r?.job && warming.get(chatId) === r.job) warming.delete(warmKey);
+  if (r?.job && warming.get(warmKey) === r.job) warming.delete(warmKey);
 }
 const warming = new Map<string, string>();                       // model-scoped chat key -> Studio warm-up job
 /** A real request is about to be sent for this chat: its warm-up (if still running) must not stand in front of it. */
@@ -960,6 +960,13 @@ export async function cancelWarm(chatId: number): Promise<void> {
 
 /** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
 export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db = prismaDb): Promise<{ runId: string; queued: boolean }> {
+  const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selectedModel, async () => {
+    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    return startAppTaskInner(bot, botRow, chatId, text, db, selectedModel);
+  });
+}
+async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db, selectedModel: string): Promise<{ runId: string; queued: boolean }> {
   const content = String(text || "").trim();
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
