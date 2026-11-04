@@ -199,15 +199,15 @@ export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): 
   privateState.tz = shared.tz;
   privateState.repo = shared.repo;
   privateState.menu = shared.menu;
-  privateState.perModel = { ...(privateState.perModel || {}), lfm25: shared.perModel?.lfm25 };
-  privateState.memPer = { ...(privateState.memPer || {}), lfm25: shared.memPer?.lfm25 };
+  privateState.perModel = { ...(privateState.perModel || {}), ...(shared.perModel?.lfm25 ? { lfm25: shared.perModel.lfm25 } : {}) };
+  privateState.memPer = { ...(privateState.memPer || {}), ...(shared.memPer?.lfm25 ? { lfm25: shared.memPer.lfm25 } : {}) };
   await withEngineModel("lfm25", () => saveStateStrict(chatId, privateState, db));
   return privateState;
 }
 
 // ---------------------------------------------------------------- signing of the self-continuation
 export function signContinue(secret: string, botId: string, chatId: string, chain: string, engineModel?: string): string {
-  const payload = engineModel ? `${botId}|${chatId}|${chain}|${engineModel}` : `${botId}|${chatId}|${chain}`;
+  const payload = engineModel && engineModel !== "coder" ? `${botId}|${chatId}|${chain}|${engineModel}` : `${botId}|${chatId}|${chain}`;
   return createHmac("sha256", secret || "coder").update(payload).digest("hex");
 }
 export function verifyContinue(secret: string, botId: string, chatId: string, chain: string, sig: string, engineModel?: string): boolean {
