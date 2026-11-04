@@ -143,7 +143,8 @@ async function gradioCall(base: string, api: string, payload: unknown, headers: 
  *  "no_job_api": the Studio predates the job API (the old single call is used). */
 async function videoByJob(base: string, payload: unknown, headers: Record<string, string>, f: typeof fetch, deadline: number, bypass?: boolean): Promise<MediaReply | null | "no_job_api"> {
   const start = await gradioCall(base, "video_start", payload, headers, f, deadline, 30000, 30000);
-  if ("error" in start) return start.status && [400, 404, 405, 422, 500].includes(start.status) ? "no_job_api" : start.error;
+  // Only a missing endpoint (404) means this Studio runs old code. A 500 is an internal video-start failure, not permission to launch the legacy synchronous call.
+  if ("error" in start) return start.status === 404 ? "no_job_api" : start.error;
   const s = start.reply as (MediaReply & { job?: string }) | null;
   if (!s) return { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
   if (s.type === "video") return ((await vetMedia(s, { bypassContentHeuristics: bypass })) as MediaReply | null) || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };

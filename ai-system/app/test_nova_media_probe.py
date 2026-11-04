@@ -113,7 +113,7 @@ class FakeStudio:
         body = self.status_replies[min(self.n, len(self.status_replies) - 1)] if api == "status" else payload_for(api)
         if api == "status":
             self.n += 1
-        return 200, "event: complete\ndata: " + json.dumps([json.dumps(body)]) + "\n\n"
+        return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(body)]) + chr(10) + chr(10)
 
 
 def payload_for(api):
@@ -144,6 +144,71 @@ class Sse(unittest.TestCase):
 
     def test_only_heartbeats_means_not_ready_yet(self):
         self.assertIsNone(P._unwrap("event: heartbeat\ndata: null\n\n"))
+
+
+class AsyncVideoJobs(unittest.TestCase):
+    def studio(self, starts, jobs, *, fail_start=None):
+        events, calls, waits = {}, [], []
+        start_values, job_values = list(starts), list(jobs)
+        sequence = {"value": 0}
+
+        def http(method, url, payload=None):
+            if "/gradio_api/call/v2/" in url:
+                api = url.rsplit("/gradio_api/call/v2/", 1)[1]
+                calls.append((method, api, payload))
+                if method != "POST":
+                    return 405, "method"
+                if api == "video_start" and fail_start is not None:
+                    return fail_start, "internal video worker failure"
+                sequence["value"] += 1
+                event = "e" + str(sequence["value"])
+                if api == "video_start":
+                    value = start_values.pop(0)
+                elif api == "job":
+                    value = job_values.pop(0)
+                else:
+                    return 404, "not found"
+                events[event] = value
+                return 200, json.dumps({"event_id": event})
+            api, event = url.rsplit("/gradio_api/call/", 1)[1].rsplit("/", 1)
+            calls.append((method, api, event))
+            return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(events[event])]) + chr(10) + chr(10)
+
+        t = [0.0]
+        st = P.Studio(
+            "https://x.test", "tok", http,
+            sleep=lambda seconds: (waits.append(seconds), t.__setitem__(0, t[0] + seconds)),
+            now=lambda: t[0],
+        )
+        return st, calls, waits
+
+    def test_video_uses_video_start_then_short_job_polls_until_mp4(self):
+        st, calls, waits = self.studio(
+            [{"type": "job", "job": "clip-1"}],
+            [{"type": "running", "phase": "sampling"}, {"type": "video", "b64": "QUJD"}],
+        )
+        reply = st.video_job({"prompt": "a red apple", "seconds": 6}, timeout=300)
+        self.assertEqual(reply, {"type": "video", "b64": "QUJD"})
+        self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start", "job", "job"])
+        self.assertNotIn("video", [item[1] for item in calls if item[0] == "POST"])
+        self.assertEqual(json.loads(calls[0][2]["body"]), {"prompt": "a red apple", "seconds": 6})
+
+    def test_busy_studio_is_retried_before_starting_a_job(self):
+        st, calls, waits = self.studio(
+            [{"type": "busy"}, {"type": "job", "job": "clip-2"}],
+            [{"type": "video", "b64": "QUJD"}],
+        )
+        reply = st.video_job({"prompt": "a cat", "seconds": 6}, timeout=300)
+        self.assertEqual(reply["type"], "video")
+        self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start", "video_start", "job"])
+        self.assertEqual(waits, [5.0])
+
+    def test_video_start_500_is_reported_and_never_downgraded_to_sync_video(self):
+        st, calls, waits = self.studio([], [], fail_start=500)
+        with self.assertRaises(P.ProbeError) as err:
+            st.video_job({"prompt": "a cat", "seconds": 6}, timeout=60)
+        self.assertIn("HTTP 500", str(err.exception))
+        self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start"])
 
 
 class Waiting(unittest.TestCase):
