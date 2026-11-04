@@ -64,7 +64,17 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
   return { kind: video ? "video" : "image", subject: subject || norm(raw), ...(video && requestedSeconds ? { seconds: requestedSeconds } : {}) };
 }
 
-/** The instruction every picture / video prompt translator gets (Nova, Sham, Sham v2): the picture models read English only, so an Arabic request MUST be translated, faithfully. * + "Examples:\nقم بتوليد صورة فتاة شقراء حسناء => [tall] a beautiful blonde girl\nصورة امرأة جميلة بفستان أزرق => [tall] a beautiful woman in a blue dress\nارسم لي ولد صغير يلعب بالكرة في الحديقة => [wide] a small boy playing with a ball in a garden\nصورة امرأة ترتدي فستانا احمر على الشاطئ وقت الغروب => [tall] a woman wearing a red dress on the beach at sunset\nصورة فتاة ورجل يسيران بين الزهور => [wide] a girl and a man walking among flowers\nفيديو لاسد يركض في الصحراء => [wide] a lion running in the desert\nشعار لشركة قهوة => [square] a logo for a coffee company";
+/** The instruction every picture / video prompt translator gets (Nova, Sham, Sham v2): the picture models read English only, so an Arabic request MUST be translated, faithfully. */
+export const MEDIA_TRANSLATE_SYSTEM = "You translate a user's request for a picture or a video into ONE English prompt for an image or video model. Translate FAITHFULLY: keep every subject, number, colour, gender, age, clothing, action and setting the user wrote, in the same order of importance; never add, remove, soften, replace or invent anything; keep names as they are. Ignore only the command words (draw, make, generate, picture, video) and requested durations or sizes. Words of beauty (حسناء, جميلة, فاتنة, وسيم) mean beautiful / pretty / stunning / handsome: they say nothing about clothing or the body. Never add clothing, undressing, body or pose details the user did not write, and never drop one they did write. Up to 40 words. Start the line with the best frame for the picture: [wide] for a scene, a landscape or several subjects, [tall] for one standing person, [square] for anything else. Output that tag and the English prompt only, on one line, no quotes, no explanation.\n"
+  + "Examples:\nقم بتوليد صورة فتاة شقراء حسناء => [tall] a beautiful blonde girl\nصورة امرأة جميلة بفستان أزرق => [tall] a beautiful woman in a blue dress\nارسم لي ولد صغير يلعب بالكرة في الحديقة => [wide] a small boy playing with a ball in a garden\nصورة امرأة ترتدي فستانا احمر على الشاطئ وقت الغروب => [tall] a woman wearing a red dress on the beach at sunset\nصورة فتاة ورجل يسيران بين الزهور => [wide] a girl and a man walking among flowers\nفيديو لاسد يركض في الصحراء => [wide] a lion running in the desert\nشعار لشركة قهوة => [square] a logo for a coffee company";
+
+/** The ONE remaining check: sexual content involving minors (child + sexual words together). Nothing else is blocked. */
+export function sexualMinorRequest(text: string): boolean {
+  const t = String(text || "").toLowerCase();
+  const minor = /\b(?:child|children|kid|kids|minor|underage|preteen|toddler|loli|shota|(?:[1-9]|1[0-7])[\s-]*(?:yo|years?[\s-]*old))\b|طفل|طفلة|اطفال|أطفال|قاصر|قاصرة|صغيرة السن/;
+  const sexual = /\b(?:nude|naked|sex|sexual|porn|nsfw|erotic|undress\w*|topless|genital\w*)\b|عاري|عارية|عراة|جنس|اباحي|إباحي|بدون ملابس|بلا ملابس/;
+  return minor.test(t) && sexual.test(t);
+}
 export type Aspect = "wide" | "tall" | "square";
 /** The translator's leading frame tag ([wide] / [tall] / [square]) split from the prompt; no tag = the model's own default frame. */
 export function splitAspect(text: string | null | undefined): { prompt: string | null; aspect?: Aspect } {
@@ -80,6 +90,10 @@ export function cleanEnglishPrompt(text: string, opts: { preserveRaw?: boolean }
   const raw = String(text || "").trim();
   if (opts.preserveRaw) return raw ? raw.slice(0, 1800) : null;
   const first = raw.split("\n").map((l) => l.trim()).find(Boolean) || "";
+  const t = first.replace(/^(prompt|english prompt)\s*[:\-]\s*/i, "").replace(/^["'`“”«»]+|["'`“”«»]+$/g, "").trim().slice(0, 300);
+  if (t.length < 3) return null;
+  const non = (t.match(/[^\x00-\x7f]/g) || []).length;
+  return non / t.length > 0.15 ? null : t;
 }
 
 const TOOL_NAMES = "web_search|fetch_page|deep_research|github_[a-z_]+|memory_save|memory_search|schedule_[a-z]+|connector_api|mcp_list_tools|mcp_call|sandbox_[a-z_]+|make_media|ask_user|view_image|view_video|run_command|bash";
@@ -99,14 +113,13 @@ export function stripOwnersExcuse(text: string): string { return String(text || 
 
 // ── The model decides (owner 2026-11-04: "the model must understand the request itself, not canned automation") ──────────────────────
 // A message that MIGHT be about making media (a media word, or a short follow-up right after a media turn) is shown to the SELECTED model's
-// own Studio with the last turns; the model answers one line: CHAT / IMAGE / VIDEO / AUDIO / NO, and for media the faithful English prompt
+// own Studio with the last turns; the model answers one line: CHAT / IMAGE / VIDEO / AUDIO, and for media the faithful English prompt
 // in the same call (no second translation call, no other model's Studio). Code only parses that line; it never guesses the subject itself.
 export type RoutedMedia =
   | { kind: "image"; prompt: string; aspect?: Aspect }
   | { kind: "video"; prompt: string; seconds: number; aspect?: Aspect }
   | { kind: "audio"; prompt: string }
   | { kind: "chat" }
-  | { kind: "refuse" };
 
 const MEDIA_WORDS = set("صوره صور رسمه رسم لوحه لوغو لوجو شعار خلفيه صوت صوتي اغنيه نشيد مقطع كليب انيميشن فيديو فديو image picture photo pic logo wallpaper illustration drawing video clip animation audio voice speech song narrate");
 /** True when the message is worth asking the model about (cheap pre-check, never the decision itself). */
@@ -153,7 +166,7 @@ export function parseMediaRoute(reply: string): RoutedMedia | null {
   const head = m[1].toUpperCase();
   let rest = m[2].trim();
   if (head === "CHAT") return { kind: "chat" };
-  if (head === "NO") return { kind: "refuse" };
+  if (head === "NO") return null; // no refusal kind: an unexpected NO is treated as "no answer"
   if (head === "AUDIO") return rest.length >= 1 ? { kind: "audio", prompt: rest.slice(0, 1200) } : null;
   let seconds = 10;
   if (head === "VIDEO") {
