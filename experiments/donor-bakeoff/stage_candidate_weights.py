@@ -109,6 +109,10 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
     route_id = str(config["route_id"])
     source_repo = str(config["repo_id"])
     filenames = [str(config["filename"]), str(config["mmproj_filename"])]
+    # Stored under NEUTRAL names (2026-11-04: both repos whose stored file names carried the source's marketing words were emptied by ModelScope
+    # minutes after a verified upload, E3020 "file content empty"; the neutrally named MiniCPM repo was not). The bytes are the exact source files:
+    # source_filename / source_mmproj_filename name them on the source hub; the SHA-256 in the manifest proves they are unchanged.
+    sources = [str(config.get("source_filename") or filenames[0]), str(config.get("source_mmproj_filename") or filenames[1])]
     if not token.strip():
         raise RuntimeError("MODELSCOPE_TOKEN is required for the private ModelScope mirror.")
 
@@ -150,11 +154,11 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
     with tempfile.TemporaryDirectory(prefix=f"donor-{route_id}-") as temp:
         root = Path(temp)
         file_entries = {}
-        for filename in filenames:
+        for filename, source_name in zip(filenames, sources):
             relative = safe_name(filename)
-            downloaded = Path(hf_hub_download(repo_id=source_repo, filename=filename, revision=source_revision, local_dir=str(root / "source")))
+            downloaded = Path(hf_hub_download(repo_id=source_repo, filename=source_name, revision=source_revision, local_dir=str(root / "source")))
             if not downloaded.is_file() or downloaded.stat().st_size < 1_000_000:
-                raise RuntimeError(f"Source file is missing or unexpectedly small: {filename}")
+                raise RuntimeError(f"Source file is missing or unexpectedly small: {source_name}")
             destination_file = root / "package" / relative
             destination_file.parent.mkdir(parents=True, exist_ok=True)
             if downloaded.resolve() != destination_file.resolve():
@@ -218,8 +222,31 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
                 time.sleep(delay)
         if remote_manifest != manifest:
             raise RuntimeError("Private ModelScope repository verification failed after bounded retries.")
+    verify_remote_files(api, destination, manifest, route_id)
     print(f"{route_id}: private ModelScope mirror verified: {destination}; candidate Studio runtime will use this repository only.", flush=True)
     return manifest
+
+
+def verify_remote_files(api, destination: str, manifest: dict, route_id: str, recheck_s: float | None = None, sleep=time.sleep) -> None:
+    """Download every stored weight back and check its size and SHA-256 against the manifest; then, after a pause, read the manifest again
+    (the emptied repos of 2026-11-03 passed the first check and were blank 3.5 minutes later)."""
+    with tempfile.TemporaryDirectory(prefix="donor-weights-readback-") as tmp:
+        for name, entry in (manifest.get("files") or {}).items():
+            path = Path(api.download_file(destination, repo_type="model", file_path=name, local_dir=tmp, force=True))
+            size, digest = path.stat().st_size, sha256(path)
+            if size != int(entry["size_bytes"]) or digest != entry["sha256"]:
+                raise RuntimeError(f"{route_id}: read-back of {name} does not match the manifest (size {size}, SHA-256 {digest}).")
+            print(f"{route_id}: read-back OK {name} ({size} bytes; SHA-256 {digest}).", flush=True)
+            path.unlink(missing_ok=True)
+    wait = float(os.environ.get("WEIGHTS_RECHECK_S", "300") if recheck_s is None else recheck_s)
+    if wait > 0:
+        print(f"{route_id}: checking the manifest again in {wait:.0f}s.", flush=True)
+        sleep(wait)
+        with tempfile.TemporaryDirectory(prefix="donor-weights-recheck-") as tmp:
+            again = json.loads(download_private_manifest(api, destination, tmp).read_text(encoding="utf-8"))
+        if again != manifest:
+            raise RuntimeError(f"{route_id}: the manifest changed or vanished {wait:.0f}s after the upload.")
+        print(f"{route_id}: manifest still intact after {wait:.0f}s.", flush=True)
 
 
 def main() -> int:

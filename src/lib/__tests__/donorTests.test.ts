@@ -80,8 +80,8 @@ describe("donor Studio readiness probe", () => {
             weight_manifest: {
               candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
               modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights", modelscope_weights_revision: "2026-11-03-r1",
-              filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
-              files: { "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
+              filename: "qwen35-9b-Q4_K_M.gguf", mmproj_filename: "qwen35-9b-mmproj-BF16.gguf",
+              files: { "qwen35-9b-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "qwen35-9b-mmproj-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
             },
             media_capabilities: { vision: true, audio: false, video: true },
             runtime_generation_capabilities: { image: true, audio: false, video: false },
@@ -117,11 +117,11 @@ describe("donor Studio readiness probe", () => {
       source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
       modelscope_repo_id: "novaai2026/sham-donor-gemma4-e4b-weights",
       modelscope_weights_revision: "2026-11-03-r1",
-      filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
-      mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+      filename: "qwen35-9b-Q4_K_M.gguf",
+      mmproj_filename: "qwen35-9b-mmproj-BF16.gguf",
       files: {
-        "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 },
-        "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
+        "qwen35-9b-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 },
+        "qwen35-9b-mmproj-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
       },
     };
     const fetchImpl = jest.fn(async (input: any, init?: any) => {
@@ -152,10 +152,10 @@ describe("donor Studio readiness probe", () => {
       source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
       modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
       modelscope_weights_revision: "2026-11-03-r1",
-      filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
-      mmproj_filename: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+      filename: "qwen35-9b-Q4_K_M.gguf",
+      mmproj_filename: "qwen35-9b-mmproj-BF16.gguf",
       files: {
-        "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
+        "qwen35-9b-mmproj-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 },
       },
     };
     const fetchImpl = jest.fn(async (input: any, init?: any) => {

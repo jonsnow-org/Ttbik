@@ -78,8 +78,8 @@ describe("mini app api", () => {
       if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
         const id = url.includes("sham-donor-gemma4-e4b-test") ? "gemma4-e4b" : url.includes("sham-donor-minicpmo45-test") ? "minicpmo45" : "qwen35-9b";
         const specs: Record<string, any> = {
-          "qwen35-9b": { sourceRepo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive", weightsRepo: "novaai2026/sham-donor-qwen35-9b-weights", filename: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf", mmproj: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf" },
-          "gemma4-e4b": { sourceRepo: "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF", weightsRepo: "novaai2026/sham-donor-gemma4-e4b-weights", filename: "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf", mmproj: "gemma-4-E4B-it-mmproj-BF16.gguf" },
+          "qwen35-9b": { sourceRepo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive", weightsRepo: "novaai2026/sham-donor-qwen35-9b-weights", filename: "qwen35-9b-Q4_K_M.gguf", mmproj: "qwen35-9b-mmproj-BF16.gguf" },
+          "gemma4-e4b": { sourceRepo: "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF", weightsRepo: "novaai2026/sham-donor-gemma4-e4b-weights", filename: "gemma4-e4b-Q4_K_M.gguf", mmproj: "gemma4-e4b-mmproj-BF16.gguf" },
           "minicpmo45": { sourceRepo: "openbmb/MiniCPM-o-4_5-gguf", weightsRepo: "novaai2026/sham-donor-minicpmo45-weights", filename: "MiniCPM-o-4_5-Q4_K_M.gguf", mmproj: "vision/MiniCPM-o-4_5-vision-F16.gguf" },
         };
         const spec = specs[id];
