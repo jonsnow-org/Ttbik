@@ -188,6 +188,25 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
   try { await saveStateStrict(chatId, st, db, slot); } catch { /* best-effort for non-critical state updates */ }
 }
 
+/** Create LFM2.5's private working state without importing Nova's transcript, thread, notes or active run. */
+export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): Promise<ChatState> {
+  const shared = await withEngineModel("coder", () => loadStateStrict(chatId, db));
+  const current = await withEngineModel("lfm25", () => loadStateStrict(chatId, db));
+  if (current.model === "lfm25") return current;
+  const fresh: ChatState = {
+    ...emptyState(),
+    model: "lfm25",
+    lang: shared.lang,
+    tz: shared.tz,
+    repo: shared.repo,
+    menu: shared.menu,
+    perModel: { lfm25: shared.perModel?.lfm25 },
+    memPer: { lfm25: shared.memPer?.lfm25 },
+  };
+  await withEngineModel("lfm25", () => saveStateStrict(chatId, fresh, db));
+  return fresh;
+}
+
 // ---------------------------------------------------------------- signing of the self-continuation
 export function signContinue(secret: string, botId: string, chatId: string, chain: string): string {
   return createHmac("sha256", secret || "coder").update(`${botId}|${chatId}|${chain}`).digest("hex");
