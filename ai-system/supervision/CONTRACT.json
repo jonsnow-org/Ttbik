@@ -789,6 +789,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "studio_run_logs": {
+      "file": ".github/workflows/studio-run-logs.yml",
+      "title": "سجل تشغيل أحد استوديوهات الوسائط أو الحاسوب (قراءة فقط) لتشخيص 502 ونفاد الذاكرة",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
