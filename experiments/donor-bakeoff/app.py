@@ -1148,25 +1148,34 @@ def _generate_candidate_media(kind: str, arguments: dict) -> dict:
         return {"ok": False, "error": "The candidate's own media Studio failed: " + f"{type(exc).__name__}: {str(exc)[:600]}"}
 
 
+def _explicit_computer_target(text: str) -> bool:
+    """Detect a local machine/shell/browser target; a media attachment or GitHub repository alone is not a computer target."""
+    return bool(re.search(
+        r"\\b(computer|desktop|terminal|bash|shell|browser|folder|directory|filesystem|file system|workspace|command line|local file|local files|local path)\\b|"
+        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|مجلد|مسار محلي|ملف محلي|ملفات محلية|على الحاسوب|على الكمبيوتر",
+        text,
+    ))
+
+
+def _project_execution_request(text: str) -> bool:
+    """A repository/project needs the computer only for a real build, test, install, edit or execution—not public GitHub reads."""
+    project = r"\\b(repository|repo|project|source code)\\b|مستودع|ريبو|المشروع|الكود"
+    action = r"\\b(run|execute|build|test|debug|install|compile|clone|modify|edit|write|delete|start)\\b|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|أصلح|اصلح|عدّل|عدل|استنسخ|اكتب|احذف"
+    return bool(re.search(r"(?:%s).{0,70}(?:%s)|(?:%s).{0,70}(?:%s)" % (action, project, project, action), text))
+
+
 def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
-    """Preload only the owner's own computer/GitHub schemas for tasks that clearly need them.
-    This removes an unnecessary model round-trip to call load_tools before the first real action."""
+    """Preload only required groups: computer for local execution, GitHub for linked repository tasks."""
     if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
         return []
     text = str(prompt or "").lower()
     groups = []
-    computer_words = (
-        "computer", "desktop", "terminal", "bash", "shell", "browser", "file", "folder", "run code",
-        "execute", "install", "build", "test", "debug", "repository", "repo", "كمبيوتر", "حاسوب",
-        "الحاسوب", "طرفية", "ترمينال", "متصفح", "ملف", "ملفات", "مجلد", "نفذ", "شغل", "اختبر",
-        "ثبت", "ابن", "اصلح", "أصلح", "كود", "برمج", "مشروع",
-    )
+    if _explicit_computer_target(text) or _project_execution_request(text):
+        groups.append("computer")
     github_words = (
         "github", "git hub", "pull request", "commit", "branch", "مستودع", "مستودعي", "ريبو",
         "جيت هب", "جيتهوب", "فرع", "طلب سحب",
     )
-    if any(word in text for word in computer_words):
-        groups.append("computer")
     connected = tool_bridge.get("connectors") if isinstance(tool_bridge.get("connectors"), list) else []
     if any(word in text for word in github_words) and "github" in connected:
         groups.append("github")
@@ -1174,19 +1183,9 @@ def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
 
 
 def _requires_computer_execution(prompt: str) -> bool:
-    """True only when the request combines an actionable verb with a computer/file/repository target."""
+    """Only local computer actions or direct project execution require a computer bridge; media/GitHub reads do not."""
     text = str(prompt or "").lower()
-    has_target = bool(re.search(
-        r"\b(computer|desktop|terminal|shell|browser|file|files|folder|repository|repo|project|source code)\b|"
-        r"كمبيوتر|حاسوب|الحاسوب|طرفية|ترمينال|متصفح|ملف|ملفات|مجلد|مستودع|ريبو|المشروع|الكود",
-        text,
-    ))
-    has_action = bool(re.search(
-        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
-        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|ابحث|استخدم|استعمل|انقر",
-        text,
-    ))
-    return has_target and has_action
+    return _explicit_computer_target(text) or _project_execution_request(text)
 
 
 def _has_computer_tools(tools: list) -> bool:
