@@ -4,6 +4,8 @@ AnimateDiff-Lightning + an SD-1.5 realistic base, open weights, ~3 GB. Used by s
 """
 from __future__ import annotations
 
+import threading
+
 # --- cpu_video BEGIN (byte-identical in colab/sham_small/cpu_video.py and modelscope-media/app.py; a test keeps the copies in sync) ---
 # Real text-to-video on CPU: AnimateDiff-Lightning (motion adapter, 4 steps) on an SD-1.5 realistic base (epiCRealism). Open weights (CreativeML OpenRAIL-M),
 # about 3 GB on disk, run by our own process. The frames come out of one temporal diffusion pass (never stills stitched into a slideshow).
