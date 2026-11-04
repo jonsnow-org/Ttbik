@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-04-r18"
+APP_REVISION = "donor-bakeoff-2026-11-04-r19"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
@@ -1379,8 +1379,12 @@ _ARABIC = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
 _CJK = re.compile(r"[\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u312F\u3130-\u318F\u31A0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]+")
 
 
+def _display_name() -> str:
+    return str(CONFIG.get("display_name") or str(CONFIG.get("label") or "").split(" — ")[0].strip() or CONFIG.get("id") or "this model")
+
+
 def _identity_system() -> str:
-    name = str(CONFIG.get("display_name") or str(CONFIG.get("label") or "").split(" — ")[0].strip() or CONFIG.get("id") or "this model")
+    name = _display_name()
     return (
         "You are " + name + ", a model on the Sham AI platform. You can chat, write code, create images, video and audio "
         "with your own Studios, use GitHub, connectors and your own cloud computer. "
@@ -1441,6 +1445,11 @@ def infer(
             # Fast lane: short identity prompt, the last few turns only, no tools, a short answer budget.
             use_tools = False
             messages = [m for m in _read_history(history)][-4:]
+            # one fixed example pair (same text every time, cached): MiniCPM answered «من انت» with a nameless «أنا مساعد ذكي» (live 2026-11-04)
+            messages = [
+                {"role": "user", "content": "من أنت؟"},
+                {"role": "assistant", "content": "أنا " + _display_name() + " على منصة Sham AI. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟"},
+            ] + messages
             max_tokens = min(int(max_tokens or MAX_OUTPUT), 320)
         messages.insert(0, {"role": "system", "content": _identity_system()})
         messages.append({"role": "user", "content": content})

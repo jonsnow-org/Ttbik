@@ -80,11 +80,11 @@ describe("mini app api", () => {
         const specs: Record<string, any> = {
           "qwen35-9b": { sourceRepo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive", weightsRepo: "novaai2026/sham-donor-qwen35-9b-weights", filename: "qwen35-9b-Q4_K_M.gguf", mmproj: "qwen35-9b-mmproj-BF16.gguf" },
           "gemma4-e4b": { sourceRepo: "llmfan46/gemma-4-E4B-it-ultra-uncensored-heretic-GGUF", weightsRepo: "novaai2026/sham-donor-gemma4-e4b-weights", filename: "gemma4-e4b-Q4_K_M.gguf", mmproj: "gemma4-e4b-mmproj-BF16.gguf" },
-          "minicpmo45": { sourceRepo: "openbmb/MiniCPM-o-4_5-gguf", weightsRepo: "novaai2026/sham-donor-minicpmo45-weights", filename: "MiniCPM-o-4_5-Q4_K_M.gguf", mmproj: "vision/MiniCPM-o-4_5-vision-F16.gguf" },
+          "minicpmo45": { sourceRepo: "openbmb/MiniCPM-o-4_5-gguf", weightsRepo: "novaai2026/sham-donor-minicpmo45-weights", filename: "MiniCPM-o-4_5-Q4_0.gguf", mmproj: "vision/MiniCPM-o-4_5-vision-F16.gguf" },
         };
         const spec = specs[id];
         const weight_manifest = { candidate_id: id, source_repo_id: spec.sourceRepo, modelscope_repo_id: spec.weightsRepo, modelscope_weights_revision: "2026-11-03-r1", filename: spec.filename, mmproj_filename: spec.mmproj, files: { [spec.filename]: { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, [spec.mmproj]: { sha256: "b".repeat(64), size_bytes: 400_000_000 } } };
-        return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-04-r18", repo_id: spec.weightsRepo, weight_manifest, media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
+        return new Response(JSON.stringify({ data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-04-r19", repo_id: spec.weightsRepo, weight_manifest, media_capabilities: { vision: true, audio: true, video: true } })] }), { status: 200 });
       }
       return new Response("unexpected request", { status: 500 });
     }) as any;

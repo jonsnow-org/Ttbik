@@ -191,7 +191,7 @@ def mirror_candidate(config_path: str | Path, token: str) -> dict:
             repo_type="model",
             folder_path=str(package),
             path_in_repo="",
-            commit_message=f"Mirror exact {route_id} Q4_K_M checkpoint and projector ({REVISION})",
+            commit_message=f"Mirror exact {route_id} {config.get('quantization') or 'GGUF'} checkpoint and projector ({REVISION})",
             use_cache=True,
             sync_remote_repo=False,
             disable_tqdm=True,

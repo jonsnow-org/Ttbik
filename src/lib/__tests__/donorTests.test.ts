@@ -75,7 +75,7 @@ describe("donor Studio readiness probe", () => {
         return new Response(JSON.stringify({
           data: [JSON.stringify({
             phase: "ready",
-            app_revision: "donor-bakeoff-2026-11-04-r18",
+            app_revision: "donor-bakeoff-2026-11-04-r19",
             repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
             weight_manifest: {
               candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
@@ -132,7 +132,7 @@ describe("donor Studio readiness probe", () => {
       if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
         return new Response(JSON.stringify({ data: [JSON.stringify({
           phase: "ready",
-          app_revision: "donor-bakeoff-2026-11-04-r18",
+          app_revision: "donor-bakeoff-2026-11-04-r19",
           repo_id: "novaai2026/sham-donor-gemma4-e4b-weights",
           weight_manifest: manifest,
           media_capabilities: { vision: true, audio: false, video: false },
@@ -166,7 +166,7 @@ describe("donor Studio readiness probe", () => {
       if (url.endsWith("/gradio_api/run/status") && init?.method === "POST") {
         return new Response(JSON.stringify({ data: [JSON.stringify({
           phase: "ready",
-          app_revision: "donor-bakeoff-2026-11-04-r18",
+          app_revision: "donor-bakeoff-2026-11-04-r19",
           repo_id: "novaai2026/sham-donor-qwen35-9b-weights",
           weight_manifest: manifest,
           media_capabilities: { vision: true, audio: false, video: false },
