@@ -989,7 +989,6 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     else if (/^[\x00-\x7f]+$/.test(intent.subject)) prompt = mf.cleanEnglishPrompt(intent.subject);
     else {
       await cardTool(bot, chatId, card, "كتابة وصف إنجليزي للصورة");
-      const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + text.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
       prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
       await cardStepDone(bot, chatId, card, Boolean(prompt));
     }
