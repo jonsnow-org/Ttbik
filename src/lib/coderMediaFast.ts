@@ -65,8 +65,8 @@ export function detectMediaIntent(text: string, context: MediaFollowupContext = 
 }
 
 /** The instruction every picture / video prompt translator gets (Nova, Sham, Sham v2): the picture models read English only, so an Arabic request MUST be translated, faithfully. */
-export const MEDIA_TRANSLATE_SYSTEM = "You translate a user's request for a picture or a video into ONE English prompt for an image or video model. Translate FAITHFULLY: keep every subject, number, colour, gender, age, clothing, action and setting the user wrote, in the same order of importance; never add, remove, soften, replace or invent anything; keep names as they are. Ignore only the command words (draw, make, generate, picture, video) and requested durations or sizes. Up to 40 words. Translate faithfully only when the request is allowed by the platform's safety rules; never invent a subject or make the scene more explicit. Ordinary portraits, people at beaches, swimwear, everyday clothing, sports and non-graphic educational or medical scenes are not automatically sexual. Do not work around a safety restriction; when a request is disallowed, output an empty response rather than a generation prompt. Start the line with the best frame for the picture: [wide] for a scene, a landscape or several subjects, [tall] for one standing person, [square] for anything else. Output that tag and the English prompt only, on one line, no quotes, no explanation.\n"
-  + "Examples:\nارسم لي ولد صغير يلعب بالكرة في الحديقة => [wide] a small boy playing with a ball in a garden\nصورة امرأة ترتدي فستانا احمر على الشاطئ وقت الغروب => [tall] a woman wearing a red dress on the beach at sunset\nصورة فتاة ورجل يسيران بين الزهور => [wide] a girl and a man walking among flowers\nفيديو لاسد يركض في الصحراء => [wide] a lion running in the desert\nشعار لشركة قهوة => [square] a logo for a coffee company";
+export const MEDIA_TRANSLATE_SYSTEM = "You translate a user's request for a picture or a video into ONE English prompt for an image or video model. Translate FAITHFULLY: keep every subject, number, colour, gender, age, clothing, action and setting the user wrote, in the same order of importance; never add, remove, soften, replace or invent anything; keep names as they are. Ignore only the command words (draw, make, generate, picture, video) and requested durations or sizes. Words of beauty (حسناء, جميلة, فاتنة, وسيم) mean beautiful / pretty / stunning / handsome: they say nothing about clothing or the body. Never add clothing, undressing, body or pose details the user did not write, and never drop one they did write. Up to 40 words. Translate faithfully only when the request is allowed by the platform's safety rules; never invent a subject or make the scene more explicit. Ordinary portraits, people at beaches, swimwear, everyday clothing, sports and non-graphic educational or medical scenes are not automatically sexual. Do not work around a safety restriction; when a request is disallowed, output an empty response rather than a generation prompt. Start the line with the best frame for the picture: [wide] for a scene, a landscape or several subjects, [tall] for one standing person, [square] for anything else. Output that tag and the English prompt only, on one line, no quotes, no explanation.\n"
+  + "Examples:\nقم بتوليد صورة فتاة شقراء حسناء => [tall] a beautiful blonde girl\nصورة امرأة جميلة بفستان أزرق => [tall] a beautiful woman in a blue dress\nارسم لي ولد صغير يلعب بالكرة في الحديقة => [wide] a small boy playing with a ball in a garden\nصورة امرأة ترتدي فستانا احمر على الشاطئ وقت الغروب => [tall] a woman wearing a red dress on the beach at sunset\nصورة فتاة ورجل يسيران بين الزهور => [wide] a girl and a man walking among flowers\nفيديو لاسد يركض في الصحراء => [wide] a lion running in the desert\nشعار لشركة قهوة => [square] a logo for a coffee company";
 
 export type Aspect = "wide" | "tall" | "square";
 /** The translator's leading frame tag ([wide] / [tall] / [square]) split from the prompt; no tag = the model's own default frame. */
@@ -134,13 +134,15 @@ export function mediaRouteNeeded(text: string, context: MediaFollowupContext = {
 export const MEDIA_ROUTER_SYSTEM = "You route ONE new chat message of a user who can ask you to make pictures, short videos and speech with your own generators. Read the previous turns and the NEW message and answer with exactly ONE line, nothing else:\n"
   + "CHAT — the new message is not a request to make media right now (a question, code, chat, thanks, a request about a picture the user attached, asking how media works, downloading a video from a link).\n"
   + "IMAGE [wide|tall|square] <English prompt> — make a picture now.\n"
-  + "VIDEO <seconds> [wide|tall|square] <English prompt> — make a video now; seconds = what the user asked (10, 15, 30, 60 or 120), 10 when not stated.\n"
+  + "VIDEO <seconds> [wide|tall|square] <English prompt> — make a video now; seconds = what the user asked (6, 10, 15, 30, 60 or 120), 10 when not stated. A message that says video / فيديو / فديو / مقطع is a VIDEO, never an IMAGE.\n"
   + "AUDIO <the exact words to speak, in the user's language> — read text aloud / make speech now.\n"
   + "NO — a media request the safety rules forbid (any sexual content involving minors, explicit sexual acts or nudity, sexual images of real people, graphic gore).\n"
   + "A short message that only describes a subject, sent right after a picture or video request or result, continues it: same kind, the NEW subject.\n"
-  + "English prompt rules: translate the user's description FAITHFULLY (every subject, number, colour, gender, age, body type, clothing, action and setting, in order of importance); never add, soften, replace or invent anything; drop only the command words and the duration; up to 40 words. Ordinary portraits, people at a beach or pool, swimwear, everyday clothing, sports, and non-graphic medical or educational scenes are allowed. [wide] for scenes or several subjects, [tall] for one standing person, [square] otherwise.\n"
+  + "English prompt rules: translate the user's description FAITHFULLY (every subject, number, colour, gender, age, body type, clothing, action and setting, in order of importance); never add, soften, replace or invent anything; drop only the command words and the duration; words of beauty (حسناء, جميلة, فاتنة, وسيم) mean beautiful / pretty / stunning / handsome and say nothing about clothing or the body; never add clothing, undressing, body or pose details the user did not write; up to 40 words. Ordinary portraits, people at a beach or pool, swimwear, everyday clothing, sports, and non-graphic medical or educational scenes are allowed. [wide] for scenes or several subjects, [tall] for one standing person, [square] otherwise.\n"
   + "Examples:\n"
   + "قم بتوليد صورة فتاة => IMAGE [tall] a girl\n"
+  + "قم بتوليد صورة فتاة شقراء حسناء => IMAGE [tall] a beautiful blonde girl\n"
+  + "قم بتوليد فديو فتاة ترقص 6 ثوان => VIDEO 6 [tall] a girl dancing\n"
   + "(after a picture request) فتاة شقراء ممتلئة ترتدي ملابس سباحة => IMAGE [tall] a chubby blonde girl wearing a swimsuit\n"
   + "قم بتوليد فديو ارنب يلعب في الحديقة => VIDEO 10 [wide] a rabbit playing in a garden\n"
   + "فيديو 30 ثانية لاسد يركض في الصحراء => VIDEO 30 [wide] a lion running in the desert\n"
@@ -172,6 +174,19 @@ export function parseMediaRoute(reply: string): RoutedMedia | null {
   return head === "IMAGE" ? { kind: "image", prompt: clean, ...(aspect ? { aspect } : {}) } : { kind: "video", prompt: clean, seconds, ...(aspect ? { aspect } : {}) };
 }
 
+/** The router's decision checked against what the message literally names: a message that names a video (فيديو / فديو / مقطع / video) and a
+ *  duration is a video of that duration even when a small model answered IMAGE (live 2026-11-04: LFM sent a photo for «فديو … 6 ثوان»).
+ *  The model's own prompt is kept; only the kind / seconds the user wrote are restored. */
+export function reconcileRoute(routed: RoutedMedia | null, text: string, context: MediaFollowupContext = {}): RoutedMedia | null {
+  if (!routed || (routed.kind !== "image" && routed.kind !== "video")) return routed;
+  const d = detectMediaIntent(text, context);
+  if (!d || d.kind !== "video") return routed;
+  const said = /(?:فيديو|فديو|فيدو|مقطع|video|clip)/i.test(String(text || ""));
+  if (!said) return routed;
+  const seconds = d.seconds ?? (routed.kind === "video" ? routed.seconds : 10);
+  return { kind: "video", prompt: routed.prompt, seconds, ...(routed.aspect ? { aspect: routed.aspect } : {}) };
+}
+
 /** The router's user message: the last turns (short) + the new message. */
 export function mediaRouterInput(text: string, context: MediaFollowupContext = {}): string {
   const prev = [
@@ -179,6 +194,16 @@ export function mediaRouterInput(text: string, context: MediaFollowupContext = {
     context.previousAssistant ? "Previous assistant reply: " + String(context.previousAssistant).slice(0, 300) : "",
   ].filter(Boolean).join("\n");
   return (prev ? prev + "\n" : "") + "NEW message: " + String(text).slice(0, 400);
+}
+
+export const MEDIA_NOT_DONE = "لم يُرسَل أي ملف هذه المرة: لم يكتمل إنشاء الوسائط. أعد إرسال طلبك وسأحاول مجدداً (لم يُحسب من حصتك).";
+/** The answer without its sentences that claim a file was sent (nothing was delivered in this run). When nothing else is left:
+ *  the "media did not finish" note if this run tried to make media, else a short honest line. */
+export function dropMediaClaims(text: string, mediaTried: boolean): string {
+  const parts = String(text || "").split(/(?<=[.!؟?。\n])/);
+  const kept = parts.filter((p) => !claimsMediaSent(p)).join("").replace(/\n{3,}/g, "\n\n").trim();
+  if (kept.replace(/[\s\p{P}\p{S}]/gu, "").length >= 2) return kept;
+  return mediaTried ? MEDIA_NOT_DONE : "لم أُرسل أي ملف في هذا الرد.";
 }
 
 /** A final answer that says a picture / video / audio WAS sent. Used only to stop a false claim when nothing was delivered in that run. */

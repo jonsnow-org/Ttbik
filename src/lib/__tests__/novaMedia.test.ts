@@ -83,6 +83,6 @@ describe("Nova media Studio client", () => {
   it("says what went wrong instead of throwing", async () => {
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
     const down = (async () => { throw Object.assign(new Error("x"), { name: "TypeError" }); }) as unknown as typeof fetch;
-    expect(await novaMakeMedia("image", "x", { fetchImpl: down })).toEqual({ type: "error", text: "the media Studio could not be reached" });
+    expect(await novaMakeMedia("image", "x", { fetchImpl: down })).toEqual({ type: "error", reason: "studio_unreachable", text: "تعذّر الوصول إلى استوديو الوسائط" });
   });
 });
