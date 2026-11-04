@@ -21,6 +21,29 @@ The VM needs these environment variables. Only their names appear here; the valu
 
 Sizing: about 8 GB RAM at run time and 15 GB disk, so a free host needs at least 12 GB RAM.
 
+## Update t88u (2026-11-04): the owner cannot open a new Oracle account. What his CURRENT accounts can do
+- **Oracle (current tenancy): does not fit.**
+  - The repo has no OCI API credentials and no SSH secret, so tenancy usage can't be read live.
+  - From `deploy/oracle` (read only): the one Ampere A1 VM already uses the whole free 2 OCPU / 12 GB.
+  - Its containers are capped at 4 + 4 + 1 + 1 GB, plus the Sham v1 runner's 4 GB cap.
+  - The disk was about 79% full when the Sham v1 runner was added.
+  - The two free AMD E2.1.Micro VMs have 1 GB RAM each, far below Sham v2's ~8 GB.
+  - Sharing or resizing the A1 VM would starve the site.
+- **Hugging Face (account `Novasy`, checked by `hf-account-inventory.yml`): not usable without a change by the owner.**
+  - The account is not PRO, so new Docker/Gradio Spaces can't be created.
+  - Its two existing Gradio Spaces (`nova-image-space`, `nova-video-space`) are **PAUSED**.
+  - Reusing one would overwrite that Space's code, and a restart on free hardware may be refused.
+  - Reusing it is the owner's call (see "Owner choice" below).
+- **Kaggle, Modal, Lightning** (the repo has their keys): they run time-limited sessions or monthly credits. That fails "never stops for limits or credit".
+- **GitHub Actions**: jobs are capped at 6 h and are not a server.
+- **ModelScope (same account, free, permanent): already in place.**
+  - Sham v2 runs on `sham-v2-server` and on a second full copy, `sham-v2-overflow-server` (`deploy-modelscope-sham-v2-overflow.yml`). Both are UP and ready (studios-all-status, 2026-11-04).
+  - Both are free 2 vCPU / 8 GB Studios. No usage limit or credit applies.
+- **Decision under the t88u constraint:** the permanently free second copy is the existing ModelScope overflow Studio, which works today.
+  - The off-platform copy (Oracle or HF) needs one owner action:
+    1. Allow repurposing the paused HF Space `Novasy/nova-video-space` (its old content is replaced by this Dockerfile, and the restart may still need PRO); **or**
+    2. Free Oracle A1 capacity by moving something off the site VM (protected `deploy/oracle/**`; owner-approved only).
+
 ## Decision (owner condition t87u: free FOREVER, never stopped by usage limits or credit): **Oracle Always Free A1**
 Checked 2026-11-04 against the official pages: docs.oracle.com "Always Free Resources"; huggingface.co/docs "Spaces Overview", "Using GPU Spaces" and "Manage your Space".
 
