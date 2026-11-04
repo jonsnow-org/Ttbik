@@ -7,6 +7,7 @@ import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { BOT_LANDINGS } from "@/lib/botLanding";
 import { FREE_TOOLS } from "@/lib/freeTools";
+import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 import { PRAYER_CITIES } from "@/lib/prayerCities";
 
 export const revalidate = 30;
@@ -154,7 +155,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly" as const,
     priority: 0.8,
   }));
+  // Keep every English tool registered in the sitemap automatically as the catalogue grows.
+  const enToolRoutes: MetadataRoute.Sitemap = EN_FREE_TOOLS.filter((t) => !have.has(`${base}${t.href}`)).map((t) => ({
+    url: `${base}${t.href}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
 
   const seen = new Set<string>();
-  return [...staticRoutes, ...toolRoutes, ...serviceRoutes].filter((r) => !seen.has(r.url) && !!seen.add(r.url));
+  return [...staticRoutes, ...toolRoutes, ...enToolRoutes, ...serviceRoutes].filter((r) => !seen.has(r.url) && !!seen.add(r.url));
 }

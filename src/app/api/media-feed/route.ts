@@ -349,7 +349,11 @@ export async function GET(req: NextRequest) {
     liked: likedIds.has(rest.id),
     ...rest,
     // TikTok thumbnails are never stored (and expire) — see /api/media-thumb.
-    thumbnail: isTikTok(rest.url) || !rest.thumbnail ? (isTikTok(rest.url) ? `/api/media-thumb?id=${rest.id}` : "") : rest.thumbnail,
+    thumbnail: isTikTok(rest.url) || !rest.thumbnail
+      ? (isTikTok(rest.url)
+          ? `/api/media-thumb?id=${rest.id}${rest.squad_code ? `&squad=${encodeURIComponent(rest.squad_code)}` : ""}`
+          : "")
+      : rest.thumbnail,
   }));
   return NextResponse.json({
     items: publicItems,

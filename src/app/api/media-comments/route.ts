@@ -3,6 +3,7 @@ import { isBlockedEitherWay, mediaDb, mediaUser, namesFor } from "@/lib/mediaSoc
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
 import { notify } from "@/lib/mediaNotify";
 import { write } from "@/lib/mediaSafe";
+import { isPublicMediaPost } from "@/lib/mediaVisibility";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,13 @@ export async function GET(req: NextRequest) {
 
   let comments: Comment[] = [];
   const db = await sb();
+  if (!db) return NextResponse.json({ comments: [] });
+  const { data: parentPost } = await db
+    .from("media_feed")
+    .select("id,hidden,squad_code")
+    .eq("id", postId)
+    .maybeSingle();
+  if (!isPublicMediaPost(parentPost)) return NextResponse.json({ comments: [] }, { status: 404 });
   if (db) {
     try {
       const { data, error } = await db
@@ -105,15 +113,20 @@ export async function POST(req: NextRequest) {
   // Prefer the name Telegram itself signed into init_data over anything the client claims.
   const fromName = (mediaUser(String(body.init_data || ""))?.name || String(body.from_name || "مستخدم")).slice(0, 40);
   if (!postId || !text) return NextResponse.json({ error: "post_id, body required" }, { status: 400 });
+  const db = await sb();
+  if (!db) return NextResponse.json({ error: "database not configured" }, { status: 503 });
+  const { data: parentPost, error: postError } = await db
+    .from("media_feed")
+    .select("id,sharer_id,hidden,squad_code")
+    .eq("id", postId)
+    .maybeSingle();
+  if (postError || !isPublicMediaPost(parentPost)) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const ownerId = String((parentPost as any)?.sharer_id || "");
+
   // A user blocked by the post's owner (or who blocked them) can't comment there.
   try {
-    const bdb = await mediaDb();
-    if (bdb) {
-      const { data: post } = await bdb.from("media_feed").select("sharer_id").eq("id", postId).maybeSingle();
-      const ownerId = String((post as any)?.sharer_id || "");
-      if (ownerId && ownerId !== fromId && (await isBlockedEitherWay(bdb, fromId, ownerId))) {
-        return NextResponse.json({ error: "blocked" }, { status: 403 });
-      }
+    if (ownerId && ownerId !== fromId && (await isBlockedEitherWay(db, fromId, ownerId))) {
+      return NextResponse.json({ error: "blocked" }, { status: 403 });
     }
   } catch {
     /* block table not created yet */
@@ -130,7 +143,6 @@ export async function POST(req: NextRequest) {
   };
   g.__comments = [...(g.__comments || []), comment].slice(-2000);
 
-  const db = await sb();
   // The comment is only reported as saved when the database really took it. (The in-memory copy below only covers the seconds
   // until the next read; it must never be what makes a failure look like success.)
   let persisted = false, persistError = "";
@@ -154,21 +166,15 @@ export async function POST(req: NextRequest) {
     let parentFromId = (g.__comments || []).find((c) => c.id === parentId)?.from_id || "";
     if (!parentFromId && db) {
       try {
-        const { data } = await db.from("media_comments").select("from_id").eq("id", parentId).maybeSingle();
+        const { data } = await db.from("media_comments").select("from_id").eq("id", parentId).eq("post_id", postId).maybeSingle();
         if (data) parentFromId = String((data as any).from_id || "");
       } catch {
         /* ignore */
       }
     }
     if (parentFromId && persisted) await notify(db, { toId: parentFromId, fromId, fromName, type: "reply", postId, extra: text.slice(0, 80) }).catch(() => null);
-  } else if (db) {
-    try {
-      const { data } = await db.from("media_feed").select("sharer_id").eq("id", postId).maybeSingle();
-      const ownerId = data ? String((data as any).sharer_id || "") : "";
-      if (ownerId && persisted) await notify(db, { toId: ownerId, fromId, fromName, type: "comment", postId, extra: text.slice(0, 80) }).catch(() => null);
-    } catch {
-      /* ignore */
-    }
+  } else if (ownerId && persisted) {
+    await notify(db, { toId: ownerId, fromId, fromName, type: "comment", postId, extra: text.slice(0, 80) }).catch(() => null);
   }
 
   if (!persisted) return NextResponse.json({ ok: false, error: "not saved", detail: persistError }, { status: 503 });
