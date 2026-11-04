@@ -52,18 +52,13 @@ alter table public.media_feed enable row level security;
 alter table public.party_rooms enable row level security;
 alter table public.party_messages enable row level security;
 
-drop policy if exists "public read media_feed" on public.media_feed;
-create policy "public read media_feed" on public.media_feed for select using (true);
-
+-- The media-feed read policy is managed by migration_media_feed.sql and
+-- migration_admin_settings.sql. Do not broaden it here.
+-- Watch-party records/messages are read and written only through the API's
+-- service-role client after Telegram identity and room-membership checks.
 drop policy if exists "public read party_rooms" on public.party_rooms;
-create policy "public read party_rooms" on public.party_rooms for select using (true);
-
 drop policy if exists "public read party_messages" on public.party_messages;
-create policy "public read party_messages" on public.party_messages for select using (true);
-
-grant select on public.media_feed to anon, authenticated;
-grant select on public.party_rooms to anon, authenticated;
-grant select on public.party_messages to anon, authenticated;
+revoke all on public.party_rooms, public.party_messages from anon, authenticated;
 grant all on public.media_feed to service_role;
 grant all on public.party_rooms to service_role;
 grant all on public.party_messages to service_role;

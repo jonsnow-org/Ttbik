@@ -27,8 +27,10 @@ create index if not exists idx_media_feed_clones on public.media_feed (clones de
 alter table public.media_feed enable row level security;
 
 drop policy if exists "public read media_feed" on public.media_feed;
-create policy "public read media_feed" on public.media_feed
-  for select using (true);
+drop policy if exists "public read visible media_feed" on public.media_feed;
+create policy "public read visible media_feed" on public.media_feed
+  for select to anon, authenticated
+  using (coalesce(squad_code, '') = '');
 
 grant select on public.media_feed to anon, authenticated;
 grant all on public.media_feed to service_role;
