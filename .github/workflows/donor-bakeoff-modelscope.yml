@@ -12,13 +12,40 @@ on:
         description: "false = only deploy the three candidate Studios with the current app code (no smoke tests): about 15 minutes each instead of an hour"
         required: false
         default: "true"
+      only:
+        description: "deploy ONE candidate only: qwen35-9b | gemma4-e4b | minicpmo45 (empty = all three)"
+        required: false
+        default: ""
 permissions:
   contents: read
 concurrency:
-  group: donor-bakeoff-modelscope-v2
+  group: donor-bakeoff-modelscope-v2-${{ inputs.only || 'all' }}
   cancel-in-progress: true
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.pick.outputs.list }}
+    steps:
+      - id: pick
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          all_ = [
+              {"id": "qwen35-9b", "label": "Qwen3.5-9B low-refusal", "studio": "sham-donor-qwen35-9b-test", "config": "qwen35-9b.json"},
+              {"id": "gemma4-e4b", "label": "Gemma 4 E4B low-refusal", "studio": "sham-donor-gemma4-e4b-test", "config": "gemma4-e4b.json"},
+              {"id": "minicpmo45", "label": "MiniCPM-o 4.5 multimodal", "studio": "sham-donor-minicpmo45-test", "config": "minicpm-o45.json"},
+          ]
+          only = (os.environ.get("ONLY") or "").strip()
+          picked = [c for c in all_ if not only or c["id"] == only]
+          if not picked:
+              raise SystemExit("unknown candidate: " + only)
+          print("list=" + json.dumps(picked))
+          PY
   deploy-candidate:
+    needs: plan
     name: ${{ matrix.candidate.label }} — isolated Studio
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -26,19 +53,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        candidate:
-          - id: qwen35-9b
-            label: Qwen3.5-9B low-refusal
-            studio: sham-donor-qwen35-9b-test
-            config: qwen35-9b.json
-          - id: gemma4-e4b
-            label: Gemma 4 E4B low-refusal
-            studio: sham-donor-gemma4-e4b-test
-            config: gemma4-e4b.json
-          - id: minicpmo45
-            label: MiniCPM-o 4.5 multimodal
-            studio: sham-donor-minicpmo45-test
-            config: minicpm-o45.json
+        candidate: ${{ fromJSON(needs.plan.outputs.list) }}
     env:
       MS: https://www.modelscope.cn
       OWNER: novaai2026
