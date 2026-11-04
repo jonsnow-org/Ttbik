@@ -53,9 +53,17 @@ def cv_find_weights(root, env_names=("CPU_VIDEO_MODEL_DIR",)):
 
 
 CV_REQUIRED_FREE = int(3.05 * 1024 ** 3)
+_VIDEO_WEIGHTS_LOCK = threading.Lock()
+_VIDEO_WEIGHT_STATE = {"loading": False, "ready": False, "error": ""}
 
 
 def cv_fetch_weights(root):
+    """Serialize background prefetch and request-time fetches of the same local ModelScope video assets."""
+    with _VIDEO_WEIGHTS_LOCK:
+        return _cv_fetch_weights_locked(root)
+
+
+def _cv_fetch_weights_locked(root):
     """Download a private local copy of the video weights from ModelScope only."""
     import shutil as _sh
     from pathlib import Path as _P
