@@ -5,7 +5,7 @@ describe("the model's own browser", () => {
     const prior = process.env.COMPUTER_STUDIO_URL;
     process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
     try {
-      const bases = ["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
+      const bases = ["coder", "lfm25", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
       expect(new Set(bases).size).toBe(1);
       expect(bases.every((base) => base === "https://computer-hub.example.test")).toBe(true);
       for (const other of ["", undefined, "../x", "nova"]) expect(browserStudioFor(other as string | undefined)).toBeNull();

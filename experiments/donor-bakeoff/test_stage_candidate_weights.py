@@ -65,6 +65,61 @@ class ReadBackAndNeutralNames(unittest.TestCase):
         verify_remote_files(hub, "novaai2026/sham-donor-qwen35-9b-weights", manifest, "qwen35-9b", recheck_s=7, sleep=slept.append)
         self.assertEqual(slept, [7])
 
+    def test_post_upload_manifest_retries_a_transient_mismatch(self):
+        import hashlib
+        import json
+        from stage_candidate_weights import verify_remote_files
+
+        data = b"x" * 2048
+        manifest = {"candidate_id": "minicpmo45", "files": {"weights.gguf": {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}}
+        stale = {**manifest, "candidate_id": "old-candidate"}
+
+        class FlakyHub:
+            manifest_reads = 0
+
+            def download_file(self, repo_id, repo_type, file_path, local_dir, force=False):
+                target = Path(local_dir) / file_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if file_path == MANIFEST_NAME:
+                    self.manifest_reads += 1
+                    content = stale if self.manifest_reads == 1 else manifest
+                    target.write_text(json.dumps(content), encoding="utf-8")
+                else:
+                    target.write_bytes(data)
+                return target
+
+        slept = []
+        hub = FlakyHub()
+        verify_remote_files(hub, "novaai2026/sham-donor-minicpmo45-weights", manifest, "minicpmo45", recheck_s=1, sleep=slept.append)
+        self.assertEqual(hub.manifest_reads, 2)
+        self.assertEqual(slept, [1, 5])
+
+    def test_post_upload_manifest_still_fails_closed_when_it_never_matches(self):
+        import hashlib
+        import json
+        from stage_candidate_weights import verify_remote_files
+
+        data = b"x" * 2048
+        manifest = {"candidate_id": "minicpmo45", "files": {"weights.gguf": {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}}
+
+        class StaleHub:
+            manifest_reads = 0
+
+            def download_file(self, repo_id, repo_type, file_path, local_dir, force=False):
+                target = Path(local_dir) / file_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if file_path == MANIFEST_NAME:
+                    self.manifest_reads += 1
+                    target.write_text(json.dumps({**manifest, "candidate_id": "old-candidate"}), encoding="utf-8")
+                else:
+                    target.write_bytes(data)
+                return target
+
+        hub = StaleHub()
+        with self.assertRaisesRegex(RuntimeError, "manifest remained unavailable or mismatched"):
+            verify_remote_files(hub, "novaai2026/sham-donor-minicpmo45-weights", manifest, "minicpmo45", recheck_s=1, sleep=lambda _seconds: None)
+        self.assertEqual(hub.manifest_reads, 6)
+
     def test_a_changed_file_fails_the_read_back(self):
         from stage_candidate_weights import verify_remote_files
         manifest = {"files": {"a.gguf": {"size_bytes": 3, "sha256": "0" * 64}}}

@@ -11,6 +11,8 @@ const MODELS: { id: string; label: string }[] = [
   { id: "coder", label: "Nova AI" }, { id: "lfm25", label: "LFM2.5" }, { id: "sham_v2", label: "Sham v2" }, { id: "qwen35-9b", label: "Qwen3.5" }, { id: "gemma4-e4b", label: "Gemma 4" }, { id: "minicpmo45", label: "MiniCPM-o" },
 ];
 type Line = { cmd: string; out: string; code?: number | null; sec?: number; err?: boolean };
+type Activity = { seq: number; t: number; source: string; action: string; detail: string; state: string; output?: string; exit_code?: number | null; live?: boolean };
+type ActivityJob = { id: string; name: string; tail: string };
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 const box = (model: string, args: Record<string, unknown>) => api<any>("box", { model, args });
 
@@ -24,7 +26,7 @@ function joinPath(cwd: string, arg: string): string {
 export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang; defaultModel: string; logs?: React.ReactNode }) {
   const ar = lang === "ar";
   const [model, setModel] = useState(MODELS.some((m) => m.id === defaultModel) ? defaultModel : "coder");
-  const [tab, setTab] = useState<"desktop" | "desk" | "term" | "files" | "jobs" | "log">("desktop");
+  const [tab, setTab] = useState<"desktop" | "desk" | "term" | "files" | "jobs" | "activity" | "log">("desktop");
   const [status, setStatus] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [cmd, setCmd] = useState("");
@@ -36,10 +38,13 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
   const [folder, setFolder] = useState<{ path: string; entries: string[] } | null>(null);
   const [file, setFile] = useState<{ path: string; text: string; dirty: boolean } | null>(null);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [activity, setActivity] = useState<Activity[]>([]);
+  const [activityJobs, setActivityJobs] = useState<ActivityJob[]>([]);
+  const activitySeq = useRef(0);
   const [err, setErr] = useState("");
 
   const loadStatus = useCallback(async () => { try { setStatus(await box(model, { action: "status" })); } catch (e: any) { setStatus({ ok: false, error: String(e?.message || e) }); } }, [model]);
-  useEffect(() => { setLines([]); setCwd("."); setFolder(null); setFile(null); setJobs([]); void loadStatus(); }, [model, loadStatus]);
+  useEffect(() => { setLines([]); setCwd("."); setFolder(null); setFile(null); setJobs([]); setActivity([]); activitySeq.current = 0; void loadStatus(); }, [model, loadStatus]);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [lines, busy]);
 
   const run = async (raw: string, background = false) => {
@@ -94,12 +99,39 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
     void browse({ action: "click", x: Math.round(((e.clientX - rect.left) / rect.width) * el.naturalWidth), y: Math.round(((e.clientY - rect.top) / rect.height) * el.naturalHeight) });
   };
   const loadJobs = useCallback(async () => { try { const r = await box(model, { action: "job_list" }); setJobs(r.jobs || []); } catch { /* shown on the next refresh */ } }, [model]);
+  const loadActivity = useCallback(async () => {
+    try {
+      const r = await box(model, { action: "activity", since: activitySeq.current, limit: 40 });
+      if (!r.ok) throw new Error(r.error || "activity unavailable");
+      setErr("");
+      activitySeq.current = Math.max(activitySeq.current, Number(r.seq) || 0);
+      setActivityJobs(Array.isArray(r.running_jobs) ? r.running_jobs : []);
+      if (Array.isArray(r.activity) && r.activity.length) {
+        setActivity((current) => {
+          const bySeq = new Map(current.map((item) => [item.seq, item]));
+          for (const item of r.activity as Activity[]) bySeq.set(item.seq, item);
+          return [...bySeq.values()].sort((a, b) => a.seq - b.seq).slice(-40);
+        });
+      }
+    } catch (e: any) { setErr(String(e?.message || e)); }
+  }, [model]);
+  useEffect(() => {
+    if (tab !== "activity") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await loadActivity();
+      if (!stopped) timer = setTimeout(() => { void poll(); }, 2500);
+    };
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [tab, loadActivity]);
   const [jobLog, setJobLog] = useState<{ id: string; text: string } | null>(null);
   const showJob = async (id: string) => { const r = await box(model, { action: "job_log", id, tail: 80 }).catch(() => null); setJobLog({ id, text: r ? [r.output, r.running ? (ar ? "… ما زال يعمل" : "… still running") : `exit ${r.exit_code}`].filter(Boolean).join("\n") : "?" }); };
   useEffect(() => { if (tab !== "jobs") return; void loadJobs(); const t = setInterval(() => { void loadJobs(); if (jobLog) void showJob(jobLog.id); }, 4000); return () => clearInterval(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loadJobs, jobLog?.id]);
 
   const chip = (on: boolean) => ({ borderRadius: 999, padding: "6px 12px", border: "1px solid var(--n-line, #8883)", background: on ? "var(--n-accent, #0d9488)" : "transparent", color: on ? "#fff" : "inherit", font: "600 13px system-ui" });
-  const tabs: [typeof tab, string][] = [["desktop", ar ? "الحاسوب الرسومي" : "Graphical desktop"], ["desk", ar ? "المتصفح الآلي" : "Headless browser"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["log", ar ? "سجل المهام" : "Task log"]];
+  const tabs: [typeof tab, string][] = [["desktop", ar ? "الحاسوب الرسومي" : "Graphical desktop"], ["desk", ar ? "المتصفح الآلي" : "Headless browser"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["activity", ar ? "النشاط الحي" : "Live activity"], ["log", ar ? "سجل المهام" : "Task log"]];
   const okStatus = status?.ok;
   return (
     <div className="n-page">
@@ -214,6 +246,35 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
             </div>
           ))}
           {jobLog && <pre style={{ ...mono, whiteSpace: "pre-wrap", marginTop: 10, background: "#0b1220", color: "#e2e8f0", padding: 10, borderRadius: 8, maxHeight: 260, overflow: "auto" }}>{jobLog.text}</pre>}
+        </div>
+      )}
+
+      {tab === "activity" && (
+        <div className="n-card" style={{ padding: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <span className="n-meta" style={{ flex: 1 }}>{ar ? "أوامر هذا النموذج ومخرجاتها الحية" : "Commands and live output for this model"}</span>
+            <button type="button" className="n-btn n-ghost" onClick={() => void loadActivity()}>{ar ? "تحديث" : "Refresh"}</button>
+          </div>
+          {err && <div className="n-note" role="alert">{err}</div>}
+          {activity.length === 0 && activityJobs.length === 0 && <div className="n-meta">{ar ? "لا يوجد نشاط حديث لهذه الجلسة." : "No recent activity in this session."}</div>}
+          {activityJobs.map((job) => (
+            <div key={job.id} style={{ padding: "8px 0", borderBottom: "1px solid #8882" }}>
+              <strong style={mono}>{ar ? "مهمة خلفية" : "Background job"} · {job.name || job.id}</strong>
+              {job.tail && <pre style={{ ...mono, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 140, overflow: "auto", margin: "6px 0 0" }}>{job.tail}</pre>}
+            </div>
+          ))}
+          {[...activity].reverse().map((entry) => (
+            <div key={entry.seq} style={{ padding: "8px 0", borderBottom: "1px solid #8882" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span className="n-meta">{new Date(entry.t * 1000).toLocaleTimeString()}</span>
+                <span className="n-meta">{entry.source}</span>
+                <strong style={mono}>{entry.action}</strong>
+                <span style={{ ...mono, flex: 1, overflowWrap: "anywhere" }}>{entry.detail}</span>
+                <span className="n-meta">{entry.state === "start" ? (entry.live ? (ar ? "جارٍ" : "running") : (ar ? "بدأ" : "started")) : entry.state === "done" ? (ar ? "اكتمل" : "done") : (ar ? "فشل" : "failed")}{typeof entry.exit_code === "number" ? ` · exit ${entry.exit_code}` : ""}</span>
+              </div>
+              {entry.output && <pre style={{ ...mono, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 160, overflow: "auto", margin: "6px 0 0", color: "var(--n-text, inherit)" }}>{entry.output}</pre>}
+            </div>
+          ))}
         </div>
       )}
 
