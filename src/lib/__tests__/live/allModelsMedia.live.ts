@@ -16,10 +16,13 @@ const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2,qwen35-9b,gemma
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
 const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
 const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";
+const CHAT = process.env.PROBE_CHAT || "مرحبا";
 const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
-const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS || 600_000), audio: 300_000 } as const;     // a 1-2 min clip on CPU needs far longer than 10 min
+const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS || 600_000), audio: 300_000, chat: 300_000 } as const;
+// owner 2026-11-04 3:44 AM: «مرحبا» was answered with the media-failure note. A greeting must get a normal reply: no file, no "not sent" note, no claim.
+const MEDIA_NOTE = /لم يُرسل|لم أُرسل|تعذّر إنشاء|ها هي الصورة|أرسلت (?:لك )?(?:الصورة|المقطع|الفيديو)/;     // a 1-2 min clip on CPU needs far longer than 10 min
 
-async function once(model: string, kind: "image" | "video" | "audio", text: string, tag = ""): Promise<string> {
+async function once(model: string, kind: "image" | "video" | "audio" | "chat", text: string, tag = ""): Promise<string> {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
   process.env.CODER_TOKEN_KEY = "live-test";
   const db: any = pgDb();
@@ -45,6 +48,15 @@ async function once(model: string, kind: "image" | "video" | "audio", text: stri
     else await startDonorTestTelegramTask(bot, chat, text, "bot1", undefined, db, globalThis.fetch, "telegram", model as any);
   } catch (e) { return `${model} ${kind}: EXCEPTION ${String((e as Error)?.message || e).slice(0, 200)}`; }
   const limit = LIMIT[kind];
+  if (kind === "chat") {
+    const final = () => sent.filter((s) => s.text && !/جاري|🕒|⏳/.test(s.text));
+    while (Date.now() - t0 < limit && !final().length && !got.length) await new Promise((r) => setTimeout(r, 1500));
+    const secs = Math.round((Date.now() - t0) / 1000);
+    const reply = final().map((s) => s.text.replace(/\n/g, " / ")).join(" || ").slice(0, 300);
+    if (got.length) return `${model} chat: BAD sent a ${got[0].kind} for a greeting in ${secs}s`;
+    if (!reply) return `${model} chat: NO REPLY after ${secs}s`;
+    return `${model} chat: ${MEDIA_NOTE.test(reply) ? "BAD media note" : "OK"} in ${secs}s: ${reply}`;
+  }
   while (Date.now() - t0 < limit && !got.length) {
     await new Promise((r) => setTimeout(r, 1500));
     if (sent.some((s) => /تعذّر|لم أستطع|لم يتم|غير مفعّل|not|failed/i.test(s.text) && !/جاري|🕒|⏳/.test(s.text))) break;
@@ -62,10 +74,10 @@ test("every model: a picture and a video request", async () => {
   // PROBE_VIDEO may hold several requests separated by "||" (one per duration): they run one after another on the model's own Studio (never in parallel: a 2 vCPU Studio runs one clip at a time)
   const videos = VIDEO.split("||").map((x) => x.trim()).filter(Boolean);
   for (const m of MODELS) for (const k of KINDS) {
-    const asks = k === "video" ? videos : [k === "image" ? IMAGE : AUDIO];
+    const asks = k === "video" ? videos : [k === "image" ? IMAGE : k === "chat" ? CHAT : AUDIO];
     for (let i = 0; i < asks.length; i++) {
       const tag = asks.length > 1 ? "-" + (i + 1) : "";
-      const line = await once(m, k as "image" | "video" | "audio", asks[i], tag);
+      const line = await once(m, k as "image" | "video" | "audio" | "chat", asks[i], tag);
       lines.push(line + (tag ? ` [${asks[i]}]` : ""));
       process.stderr.write("ALLMEDIA " + lines[lines.length - 1] + "\n");
     }

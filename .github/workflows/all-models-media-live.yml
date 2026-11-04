@@ -10,7 +10,7 @@ on:
         required: false
         default: "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
       kinds:
-        description: "image,video,audio"
+        description: "chat,image,video,audio (chat sends «مرحبا»: a greeting must get a normal reply, never a media note)"
         required: false
         default: "image,video"
       video_prompt:
