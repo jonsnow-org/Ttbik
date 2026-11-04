@@ -181,6 +181,84 @@ def gradio_call(
     fail(f"{name}: Studio stream ended without a complete result")
 
 
+def live_stream(api: str, token: str, payload: dict[str, Any], timeout: int = 40) -> list[tuple[float, dict[str, Any]]]:
+    """Reads the Studio's `live` generator: every intermediate event with its arrival time (seconds since the request)."""
+    wire = "b64:" + base64.b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    t0 = time.time()
+    started = request_json("POST", f"{api}/gradio_api/call/live", token, {"data": [wire]}, timeout=35)
+    event_id = started.get("event_id")
+    if not isinstance(event_id, str) or not event_id:
+        fail("live: Studio did not return an event id")
+    url = f"{api}/gradio_api/call/live/{urllib.parse.quote(event_id, safe='')}"
+    headers = {"Authorization": "Bearer " + token, "Accept": "text/event-stream", "User-Agent": "Ttbik-ModelScope-Computer-Smoke/1.0"}
+    events: list[tuple[float, dict[str, Any]]] = []
+    with open_with_retry(url, headers, None, "GET", timeout, "live stream") as response:
+        while True:
+            line = response.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", "replace").strip()
+            if not text.startswith("data:"):
+                continue
+            try:
+                value: Any = json.loads(text[5:].strip())
+                if isinstance(value, list):
+                    value = value[0] if value else None
+                if isinstance(value, str):
+                    value = json.loads(value)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, dict):
+                events.append((round(time.time() - t0, 2), value))
+                if value.get("end"):
+                    break
+    return events
+
+
+def check_live(api: str, token: str, session: str, marker: str, frames_dir: str = "") -> dict[str, Any]:
+    """Live view numbers on a RUNNING desktop: one-frame poll latency, the streamed frame rate, live terminal output while a command runs,
+    and pointer accuracy (a click lands on the exact pixel). Frames are saved to frames_dir as evidence (a CI test desktop, no user data)."""
+    out: dict[str, Any] = {}
+    polls = []
+    for _ in range(4):
+        t = time.time()
+        f = desktop_call(api, token, {"action": "frame", "session": session, "quality": 50, "scale": 0.75}, timeout=60)
+        assert_ok(f, "live poll frame")
+        polls.append(round(time.time() - t, 2))
+    out["poll_frame_s"] = polls
+    out["poll_frame_bytes"] = len(str(f.get("screenshot_b64") or "")) * 3 // 4
+    # something visibly changing on screen + a command printing lines while the stream is read
+    desktop_call(api, token, {"action": "launch", "session": session, "app": "terminal"}, timeout=40)
+    import threading
+    runner = threading.Thread(target=lambda: box_call(api, token, {"action": "run", "session": session, "timeout": 25,
+                                                                    "command": f"for i in 1 2 3 4 5 6; do echo LIVE_{marker}_$i; sleep 1.5; done"}, timeout=60), daemon=True)
+    stream_payload = {"session": session, "seconds": 14, "interval": 0.4, "quality": 50, "scale": 0.75}
+    runner.start()
+    events = live_stream(api, token, stream_payload, timeout=60)
+    runner.join(40)
+    frames = [(t, e) for t, e in events if e.get("screenshot_b64")]
+    gaps = [round(b[0] - a[0], 2) for a, b in zip(frames, frames[1:])]
+    live_out = " ".join(str(a.get("output") or "") for _, e in events for a in (e.get("activity") or []) if a.get("state") == "start")
+    out.update({"stream_events": len(events), "stream_frames": len(frames), "stream_first_s": events[0][0] if events else None,
+                "stream_frame_gap_avg_s": round(sum(gaps) / len(gaps), 2) if gaps else None, "stream_frame_gap_max_s": max(gaps) if gaps else None,
+                "live_terminal_seen_while_running": f"LIVE_{marker}_1" in live_out,
+                "activity_actions": sorted({a.get("action") for _, e in events for a in (e.get("activity") or [])})})
+    if frames_dir:
+        os.makedirs(frames_dir, exist_ok=True)
+        for i, (t, e) in enumerate(frames[:40]):
+            with open(os.path.join(frames_dir, f"frame-{i:03d}-{t:06.2f}s.jpg"), "wb") as fh:
+                fh.write(base64.b64decode(e["screenshot_b64"]))
+    # pointer accuracy: click / drag land on the exact screen pixel
+    hits = []
+    for x, y in ((321, 123), (1000, 700), (12, 830)):
+        desktop_call(api, token, {"action": "move", "session": session, "x": x, "y": y}, timeout=40)
+        p = desktop_call(api, token, {"action": "pointer", "session": session}, timeout=40)
+        hits.append([x, y, p.get("x"), p.get("y")])
+    out["pointer_hits"] = hits
+    out["pointer_exact"] = all(h[0] == h[2] and h[1] == h[3] for h in hits)
+    return out
+
+
 def box_call(api: str, token: str, payload: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     return gradio_call(api, "box_do", payload, token, timeout)
 
@@ -346,6 +424,8 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         assert_ok(ran, "terminal command while GUI is running")
         if ran.get("exit_code") != 0 or f"BASH_WITH_GUI_OK:{marker}" not in str(ran.get("output", "")):
             fail("model terminal did not work while the graphical desktop was running")
+        if os.environ.get("SMOKE_LIVE") == "1":
+            print("LIVE " + json.dumps(check_live(api, token, session, marker, os.environ.get("SMOKE_FRAMES_DIR", "")), separators=(",", ":")), flush=True)
     finally:
         stopped = desktop_call(api, token, {"action": "stop", "session": session}, timeout=55)
         assert_ok(stopped, "desktop stop")

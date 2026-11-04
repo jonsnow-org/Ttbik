@@ -626,3 +626,42 @@ class Batch(Box):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveActivity(Box):
+    """The live screen's feed: what the session is doing, with a running command's output while it runs; never another session's."""
+    def test_feed_records_actions_and_their_results(self):
+        self.run_box(session="u1:coder", action="write", path="a.txt", content="hi")
+        self.run_box(session="u1:coder", action="run", command="echo LIVE_OK")
+        feed = self.run_box(session="u1:coder", action="activity", since=0)
+        acts = [(e["action"], e["state"]) for e in feed["activity"]]
+        self.assertIn(("write", "done"), acts)
+        self.assertIn(("run", "done"), acts)
+        run = [e for e in feed["activity"] if e["action"] == "run"][-1]
+        self.assertIn("LIVE_OK", run["output"])
+        self.assertEqual(run["detail"], "echo LIVE_OK")
+        later = self.run_box(session="u1:coder", action="activity", since=feed["seq"])
+        self.assertEqual(later["activity"], [])
+
+    def test_feed_is_per_session(self):
+        self.run_box(session="u1:coder", action="run", command="echo SECRET_A")
+        other = self.run_box(session="u2:coder", action="activity", since=0)
+        self.assertFalse(any("SECRET_A" in json.dumps(e) for e in other["activity"]))
+
+    def test_running_command_output_is_visible_before_it_ends(self):
+        import threading
+        done = {}
+        t = threading.Thread(target=lambda: done.update(r=self.run_box(session="u3:coder", action="run", command="echo FIRST_LINE; sleep 3; echo SECOND", timeout=20)))
+        t.start()
+        seen = ""
+        deadline = time.time() + 2.5
+        while time.time() < deadline and "FIRST_LINE" not in seen:
+            time.sleep(0.2)
+            feed = self.run_box(session="u3:coder", action="activity", since=0)
+            seen = " ".join(e.get("output", "") for e in feed["activity"] if e["state"] == "start")
+        self.assertIn("FIRST_LINE", seen)
+        t.join(10)
+        self.assertIn("SECOND", done["r"]["output"])
+
+    def test_typed_text_is_never_in_the_feed(self):
+        self.assertEqual(cb._act_detail("type", {"text": "hunter2"}), "")
