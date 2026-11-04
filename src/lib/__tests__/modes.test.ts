@@ -149,7 +149,7 @@ describe("Nova's real loop uses the profile", () => {
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const first = chats(calls)[0].body;
     expect(first.tools).toBe(""); expect(first.think).toBe(""); expect(first.max_tokens).toBe(200);
-    expect(JSON.parse(first.messages)[0].content).toBe(withModelIdentity(NOVA_LITE_SYSTEM, "coder"));
+    expect(JSON.parse(first.messages)[0].content).toBe(withModelIdentity(NOVA_LITE_SYSTEM, "coder") + "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English.");
     expect(sent.map((s) => s.text)).toContain("أهلاً بك!");
   });
   it("a greeting right after a question or a tool call keeps the full path (it may be the answer to it)", async () => {
