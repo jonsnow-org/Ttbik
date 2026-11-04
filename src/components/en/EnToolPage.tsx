@@ -13,7 +13,23 @@ export function enToolMetadata(slug: string) {
     description: t.desc,
     alternates: {
       canonical: url,
-      languages: t.ar ? { en: url, ar: `${SITE_URL}/free-tools/${t.ar}` } : { en: url },
+      languages: t.ar
+        ? { en: url, ar: `${SITE_URL}/free-tools/${t.ar}`, "x-default": `${SITE_URL}/free-tools/${t.ar}` }
+        : { en: url, "x-default": url },
+    },
+    openGraph: {
+      type: "website",
+      locale: "en_US",
+      siteName: "Sham AI",
+      url,
+      title: `${t.title} | Sham AI`,
+      description: t.desc,
+      images: [{ url: `${SITE_URL}/og/cover.jpg`, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${t.title} | Sham AI`,
+      description: t.desc,
     },
   };
 }
@@ -42,6 +58,14 @@ export default function EnToolPage({ slug, children }: { slug: string; children:
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(appLd) }} />
       <EnglishDeskNav />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">🎁 100% Free Tool</span>
+        {t.ar ? (
+          <Link href={`/free-tools/${t.ar}`} className="text-xs font-semibold text-slate-500 hover:text-brand-700">
+            🇸🇦 Arabic version
+          </Link>
+        ) : null}
+      </div>
       <h1 className="mb-2 text-2xl font-extrabold">{t.h1}</h1>
       <p className="mb-4 text-sm leading-7 text-slate-600">{t.intro}</p>
       {children}
