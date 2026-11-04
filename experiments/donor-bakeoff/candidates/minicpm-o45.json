@@ -1,12 +1,12 @@
 {
   "id": "minicpm-o45",
-  "label": "MiniCPM-o 4.5 — official multimodal checkpoint (Q4_K_M)",
+  "label": "MiniCPM-o 4.5 — official multimodal checkpoint (Q4_0)",
   "repo_id": "openbmb/MiniCPM-o-4_5-gguf",
-  "filename": "MiniCPM-o-4_5-Q4_K_M.gguf",
+  "filename": "MiniCPM-o-4_5-Q4_0.gguf",
   "mmproj_filename": "vision/MiniCPM-o-4_5-vision-F16.gguf",
   "family": "MiniCPM-o",
-  "quantization": "Q4_K_M",
-  "approx_file_size_gb": 5.03,
+  "quantization": "Q4_0",
+  "approx_file_size_gb": 4.77,
   "context_tokens": 4096,
   "max_output_tokens": 768,
   "model_native_outputs": {
@@ -36,5 +36,6 @@
     "media_repo": "novaai2026/minicpmo45-media-models"
   },
   "modelscope_repo_id": "novaai2026/sham-donor-minicpmo45-weights",
-  "modelscope_weights_revision": "2026-11-03-r1"
+  "modelscope_weights_revision": "2026-11-03-r1",
+  "display_name": "MiniCPM-o 4.5"
 }

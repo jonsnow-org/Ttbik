@@ -43,7 +43,9 @@ export const DONOR_TESTS = [
     studio: "sham-donor-minicpmo45-test",
     weightsRepo: "novaai2026/sham-donor-minicpmo45-weights",
     sourceRepo: "openbmb/MiniCPM-o-4_5-gguf",
-    weightFile: "MiniCPM-o-4_5-Q4_K_M.gguf",
+    // Q4_0 (owner 2026-11-04: 4 min per reply): llama.cpp repacks Q4_0 for the CPU's SIMD units, the fastest 4-bit layout on the 2-vCPU Studio.
+    weightFile: "MiniCPM-o-4_5-Q4_0.gguf",
+    previousWeightFiles: ["MiniCPM-o-4_5-Q4_K_M.gguf"],
     mmprojFile: "vision/MiniCPM-o-4_5-vision-F16.gguf",
     name: { ar: "MiniCPM-o 4.5", en: "MiniCPM-o 4.5" },
     desc: { ar: "متعدد الوسائط · مرفقات تيليغرام", en: "Multimodal candidate · Telegram media according to runtime capabilities" },
@@ -61,9 +63,9 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-04-r18";
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-04-r19";
 // The previous revision stays usable while the Studios roll to r18 one by one (no downtime during a redeploy).
-const ACCEPTED_DONOR_APP_REVISIONS = new Set([EXPECTED_DONOR_APP_REVISION, "donor-bakeoff-2026-11-03-r17"]);
+const ACCEPTED_DONOR_APP_REVISIONS = new Set([EXPECTED_DONOR_APP_REVISION, "donor-bakeoff-2026-11-04-r18", "donor-bakeoff-2026-11-03-r17"]);
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {
@@ -337,14 +339,16 @@ async function probeOne(config: (typeof DONOR_TESTS)[number], fetchImpl: typeof 
     }
     const weightManifest = statusValue?.weight_manifest as Record<string, any> | undefined;
     const files = weightManifest?.files as Record<string, any> | undefined;
+    // a weight switch rolls out without downtime: the previous file is accepted until the Studio has loaded the new one
+    const allowedWeights: string[] = [config.weightFile, ...((config as { previousWeightFiles?: readonly string[] }).previousWeightFiles || [])];
     const manifestMatches =
       weightManifest?.candidate_id === config.id &&
       weightManifest?.source_repo_id === config.sourceRepo &&
       weightManifest?.modelscope_repo_id === config.weightsRepo &&
       weightManifest?.modelscope_weights_revision === "2026-11-03-r1" &&
-      weightManifest?.filename === config.weightFile &&
+      allowedWeights.includes(String(weightManifest?.filename || "")) &&
       weightManifest?.mmproj_filename === config.mmprojFile &&
-      [config.weightFile, config.mmprojFile].every((name) =>
+      [String(weightManifest?.filename || ""), config.mmprojFile].every((name) =>
         typeof files?.[name]?.sha256 === "string" &&
         /^[a-f0-9]{64}$/i.test(files[name].sha256) &&
         Number(files[name].size_bytes) > 1_000_000
