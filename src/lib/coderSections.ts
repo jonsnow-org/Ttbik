@@ -336,10 +336,19 @@ async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSe
 async function engineModelOf(chatId: number | string | undefined, db: Db, slot = ""): Promise<string | undefined> {
   if (chatId === undefined || chatId === null || chatId === "") return undefined;
   try {
-    const own = await loadStateStrict(chatId, db, slot);
+    const own = await withEngineModel("coder", () => loadStateStrict(chatId, db, slot));
     if (own.model || !slot) return own.model;
-    return (await loadStateStrict(chatId, db)).model;
+    return (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model;
   } catch { return undefined; }
+}
+
+/** Find the engine that owns a persisted run, even when the account has since switched models. */
+export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | undefined> {
+  for (const model of ["coder", "lfm25"] as const) {
+    const st = await withEngineModel(model, () => loadStateStrict(chatId, db, slot)).catch(() => null);
+    if (st?.run?.id === runId) return model;
+  }
+  return undefined;
 }
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
@@ -1475,8 +1484,11 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
 
 /** The Mini App's ⏹ and /stop: the Studio job is cancelled, the request ends as stopped, its queued messages are dropped. */
 export async function stopRun(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
-  const selected = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db, slot))).model || "coder");
-  return withEngineModel(selected, () => stopRunInner(chatId, slot, runId, db));
+  const selected = runId
+    ? await engineModelForRun(chatId, runId, db, slot)
+    : undefined;
+  const engine = selected || (currentEngineModel() === "lfm25" ? "lfm25" : "coder");
+  return withEngineModel(engine, () => stopRunInner(chatId, slot, runId, db));
 }
 async function stopRunInner(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
@@ -1528,7 +1540,8 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
 export async function resolvePending(
   bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
 ): Promise<boolean> {
-  const selected = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder");
+  const selected = await engineModelForRun(chatId, runId, db);
+  if (!selected) return false;
   return withEngineModel(selected, () => resolvePendingInner(bot, botRow, chatId, runId, nonce, answer, db, msgId));
 }
 async function resolvePendingInner(
@@ -3083,9 +3096,9 @@ export { splitForTelegram };
 
 /** A run whose worker disappeared (server replaced mid-leg): continue it from the saved state, the Studio job included. */
 export async function resumeOrphan(chatId: number, runId: string, slot: string, botRow: BotRow, db: Db = prismaDb): Promise<boolean> {
-  const selectedModel = currentEngineModel() === "lfm25" ? "lfm25" : ((await withEngineModel("coder", () => loadStateStrict(chatId, db, slot))).model || "coder");
+  const selectedModel = await engineModelForRun(chatId, runId, db, slot);
+  if (!selectedModel) return false;
   return withEngineModel(selectedModel, async () => {
-    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
     const st = await loadState(chatId, db, slot);
     const run = st.run;
     if (!run || run.id !== runId || run.pending || run.asking) return false;
@@ -3109,7 +3122,7 @@ async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, par
   const slots: string[] = [];
   for (let i = 0; i < tasks.length; i++) {
     const slot = agentSlot(run.id, i);
-    const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
+    const st: ChatState = { ...emptyState(), mode: "coder", model: currentEngineModel(), think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
     // an agent inherits the parent's settings: the same permission rules (through the parent's context) and what the user already allowed for this task
     await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, agentDepth: (run.agent ? run.agentDepth || 1 : 0) + 1, parentCtx: contextOf(run), parentRunId: run.id, allowCats: run.allowCats, title: tasks[i].title, goal: tasks[i].task }, db);
     await saveState(chatId, st, db, slot);
