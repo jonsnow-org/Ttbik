@@ -90,11 +90,7 @@ export function newId() {
 
 // ---------------------------------------------------------------- moderation
 // No links, handles or phone numbers (spam/contact harvesting) and a short
-// list of common Arabic/English insults. Reports hide anything else.
-const BAD = [
-  "كس", "زب", "شرموط", "منيوك", "قحب", "عرص", "متناك", "نيك", "خول", "لبوه",
-  "fuck", "shit", "bitch", "porn", "sex",
-];
+// list of common Arabic/English insults. Reports hide anything else
 
 export function cleanText(raw: unknown): { ok: true; text: string } | { ok: false; error: string } {
   if (typeof raw !== "string") return { ok: false, error: "النص مطلوب" };
