@@ -210,7 +210,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           tabIndex={0}
           onKeyDown={(event) => {
             if (["INPUT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName || "")) return;
-            const names: Record<string, string> = { " ": "Space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
+            const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
             const key = names[event.key] || (event.key.length === 1 ? event.key : event.key);
             const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
             const mapped = [...modifiers, key].join("+");
