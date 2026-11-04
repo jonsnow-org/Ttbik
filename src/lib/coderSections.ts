@@ -681,7 +681,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
   if (!mf.mediaRouteNeeded(content, context)) return false;
   // the selected model itself decides (one short call on its own Studio, thinking off) and writes the generator prompt in the same call
-  const routed = await routeMediaByModel(chatId, content, context);
+  const routed = mf.reconcileRoute(await routeMediaByModel(chatId, content, context), content, context);
   let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
   if (routed?.kind === "chat") return false;
   if (routed?.kind === "refuse") {
