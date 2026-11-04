@@ -1164,13 +1164,22 @@ def _project_execution_request(text: str) -> bool:
     return bool(re.search(r"(?:%s).{0,70}(?:%s)|(?:%s).{0,70}(?:%s)" % (action, project, project, action), text))
 
 
+def _computer_action_request(text: str) -> bool:
+    """A local target is actionable only when the user asks to perform an operation, not when asking about capabilities."""
+    action = (
+        r"\b(run|execute|open|click|type|install|build|test|debug|inspect|read|write|edit|launch|operate|use|access|check|clone|compile|fix|modify)\b|"
+        r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|انقر"
+    )
+    return _explicit_computer_target(text) and bool(re.search(action, text))
+
+
 def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
     """Preload only required groups: computer for local execution, GitHub for linked repository tasks."""
     if not isinstance(tool_bridge, dict) or not str(tool_bridge.get("url") or "").startswith("https://"):
         return []
     text = str(prompt or "").lower()
     groups = []
-    if _explicit_computer_target(text) or _project_execution_request(text):
+    if _computer_action_request(text) or _project_execution_request(text):
         groups.append("computer")
     github_words = (
         "github", "git hub", "pull request", "commit", "branch", "مستودع", "مستودعي", "ريبو",
@@ -1183,9 +1192,9 @@ def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
 
 
 def _requires_computer_execution(prompt: str) -> bool:
-    """Only local computer actions or direct project execution require a computer bridge; media/GitHub reads do not."""
+    """Only actionable local computer tasks or project execution require a computer bridge."""
     text = str(prompt or "").lower()
-    return _explicit_computer_target(text) or _project_execution_request(text)
+    return _computer_action_request(text) or _project_execution_request(text)
 
 
 def _has_computer_tools(tools: list) -> bool:
