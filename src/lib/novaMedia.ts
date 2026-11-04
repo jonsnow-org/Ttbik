@@ -77,7 +77,7 @@ export async function novaMakeMedia(
     return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
   }
   const effectiveOpts = kind === "video"
-    ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(3600000, Math.max(Number(opts.timeoutMs) || 0, 300000, (videoSeconds as number) * 30000)) }
+    ? { ...opts, seconds: videoSeconds, timeoutMs: Math.min(7200000, Math.max(Number(opts.timeoutMs) || 0, 300000, (videoSeconds as number) * 45000)) }
     : opts;
   let last: MediaReply | null = null;
   const deadline = Date.now() + (effectiveOpts.timeoutMs ?? 240000);
@@ -86,6 +86,11 @@ export async function novaMakeMedia(
   for (let k = 0; k < attempts; k++) {
     const seed = base0 + k;
     last = await novaMakeMediaOnce(kind, prompt, effectiveOpts, seed);
+    // a picture / sound is cheap to ask again: when the Studio dropped the job (crashed or restarted mid-way), wait for it and ask once more inside the deadline
+    if (kind !== "video" && last?.type === "error" && /^studio_(unreadable|http_50[234])$/.test(String((last as { reason?: string }).reason || "")) && Date.now() + 45000 < deadline) {
+      await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 15000));
+      last = await novaMakeMediaOnce(kind, prompt, { ...effectiveOpts, timeoutMs: Math.max(30000, deadline - Date.now()) }, seed + 7);
+    }
     // the Studio does ONE job at a time and answers {"type":"busy"} (or "loading" while it starts): the request waits in line and asks again instead of failing
     for (let q = 1; last && (last.type === "busy" || last.type === "loading") && Date.now() + 20000 < deadline && q <= 40; q++) {
       effectiveOpts.onWait?.(q);
@@ -96,6 +101,63 @@ export async function novaMakeMedia(
     if (!last || last.type !== "error" || !/^(blank_image|noise_image)$/.test(String(last.reason || ""))) return last;
   }
   return last;
+}
+
+/** The user reads these (in the chat): Arabic only (owner 2026-11-04: no English in error messages). The machine-readable cause is in `reason`. */
+export const MEDIA_ERR = {
+  http: (status: number) => status === 502 || status === 503 ? "استوديو الوسائط يُعاد تشغيله الآن ولم يستجب في الوقت المتاح" : status === 429 ? "استوديو الوسائط مزدحم بطلبات كثيرة الآن" : `استوديو الوسائط رد بخطأ (${status})`,
+  noJob: "استوديو الوسائط لم يبدأ المهمة",
+  unreadable: "انقطع استوديو الوسائط أثناء الإنشاء ولم يصل ناتج صالح",
+  timeout: "لم ينتهِ استوديو الوسائط في الوقت المتاح",
+  unreachable: "تعذّر الوصول إلى استوديو الوسائط",
+};
+
+type CallOut = { reply: MediaReply | null } | { error: MediaReply; status?: number };
+
+/** One call of a hidden Gradio API on the Studio: submit (asked again on 429 / 502-504: no job exists yet), then read the one SSE answer. */
+async function gradioCall(base: string, api: string, payload: unknown, headers: Record<string, string>, f: typeof fetch, deadline: number, timeoutMs: number, readMs?: number): Promise<CallOut> {
+  // a refused submit (the ModelScope gateway answers 429 to a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe (live 2026-11-04: Nova audio lost to one 429)
+  // a 502 / 503 usually means the Studio is restarting (it was out of memory or redeployed): that takes a minute or two, so keep asking well inside the deadline
+  const waits = (process.env.NOVA_MEDIA_SUBMIT_WAITS_MS ?? "2000,5000,10000,20000,30000,45000").split(",").map(Number).filter((x) => x >= 0);
+  const submit = () => f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(Math.max(1000, deadline - Date.now()), timeoutMs, 30000)) });
+  let sub = await submit();
+  for (let k = 0; !sub.ok && [429, 502, 503, 504].includes(sub.status) && k < waits.length && Date.now() + waits[k] < deadline; k++) {
+    await new Promise((r) => setTimeout(r, waits[k]));
+    sub = await submit();
+  }
+  if (!sub.ok) return { error: { type: "error", reason: "studio_http_" + sub.status, text: MEDIA_ERR.http(sub.status) }, status: sub.status };
+  const { event_id } = (await sub.json()) as { event_id?: string };
+  if (!event_id) return { error: { type: "error", reason: "studio_no_job", text: MEDIA_ERR.noJob } };
+  const res = await f(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, Math.min(deadline - Date.now(), readMs ?? Infinity))) });
+  if (!res.ok) return { error: { type: "error", reason: "studio_http_" + res.status, text: MEDIA_ERR.http(res.status) }, status: res.status };
+  return { reply: await readMediaSse(res) };
+}
+
+/** A clip takes minutes. One long SSE read through the ModelScope gateway was cut (unreadable / 502), and with no request in flight the Studio stopped giving
+ *  the job CPU (run-log 2026-11-04: sampling stuck at 0/4 for 13+ min, then every request 500/502). The Studio now runs the clip in the background
+ *  (`video_start`) and `job` is asked back-to-back, each call at most ~20 s. A cut poll is just asked again: the job keeps running on the Studio.
+ *  "no_job_api": the Studio predates the job API (the old single call is used). */
+async function videoByJob(base: string, payload: unknown, headers: Record<string, string>, f: typeof fetch, deadline: number, bypass?: boolean): Promise<MediaReply | null | "no_job_api"> {
+  const start = await gradioCall(base, "video_start", payload, headers, f, deadline, 30000, 30000);
+  if ("error" in start) return start.status && [400, 404, 405, 422, 500].includes(start.status) ? "no_job_api" : start.error;
+  const s = start.reply as (MediaReply & { job?: string }) | null;
+  if (!s) return { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+  if (s.type === "video") return ((await vetMedia(s, { bypassContentHeuristics: bypass })) as MediaReply | null) || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+  if (s.type !== "job" || !s.job) return s;                                  // busy / loading / error: the caller's queue loop handles it
+  const pause = process.env.NODE_ENV === "test" ? 0 : 5000;
+  for (let misses = 0; Date.now() < deadline;) {
+    const wait = Math.max(0, Math.min(20, Math.floor((deadline - Date.now()) / 1000) - 5));
+    const poll: CallOut = await gradioCall(base, "job", { job: s.job, wait }, headers, f, deadline, 30000, (wait + 25) * 1000)
+      .catch(() => ({ error: { type: "error", reason: "studio_unreachable", text: MEDIA_ERR.unreachable } }));
+    const r = "error" in poll ? null : poll.reply;
+    if (r && r.type === "running") { misses = 0; continue; }
+    if (r && r.type === "error" && r.reason === "job_lost") return { type: "error", reason: "studio_job_lost", text: MEDIA_ERR.unreadable };
+    if (r) return ((await vetMedia(r, { bypassContentHeuristics: bypass })) as MediaReply | null) || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+    // a cut or refused poll: the clip is still being made on the Studio; ask again (8 misses in a row mean the Studio is really gone)
+    if (++misses >= 8) return "error" in poll ? poll.error : { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+    await new Promise((r2) => setTimeout(r2, pause));
+  }
+  return { type: "error", reason: "studio_timeout", text: MEDIA_ERR.timeout };
 }
 
 async function novaMakeMediaOnce(
@@ -117,22 +179,15 @@ async function novaMakeMediaOnce(
   const timeoutMs = opts.timeoutMs ?? 240000;
   const deadline = Date.now() + timeoutMs;
   try {
-    // a refused submit (the ModelScope gateway answers 429 to a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe (live 2026-11-04: Nova audio lost to one 429)
-    const waits = (process.env.NOVA_MEDIA_SUBMIT_WAITS_MS ?? "2000,5000,10000").split(",").map(Number).filter((x) => x >= 0);
-    let sub = await f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(timeoutMs, 30000)) });
-    for (let k = 0; !sub.ok && [429, 502, 503, 504].includes(sub.status) && k < waits.length && Date.now() + waits[k] < deadline; k++) {
-      await new Promise((r) => setTimeout(r, waits[k]));
-      sub = await f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(Math.max(1000, deadline - Date.now()), 30000)) });
+    if (kind === "video" && !/^(0|off)$/i.test(process.env.NOVA_MEDIA_VIDEO_JOBS || "")) {
+      const viaJob = await videoByJob(base, payload, headers, f, deadline, opts.bypassContentHeuristics);
+      if (viaJob !== "no_job_api") return viaJob;
     }
-    if (!sub.ok) return { type: "error", text: `the media Studio answered HTTP ${sub.status}` };
-    const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return { type: "error", text: "the media Studio gave no event id" };
-    const res = await f(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
-    if (!res.ok) return { type: "error", text: `the media Studio answered HTTP ${res.status}` };
-    const parsed = await readMediaSse(res);
-    return ((await vetMedia(parsed, { bypassContentHeuristics: opts.bypassContentHeuristics })) as MediaReply | null) || { type: "error", text: "the media Studio's answer was unreadable" };
+    const call = await gradioCall(base, api, payload, headers, f, deadline, timeoutMs);
+    if ("error" in call) return call.error;
+    return ((await vetMedia(call.reply, { bypassContentHeuristics: opts.bypassContentHeuristics })) as MediaReply | null) || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
   } catch (e) {
     const n = (e as { name?: string })?.name || "";
-    return { type: "error", text: n === "TimeoutError" || n === "AbortError" ? "the media Studio did not finish in time" : "the media Studio could not be reached" };
+    return n === "TimeoutError" || n === "AbortError" ? { type: "error", reason: "studio_timeout", text: MEDIA_ERR.timeout } : { type: "error", reason: "studio_unreachable", text: MEDIA_ERR.unreachable };
   }
 }

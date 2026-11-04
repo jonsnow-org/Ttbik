@@ -731,6 +731,68 @@ def api_video(body: str) -> str:
     return json.dumps(_run("video", json.loads(body or "{}")))
 
 
+# --- background video jobs (2026-11-04) ---
+# A clip takes minutes (about 2.5 min per 4 s pass on the free CPU). One long SSE read through the ModelScope gateway was cut after ~20 s - 4 min
+# ("unreadable" / 502), and with no request in flight the serverless instance stopped giving the job CPU: sampling sat at 0/4 for 13+ minutes
+# (run-log 2026-11-04 08:41 Beijing) and every later request answered 500/502. Now the clip runs in a background thread and the caller asks
+# `job` back-to-back; each call waits at most ~20 s, so a request is always in flight and none is long enough to be cut.
+_JOBS: dict = {}
+_JOBS_LOCK = threading.Lock()
+JOB_KEEP_S = 1800
+
+
+def _job_gc(now: float) -> None:
+    for jid in [j for j, v in _JOBS.items() if v.get("done_at") and now - v["done_at"] > JOB_KEEP_S]:
+        _JOBS.pop(jid, None)
+
+
+def _job_thread(jid: str, payload: dict) -> None:
+    try:
+        out = _run("video", payload)
+    except Exception as exc:  # noqa: BLE001  (_run already catches; this is a last guard)
+        out = {"type": "error", "reason": "failed", "text": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    with _JOBS_LOCK:                             # a {"type":"busy"} result (a picture took the media lock first) is returned as is; the caller asks again
+        job = _JOBS.setdefault(jid, {})
+        job["result"], job["done_at"] = out, time.time()
+        ev = job.get("event")
+    if ev is not None:
+        ev.set()
+
+
+def api_video_start(body: str) -> str:
+    """Start one clip in the background: {"type":"job","job":id}, or {"type":"busy"} while another media job holds the Studio."""
+    import uuid
+    payload = json.loads(body or "{}")
+    if _LOCK.locked():
+        return json.dumps({"type": "busy"})
+    jid = uuid.uuid4().hex[:16]
+    with _JOBS_LOCK:
+        _job_gc(time.time())
+        _JOBS[jid] = {"started": time.time(), "event": threading.Event(), "seconds": payload.get("seconds")}
+    threading.Thread(target=_job_thread, args=(jid, payload), daemon=True).start()
+    return json.dumps({"type": "job", "job": jid})
+
+
+def api_job(body: str) -> str:
+    """{"job": id, "wait": s<=20} -> the finished result (image/video/error/busy), or {"type":"running","phase":...,"elapsed_s":...}.
+    {"type":"error","reason":"job_lost"} when the id is unknown (the Studio restarted, or the result expired)."""
+    req = json.loads(body or "{}")
+    jid = str(req.get("job") or "")
+    wait = max(0.0, min(20.0, float(req.get("wait", 15) or 0)))
+    with _JOBS_LOCK:
+        job = _JOBS.get(jid)
+    if job is None:
+        return json.dumps({"type": "error", "reason": "job_lost", "text": "the media job is unknown (the Studio restarted or the result expired)"})
+    ev = job.get("event")
+    if "result" not in job and ev is not None:
+        ev.wait(wait)
+    with _JOBS_LOCK:
+        job = _JOBS.get(jid) or job
+        if "result" in job:
+            return json.dumps(job["result"])
+    return json.dumps({"type": "running", "phase": STATE.get("phase", ""), "elapsed_s": round(time.time() - job.get("started", time.time()), 1)})
+
+
 def _disk() -> dict:
     """The Studio's disk in GiB (total / used / free of the volume that holds the weights), for the capacity audit."""
     try:
@@ -774,7 +836,7 @@ if __name__ == "__main__":
         gr.Markdown("Nova Media Studio — image, Arabic speech and real video. Computer tools run on the separate isolated computer hub.")
         box = gr.Textbox(visible=False)
         out = gr.Textbox(visible=False)
-        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video)):
+        for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video), ("video_start", api_video_start), ("job", api_job)):
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
         gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
     demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)

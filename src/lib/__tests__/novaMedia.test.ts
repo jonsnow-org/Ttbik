@@ -40,9 +40,9 @@ describe("Nova media Studio client", () => {
     }) as unknown as typeof fetch;
     const r = await novaMakeMedia("video", "title", { scenes: ["a cat", "a dog", ""], narration: "مرحبا", fetchImpl: fakeFetch });
     expect(r).toEqual({ type: "video", b64: b64(mp4Shell()) });
-    expect(calls[0].url).toBe("https://studio.example/gradio_api/call/v2/video");
+    expect(calls[0].url).toBe("https://studio.example/gradio_api/call/v2/video_start");     // a clip is a background job on the Studio
     expect(JSON.parse(JSON.parse(calls[0].body!).body)).toEqual({ prompt: "title", seconds: 10, seed: 0 });      // scenes / narration never become stills
-    expect(calls[1].url).toBe("https://studio.example/gradio_api/call/video/e1");
+    expect(calls[1].url).toBe("https://studio.example/gradio_api/call/video_start/e1");
     await novaMakeMedia("audio", "نص", { fetchImpl: fakeFetch });
     expect(calls[2].url).toBe("https://studio.example/gradio_api/call/v2/speech");
     expect(JSON.parse(JSON.parse(calls[2].body!).body)).toEqual({ text: "نص" });
@@ -83,6 +83,50 @@ describe("Nova media Studio client", () => {
   it("says what went wrong instead of throwing", async () => {
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
     const down = (async () => { throw Object.assign(new Error("x"), { name: "TypeError" }); }) as unknown as typeof fetch;
-    expect(await novaMakeMedia("image", "x", { fetchImpl: down })).toEqual({ type: "error", text: "the media Studio could not be reached" });
+    expect(await novaMakeMedia("image", "x", { fetchImpl: down })).toEqual({ type: "error", reason: "studio_unreachable", text: "تعذّر الوصول إلى استوديو الوسائط" });
+  });
+
+  describe("video as a background job (2026-11-04: one long read was cut and the Studio stalled)", () => {
+    const sse = (v: unknown) => ({ ok: true, status: 200, text: async () => "data: " + JSON.stringify([JSON.stringify(v)]) + "\n" });
+    it("starts the job, asks `job` until it is done, and vets the clip", async () => {
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      const seen: string[] = [];
+      let polls = 0;
+      const f = (async (url: string, init?: { body?: string }) => {
+        if (init?.body) { seen.push(url.split("/").pop()!); return { ok: true, status: 200, json: async () => ({ event_id: "e" + seen.length }) }; }
+        if (url.includes("/video_start/")) return sse({ type: "job", job: "j1" });
+        polls++;
+        if (polls === 2) return { ok: false, status: 502, text: async () => "" };          // a cut poll: the job goes on
+        return sse(polls < 4 ? { type: "running", phase: "making video" } : { type: "video", b64: b64(mp4Shell()) });
+      }) as unknown as typeof fetch;
+      const r = await novaMakeMedia("video", "a girl dancing", { seconds: 6, fetchImpl: f });
+      expect(r).toEqual({ type: "video", b64: b64(mp4Shell()) });
+      expect(seen[0]).toBe("video_start");
+      expect(seen.slice(1).every((x) => x === "job")).toBe(true);
+      expect(polls).toBe(4);
+    });
+    it("a restarted Studio (job_lost) is an Arabic error, never a picture", async () => {
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      const f = (async (url: string, init?: { body?: string }) => {
+        if (init?.body) return { ok: true, status: 200, json: async () => ({ event_id: "e" }) };
+        return url.includes("/video_start/") ? sse({ type: "job", job: "j1" }) : sse({ type: "error", reason: "job_lost", text: "x" });
+      }) as unknown as typeof fetch;
+      const r = await novaMakeMedia("video", "a cat", { seconds: 6, fetchImpl: f });
+      expect(r).toMatchObject({ type: "error", reason: "studio_job_lost" });
+      expect(r?.text).toMatch(/[\u0600-\u06FF]/);
+    });
+    it("an older Studio without the job API (404) still gets the single call", async () => {
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      const urls: string[] = [];
+      const f = (async (url: string, init?: { body?: string }) => {
+        urls.push(url);
+        if (url.endsWith("/v2/video_start")) return { ok: false, status: 404, json: async () => ({}) };
+        if (init?.body) return { ok: true, status: 200, json: async () => ({ event_id: "e" }) };
+        return sse({ type: "video", b64: b64(mp4Shell()) });
+      }) as unknown as typeof fetch;
+      const r = await novaMakeMedia("video", "a cat", { seconds: 6, fetchImpl: f });
+      expect(r).toMatchObject({ type: "video" });
+      expect(urls).toContain("https://studio.example/gradio_api/call/v2/video");
+    });
   });
 });

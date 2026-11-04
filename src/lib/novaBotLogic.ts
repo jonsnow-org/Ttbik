@@ -1004,7 +1004,7 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     if (reply.type === intent.kind && reply.b64) {
       await cardPhase(bot, chatId, card, "send", "جاري الإرسال");
       await cardDrop(bot, chatId, card);
-      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"), rawTest && process.env.MEDIA_SHOW_PROMPT === "1" ? { caption: ("🔎 " + (aspect ? "[" + aspect + "] " : "") + prompt).slice(0, 900) } : undefined);   // test mode: the owner sees the exact English prompt the picture model got
+      if (intent.kind === "image") await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png"));   // no caption: the generator prompt is never shown (owner 2026-11-04)
       else await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"));
       await taskEvent(runId, "done", "").catch(() => null);
       await taskStatus(runId, "done", 1).catch(() => null);
