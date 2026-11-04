@@ -80,10 +80,6 @@ export function cleanEnglishPrompt(text: string, opts: { preserveRaw?: boolean }
   const raw = String(text || "").trim();
   if (opts.preserveRaw) return raw ? raw.slice(0, 1800) : null;
   const first = raw.split("\n").map((l) => l.trim()).find(Boolean) || "";
-  const t = first.replace(/^(prompt|english prompt)\s*[:\-]\s*/i, "").replace(/^["'`“”«»]+|["'`“”«»]+$/g, "").trim().slice(0, 300);
-  if (t.length < 3 || /^\s*(?:\[blocked\]|i\s+(?:cannot|can't|won't)|i\s+am\s+unable\s+to|sorry\s*[,!:])/i.test(t)) return null;
-  const non = (t.match(/[^\x00-\x7f]/g) || []).length;
-  return non / t.length > 0.15 ? null : t;
 }
 
 const TOOL_NAMES = "web_search|fetch_page|deep_research|github_[a-z_]+|memory_save|memory_search|schedule_[a-z]+|connector_api|mcp_list_tools|mcp_call|sandbox_[a-z_]+|make_media|ask_user|view_image|view_video|run_command|bash";
