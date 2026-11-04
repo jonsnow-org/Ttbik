@@ -1,0 +1,31 @@
+name: "Read-only audit of one of our private ModelScope weight repos (files, commits, model status)"
+# Read only: prints the model's info/status fields, the file list with sizes and the commit history. Never uploads, deletes or changes anything. Tokens masked.
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "sham-donor-qwen35-9b-weights | sham-donor-gemma4-e4b-weights | sham-donor-minicpmo45-weights"
+        required: true
+        default: "sham-donor-qwen35-9b-weights"
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Model info, files and commits
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          REPO: ${{ inputs.repo }}
+        run: |
+          set -uo pipefail
+          case "$REPO" in sham-donor-qwen35-9b-weights|sham-donor-gemma4-e4b-weights|sham-donor-minicpmo45-weights) ;; *) echo "::error::not one of our weight repos"; exit 1;; esac
+          M=https://modelscope.cn/api/v1/models/novaai2026/$REPO
+          mask() { sed -E 's/(ms-[A-Za-z0-9-]{8})[A-Za-z0-9-]+/\1***/g; s/(Bearer )[A-Za-z0-9._-]+/\1***/g; s/(token=)[^&" ]+/\1***/g'; }
+          get() { echo "===== GET $1"; curl -sS --max-time 30 -H "Authorization: Bearer $T" "$M$1" | head -c 12000 | mask; echo; }
+          get ""
+          get "/repo/files?Revision=master&Recursive=true"
+          get "/revisions"
+          get "/repo/commits?Ref=master&PageSize=50"
+          get "/repo?Revision=master&FilePath=candidate-weights-manifest.json"
