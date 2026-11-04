@@ -126,17 +126,38 @@ class FreeParentRamTest(unittest.TestCase):
         self.assertIsNone(app._CV["pipe"])
 
 
-class VideoInProcessOnSmallStudio(unittest.TestCase):
-    def test_low_ram_runs_the_clip_in_process_after_freeing_the_picture_pipeline(self):
-        import os
+class VideoPassesInFreshProcesses(unittest.TestCase):
+    def test_each_pass_gets_its_own_process_after_the_picture_worker_stops(self):
         app = load()
-        calls = []
-        app._mem_available_gb = lambda: 6.5
-        app.cv_generate_long = lambda *a, **k: calls.append((app._MODELS["pipe"], a[2])) or b"MP4"
-        app._MODELS["pipe"] = object()
-        os.environ.pop("NOVA_VIDEO_SUBPROCESS", None)
-        self.assertEqual(app._make_video("a girl dancing", 6), b"MP4")
-        self.assertEqual(calls, [(None, 6)])
+        events = []
+        app._stop_image_worker = lambda: events.append("stop-picture-worker")
+        app._run_pass = lambda prompt, secs, seed, d, i: events.append(("pass", i, secs)) or b"MP4"
+        import types, sys
+        mq = types.ModuleType("media_quality")
+        mq.check_mp4 = lambda *a, **k: None
+        sys.modules["media_quality"] = mq
+        app.cv_concat_mp4 = lambda clips, target: events.append(("join", len(clips), target)) or b"JOINED"
+        self.assertEqual(app._make_video("a girl dancing", 10), b"JOINED")
+        self.assertEqual(events, ["stop-picture-worker", ("pass", 0, 4.0), ("pass", 1, 4.0), ("pass", 2, 2.0), ("join", 3, 10)])
+
+    def test_picture_worker_round_trip(self):
+        app = load()
+        import threading as _t
+        class Conn:
+            def __init__(self): self.q = []
+            def send(self, x): self.q.append({"png": b"PNG"} if not x.get("warm") else {"ok": True})
+            def poll(self, t): return True
+            def recv(self): return self.q.pop(0)
+            def close(self): pass
+        class Proc:
+            exitcode = None
+            def is_alive(self): return True
+            def kill(self): pass
+            def join(self, t=None): pass
+        app._IMG["proc"], app._IMG["conn"] = Proc(), Conn()
+        self.assertEqual(app._image_call({"prompt": "x", "size": 512, "seed": 0}), {"png": b"PNG"})
+        app._stop_image_worker()
+        self.assertIsNone(app._IMG["proc"])
 
 
 if __name__ == "__main__":

@@ -356,11 +356,86 @@ def _speech_wav(text: str) -> bytes:
     return b.getvalue()
 
 
-def _make_image(prompt: str, size: int, seed: int):
+def _make_image_local(prompt: str, size: int, seed: int):
     import torch
     size = max(256, min(768, int(size) // 64 * 64))
     gen = torch.Generator().manual_seed(int(seed))
     return _pipe()(prompt[:400], num_inference_steps=1, guidance_scale=0.0, height=size, width=size, generator=gen).images[0]
+
+
+# Pictures are made by a long-lived worker PROCESS, so the parent never holds torch weights: before a video clip the worker is stopped and the
+# whole 8 GB is free for AnimateDiff (live 2026-11-04: after a picture made in the parent, the clip was killed -9). The next picture restarts it.
+_IMG = {"proc": None, "conn": None}
+_IMG_LOCK = threading.Lock()
+
+
+def _image_worker(conn) -> None:
+    while True:
+        try:
+            req = conn.recv()
+        except EOFError:
+            return
+        try:
+            if req.get("warm"):
+                _pipe()
+                conn.send({"ok": True})
+                continue
+            conn.send({"png": _png(_make_image_local(req["prompt"], req["size"], req["seed"]))})
+        except BaseException as exc:  # noqa: BLE001
+            traceback.print_exc()
+            conn.send({"err": f"{type(exc).__name__}: {str(exc)[:400]}"})
+
+
+def _image_call(req: dict, timeout: float = 400.0) -> dict:
+    import multiprocessing as _mp
+    with _IMG_LOCK:
+        proc = _IMG["proc"]
+        if proc is None or not proc.is_alive():
+            ctx = _mp.get_context("spawn")
+            parent, child = ctx.Pipe()
+            proc = ctx.Process(target=_image_worker, args=(child,), daemon=True)
+            proc.start()
+            _IMG["proc"], _IMG["conn"] = proc, parent
+        conn = _IMG["conn"]
+        conn.send(req)
+        if not conn.poll(timeout):
+            _stop_image_worker_locked()
+            raise TimeoutError(f"picture timed out after {int(timeout)}s")
+        try:
+            out = conn.recv()
+        except EOFError as exc:
+            _stop_image_worker_locked()
+            raise RuntimeError(f"the picture process ended with code {proc.exitcode} (killed: out of memory?)") from exc
+    if out.get("err"):
+        raise RuntimeError(out["err"])
+    return out
+
+
+def _stop_image_worker_locked() -> None:
+    proc, conn = _IMG["proc"], _IMG["conn"]
+    _IMG["proc"] = _IMG["conn"] = None
+    try:
+        if conn is not None:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+    if proc is not None and proc.is_alive():
+        proc.kill()
+        proc.join(10)
+
+
+def _stop_image_worker() -> None:
+    with _IMG_LOCK:
+        _stop_image_worker_locked()
+
+
+def _make_image(prompt: str, size: int, seed: int):
+    if os.environ.get("NOVA_IMAGE_SUBPROCESS", "1") == "0":
+        return _make_image_local(prompt, size, seed)
+    from PIL import Image
+    img = Image.open(io.BytesIO(_image_call({"prompt": str(prompt), "size": int(size), "seed": int(seed)})["png"]))
+    img.load()
+    return img
 
 
 # --- cpu_video BEGIN (byte-identical in colab/sham_small/cpu_video.py and modelscope-media/app.py; a test keeps the copies in sync) ---
@@ -682,10 +757,10 @@ def cv_generate_long(
 # --- cpu_video END ---
 
 
-def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
-    """Runs in a fresh process: makes the clip, writes the MP4 to out_path (or the error text to out_path + '.err')."""
+def _video_pass_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
+    """Runs in a fresh process: ONE 2-4 s diffusion pass, written to out_path (or the error text to out_path + '.err')."""
     try:
-        data = cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+        data = cv_generate(MODEL_STORE, prompt, float(seconds), int(seed), ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
         with open(out_path, "wb") as fh:
             fh.write(data)
     except BaseException as exc:  # noqa: BLE001
@@ -694,65 +769,79 @@ def _video_child(prompt: str, seconds: float, seed: int, out_path: str) -> None:
             fh.write(f"{type(exc).__name__}: {str(exc)[:400]}")
 
 
-def _mem_available_gb() -> float:
-    try:
-        for line in open("/proc/meminfo", encoding="utf-8"):
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1048576
-    except Exception:  # noqa: BLE001
-        pass
-    return 0.0
-
-
-def _free_parent_ram() -> None:
-    """Before a clip process starts, the parent gives back what it holds (live 2026-11-04 05:3x: a 6 s clip right after a picture was killed with
-    code -9, out of memory: the parent still held the picture pipeline while the child loaded AnimateDiff). The picture pipeline reloads on the
-    next picture request (a few seconds); the speech voice is small and stays."""
+def _trim_heap() -> None:
     import gc
-    _MODELS["pipe"] = None
-    _CV["pipe"] = None
     gc.collect()
     try:
         import ctypes
-        ctypes.CDLL("libc.so.6").malloc_trim(0)      # hand freed heap pages back to the system, not just to Python's allocator
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:  # noqa: BLE001
         pass
 
 
-def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
-    """Local AnimateDiff: 2/4/10/15/30/60/120 s via temporal diffusion segments, joined as one checked MP4.
+def _free_parent_ram() -> None:
+    """Before a clip, everything heavy leaves the parent: the picture worker process is stopped (it restarts on the next picture) and any
+    in-process pipeline is dropped. Live 2026-11-04 (8 GB Studio): the clip process was killed -9 after a picture had been made in the parent,
+    whose heap never shrank back; the deploy probe's clip passed (29 frames, 315 s) when the parent had made no picture."""
+    _stop_image_worker()
+    _MODELS["pipe"] = None
+    _CV["pipe"] = None
+    _trim_heap()
 
-    Each clip runs in a FRESH process (2026-11-04 run logs: the first clip after a restart always finished, the SECOND one in the same process stalled
-    while loading or sampling, 13+ minutes without progress — the RAM the first pipeline left behind was never returned to the system). A child process
-    gives every byte back when it exits. NOVA_VIDEO_SUBPROCESS=0 runs in-process, =1 always uses the child, auto (default) uses the child only with 9+ GB available."""
-    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "auto") == "0" or (os.environ.get("NOVA_VIDEO_SUBPROCESS", "auto") == "auto" and _mem_available_gb() < 9.0):
-        # live 2026-11-04 (8 GB Studio): the clip process was killed -9 twice, even with the parent's picture pipeline released, because a second
-        # Python + torch runtime does not fit next to the parent. In-process, the pipeline is dropped after every clip and the freed heap is
-        # handed back to the system (cv_release + malloc_trim), which is what the fresh process was for.
-        _free_parent_ram()
-        return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+
+def _run_pass(prompt: str, seconds: float, seed: int, d: str, index: int) -> bytes:
     import multiprocessing as _mp
+    out = os.path.join(d, f"pass{index}.mp4")
+    proc = _mp.get_context("spawn").Process(target=_video_pass_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
+    proc.start()
+    limit = int(os.environ.get("NOVA_VIDEO_PASS_LIMIT_S", "") or 600)
+    proc.join(limit)
+    if proc.is_alive():
+        proc.kill()
+        proc.join(10)
+        raise TimeoutError(f"video pass {index + 1} timed out after {limit}s")
+    if os.path.exists(out + ".err"):
+        raise RuntimeError(open(out + ".err", encoding="utf-8").read())
+    if proc.exitcode != 0 or not os.path.exists(out):
+        raise RuntimeError(f"native-video-failed: the clip process ended with code {proc.exitcode} (killed: out of memory?)")
+    with open(out, "rb") as fh:
+        return fh.read()
+
+
+def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
+    """Local AnimateDiff: 2/4/6/10/15/30/60/120 s via temporal diffusion passes, joined as one checked MP4.
+
+    Every 2-4 s pass runs in its OWN fresh process, and the parent never holds torch weights while it runs (the picture worker is stopped
+    first). 2026-11-04 logs: a second pass/clip in the same process stalled or was killed; a fresh process gives all its RAM back when it ends.
+    NOVA_VIDEO_SUBPROCESS=0 runs everything in-process (tests)."""
+    if os.environ.get("NOVA_VIDEO_SUBPROCESS", "1") == "0":
+        return cv_generate_long(MODEL_STORE, prompt, seconds, seed, ("NOVA_VIDEO_MODEL_DIR", "CPU_VIDEO_MODEL_DIR"))
+    try:
+        chunks = cv_chunk_plan(seconds)
+    except ValueError as exc:
+        raise RuntimeError(f"ValueError: {exc}") from exc
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise RuntimeError("native-video-unavailable: a text prompt is required")
     _free_parent_ram()
+    from media_quality import check_mp4
+    continuity = (" Continue the same scene and same subject from the preceding temporal segment; "
+                  "preserve subject identity, clothing, lighting, environment and camera direction. "
+                  "Keep the action moving naturally without a title card or scene reset.")
+    clips: list[bytes] = []
     with tempfile.TemporaryDirectory(prefix="clip-") as d:
-        out = os.path.join(d, "clip.mp4")
-        proc = _mp.get_context("spawn").Process(target=_video_child, args=(prompt, float(seconds), int(seed), out), daemon=True)
-        proc.start()
-        try:
-            passes = len(cv_chunk_plan(seconds))
-        except ValueError:
-            passes = 1                               # the child raises the same duration error with its message
-        limit = 300 + 240 * passes
-        proc.join(limit)
-        if proc.is_alive():
-            proc.kill()
-            proc.join(10)
-            raise TimeoutError(f"video timed out after {limit}s")
-        if os.path.exists(out + ".err"):
-            raise RuntimeError(open(out + ".err", encoding="utf-8").read())
-        if proc.exitcode != 0 or not os.path.exists(out):
-            raise RuntimeError(f"native-video-failed: the clip process ended with code {proc.exitcode} (killed: out of memory?)")
-        with open(out, "rb") as fh:
-            return fh.read()
+        for index, duration in enumerate(chunks):
+            STATE["phase"] = f"video pass {index + 1}/{len(chunks)}"
+            clip = _run_pass(prompt[:220] + (continuity if len(chunks) > 1 else ""), float(duration), int(seed) + index * 1009, d, index)
+            check_mp4(clip, expected_seconds=duration, min_width=480, min_height=270)
+            clips.append(clip)
+    STATE["phase"] = "ready"
+    target = sum(chunks)
+    if len(clips) == 1:
+        return clips[0]
+    joined = cv_concat_mp4(clips, target)
+    check_mp4(joined, expected_seconds=target, min_width=480, min_height=270)
+    return joined
 
 
 def _run(kind: str, payload: dict) -> dict:
@@ -889,7 +978,10 @@ def _warm() -> None:
     while True:
         try:
             STATE["phase"] = "loading models"
-            _pipe()
+            if os.environ.get("NOVA_IMAGE_SUBPROCESS", "1") == "0":
+                _pipe()
+            else:
+                _image_call({"warm": True}, timeout=1800)
             _voice()
             STATE["phase"] = "ready"
             STATE["error"] = ""
