@@ -20,3 +20,14 @@ export function stripForeignScript(text: string): string {
   // keep fenced code untouched
   return s.split(/(```[\s\S]*?```)/).map((part, i) => i % 2 ? part : dropViet(part.replace(CJK, " ")).replace(/[ \t]{2,}/g, " ").replace(/ +([.,!?،؛])/g, "$1")).join("").trim();
 }
+
+// Persian-only letters (پ چ ژ گ ک ی): an Arabic user never writes them; a reply full of them is Persian, not Arabic
+// (live Sham v2 2026-11-04: «من انت» → «به نظرم، من انت چی؟ ...», because «من» is "I" in Persian).
+const PERSIAN_ONLY = /[\u067E\u0686\u0698\u06AF\u06A9\u06CC]/g;
+export function isPersianLeak(userText: string, reply: string): boolean {
+  const u = String(userText ?? ""), r = String(reply ?? "");
+  if (!ARABIC.test(u) || (u.match(PERSIAN_ONLY) || []).length > 0) return false;
+  return (r.match(PERSIAN_ONLY) || []).length >= 3;
+}
+/** The same request with one Arabic-only note on the user's turn (used for a single retry). */
+export const ARABIC_ONLY_NOTE = "\n\n(أجب بالعربية فقط، لا بالفارسية ولا بأي لغة أخرى.)";
