@@ -115,6 +115,20 @@ describe("Nova media Studio client", () => {
       expect(r).toMatchObject({ type: "error", reason: "studio_job_lost" });
       expect(r?.text).toMatch(/[\u0600-\u06FF]/);
     });
+    it("returns a video_start HTTP 500 instead of silently falling back to the memory-heavy synchronous API", async () => {
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      const urls: string[] = [];
+      const f = (async (url: string, init?: { body?: string }) => {
+        urls.push(url);
+        if (init?.body) return { ok: false, status: 500, text: async () => "internal video worker failure" };
+        return sse({ type: "video", b64: b64(mp4Shell()) });
+      }) as unknown as typeof fetch;
+      const r = await novaMakeMedia("video", "a girl playing in a garden", { seconds: 6, fetchImpl: f });
+      expect(r).toMatchObject({ type: "error", reason: "studio_http_500", text: "استوديو الوسائط رد بخطأ (500)" });
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).toBe("https://studio.example/gradio_api/call/v2/video_start");
+      expect(urls.some((url) => url.endsWith("/v2/video"))).toBe(false);
+    });
     it("an older Studio without the job API (404) still gets the single call", async () => {
       process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
       const urls: string[] = [];
