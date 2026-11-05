@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-05 17:33 UTC",
+  "generated_at": "2026-11-05 23:47 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -236,13 +236,14 @@
       "size_mb": 35.8,
       "last_updated": "2026-11-05",
       "progress": {
-        "samples_consumed": 270320,
-        "step": 78619,
+        "samples_consumed": 284848,
+        "step": 80435,
         "last_run_sources": {
-          "cv17-ar": 1000
+          "cv17-ar": 319,
+          "fleurs-ar": 681
         },
-        "codebook_usage": 2010,
-        "recon": 0.010362889617681503
+        "codebook_usage": 2004,
+        "recon": 0.01154940837295726
       },
       "has_key_files": true
     },
@@ -281,16 +282,16 @@
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 145.5,
+      "size_mb": 145.6,
       "last_updated": "2026-11-05",
       "progress": {
-        "samples_consumed": 275264,
-        "step": 53076,
+        "samples_consumed": 282432,
+        "step": 54868,
         "last_run_sources": {
           "coco-karpathy": 1000
         },
-        "codebook_usage": 3214,
-        "recon": 0.04988543333655054
+        "codebook_usage": 3183,
+        "recon": 0.0529651004111483
       },
       "has_key_files": true
     },
@@ -305,7 +306,7 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4194.0,
+      "size_mb": 4188.7,
       "last_updated": "2026-11-05",
       "progress": {},
       "has_key_files": true
@@ -313,10 +314,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 23.2,
+      "size_mb": 23.7,
       "last_updated": "2026-11-05",
       "progress": {
-        "videos_consumed": 5567
+        "videos_consumed": 5667
       },
       "has_key_files": true
     },
@@ -389,13 +390,14 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 270320,
-          "step": 78619,
+          "samples_consumed": 284848,
+          "step": 80435,
           "last_run_sources": {
-            "cv17-ar": 1000
+            "cv17-ar": 319,
+            "fleurs-ar": 681
           },
-          "codebook_usage": 2010,
-          "recon": 0.010362889617681503
+          "codebook_usage": 2004,
+          "recon": 0.01154940837295726
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -404,7 +406,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 5567
+          "videos_consumed": 5667
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
