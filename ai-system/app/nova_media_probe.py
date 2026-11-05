@@ -29,6 +29,16 @@ class ProbeError(RuntimeError):
     pass
 
 
+# A job poll can be cut by the ModelScope gateway (HTTP 500/502/503/504, a dropped stream, or a read that returns nothing)
+# while the background clip keeps running on the Studio. Those are transient and must be retried, never treated as a dead job.
+_TRANSIENT_POLL_TOKENS = ("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 429", "no result after", "unexpected reply")
+
+
+def is_transient_poll_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return any(token in text for token in _TRANSIENT_POLL_TOKENS)
+
+
 def supports_video_engine(value: object) -> bool:
     """Accept the base engine identifier with an optional implementation descriptor."""
     text = str(value or "").strip()
@@ -186,10 +196,21 @@ class Studio:
             if started.get("type") != "job" or not started.get("job"):
                 raise ProbeError("video_start returned no job id: " + str(started)[:180])
             job_id = str(started["job"])
+            misses = 0
             while self.now() < end:
                 left = end - self.now()
                 wait = max(1, min(5, int(left) - 3))
-                result = self.call("job", {"job": job_id, "wait": wait}, timeout=min(30.0, wait + 20.0, left))
+                try:
+                    result = self.call("job", {"job": job_id, "wait": wait}, timeout=min(30.0, wait + 20.0, left))
+                except ProbeError as exc:
+                    # A cut poll (the ModelScope gateway answers 500/502 or strands the read) is not a dead job:
+                    # the background clip is still running on the Studio, so ask again instead of aborting the probe.
+                    misses += 1
+                    if not is_transient_poll_error(exc) or misses >= 8:
+                        raise
+                    self.sleep(min(5.0, max(0.0, end - self.now())))
+                    continue
+                misses = 0
                 kind = str(result.get("type") or "")
                 if kind == "running":
                     self.sleep(2)

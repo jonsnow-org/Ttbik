@@ -147,7 +147,8 @@ export async function studioCall(base: string, api: string, payload: Record<stri
   // or explicitly supplies Retry-After. Other precondition failures surface.
   let start = await submit();
   for (let i = 0; !start.ok && i < 3; i++) {
-    const transientGateway = [403, 429, 502, 503, 504].includes(start.status);
+    // 500 joins the gateway statuses a Studio returns while it is under memory pressure or restarting; a computer call is safe to ask again.
+    const transientGateway = [403, 429, 500, 502, 503, 504].includes(start.status);
     const detail412 = start.status === 412 ? safeStudioBody(await start.clone().text().catch(() => "")) : "";
     const transient412 = start.status === 412 && isTransientStudio412(detail412, start.headers.get("retry-after"));
     if (!transientGateway && !transient412) break;

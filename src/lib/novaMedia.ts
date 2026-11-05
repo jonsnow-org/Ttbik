@@ -123,12 +123,17 @@ async function gradioCall(base: string, api: string, payload: unknown, headers: 
   // a refused submit (the ModelScope gateway answers 429 to a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe (live 2026-11-04: Nova audio lost to one 429)
   // a 502 / 503 usually means the Studio is restarting (it was out of memory or redeployed): that takes a minute or two, so keep asking well inside the deadline
   const waits = (process.env.NOVA_MEDIA_SUBMIT_WAITS_MS ?? "2000,5000,10000,20000,30000,45000").split(",").map(Number).filter((x) => x >= 0);
-  const submit = () => f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(Math.max(1000, deadline - Date.now()), timeoutMs, 30000)) });
+  // null means the connection itself dropped (the gateway closed it) rather than a status answer: also a transient miss to ask again.
+  const submit = (): Promise<Response | null> => f(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify({ body: JSON.stringify(payload) }), signal: AbortSignal.timeout(Math.min(Math.max(1000, deadline - Date.now()), timeoutMs, 30000)) }).catch(() => null);
   let sub = await submit();
-  for (let k = 0; !sub.ok && [429, 502, 503, 504].includes(sub.status) && k < waits.length && Date.now() + waits[k] < deadline; k++) {
-    await new Promise((r) => setTimeout(r, waits[k]));
+  // A refused submit created no job yet, so asking again is safe. The ModelScope gateway answers 429 to a burst and 500/502-504 while an
+  // instance is under memory pressure or restarting (the video failures 2026-11-05 were a bare HTTP 500 on the first submit): retry them all,
+  // and retry a dropped connection too, so one cut does not throw away a clip.
+  for (let k = 0; (sub === null || !sub.ok) && (sub === null || [429, 500, 502, 503, 504].includes(sub.status)) && k < waits.length && Date.now() + waits[k] < deadline; k++) {
+    await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : waits[k]));
     sub = await submit();
   }
+  if (sub === null) return { error: { type: "error", reason: "studio_unreachable", text: MEDIA_ERR.unreachable } };
   if (!sub.ok) return { error: { type: "error", reason: "studio_http_" + sub.status, text: MEDIA_ERR.http(sub.status) }, status: sub.status };
   const { event_id } = (await sub.json()) as { event_id?: string };
   if (!event_id) return { error: { type: "error", reason: "studio_no_job", text: MEDIA_ERR.noJob } };

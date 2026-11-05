@@ -3,8 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
 import { migrateLegacyFollowIds } from "@/lib/mediaFollowMigration";
-import { clientComputeOn, computeSlice, deviceInfo } from "@/lib/clientCompute";
-import { shrinkImage } from "@/lib/clientPrep";
 import AdsterraBanner from "@/components/AdsterraBanner";
 import { AtharFeedCard, AtharProfileCard } from "@/components/AtharMediaCard";
 
@@ -63,15 +61,6 @@ function displayTitle(item: FeedItem) {
 function timeAgo(ts?: number) { if (!ts) return ""; const s = Math.max(0, Math.floor(Date.now() / 1000) - ts); if (s < 60) return "الآن"; if (s < 3600) return `${Math.floor(s / 60)} د`; if (s < 86400) return `${Math.floor(s / 3600)} س`; return `${Math.floor(s / 86400)} ي`; }
 function loadJSON<T>(key: string, fb: T): T { try { const r = localStorage.getItem(key); return r ? (JSON.parse(r) as T) : fb; } catch { return fb; } }
 function saveJSON(key: string, val: unknown) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-
-// Owner switch (admin dashboard), read once per page; the visitor is never told. Off unless the
-// owner turned it on, and never on a device too weak to matter (see clientCompute.ts).
-let computeFlag: boolean | null = null;
-async function computeAllowed(): Promise<boolean> {
-  if (computeFlag === null) computeFlag = await clientComputeOn();
-  if (!computeFlag) return false;
-  return computeSlice(true, deviceInfo()).allowed;
-}
 
 // Crops the picked photo to a centred square and shrinks it to 256px, so any
 // image (any size / orientation) fits the round-cornered avatar frame and stays tiny.
@@ -1158,13 +1147,7 @@ export default function MiniAppPage() {
     if (!file.type.startsWith("image/")) { showToast("اختر صورة فقط"); return; }
     setAvatarBusy(true);
     try {
-      // When the owner switch is on, shrink the picture on the visitor's own device first
-      // (lighter upload, less work for us); otherwise upload exactly as before.
-      let src = file;
-      if (await computeAllowed()) {
-        try { src = await shrinkImage(file, { max: 512, quality: 0.85 }); } catch { src = file; }
-      }
-      const data = await fileToAvatar(src);
+      const data = await fileToAvatar(file);
       const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_avatar", avatar: data, init_data: tgInitData() }) });
       if (!r.ok) { showToast("تعذّر حفظ الصورة"); }
       else { setAvatarUrl(data); saveJSON("mb_avatar", data); showToast("تم تحديث صورتك ✅"); }
