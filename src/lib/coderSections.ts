@@ -16,7 +16,7 @@ import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, cod
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
-import { resolveProfile, type ReqClass } from "@/lib/modes";
+import { resolveProfile, requiresProgressCard, type ReqClass } from "@/lib/modes";
 import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -698,7 +698,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
-  if (freshRun && st.run) await openCard(bot, chatId, st.run, content, db);          // ONE message, within seconds: date + time, the model's own understanding line, then real steps; later edited into the live answer
+  // Do not pre-open a status card. The model/worker creates one only after a real task phase or tool-start event.
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);
@@ -2569,7 +2569,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           // only states the Studio itself reported: its model phase, its queue position, its reasoning counter, its prompt-reading progress, whether text is coming
           const [pkey, phase] = r.phase && r.phase !== "ready" ? ["prep", `جاري تجهيز النموذج (${r.phase})`] : r.queue_pos && r.queue_pos > 0 ? ["queue", `في الطابور، الترتيب ${r.queue_pos}`] : Number(r.reasoning_len || 0) > 0 && !r.total ? ["think", "جاري التفكير"] : Number(r.total || 0) > 0 || readDone ? ["write", "جاري الكتابة"] : pf >= 0 ? ["read", `جاري قراءة المهمة ${pf}%`] : ["wait", "في انتظار أول مخرجات النموذج"];
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
-          await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, pkey, phase);
+          if (requiresProgressCard(run.goal || "") || run.progress?.msgId) {
+            await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, pkey, phase);
+          }
         }
         // once per job: how much of the prompt the Studio really had to read (the rest came from its cache) and on which Studio: the evidence for "does it read everything again?"
         if (r.prefill && Number(r.prefill.total) > 0 && run.pfLogged !== run.job) {
@@ -2966,8 +2968,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     run.jobMovedAt = Date.now();
     run.jobSize = "";
     if (r.type !== "pending") cached = r;
-    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0 && tierFor(chatId) !== "owner" && !run.progress?.msgId) await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);   // the owner sees the queue on the progress card, never as a message
-    if (r.type === "pending" && r.phase && r.phase !== "ready" && !run.progress?.msgId) await send(ioBot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
+    if (r.type === "pending" && requiresProgressCard(run.goal || "") && r.queue_pos && r.queue_pos > 0 && tierFor(chatId) !== "owner" && !run.progress?.msgId) await send(ioBot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);   // the owner sees the queue on the progress card, never as a message
+    if (r.type === "pending" && requiresProgressCard(run.goal || "") && r.phase && r.phase !== "ready" && !run.progress?.msgId) await send(ioBot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
     await saveState(chatId, st, db, slot);
   }
 }

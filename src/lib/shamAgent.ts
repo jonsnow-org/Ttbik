@@ -82,7 +82,8 @@ export async function shamAgentRun(opts: {
   const maxNew = Math.max(20, opts.maxNew ?? (variant === "v2" ? 512 : 160));
   const v2 = variant === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t, { bypassContentHeuristics: Boolean(opts.ctx.owner) })));
-  const ask: ShamAsk = (p, n, t) => { opts.onStep?.({ type: "think" }); return rawAsk(p, n, t); };      // direct conversation path
+  const announceThinking = () => { if (prof.think || prof.thinkAct) opts.onStep?.({ type: "think" }); };
+  const ask: ShamAsk = (p, n, t) => { announceThinking(); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
     opts.agentAsk || (!opts.ask && v2
       ? ((p, n, t, activeTools = opts.tools) => shamModeCtx.run(effMode, async () => {
@@ -92,7 +93,7 @@ export async function shamAgentRun(opts: {
         }))
       : rawAsk);
   const stepAsk = (p: string, n: number, t: number, activeTools: CoderTool[] = opts.tools): Promise<ShamReply | null> => {
-    opts.onStep?.({ type: "think" });
+    announceThinking();
     return rawAgentAsk(p, n, t, activeTools);
   };
   const unpackToolReply = (reply: ShamReply | null, availableTools: CoderTool[] = opts.tools): { text: string; calls: CoderToolCall[] } => {

@@ -37,6 +37,7 @@ export function normalizePref(x: unknown): Pref | undefined {
 
 // ---------------------------------------------------------------- classification of one request
 const GREETING = /^(?:(?:ال)?سلام(?: عليكم)?(?: ورحمة الله(?: وبركاته)?)?|مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|كيفك|كيف حالك|كيف حالك اليوم|شلونك|كيف الحال|شكرا|شكراً|شكرا لك|مشكور|تسلم|يعطيك العافية|ممتاز|رائع|الحمد لله|وداعا|مع السلامة|باي|من انت|من أنت|مين انت|ما اسمك|ما هو اسمك|who are you|what is your name|hi|hello|hey|hola|salam|thanks|thank you|thx|bye|good (?:morning|evening|night))(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
+const GREETING_WITH_CHECKIN = /^(?:مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|(?:ال)?سلام(?: عليكم)?|hi|hello|hey|hola|salam)[\s،,]+(?:كيف(?: حالك(?: اليوم)?| الحال|ك)|شلونك|how are you(?: doing)?)[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
 /** Short "who are you / what is your name" questions: answered on the lite path (identity only, no tools). */
 const IDENTITY_Q = /^(?:(?:و\s*)?(?:من|مين|شو|ما)\s+(?:انت|أنت|إنت|انتي|أنتِ|اسمك|هو اسمك)|عرّ?ف(?:نا)?\s+(?:ب|عن\s+)?نفسك|who\s+are\s+you|what(?:'s|\s+is)\s+your\s+name)(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,]*$/iu;
 const RUN_CUES = /شغّ?ل|شغل|نفّ?ذ|نفذ|جرّ?ب|جرب|اختبرها|اختبره|ثبّ?ت|ثبت|run it|run the|execute|install|sandbox|terminal|clone/i;
@@ -46,6 +47,7 @@ const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pu
 
 // planning / design / analysis requests: they need a real thought before the answer, like code does
 const PLAN_CUES = /خطّ?ط|خطة|خطط|تخطيط|صمّ?م|تصميم|بنية|معمارية|هيكلة|استراتيجية|حلّ?ل|قارن|\b(?:plan|architecture|architect|design|roadmap|strategy|analy[sz]e|compare|trade-?offs?|break (?:it )?down)\b/i;
+const SHORT_TASK_CUES = /^(?:عدّل|عدل|كمل|اكمل|أكمل|تابع|نفّذ|نفذ|شغّل|شغل|جرّب|جرب|اختبر|افحص|صلّح|صلح|صحح|غيّر|غير|أضف|اضف|احذف|أنشئ|انشئ|اقرأ|افتح)(?:\s|$)/u;
 
 const PLAIN_QUESTION = /[?؟]\s*$|^\s*(?:اشرح|فسّر|فسر|عرّف|عرف|ما (?:هو|هي|هم|معنى|الفرق)|ماذا|من (?:هو|هي)|لماذا|كيف|متى|أين|ما الفرق|what|why|how|when|where|who|explain|define|difference)\b/i;
 /** Is this a plain knowledge question (answerable from the model's own knowledge)? Terse commands like "عدّل" or "كمل" are NOT: they continue a task and keep every tool. */
@@ -59,11 +61,17 @@ export function classifyRequest(text: string): ReqClass {
   const t = String(text || "").trim();
   if (!t) return "chat";
   if (detectMediaIntent(t)) return "media";
-  if (t.length <= 60 && !t.includes("\n") && GREETING.test(t)) return "trivial";
+  if (t.length <= 100 && !t.includes("\n") && (GREETING.test(t) || GREETING_WITH_CHECKIN.test(t))) return "trivial";
   if (t.length <= 40 && !t.includes("\n") && IDENTITY_Q.test(t)) return "trivial";   // «من انت» took minutes on the full tool path
   if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
-  if (PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
+  if (SHORT_TASK_CUES.test(t) || PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
+}
+
+/** True only when a request has real work to track: coding/agent execution, media generation, or a chat that needs a live external fact/tool. */
+export function requiresProgressCard(text: string): boolean {
+  const klass = classifyRequest(text);
+  return klass === "code" || klass === "agentic" || klass === "media" || (klass === "chat" && needsFreshFacts(text));
 }
 
 // ---------------------------------------------------------------- the effective mode
@@ -150,9 +158,10 @@ export function resolveProfile(i: ProfileInput): Profile {
   const work = klass === "code" || klass === "agentic";
   const sham = i.model === "sham" || i.model === "sham_v2";
   const canThink = i.canThink ?? (i.model !== "sham");
-  // THINKING POLICY (explicit): the user's switch = "always"; otherwise the owner's / env default (adaptive). Greetings and media never think. The old Sham body cannot think.
+  // Thinking is reserved for actual work. A user forcing "always" or choosing maximum accuracy
+  // must not turn ordinary chat into a reasoning/task session. The old Sham body cannot think.
   const policy: ThinkPolicy = normalizeThinkPolicy(i.policy) || (i.thinkSwitch ? "always" : defaultThinkPolicy());
-  const eligible = canThink && klass !== "trivial" && klass !== "media";
+  const eligible = canThink && work;
   // Nova: adaptive thinks at the plan stage of code / agent work. Sham v2 (never trained to think): only when asked ("always"), and only on code / agent work.
   const think = eligible && policy !== "never" && (policy === "always" ? (sham ? work : true) : !sham && work);
   const thinkAct = eligible && policy === "always" && (sham ? work : true);
@@ -164,7 +173,9 @@ export function resolveProfile(i: ProfileInput): Profile {
     temperature: TEMPERATURE[mode],
     maxNewFactor: mode === "fast" ? 0.6 : mode === "precise" ? 1.5 : 1,
     corrections: mode === "fast" ? 1 : mode === "precise" ? 3 : 2,
-    lite: klass === "trivial" || (!sham && klass === "chat" && mode === "fast" && isPlainQuestion(i.text || "") && !needsFreshFacts(i.text || "")),
+    // Any ordinary chat that needs no fresh external facts is a direct model reply:
+    // no tool schemas and no reasoning mode, even when the user selected precise / always.
+    lite: klass === "trivial" || (klass === "chat" && !needsFreshFacts(i.text || "")),
     liteSystem: klass === "trivial" ? NOVA_LITE_SYSTEM : NOVA_CHAT_SYSTEM,
     note: sham ? NOTE_SHAM[mode] : NOTE[mode],
     image,
