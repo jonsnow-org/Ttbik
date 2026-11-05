@@ -106,8 +106,10 @@ class Desktop(unittest.TestCase):
             with patch.object(desktop, "_spawn", side_effect=spawn):
                 result = desktop._input_action(session, "launch", {"app": "jupyter"})
             self.assertTrue(result["ok"], result)
-            self.assertIn("127.0.0.1:8890/lab?token=", result["url"])
+            self.assertRegex(result["url"], r"^http://127\\.0\\.0\\.1:\\d+/lab\\?token=")
             self.assertIn("--ip=127.0.0.1", captured["command"])
+            port_arg = next(item for item in captured["command"] if item.startswith("--port="))
+            self.assertEqual(int(port_arg.split("=", 1)[1]), result["port"])
             self.assertTrue(any(item.startswith("--ServerApp.token=") for item in captured["command"]))
             self.assertEqual(captured["env"]["HOME"], str(box.session_home(session)))
         finally:
