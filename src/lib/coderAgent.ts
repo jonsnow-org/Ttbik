@@ -111,6 +111,8 @@ export const COMPUTER_PLAYBOOK = [
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
   "- several small steps (read + search + run + write) go in ONE computer_batch call (up to 8 steps): every separate computer call costs about 2 s.",
+  "- optional apps: computer_apps action=list, install one needed group (office / ocr / data / creative), poll its install_id, then verify with desktop action=apps. OCR a scanned PDF with ocrmypdf -l ara+eng --skip-text input.pdf output.pdf; use JupyterLab for CSV/XLSX data and open its returned localhost URL in your own browser.",
+  "- persistent storage banks: computer_bank list/create/put/import/read/search/link/links/stats; search across all banks when bank is omitted; the real physical disk and session quota still apply.",
   "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
 ].join("\n");
 
