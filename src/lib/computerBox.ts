@@ -3,10 +3,10 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean; bank_action?: string; bank?: string; key?: string; title?: string; description?: string; source_path?: string; file_name?: string; target_bank?: string; target_key?: string; relation?: string; query?: string;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean; bank_action?: string; bank?: string; key?: string; title?: string; description?: string; source_path?: string; file_name?: string; target_bank?: string; target_key?: string; relation?: string; query?: string; app_action?: string; group?: string; install_id?: string;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "bank", "batch"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "bank", "apps", "batch"]);
 const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo", "computer_bank"]);
 
 /** The tool names a model sees → what the Studio understands. */
@@ -26,6 +26,9 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
     content: a.content as string, source_path: a.source_path as string, file_name: a.file_name as string,
     target_bank: a.target_bank as string, target_key: a.target_key as string,
     relation: a.relation as string, query: a.query as string, limit: a.limit as number,
+  };
+  if (tool === "computer_apps") return {
+    action: "apps", app_action: a.action as string, group: a.group as string, install_id: a.install_id as string,
   };
   if (tool === "computer_batch") {
     // several computer actions in ONE round trip: each step is {tool: "computer_run"|..., ...its arguments}
@@ -82,6 +85,9 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.target_key !== undefined) out.target_key = String(a.target_key).slice(0, 180);
   if (a.relation !== undefined) out.relation = String(a.relation).slice(0, 80);
   if (a.query !== undefined) out.query = String(a.query).slice(0, 500);
+  if (a.app_action !== undefined) out.app_action = String(a.app_action).slice(0, 16);
+  if (a.group !== undefined) out.group = String(a.group).slice(0, 24);
+  if (a.install_id !== undefined) out.install_id = String(a.install_id).slice(0, 24);
   if (a.continue_on_error) out.continue_on_error = true;
   if (action === "batch") {
     const steps = (a.steps || []).slice(0, 8).map((st) => (String(st?.action || "") === "batch" ? null : cleanBoxArgs(st)));
@@ -130,6 +136,9 @@ function renderBody(action: string, r: Record<string, any>): string {
       if (Array.isArray(r.hits)) return r.hits.length ? r.hits.map((h: any) => `[${h.bank}/${h.key}] ${h.title} (${h.kind}, ${h.bytes} bytes)\n${h.excerpt || h.description || ""}`).join("\n\n") : "no matching entries";
       if (r.entry) return JSON.stringify(r.entry).slice(0, 10000);
       return JSON.stringify(r).slice(0, 3000);
+    case "apps":
+      if (Array.isArray(r.groups)) return `available disk: ${r.free_gb ?? "?"} GB\n` + r.groups.map((g: any) => `- ${g.id}: ${g.installed ? "installed" : "not installed"} (needs ${g.minimum_free_gb} GB free) — ${g.description}`).join("\n") + (r.saved_groups?.length ? `\nrestored on restart: ${r.saved_groups.join(", ")}` : "");
+      return `app group ${r.group || ""}: ${r.status || (r.ok ? "done" : "error")}${r.install_id ? `; install_id=${r.install_id} (poll computer_apps action=status)` : ""}\n${r.result?.error || r.error || r.result?.description || r.note || ""}`;
     case "batch":
       return [`${((r.results as any[]) || []).length} step(s) in one call · ${r.seconds}s`, ...((r.results as any[]) || []).map((x, i) => `[${i + 1}] ${x.action}: ${x.skipped ? "not run (" + x.error + ")" : x.ok === false ? "error: " + String(x.error || "").slice(0, 300) + (x.output ? "\n" + String(x.output).slice(0, 400) : "") : renderBody(String(x.action), x)}`)].join("\n\n").slice(0, 12000);
     case "job_list":
