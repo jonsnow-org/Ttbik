@@ -199,6 +199,8 @@ PLAYBOOK = """YOUR COMPUTER - how to work fast
 8. Change a file with computer_edit (exact text) or computer_patch (a unified diff for many changes at once) and send ONLY the changed lines (generating text is the slowest thing you do): never rewrite a whole file for a small change.
 10. Tests: computer_test finds the runner (npm / pytest / go / cargo / make) and runs it as a job; read it with computer_job action=log.
 11. Tools here: git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node (computer_tools lists what is installed now).
+13. Optional app suites: call computer_apps action=list; install only the group you need (office / ocr / data / creative), poll its install_id to ready, then verify with desktop action=apps. OCR: ocrmypdf -l ara+eng --skip-text input.pdf output.pdf. Data: launch desktop app=jupyter, wait until its local URL answers, then open the returned http://127.0.0.1:8890 URL in your browser; the port is only reachable from this same session.
+14. Storage banks: computer_bank list/create/put/import/read/search/link/links/stats. Search without bank searches all banks. Imported files are copied into the private banks directory; the session's normal disk quota still applies.
 12. Several small steps (read + search + run + write): ONE computer_batch call with up to 8 steps; every separate call costs about 2 s of network time.
 9. When your work is done and tested: computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.
 """
