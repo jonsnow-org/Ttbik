@@ -1033,7 +1033,10 @@ def _app_install_worker(install_id: str, group: str) -> None:
             return
         current["status"] = "installing"
     with _APP_PACKAGE_LOCK:
-        result = _install_app_group_now(group)
+        if _app_group_ready(group):
+            result = {"ok": True, "group": group, "already_ready": True, "installed": True}
+        else:
+            result = _install_app_group_now(group)
     with _APP_INSTALL_LOCK:
         current = _APP_INSTALLS.get(install_id)
         if current:
@@ -1069,6 +1072,10 @@ def computer_apps_action(session: str, job: dict) -> dict:
         if str(STATE.get("devtools", "")).startswith("installing"):
             return {"ok": False, "error": "the initial developer tool installation is still running; retry after computer_apps action=list"}
         if _app_group_ready(group):
+            groups = _read_app_manifest()
+            if group not in groups:
+                groups.append(group)
+                _write_app_manifest(groups)
             return {"ok": True, "group": group, "status": "ready", "already_installed": True}
         free = shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free / 1024 ** 3
         minimum = float(APP_INSTALL_GROUPS[group]["minimum_free_gb"])
