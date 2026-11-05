@@ -375,22 +375,34 @@ def perform(
                 return {"ok": True, "action": action, "results": []}
             limit = max(1, min(MAX_RESULT, int(job.get("limit") or 8)))
             hits = []
+            bank_filter = [bank] if job.get("bank") else []
+            if bank_filter and job.get("include_related"):
+                links = db.execute("SELECT from_bank,to_bank FROM bank_links WHERE from_bank=? OR to_bank=?",
+                                   (bank, bank)).fetchall()
+                for link in links:
+                    neighbor = link["to_bank"] if link["from_bank"] == bank else link["from_bank"]
+                    if neighbor not in bank_filter:
+                        bank_filter.append(neighbor)
+            bank_clause = ""
+            bank_params: list[str] = []
+            if bank_filter:
+                bank_clause = "AND c.bank_id IN (" + ",".join("?" for _ in bank_filter) + ") "
+                bank_params = bank_filter
             try:
                 fts_query = " OR ".join('"' + token.replace('"', '""') + '"' for token in tokens)
                 rows = db.execute(
                     "SELECT c.item_id,c.body,i.bank_id,i.name,i.kind,i.mime_type,i.size_bytes,i.sha256 "
                     "FROM chunk_fts c JOIN items i ON i.id=c.item_id WHERE chunk_fts MATCH ? "
-                    + ("AND c.bank_id=? " if job.get("bank") else "")
-                    + "ORDER BY bm25(chunk_fts) LIMIT ?",
-                    (fts_query, bank, limit) if job.get("bank") else (fts_query, limit),
+                    + bank_clause + "ORDER BY bm25(chunk_fts) LIMIT ?",
+                    (fts_query, *bank_params, limit),
                 ).fetchall()
                 hits = [dict(row) for row in rows]
             except sqlite3.OperationalError:
+                fallback_clause = ("WHERE c.bank_id IN (" + ",".join("?" for _ in bank_filter) + ") ") if bank_filter else ""
                 rows = db.execute(
                     "SELECT c.item_id,c.body,i.bank_id,i.name,i.kind,i.mime_type,i.size_bytes,i.sha256 "
-                    "FROM chunks c JOIN items i ON i.id=c.item_id "
-                    + ("WHERE c.bank_id=? " if job.get("bank") else ""),
-                    (bank,) if job.get("bank") else (),
+                    "FROM chunks c JOIN items i ON i.id=c.item_id " + fallback_clause,
+                    tuple(bank_filter),
                 ).fetchall()
                 for row in rows:
                     body = str(row["body"])
