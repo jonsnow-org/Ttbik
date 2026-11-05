@@ -201,6 +201,13 @@ jobs:
           python3 -m pip install -q numpy pillow imageio-ffmpeg
           python3 ai-system/app/nova_media_probe.py
 
+      - name: Studio run log when the video check fails
+        if: failure()
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 8000; echo
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
