@@ -12,7 +12,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, withEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -119,7 +119,7 @@ export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb,
   if (heartbeatFresh === null && Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
   if (heartbeatFresh === false && Date.now() - (run.startedAt || run.lease || 0) < 45000) return false;
   if (run.job) await coderCancel(run.job).catch(() => null);
-  await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", coderChatKey(chatId));
+  await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", modelSessionChatKey(chatId));
   await saveState(chatId, st, db, slot);
   return true;
 }
@@ -156,7 +156,15 @@ function ensureTable(db: Db): Promise<void> {
 }
 
 /** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
-export const stateKey = (chatId: number | string, slot = "") => coderChatKey(slot ? `${chatId}#${slot}` : chatId);
+/** LFM2.5 has its own working state; Nova's historical key is left unchanged. */
+export const modelSessionChatId = (chatId: number | string, model = currentEngineModel()): string =>
+  model === "lfm25" ? `${chatId}#model:lfm25` : String(chatId);
+export const modelSessionChatKey = (chatId: number | string, model = currentEngineModel()): string =>
+  coderChatKey(modelSessionChatId(chatId, model));
+export const stateKey = (chatId: number | string, slot = "") => {
+  const scoped = modelSessionChatId(chatId);
+  return coderChatKey(slot ? `${scoped}#${slot}` : scoped);
+};
 
 export async function loadStateStrict(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<ChatState> {
   await ensureTable(db);
@@ -180,12 +188,30 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
   try { await saveStateStrict(chatId, st, db, slot); } catch { /* best-effort for non-critical state updates */ }
 }
 
-// ---------------------------------------------------------------- signing of the self-continuation
-export function signContinue(secret: string, botId: string, chatId: string, chain: string): string {
-  return createHmac("sha256", secret || "coder").update(`${botId}|${chatId}|${chain}`).digest("hex");
+/** Create LFM2.5's private working state without importing Nova's transcript, thread, notes or active run. */
+export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): Promise<ChatState> {
+  const shared = await withEngineModel("coder", () => loadStateStrict(chatId, db));
+  const current = await withEngineModel("lfm25", () => loadStateStrict(chatId, db));
+  const privateState: ChatState = current.model === "lfm25" ? current : { ...emptyState(), model: "lfm25" };
+  // Keep account-wide preferences/settings fresh without ever copying the selected model's conversation.
+  privateState.model = "lfm25";
+  privateState.lang = shared.lang;
+  privateState.tz = shared.tz;
+  privateState.repo = shared.repo;
+  privateState.menu = shared.menu;
+  privateState.perModel = { ...(privateState.perModel || {}), ...(shared.perModel?.lfm25 ? { lfm25: shared.perModel.lfm25 } : {}) };
+  privateState.memPer = { ...(privateState.memPer || {}), ...(shared.memPer?.lfm25 ? { lfm25: shared.memPer.lfm25 } : {}) };
+  await withEngineModel("lfm25", () => saveStateStrict(chatId, privateState, db));
+  return privateState;
 }
-export function verifyContinue(secret: string, botId: string, chatId: string, chain: string, sig: string): boolean {
-  const want = Buffer.from(signContinue(secret, botId, chatId, chain));
+
+// ---------------------------------------------------------------- signing of the self-continuation
+export function signContinue(secret: string, botId: string, chatId: string, chain: string, engineModel?: string): string {
+  const payload = engineModel && engineModel !== "coder" ? `${botId}|${chatId}|${chain}|${engineModel}` : `${botId}|${chatId}|${chain}`;
+  return createHmac("sha256", secret || "coder").update(payload).digest("hex");
+}
+export function verifyContinue(secret: string, botId: string, chatId: string, chain: string, sig: string, engineModel?: string): boolean {
+  const want = Buffer.from(signContinue(secret, botId, chatId, chain, engineModel));
   const got = Buffer.from(String(sig || ""));
   return want.length === got.length && timingSafeEqual(want, got);
 }
@@ -310,16 +336,28 @@ async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSe
 async function engineModelOf(chatId: number | string | undefined, db: Db, slot = ""): Promise<string | undefined> {
   if (chatId === undefined || chatId === null || chatId === "") return undefined;
   try {
-    const own = await loadStateStrict(chatId, db, slot);
+    const own = await withEngineModel("coder", () => loadStateStrict(chatId, db, slot));
     if (own.model || !slot) return own.model;
-    return (await loadStateStrict(chatId, db)).model;
+    return (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model;
   } catch { return undefined; }
+}
+
+/** Find the engine that owns a persisted run, even when the account has since switched models. */
+export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | undefined> {
+  for (const model of ["coder", "lfm25"] as const) {
+    const st = await withEngineModel(model, () => loadStateStrict(chatId, db, slot)).catch(() => null);
+    if (st?.run?.id === runId) return model;
+  }
+  return undefined;
 }
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
   const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
-  return withEngineModel(model, () => handleCoderSectionsInner(bot, botRow, update, db, onShamRoute));
+  return withEngineModel(model, async () => {
+    if (model === "lfm25" && typeof chat === "number") await ensureLfmSessionState(chat, db);
+    return handleCoderSectionsInner(bot, botRow, update, db, onShamRoute);
+  });
 }
 async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
   await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
@@ -347,7 +385,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
+  if (!coderEnabled() && currentEngineModel() !== "lfm25" && !selectedDonor && !donorPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -388,14 +426,15 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     if (!chatId) return false;
     if (data.startsWith("model_pick|")) {
       const id = data.slice("model_pick|".length);
-      const state = await loadStateStrict(chatId, db);
+      // The selected model is account-level routing state; persist it in Nova's shared selector row even when this callback came from LFM2.5.
+      const state = await withEngineModel("coder", () => loadStateStrict(chatId, db));
       const models = await listModels(db);
       if (!chooseModel(state, models, id, owner)) {
         await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب.", show_alert: true }).catch(() => null);
         return true;
       }
       state.donorTestModel = undefined;
-      await saveStateStrict(chatId, state, db);
+      await withEngineModel("coder", () => saveStateStrict(chatId, state, db));
       await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
       const selected = models.find((m) => m.id === id);
       await send(bot, chatId, "✅ النموذج المحدد: " + (selected?.name.ar || id) + ". كل الرسائل التالية ستذهب إلى مساره فقط، دون تحويلها إلى نموذج آخر.");
@@ -716,11 +755,11 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
   const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
-  later(() => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
+  later(() => withEngineModel(selectedModel, () => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
     await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة. لم يتم استخدام مولّد آخر.").catch(() => false);
     await taskStatus(runId, "failed", 0, db);
     await taskEvent(runId, "failed", "media fast lane: " + String((e as Error)?.message || e).slice(0, 200), db);
-  }));
+  })));
   return true;
 }
 
@@ -846,14 +885,14 @@ async function fastMedia(
       if (at >= 0) cur.messages[at] = { role: "assistant", content: final };
       else cur.messages.push({ role: "assistant", content: final });
       await saveState(chatId, cur, db);
-      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(coderChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
+      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(modelSessionChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
     }
   }
 }
 
 
-async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db): Promise<void> {
-  if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
+async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db, modelId = "coder"): Promise<void> {
+  if (surface !== "app" || modelId === "lfm25") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
   if (coderStudioUrls().length < 2) return;
   await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
@@ -875,7 +914,7 @@ async function frontAck(bot: TelegramBot, chatId: number, runId: string, content
   await taskEvent(runId, "info", `🤖 ${text}`, db);
 }
 
-const warmedAt = new Map<number, number>();
+const warmedAt = new Map<string, number>();
 /**
  * Reads the conversation into the Studio's cache BEFORE the user's next message, while they are still typing: when the app is opened or /start is sent and the
  * conversation's Studio is not holding it (restarted, or used by something else), one invisible request with the same start as the next prompt (system, tools,
@@ -883,9 +922,17 @@ const warmedAt = new Map<number, number>();
  * ~110 s. It writes nothing to the chat, runs only when no task is running, at most once per 8 minutes, and CODER_PREWARM=0 turns it off.
  */
 export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<void> {
-  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || !coderEnabled()) return;
-  if (Date.now() - (warmedAt.get(chatId) || 0) < 8 * 60000) return;
-  warmedAt.set(chatId, Date.now());
+  const selected = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selected, async () => {
+    if (selected === "lfm25") await ensureLfmSessionState(chatId, db);
+    return prewarmChatInner(chatId, db);
+  });
+}
+async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void> {
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || (!coderEnabled() && currentEngineModel() !== "lfm25")) return;
+  const warmKey = modelSessionChatKey(chatId);
+  if (Date.now() - (warmedAt.get(warmKey) || 0) < 8 * 60000) return;
+  warmedAt.set(warmKey, Date.now());
   const st = await loadState(chatId, db);
   if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2") return;
   const ctx = await toolCtx(chatId, st, db, null);
@@ -902,25 +949,33 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   if (messages.reduce((n, m) => n + String((m as { content?: string }).content || "").length, 0) > (Number(process.env.CODER_PREWARM_MAX_CHARS) || 16000)) messages = [messages[0], messages[messages.length - 1]];
   const o = await coderChat(messages, { affinity: `${chatId}:`, tools: coderToolsFor(github, connected.length > 0, messages, sticky), maxTokens: 1, think: false, temperature: 0.2, waitS: 1, timeoutMs: 20000, tag: "prewarm" }).catch(() => null);
   let r = o?.reply || null;
-  if (r?.job) warming.set(chatId, r.job);
+  if (r?.job) warming.set(warmKey, r.job);
   const t0 = Date.now();
-  while (r?.type === "pending" && r.job && warming.get(chatId) === r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
+  while (r?.type === "pending" && r.job && warming.get(warmKey) === r.job && Date.now() - t0 < 9 * 60000) {         // keep polling: a job nobody polls is cancelled by the Studio
     await new Promise((res) => setTimeout(res, Number(process.env.CODER_PREWARM_POLL_MS) || 5000));
     r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
   }
-  if (r?.job && warming.get(chatId) === r.job) warming.delete(chatId);
+  if (r?.job && warming.get(warmKey) === r.job) warming.delete(warmKey);
 }
-const warming = new Map<number, string>();                       // chat -> the Studio job of its warm-up, while it runs
+const warming = new Map<string, string>();                       // model-scoped chat key -> Studio warm-up job
 /** A real request is about to be sent for this chat: its warm-up (if still running) must not stand in front of it. */
 export async function cancelWarm(chatId: number): Promise<void> {
-  const job = warming.get(chatId);
+  const key = modelSessionChatKey(chatId);
+  const job = warming.get(key);
   if (!job) return;
-  warming.delete(chatId);
+  warming.delete(key);
   await coderCancel(job).catch(() => null);
 }
 
 /** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
 export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db = prismaDb): Promise<{ runId: string; queued: boolean }> {
+  const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selectedModel, async () => {
+    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    return startAppTaskInner(bot, botRow, chatId, text, db, selectedModel);
+  });
+}
+async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db, selectedModel: string): Promise<{ runId: string; queued: boolean }> {
   const content = String(text || "").trim();
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
@@ -951,7 +1006,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
     return { runId, queued: false };
   }
 
-  if (!coderEnabled()) throw new Error("coder service is not configured");
+  if (!coderEnabled() && currentEngineModel() !== "lfm25") throw new Error("coder service is not configured");
   if (st.run?.asking) {                                     // a terminal command answers the agent's question
     await answerAsk(bot, botRow, chatId, st, content, db);
     return { runId: st.run.id, queued: true };
@@ -975,7 +1030,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveStateStrict(chatId, st, db);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
-  later(() => frontAck(bot, chatId, runId, content, "app", db));
+  later(() => frontAck(bot, chatId, runId, content, "app", db, selectedModel));
   return { runId, queued: false };
 }
 
@@ -1383,7 +1438,7 @@ export async function newConversation(chatId: number, st: ChatState, db: Db = pr
 async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = ""): Promise<void> {
   const { createThread, LEGACY_TITLE } = await import("@/lib/coderThreads");
   const legacy = st.messages.length > 0 || !firstText;
-  st.threadId = await createThread(chatId, legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
+  st.threadId = await createThread(modelSessionChatId(chatId), legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
 }
 
 /**
@@ -1393,11 +1448,12 @@ async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = "
  */
 export async function switchThread(chatId: number, st: ChatState, targetId: string | null, db: Db = prismaDb): Promise<string> {
   const T = await import("@/lib/coderThreads");
-  const key = coderChatKey(chatId);
+  const ownerId = modelSessionChatId(chatId);
+  const key = coderChatKey(ownerId);
   if (targetId && targetId === st.threadId) return targetId;
   let target: Awaited<ReturnType<typeof T.getThread>> = null;
   if (targetId) {
-    target = await T.getThread(chatId, targetId, db);
+    target = await T.getThread(ownerId, targetId, db);
     if (!target || target.deleted_at) throw new Error("no such thread");
   }
   if (!targetId && st.threadId && !st.messages.length && !st.run) return st.threadId;          // already on an empty new chat
@@ -1410,7 +1466,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   if (st.threadId) {
     await T.syncThread(key, st.threadId, st, db, st.messages.length > 0 && novaMemory(st).remember);       // memories are learned from it later only if "remember" is on
     // "save conversations" off: the chat is not kept once it is left (hidden from the list like a delete)
-    if (!novaMemory(st).save) await T.hideThread(chatId, st.threadId, db);
+    if (!novaMemory(st).save) await T.hideThread(ownerId, st.threadId, db);
   }
   else if (st.messages.length) await ensureThread(chatId, st, db);
   if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db, st);   // no key for quiet time: as before
@@ -1420,7 +1476,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
     next.messages = target.messages || [];
     next.notes = target.notes || "";
     next.convId = target.conv_id || undefined;
-  } else next.threadId = await T.createThread(chatId, {}, db);
+  } else next.threadId = await T.createThread(ownerId, {}, db);
   await saveState(chatId, next, db);
   Object.assign(st, next);
   return next.threadId!;
@@ -1428,11 +1484,18 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
 
 /** The Mini App's ⏹ and /stop: the Studio job is cancelled, the request ends as stopped, its queued messages are dropped. */
 export async function stopRun(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
+  const selected = runId
+    ? await engineModelForRun(chatId, runId, db, slot)
+    : undefined;
+  const engine = selected || (currentEngineModel() === "lfm25" ? "lfm25" : "coder");
+  return withEngineModel(engine, () => stopRunInner(chatId, slot, runId, db));
+}
+async function stopRunInner(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
   if (!st.run || (runId && st.run.id !== runId)) return false;
   if (st.run.job) await coderCancel(st.run.job).catch(() => null);
   if (st.run.delegating) await cancelAgents(chatId, st.run.delegating.slots, db);
-  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
+  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", modelSessionChatKey(chatId));
   if (!slot && st.convId) {
     const conv = st.convId;
     later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv, st.model)));
@@ -1458,7 +1521,7 @@ const novaMemory = (st: ChatState): MemorySettings => memorySettings(st, novaMod
 export async function novaMemoryPrompt(chatId: number, st: ChatState, goal: string, db: Db): Promise<string> {
   if (!novaMemory(st).recall) return "";
   const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
-  return memoryPrompt(chatId, goal, repoOf(goal, st.repo), db).catch(() => "");
+  return memoryPrompt(modelSessionChatId(chatId), goal, repoOf(goal, st.repo), db).catch(() => "");
 }
 
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
@@ -1466,7 +1529,8 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
   if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
   if (!novaMemory(st).remember) return;                                  // the user switched "remember" off for Nova in the app
   const snap = msgs.slice(-40);
-  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
+  const memoryChatId = modelSessionChatId(chatId); // capture the selected model before the quiet-time callback loses request context
+  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(memoryChatId, snap, { runId, repo }, db)).catch(() => null));
 }
 
 /**
@@ -1474,6 +1538,13 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
  * the Telegram buttons are removed, the app sees the pending card disappear). Returns false when nothing was pending under that nonce.
  */
 export async function resolvePending(
+  bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
+): Promise<boolean> {
+  const selected = await engineModelForRun(chatId, runId, db);
+  if (!selected) return false;
+  return withEngineModel(selected, () => resolvePendingInner(bot, botRow, chatId, runId, nonce, answer, db, msgId));
+}
+async function resolvePendingInner(
   bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
 ): Promise<boolean> {
   const slot = (await taskSlot(runId, chatId, db)) ?? "";
@@ -1662,6 +1733,7 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
     chatKey: coderChatKey(`${chatId}:${st.model || "coder"}`),
     modelId: st.model || "coder",
     userId: chatId,
+    memoryChatId: modelSessionChatId(chatId),
     memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
     botId,
     tz: st.tz || defaultTz(),
@@ -1696,7 +1768,8 @@ async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db:
 // ---------------------------------------------------------------- the loop: submit -> poll/stream -> tools (guarded) -> submit … until a final answer
 async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
   const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
-  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
+  const engineModel = currentEngineModel();
+  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, engineModel, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain, engineModel) });
   // Do not retry an ambiguous POST: the server may have accepted it even if the response was lost, and a retry could start two runners.
   const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
   if (res.status !== 202) throw new Error(`coder continuation handoff was not accepted (HTTP ${res.status})`);
@@ -2471,7 +2544,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         await closeCard(ioBot, chatId, run, r?.type === "cancelled" ? "⏹️ أُوقفت المهمة." : "❌ توقفت المهمة بسبب خطأ من خادم النموذج.", true);
-        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
+        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
@@ -2551,7 +2624,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             continue;
           }
           if (run.progress?.msgId) await (ioBot.api as any).editMessageText(chatId, run.progress.msgId, `❌ توقفت المهمة بسبب عدم وصول أي تقدم من خادم النموذج.\nالسبب: ${where}\nيمكنك إعادة المحاولة أو فتح الطرفية لعرض السجلات.`).catch(() => null);
-          await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
+          await endRun(st, "failed", db, `studio job stalled (${where})`, modelSessionChatKey(chatId));
           await saveState(chatId, st, db, slot);
           await send(ioBot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
           return;
@@ -2606,7 +2679,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
-        await endRun(st, "failed", db, "empty model output after retry", coderChatKey(chatId));
+        await endRun(st, "failed", db, "empty model output after retry", modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
         return;
@@ -2640,7 +2713,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
-          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
+          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, modelSessionChatKey(chatId));
           await saveState(chatId, st, db, slot);
           await send(ioBot, chatId, tierFor(chatId) === "owner"
             ? `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`
@@ -2665,7 +2738,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const snap = [...st.messages], id = run.id, steps = run.step;
         later(() => import("@/lib/coderLessons").then((m) => m.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
       }
-      await endRun(st, "done", db, "✓", coderChatKey(chatId));
+      await endRun(st, "done", db, "✓", modelSessionChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
     }
@@ -2776,7 +2849,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const limT = lim.ok ? await checkLimit(chatId, "tokens", 1, db) : lim;
       const hit = !lim.ok ? lim : !limT.ok ? limT : null;
       if (hit) {
-        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, coderChatKey(chatId));
+        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         await sendLimit(ioBot, chatId, hit, st.tz, run.title && run.slot ? `${run.title}: ` : "");
         return;
@@ -2870,7 +2943,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     if (!r || !r.job) {
       await closeCard(ioBot, chatId, run, "❌ توقفت المهمة: تعذّر الوصول إلى خادم النموذج.", true);
-      await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
+      await endRun(st, "failed", db, coderFailureText(o), modelSessionChatKey(chatId));
       await saveState(chatId, st, db, slot);
       await send(ioBot, chatId, userFailureText(o, chatId));
       return;
@@ -2920,7 +2993,7 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
-  const model = await engineModelOf(chatId, db, slot);
+  const model = currentEngineModel() === "lfm25" ? "lfm25" : await engineModelOf(chatId, db, slot);
   return withEngineModel(model, () => driveInner(bot, botRow, chatId, chain, db, budgetMs, slot));
 }
 async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
@@ -2968,15 +3041,18 @@ async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chai
   }
 }
 
-export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = ""): Promise<void> {
-  const { Bot } = await import("grammy");
-  const bot = new Bot(botRow.token);
-  const st = await loadState(chatId, db, slot);
-  if (!st.run || st.run.chain !== chain) return;
-  const surface = st.run.surface;
-  st.run.lease = Date.now();
-  await saveState(chatId, st, db, slot);
-  await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" = "coder"): Promise<void> {
+  return withEngineModel(engineModel, async () => {
+    if (engineModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    const { Bot } = await import("grammy");
+    const bot = new Bot(botRow.token);
+    const st = await loadState(chatId, db, slot);
+    if (!st.run || st.run.chain !== chain) return;
+    const surface = st.run.surface;
+    st.run.lease = Date.now();
+    await saveState(chatId, st, db, slot);
+    await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+  });
 }
 
 /**
@@ -2987,7 +3063,17 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
 export async function startScheduledRun(
   bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db = prismaDb,
 ): Promise<"started" | "busy" | "off" | "limited"> {
-  if (!coderEnabled()) return "off";
+  const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
+  return withEngineModel(selectedModel, async () => {
+    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    return startScheduledRunInner(bot, botRow, chatId, t, db, selectedModel);
+  });
+}
+async function startScheduledRunInner(
+  bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db,
+  selectedModel: string,
+): Promise<"started" | "busy" | "off" | "limited"> {
+  if (!coderEnabled() && currentEngineModel() !== "lfm25") return "off";
   const slot = `s:${t.scheduleId}`;
   const prev = await loadState(chatId, db, slot);
   if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
@@ -2998,7 +3084,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, perModel: main.perModel, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", model: selectedModel, think: main.think, accuracy: main.accuracy, perModel: main.perModel, memPer: main.memPer, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
   await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title, surface: "app" }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
@@ -3010,21 +3096,25 @@ export { splitForTelegram };
 
 /** A run whose worker disappeared (server replaced mid-leg): continue it from the saved state, the Studio job included. */
 export async function resumeOrphan(chatId: number, runId: string, slot: string, botRow: BotRow, db: Db = prismaDb): Promise<boolean> {
-  const st = await loadState(chatId, db, slot);
-  const run = st.run;
-  if (!run || run.id !== runId || run.pending || run.asking) return false;
-  run.resumes = (run.resumes || 0) + 1;
-  if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
-    // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
-    if (run.job) await coderCancel(run.job).catch(() => null);
-    await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", coderChatKey(chatId));
+  const selectedModel = await engineModelForRun(chatId, runId, db, slot);
+  if (!selectedModel) return false;
+  return withEngineModel(selectedModel, async () => {
+    const st = await loadState(chatId, db, slot);
+    const run = st.run;
+    if (!run || run.id !== runId || run.pending || run.asking) return false;
+    run.resumes = (run.resumes || 0) + 1;
+    if (run.resumes > Number(process.env.CODER_MAX_RESUMES || 6)) {
+      // a run that dies again and again is not resumed forever: it is closed honestly (the user is told; nothing claims success)
+      if (run.job) await coderCancel(run.job).catch(() => null);
+      await endRun(st, "failed", db, "the background worker stopped repeatedly; the task was closed after several resumes", modelSessionChatKey(chatId));
+      await saveState(chatId, st, db, slot);
+      return false;
+    }
     await saveState(chatId, st, db, slot);
-    return false;
-  }
-  await saveState(chatId, st, db, slot);
-  await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
-  later(() => continueRun(botRow, chatId, run.chain, db, slot));
-  return true;
+    await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
+    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "lfm25" ? "lfm25" : "coder"));
+    return true;
+  });
 }
 
 /** Starts one quiet, read-only child run per task (own slot, own state) on our Studio model; returns their slots. */
@@ -3032,7 +3122,7 @@ async function startAgents(bot: TelegramBot, botRow: BotRow, chatId: number, par
   const slots: string[] = [];
   for (let i = 0; i < tasks.length; i++) {
     const slot = agentSlot(run.id, i);
-    const st: ChatState = { ...emptyState(), mode: "coder", model: "coder", think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
+    const st: ChatState = { ...emptyState(), mode: "coder", model: currentEngineModel(), think: false, accuracy: tasks[i].role === "worker" ? parent.accuracy || "balanced" : "fast", tz: parent.tz, lang: parent.lang, repo: parent.repo, messages: [{ role: "user", content: tasks[i].task }] };
     // an agent inherits the parent's settings: the same permission rules (through the parent's context) and what the user already allowed for this task
     await startChain(botRow, chatId, st, { slot, source: "agent", surface: "app", agent: true, agentRole: tasks[i].role, agentDepth: (run.agent ? run.agentDepth || 1 : 0) + 1, parentCtx: contextOf(run), parentRunId: run.id, allowCats: run.allowCats, title: tasks[i].title, goal: tasks[i].task }, db);
     await saveState(chatId, st, db, slot);
@@ -3048,7 +3138,7 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
     const st = await loadState(chatId, db, slot);
     if (!st.run) continue;
     if (st.run.job) await coderCancel(st.run.job).catch(() => null);
-    await endRun(st, "stopped", db, "stopped (parent finished or stopped)", coderChatKey(chatId));
+    await endRun(st, "stopped", db, "stopped (parent finished or stopped)", modelSessionChatKey(chatId));
     await saveState(chatId, st, db, slot);
   }
 }

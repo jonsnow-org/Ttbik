@@ -648,7 +648,7 @@ function stripHtml(html: string): string {
 
 export type ToolCtx = {
   gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
-  userId?: number | string; modelId?: string; db?: import("@/lib/coderAuth").Db;           // account/model computer namespace, memory and plan metering
+  userId?: number | string; memoryChatId?: number | string; modelId?: string; db?: import("@/lib/coderAuth").Db;           // account/model computer namespace, memory and plan metering
   tier?: "owner" | "user";
   memory?: { remember: boolean; recall: boolean };                         // the user's own memory switches for this model (undefined = both on)
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
@@ -696,7 +696,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!ctx.userId) return "error: memory is not available here";
       if (name === "memory_search" ? ctx.memory?.recall === false : ctx.memory?.remember === false) return "error: long-term memory is switched off in the user's settings; do not try to use it, just answer from this conversation";
       const { memoryTool } = await import("@/lib/coderMemory");
-      return await memoryTool(ctx.userId, name, a, ctx.runId, ctx.db);
+      return await memoryTool(ctx.memoryChatId ?? ctx.userId, name, a, ctx.runId, ctx.db);
     }
     if (name === "web_search") {
       const q = String(a.query || "").trim();

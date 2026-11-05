@@ -5,9 +5,11 @@ import type { Db } from "@/lib/coderAuth";
 import type { ChatState } from "@/lib/coderSections";
 import * as N from "@/lib/coderThreads";
 import * as S from "@/lib/shamThreads";
+import { withEngineModel } from "@/lib/openCoderStudio";
 
-export type ChatModelId = "coder" | "sham" | "sham_v2";
-export const isChatModel = (x: unknown): x is ChatModelId => x === "coder" || x === "sham" || x === "sham_v2";
+export type ChatModelId = "coder" | "lfm25" | "sham" | "sham_v2";
+export const isChatModel = (x: unknown): x is ChatModelId => x === "coder" || x === "lfm25" || x === "sham" || x === "sham_v2";
+const modelChatId = (chatId: number, model: ChatModelId): number | string => model === "lfm25" ? `${chatId}#model:lfm25` : chatId;
 export const variantOf = (m: ChatModelId): S.ShamVariantId => (m === "sham_v2" ? "v2" : "v1");
 export type ChatItem = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type Sdb = Parameters<typeof S.listThreads>[3];
@@ -43,10 +45,17 @@ export async function isolateLegacyCarryState(chatId: number, st: ChatState, db:
 
 /** The chat page of one model: pinned first, then newest; `q` searches titles and what was said; archived ones are hidden unless asked for. */
 export async function chatList(chatId: number, st: ChatState, model: ChatModelId, o: { q?: string; archived?: "exclude" | "only" | "include"; limit?: number }, db: Db): Promise<{ items: ChatItem[]; current: string | null; currentEmpty: boolean }> {
-  if (model === "coder") {
-    const rows = await N.listThreads(chatId, { q: o.q, archived: o.archived, limit: o.limit || 60 }, db);
-    const items = rows.map((r) => ({ id: r.id, title: r.title, pinned: Boolean(r.pinned), archived: Boolean(r.archived), turns: Math.ceil((r.messages_count || 0) / 2), updated_at: r.updated_at, preview: "", current: r.id === st.threadId }));
-    return { items, current: st.threadId || null, currentEmpty: !st.messages.length };
+  if (model === "coder" || model === "lfm25") {
+    const own = model === "lfm25"
+      ? await withEngineModel("lfm25", async () => {
+          const C = await import("@/lib/coderSections");
+          await C.ensureLfmSessionState(chatId, db);
+          return C.loadState(chatId, db);
+        })
+      : st;
+    const rows = await N.listThreads(modelChatId(chatId, model), { q: o.q, archived: o.archived, limit: o.limit || 60 }, db);
+    const items = rows.map((r) => ({ id: r.id, title: r.title, pinned: Boolean(r.pinned), archived: Boolean(r.archived), turns: Math.ceil((r.messages_count || 0) / 2), updated_at: r.updated_at, preview: "", current: r.id === own.threadId }));
+    return { items, current: own.threadId || null, currentEmpty: !own.messages.length };
   }
   const v = variantOf(model);
   const cur = await S.currentThreadId(chatId, v, sdb(db));
@@ -56,6 +65,11 @@ export async function chatList(chatId: number, st: ChatState, model: ChatModelId
 
 export async function chatNew(chatId: number, st: ChatState, model: ChatModelId, db: Db): Promise<string> {
   if (model === "coder") return (await import("@/lib/coderSections")).switchThread(chatId, st, null, db);
+  if (model === "lfm25") return withEngineModel("lfm25", async () => {
+    const C = await import("@/lib/coderSections");
+    await C.ensureLfmSessionState(chatId, db);
+    return C.switchThread(chatId, await C.loadState(chatId, db), null, db);
+  });
   return S.newThread(chatId, variantOf(model), sdb(db));
 }
 /** Reopens a chat with its full history so the next message carries on from it. False when it is not this user's chat of this model. */
@@ -63,17 +77,22 @@ export async function chatOpen(chatId: number, st: ChatState, model: ChatModelId
   if (model === "coder") {
     try { await (await import("@/lib/coderSections")).switchThread(chatId, st, id, db); return true; } catch { return false; }
   }
+  if (model === "lfm25") return withEngineModel("lfm25", async () => {
+    const C = await import("@/lib/coderSections");
+    await C.ensureLfmSessionState(chatId, db);
+    try { await C.switchThread(chatId, await C.loadState(chatId, db), id, db); return true; } catch { return false; }
+  });
   return S.openThread(chatId, variantOf(model), id, sdb(db));
 }
 export async function chatRename(chatId: number, model: ChatModelId, id: string, title: string, db: Db): Promise<boolean> {
-  return model === "coder" ? N.renameThread(chatId, id, title, db) : S.renameThread(chatId, variantOf(model), id, title, sdb(db));
+  return model === "coder" || model === "lfm25" ? N.renameThread(modelChatId(chatId, model), id, title, db) : S.renameThread(chatId, variantOf(model), id, title, sdb(db));
 }
 export async function chatPin(chatId: number, model: ChatModelId, id: string, pinned: boolean, db: Db): Promise<boolean> {
-  return model === "coder" ? N.pinThread(chatId, id, pinned, db) : S.pinThread(chatId, variantOf(model), id, pinned, sdb(db));
+  return model === "coder" || model === "lfm25" ? N.pinThread(modelChatId(chatId, model), id, pinned, db) : S.pinThread(chatId, variantOf(model), id, pinned, sdb(db));
 }
 export async function chatArchive(chatId: number, st: ChatState, model: ChatModelId, id: string, archived: boolean, db: Db): Promise<boolean> {
   void st;
-  return model === "coder" ? N.archiveThread(chatId, id, archived, db) : S.archiveThread(chatId, variantOf(model), id, archived, sdb(db));
+  return model === "coder" || model === "lfm25" ? N.archiveThread(modelChatId(chatId, model), id, archived, db) : S.archiveThread(chatId, variantOf(model), id, archived, sdb(db));
 }
 export type DeleteSpec = { ids?: string[]; olderThanDays?: number; archived?: boolean; all?: boolean };
 /** One, several, the old ones, the archived ("finished") ones or all (pinned and the open one are spared by the sweeping modes). Returns the deleted ids. */
@@ -82,10 +101,17 @@ export async function chatDelete(chatId: number, st: ChatState, model: ChatModel
     if (spec.ids?.includes(st.threadId || "\0")) await (await import("@/lib/coderSections")).switchThread(chatId, st, null, db);     // deleting the open chat opens a fresh one
     return N.hideThreads(chatId, { ...spec, keepId: st.threadId }, db);
   }
+  if (model === "lfm25") return withEngineModel("lfm25", async () => {
+    const C = await import("@/lib/coderSections");
+    await C.ensureLfmSessionState(chatId, db);
+    const own = await C.loadState(chatId, db);
+    if (spec.ids?.includes(own.threadId || "\0")) await C.switchThread(chatId, own, null, db);
+    return N.hideThreads(modelChatId(chatId, model), { ...spec, keepId: own.threadId }, db);
+  });
   return S.deleteThreads(chatId, variantOf(model), spec, sdb(db));
 }
 export async function chatMessages(chatId: number, model: ChatModelId, id: string, db: Db): Promise<{ role: "user" | "assistant"; text: string; at?: string }[] | null> {
-  if (model === "coder") return N.threadTranscript(chatId, id, 200, db);
+  if (model === "coder" || model === "lfm25") return N.threadTranscript(modelChatId(chatId, model), id, 200, db);
   const turns = await S.threadMessages(chatId, variantOf(model), id, 200, sdb(db));
   if (!turns) return null;
   const out: { role: "user" | "assistant"; text: string; at?: string }[] = [];
