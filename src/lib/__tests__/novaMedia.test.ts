@@ -21,6 +21,25 @@ describe("Nova media Studio client", () => {
       delete process.env.NOVA_MEDIA_SUBMIT_WAITS_MS;
     }
   });
+  it("asks again after a dropped connection on submit (no job was created) and then succeeds", async () => {
+    process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+    process.env.NOVA_MEDIA_SUBMIT_WAITS_MS = "1,1";
+    let submits = 0;
+    const f = (async (_url: string, init?: { body?: string }) => {
+      if (init?.body) {
+        if (++submits === 1) throw new Error("socket hang up");     // the gateway cut the connection: no job exists
+        return { ok: true, json: async () => ({ event_id: "e1" }) };
+      }
+      return { ok: true, text: async () => `data: ["{\\"type\\":\\"audio\\",\\"b64\\":\\"QUJD\\"}"]\n` };
+    }) as unknown as typeof fetch;
+    try {
+      const r = await novaMakeMedia("audio", "hello", { fetchImpl: f });
+      expect(submits).toBe(2);
+      expect(JSON.stringify(r)).not.toContain("unreachable");
+    } finally {
+      delete process.env.NOVA_MEDIA_SUBMIT_WAITS_MS;
+    }
+  });
   it("is off without its URL and returns nothing", async () => {
     delete process.env.NOVA_MEDIA_STUDIO_URL;
     expect(novaMediaEnabled()).toBe(false);
@@ -115,19 +134,40 @@ describe("Nova media Studio client", () => {
       expect(r).toMatchObject({ type: "error", reason: "studio_job_lost" });
       expect(r?.text).toMatch(/[\u0600-\u06FF]/);
     });
-    it("returns a video_start HTTP 500 instead of silently falling back to the memory-heavy synchronous API", async () => {
+    it("retries a transient video_start HTTP 500 and never silently falls back to the memory-heavy synchronous API", async () => {
       process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      process.env.NOVA_MEDIA_SUBMIT_WAITS_MS = "1,1";
       const urls: string[] = [];
       const f = (async (url: string, init?: { body?: string }) => {
         urls.push(url);
         if (init?.body) return { ok: false, status: 500, text: async () => "internal video worker failure" };
         return sse({ type: "video", b64: b64(mp4Shell()) });
       }) as unknown as typeof fetch;
-      const r = await novaMakeMedia("video", "a girl playing in a garden", { seconds: 6, fetchImpl: f });
-      expect(r).toMatchObject({ type: "error", reason: "studio_http_500", text: "استوديو الوسائط رد بخطأ (500)" });
-      expect(urls).toHaveLength(1);
-      expect(urls[0]).toBe("https://studio.example/gradio_api/call/v2/video_start");
-      expect(urls.some((url) => url.endsWith("/v2/video"))).toBe(false);
+      try {
+        const r = await novaMakeMedia("video", "a girl playing in a garden", { seconds: 6, fetchImpl: f });
+        expect(r).toMatchObject({ type: "error", reason: "studio_http_500", text: "استوديو الوسائط رد بخطأ (500)" });
+        expect(urls.every((url) => url === "https://studio.example/gradio_api/call/v2/video_start")).toBe(true);   // retried, never the sync /v2/video
+        expect(urls.length).toBe(3);                                                                              // the first submit plus two retries
+      } finally {
+        delete process.env.NOVA_MEDIA_SUBMIT_WAITS_MS;
+      }
+    });
+    it("recovers when the first video_start submit is a transient 500 and the retry is accepted", async () => {
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";
+      process.env.NOVA_MEDIA_SUBMIT_WAITS_MS = "1,1";
+      let starts = 0;
+      const f = (async (url: string, init?: { body?: string }) => {
+        if (url.endsWith("/v2/video_start")) return ++starts === 1 ? { ok: false, status: 500, text: async () => "internal video worker failure" } : { ok: true, json: async () => ({ event_id: "e1" }) };
+        if (init?.body) return { ok: true, json: async () => ({ event_id: "e1" }) };
+        return url.includes("/video_start/") ? sse({ type: "job", job: "j1" }) : sse({ type: "video", b64: b64(mp4Shell()) });
+      }) as unknown as typeof fetch;
+      try {
+        const r = await novaMakeMedia("video", "a cat", { seconds: 6, fetchImpl: f });
+        expect(starts).toBe(2);                                                 // the 500 was retried once and accepted
+        expect(r).toEqual({ type: "video", b64: b64(mp4Shell()) });
+      } finally {
+        delete process.env.NOVA_MEDIA_SUBMIT_WAITS_MS;
+      }
     });
     it("an older Studio without the job API (404) still gets the single call", async () => {
       process.env.NOVA_MEDIA_STUDIO_URL = "https://studio.example";

@@ -33,7 +33,8 @@ async function fetchStudioResponse(url: string, init: RequestInit, f: typeof fet
   let response: Response | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {
     response = await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-    if (![429, 502, 503, 504].includes(response.status) || attempt === 3) return response;
+    // A 500 is as transient as the other gateway statuses here (the ModelScope instance is under memory pressure or restarting).
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 3) return response;
     const retryAfter = Number(response.headers.get("retry-after") || 0);
     const delay = retryAfter > 0 ? Math.min(8000, retryAfter * 1000) : [1000, 2500, 5000][attempt];
     await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : delay));

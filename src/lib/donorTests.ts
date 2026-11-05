@@ -121,10 +121,10 @@ function parseSseData(raw: string): unknown {
   throw new Error("لم يصل محتوى صالح من استوديو النموذج.");
 }
 
-/** ModelScope answers 429 «Request limit exceeded» (and now and then 502/503/504) when a Studio is asked too fast. That is waiting, not failing: ask again with a growing pause. */
+/** ModelScope answers 429 «Request limit exceeded» (and 500/502/503/504 while an instance is under memory pressure or restarting) when a Studio is asked too fast. That is waiting, not failing: ask again with a growing pause. */
 async function postWithBackoff(make: () => Promise<Response>): Promise<Response> {
   let response = await make();
-  for (let i = 0; !response.ok && [429, 502, 503, 504].includes(response.status) && i < 4; i++) {
+  for (let i = 0; !response.ok && [429, 500, 502, 503, 504].includes(response.status) && i < 4; i++) {
     await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : [2000, 5000, 10000, 20000][i]));
     response = await make();
   }

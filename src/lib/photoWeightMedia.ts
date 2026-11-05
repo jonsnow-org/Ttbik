@@ -139,13 +139,13 @@ async function submitAndRead(
   base: string, api: string, payload: Record<string, unknown>, headers: Record<string, string>,
   timeoutMs: number, fetchImpl: typeof fetch,
 ): Promise<string> {
-  // A refused submit (the ModelScope gateway answers 429 when asked in a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe.
+  // A refused submit (the ModelScope gateway answers 429 when asked in a burst, 500/502-504 while a Studio is under memory pressure or restarting) created no job yet, so asking again is safe.
   let submit!: Response;
   for (let attempt = 0; attempt < 4; attempt++) {
     submit = await fetchImpl(base + "/gradio_api/call/" + api, {
       method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(Math.min(timeoutMs, 30000)),
     });
-    if (submit.ok || ![429, 502, 503, 504].includes(submit.status) || attempt === 3) break;
+    if (submit.ok || ![429, 500, 502, 503, 504].includes(submit.status) || attempt === 3) break;
     await new Promise((resolve) => setTimeout(resolve, [3000, 8000, 15000][attempt] + Math.floor(Math.random() * 1500)));
   }
   if (!submit.ok) throw new Error("HTTP " + submit.status + " while submitting " + api);

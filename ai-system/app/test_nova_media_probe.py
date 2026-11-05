@@ -213,6 +213,48 @@ class AsyncVideoJobs(unittest.TestCase):
         self.assertIn("HTTP 500", str(err.exception))
         self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start"])
 
+    def test_a_cut_job_poll_is_retried_until_the_clip_arrives(self):
+        events, calls, waits = {}, [], []
+        start_values = [{"type": "job", "job": "clip-9"}]
+        job_values = [{"type": "running", "phase": "sampling"}, {"type": "video", "b64": "QUJD"}]
+        sequence = {"value": 0, "cut": 2}
+
+        def http(method, url, payload=None):
+            if "/gradio_api/call/v2/" in url:
+                api = url.rsplit("/gradio_api/call/v2/", 1)[1]
+                calls.append((method, api))
+                sequence["value"] += 1
+                event = "e" + str(sequence["value"])
+                events[event] = start_values.pop(0) if api == "video_start" else job_values.pop(0)
+                return 200, json.dumps({"event_id": event})
+            api, event = url.rsplit("/gradio_api/call/", 1)[1].rsplit("/", 1)
+            calls.append((method, api, event))
+            if api == "job" and sequence["cut"] > 0:
+                sequence["cut"] -= 1
+                return 500, "internal error"                      # the ModelScope gateway cuts the poll while the clip keeps running
+            return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(events[event])]) + chr(10) + chr(10)
+
+        t = [0.0]
+        st = P.Studio("https://x.test", "tok", http, sleep=lambda s: t.__setitem__(0, t[0] + s), now=lambda: t[0])
+        reply = st.video_job({"prompt": "a cat", "seconds": 6}, timeout=600)
+        self.assertEqual(reply, {"type": "video", "b64": "QUJD"})
+        self.assertEqual(sequence["cut"], 0)                      # both cut polls were retried, not treated as a dead job
+
+    def test_a_job_lost_error_is_not_retried(self):
+        def gone(method, url, payload=None):
+            if "/gradio_api/call/v2/" in url:
+                api = url.rsplit("/gradio_api/call/v2/", 1)[1]
+                return 200, json.dumps({"event_id": "e" + api})
+            api, event = url.rsplit("/gradio_api/call/", 1)[1].rsplit("/", 1)
+            body = {"type": "job", "job": "clip-1"} if api == "video_start" else {"type": "error", "reason": "job_lost"}
+            return 200, "event: complete" + chr(10) + "data: " + json.dumps([json.dumps(body)]) + chr(10) + chr(10)
+
+        t = [0.0]
+        st = P.Studio("https://x.test", "tok", gone, sleep=lambda s: t.__setitem__(0, t[0] + s), now=lambda: t[0])
+        with self.assertRaises(P.ProbeError) as err:
+            st.video_job({"prompt": "a cat", "seconds": 6}, timeout=60)
+        self.assertIn("job", str(err.exception).lower())
+
 
 class Waiting(unittest.TestCase):
     def studio(self, http, **kw):
