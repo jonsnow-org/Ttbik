@@ -19,6 +19,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
@@ -680,7 +681,9 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             executable = box.ROOT.parent / "computer-apps" / "bin" / "jupyter"
             if not executable.is_file():
                 return {"ok": False, "error": "JupyterLab is not installed. Install the data group with computer_apps first."}
-            port = 8890
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = int(probe.getsockname()[1])
             token = secrets.token_urlsafe(24)
             cmd = [
                 str(executable), "lab", "--no-browser", "--ip=127.0.0.1", f"--port={port}",
@@ -702,7 +705,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
         proc = _spawn(cmd, _ENV, "app-" + app)
         _PROCESSES.append(proc)
         if app == "jupyter":
-            return {"ok": True, "phase": "running", "app": app, "url": f"http://127.0.0.1:8890/lab?token={token}",
+            return {"ok": True, "phase": "running", "app": app, "port": port, "url": f"http://127.0.0.1:{port}/lab?token={token}",
                     "note": "wait for JupyterLab to finish starting, then open this URL in your private headless browser"}
         return {"ok": True, "phase": "running", "app": app}
     if action == "open_file":
