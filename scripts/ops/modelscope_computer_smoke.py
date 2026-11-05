@@ -369,6 +369,51 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
     assert_ok(cleanup, "computer smoke cleanup")
 
 
+def check_banks(api: str, token: str, session: str, marker: str) -> None:
+    """Exercise the deployed bank catalog, object store, search index and restore path."""
+    bank = "ci-" + marker
+    path = f".ci-bank-{marker}.md"
+    content = f"# BANK_SMOKE_{marker}\nهذا ملف اختبار لبنك الحاسوب ويجب أن يظهر عند البحث عن {marker}.\n"
+    write = box_call(api, token, {"action": "write", "session": session, "path": path, "content": content}, timeout=45)
+    assert_ok(write, "bank source file write")
+    created = box_call(api, token, {"action": "bank", "bank_action": "create", "session": session,
+                                    "bank": bank, "category": "documents", "description": "temporary deployment smoke bank"}, timeout=45)
+    assert_ok(created, "bank create")
+    try:
+        stored = box_call(api, token, {"action": "bank", "bank_action": "put", "session": session,
+                                       "bank": bank, "source_path": path, "kind": "document"}, timeout=60)
+        assert_ok(stored, "bank put")
+        item_id = str(stored.get("item_id") or "")
+        if not item_id or int(stored.get("text_indexed_chars") or 0) < 10:
+            fail("bank put did not return an item id and indexed text")
+        found = box_call(api, token, {"action": "bank", "bank_action": "search", "session": session,
+                                      "bank": bank, "query": marker, "limit": 5}, timeout=45)
+        assert_ok(found, "bank search")
+        results = found.get("results") or []
+        if not any(item.get("item_id") == item_id for item in results):
+            fail("bank search did not retrieve the item just stored")
+        restored = box_call(api, token, {"action": "bank", "bank_action": "get", "session": session,
+                                         "bank": bank, "item_id": item_id}, timeout=45)
+        assert_ok(restored, "bank get")
+        if marker not in str(restored.get("text") or ""):
+            fail("bank get did not restore searchable document text")
+        stats = box_call(api, token, {"action": "bank", "bank_action": "stats", "session": session}, timeout=45)
+        assert_ok(stats, "bank stats")
+        if int(stats.get("banks") or 0) < 1 or int(stats.get("items") or 0) < 1:
+            fail("bank stats did not report the smoke-test bank and item")
+    finally:
+        try:
+            box_call(api, token, {"action": "bank", "bank_action": "drop", "session": session,
+                                  "bank": bank, "confirm": True}, timeout=45)
+        finally:
+            box_call(api, token, {"action": "run", "session": session, "timeout": 10,
+                                  "command": f"rm -f '{path}'"}, timeout=30)
+    apps = box_call(api, token, {"action": "apps", "session": session}, timeout=45)
+    assert_ok(apps, "workstation app inventory")
+    if not isinstance(apps.get("apps"), dict):
+        fail("computer_apps did not return a real installed-app inventory")
+
+
 def check_gui(api: str, token: str, session: str, marker: str) -> None:
     status = desktop_call(api, token, {"action": "status", "session": session})
     assert_ok(status, "desktop status")
@@ -431,16 +476,11 @@ def check_gui(api: str, token: str, session: str, marker: str) -> None:
         assert_ok(stopped, "desktop stop")
 
 
-def check_browser(api: str, token: str, session: str) -> None:
-    opened = gradio_call(
-        api,
-        "browser_do",
-        {"action": "open", "url": "https://example.com", "session": session},
-        token,
-        timeout=180,
-    )
+def check_browser(api: str, token: str, session: str, marker: str) -> None:
+    opened = gradio_call(api, "browser_do",
+                         {"action": "open", "url": "https://example.com", "session": session},
+                         token, timeout=180)
     if opened.get("ok") is not True:
-        # Include the browser worker's launch diagnostics; never expose the ModelScope token.
         try:
             raw = request_json("POST", f"{api}/gradio_api/run/browser_status", token, {"data": []}, timeout=35)
             state = raw.get("data", raw)
@@ -455,11 +495,94 @@ def check_browser(api: str, token: str, session: str) -> None:
             state = {"status_error": f"{type(exc).__name__}: {str(exc)[:300]}"}
         fail("headless browser open: " + str(opened.get("error") or "unknown error")[:1800]
              + "; browser diagnostics: " + json.dumps(state, ensure_ascii=False)[:2600])
-    url = str(opened.get("url") or "")
-    title = str(opened.get("title") or "")
-    page_text = str(opened.get("text") or "")
-    if "example.com" not in url.lower() or not title or not page_text:
+    if "example.com" not in str(opened.get("url") or "").lower() or not opened.get("title") or not opened.get("text"):
         fail("headless browser did not return the expected public page URL, title and text")
+
+    # Create an actual same-session local preview server and exercise browser file transfers.
+    port = 18000 + (int(marker[-4:], 16) % 40000)
+    server_file = f".ci-preview-server-{marker}.py"
+    upload_file = f".ci-upload-{marker}.txt"
+    download_file = f"Downloads/.ci-download-{marker}.txt"
+    server_code = r'''import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+MARKER = "__MARKER__"
+PAGE = ("""<!doctype html><html><body><p>LOCAL_PREVIEW_""" + MARKER + """</p>
+<input id="upload" type="file" onchange="const d=new FormData();d.append('file',this.files[0]);fetch('/upload',{method:'POST',body:d}).then(r=>r.text()).then(t=>document.getElementById('result').innerText=t)">
+<div id="result"></div><a id="download" href="/download">download test file</a></body></html>""").encode()
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+    def do_GET(self):
+        if self.path == "/download":
+            body = ("DOWNLOAD_OK_" + MARKER).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Disposition", "attachment; filename=computer-smoke.txt")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(PAGE)))
+        self.end_headers()
+        self.wfile.write(PAGE)
+    def do_POST(self):
+        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        body = ("UPLOAD_OK_" + MARKER).encode() if MARKER.encode() in raw else b"UPLOAD_FAIL"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+'''
+    server_code = server_code.replace("__MARKER__", marker)
+    box_call(api, token, {"action": "write", "session": session, "path": server_file, "content": server_code}, timeout=45)
+    box_call(api, token, {"action": "write", "session": session, "path": upload_file, "content": "UPLOAD_SOURCE_" + marker}, timeout=45)
+    job = box_call(api, token, {"action": "job_start", "session": session, "name": "ci-local-preview",
+                               "command": f"python3 '{server_file}' {port}"}, timeout=45)
+    assert_ok(job, "same-session preview server start")
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        fail("same-session preview server did not return a background job id")
+    try:
+        time.sleep(1.5)
+        created_tab = gradio_call(api, "browser_do", {"action": "new_tab", "session": session}, token, timeout=60)
+        assert_ok(created_tab, "new browser tab")
+        local_url = f"http://127.0.0.1:{port}/"
+        local = gradio_call(api, "browser_do", {"action": "open", "url": local_url, "session": session}, token, timeout=90)
+        assert_ok(local, "same-session localhost preview")
+        if marker not in str(local.get("text") or ""):
+            fail("browser opened the local server but did not return its session marker")
+        tabs = gradio_call(api, "browser_do", {"action": "tabs", "session": session}, token, timeout=45)
+        assert_ok(tabs, "browser tab inventory")
+        if len(tabs.get("tabs") or []) < 2:
+            fail("browser tabs API did not retain the second tab")
+        uploaded = gradio_call(api, "browser_do", {"action": "upload", "selector": "#upload",
+                                                    "file_path": upload_file, "session": session}, token, timeout=60)
+        assert_ok(uploaded, "browser file upload")
+        waited = gradio_call(api, "browser_do", {"action": "wait", "text": "UPLOAD_OK_" + marker,
+                                                  "seconds": 10, "session": session}, token, timeout=45)
+        assert_ok(waited, "browser upload completion")
+        if "UPLOAD_OK_" + marker not in str(waited.get("text") or ""):
+            fail("local preview server did not receive the uploaded file")
+        downloaded = gradio_call(api, "browser_do", {"action": "download", "selector": "#download",
+                                                       "output_path": download_file, "session": session}, token, timeout=60)
+        assert_ok(downloaded, "browser file download")
+        restored = box_call(api, token, {"action": "read", "session": session, "path": download_file}, timeout=45)
+        assert_ok(restored, "read downloaded file")
+        if "DOWNLOAD_OK_" + marker not in str(restored.get("text") or ""):
+            fail("downloaded file contents did not arrive in the computer workspace")
+        errors = gradio_call(api, "browser_do", {"action": "console", "session": session}, token, timeout=45)
+        assert_ok(errors, "browser console diagnostics")
+        network = gradio_call(api, "browser_do", {"action": "network", "session": session}, token, timeout=45)
+        assert_ok(network, "browser network diagnostics")
+        gradio_call(api, "browser_do", {"action": "close_tab", "session": session}, token, timeout=45)
+    finally:
+        box_call(api, token, {"action": "job_stop", "session": session, "id": job_id}, timeout=45)
+        box_call(api, token, {"action": "run", "session": session, "timeout": 10,
+                              "command": f"rm -f '{server_file}' '{upload_file}' '{download_file}'"}, timeout=30)
 
 
 def bench(api: str, token: str, session: str) -> dict[str, Any]:
@@ -536,14 +659,17 @@ def main() -> int:
         print(f"[{args.model_id}] checking persistent computer RPCs", flush=True)
         check_shell(api, token, session, marker)
         print(f"[{args.model_id}] PASS: Bash, persistent files, and background jobs", flush=True)
+        print(f"[{args.model_id}] checking private file banks and workstation app inventory", flush=True)
+        check_banks(api, token, session, marker)
+        print(f"[{args.model_id}] PASS: file bank create/store/search/restore and app inventory", flush=True)
         if not args.no_gui:
             print(f"[{args.model_id}] checking X11 desktop and terminal coexistence", flush=True)
             check_gui(api, token, session, marker)
             print(f"[{args.model_id}] PASS: X11 screenshot and terminal while GUI is running", flush=True)
         if args.browser:
             print(f"[{args.model_id}] checking the isolated Chromium browser", flush=True)
-            check_browser(api, token, session)
-            print(f"[{args.model_id}] PASS: Chromium opened a real public page", flush=True)
+            check_browser(api, token, session, marker)
+            print(f"[{args.model_id}] PASS: Chromium public/local preview, tabs, upload and download", flush=True)
         if args.bench:
             print("BENCH " + json.dumps(bench(api, token, session), separators=(",", ":")), flush=True)
         print(f"[{args.model_id}] PASS: selected Studio computer smoke test complete", flush=True)
