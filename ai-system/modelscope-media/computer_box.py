@@ -587,8 +587,18 @@ def _run_lock(session: str) -> threading.Lock:
         return _RUN_LOCKS.setdefault(session, threading.Lock())
 
 
-def over_quota(session: str) -> bool:
-    return dir_size(session_home(session)) > QUOTA_BYTES
+def over_quota(session: str, additional_bytes: int = 0) -> bool:
+    """Protect both the private session quota and a shared reserve for other users on the computer host."""
+    additional = max(0, int(additional_bytes or 0))
+    if dir_size(session_home(session)) + additional > QUOTA_BYTES:
+        return True
+    try:
+        reserve_mb = max(128, int(os.environ.get("COMPUTER_MIN_FREE_DISK_MB", "1024")))
+        free = shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free
+        return free < reserve_mb * 1024 ** 2 + additional
+    except OSError:
+        # If the shared volume cannot be measured, refuse writes rather than risk filling it.
+        return True
 
 
 def _mem_available_mb() -> int | None:
@@ -1598,7 +1608,7 @@ def run_bank_action(session: str, job: dict) -> dict:
     return bank_action(
         session, job, home=session_home(session),
         safe_path=lambda value: safe_path(session, value),
-        over_quota=lambda additional=0: dir_size(session_home(session)) + max(0, int(additional or 0)) > QUOTA_BYTES,
+        over_quota=lambda additional=0: over_quota(session, additional),
         uid=session_uid(session) if is_root() else None,
     )
 
