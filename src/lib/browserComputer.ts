@@ -40,7 +40,7 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.tab !== undefined && Number.isFinite(Number(a.tab))) out.tab = Math.max(0, Math.min(20, Math.trunc(Number(a.tab))));
   if (a.path !== undefined) {
     const path = String(a.path).replace(/\\/g, "/");
-    if (path.split("/").some((part) => part === "..") || path.includes("\\0")) return null;
+    if (path.split("/").some((part) => part === "..") || path.includes("\0")) return null;
     out.path = path.slice(0, 500);
   }
   return out;
