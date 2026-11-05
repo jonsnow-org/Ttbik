@@ -17,7 +17,7 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-05-r8-banks"
+APP_REVISION = "computer-hub-16gb-2026-11-05-r9-apps"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
@@ -91,7 +91,7 @@ def _bootstrap_core():
             raise RuntimeError("computer toolchain or graphical desktop packages are incomplete")
         BOOTSTRAP["phase"] = "ready"
         BOOTSTRAP["error"] = ""
-        threading.Thread(target=computer_box.ensure_dev_tools, daemon=True, name="computer-devtools").start()      # the programmer's tools, installed in the background; the computer is already usable
+        threading.Thread(target=computer_box.ensure_computer_extras, daemon=True, name="computer-devtools-and-apps").start()      # restore base tools and only the optional app groups explicitly installed by a user
     except Exception as exc:  # noqa: BLE001
         BOOTSTRAP["phase"] = "failed"
         BOOTSTRAP["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
