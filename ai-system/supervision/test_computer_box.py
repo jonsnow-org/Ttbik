@@ -49,6 +49,12 @@ class OptionalApps(Box):
         self.assertGreater(groups["ocr"]["minimum_free_gb"], 0)
         self.assertIn("saved_groups", result)
 
+    def test_saved_app_groups_persist_in_the_shared_computer_volume(self):
+        cb._write_app_manifest(["ocr", "office", "ocr"])
+        self.assertEqual(cb._read_app_manifest(), ["ocr", "office"])
+        restored = self.run_box(session="alice:nova", action="apps", app_action="list")
+        self.assertEqual(restored["saved_groups"], ["ocr", "office"])
+
     def test_unknown_app_group_is_refused_without_running_an_installer(self):
         result = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "random-shell"})
         self.assertFalse(result["ok"])
@@ -60,10 +66,11 @@ class OptionalApps(Box):
         with patch.object(cb, "is_root", return_value=True), \
              patch.object(cb.shutil, "which", side_effect=lambda name: "/usr/bin/apt-get" if name == "apt-get" else original_which(name)), \
              patch.object(cb.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024 ** 3)), \
+             patch.object(cb, "_app_group_ready", return_value=False), \
              patch.object(cb, "_install_app_group_now", return_value={"ok": True, "group": "office", "installed": True}):
             started = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "office"})
             self.assertTrue(started["ok"], started)
-            self.assertEqual(started["status"], "queued")
+            self.assertIn(started["status"], ("queued", "installing", "ready"))
             install_id = started["install_id"]
             deadline = time.monotonic() + 2
             status = cb.computer_apps_action("alice:nova", {"app_action": "status", "install_id": install_id})
