@@ -10,7 +10,11 @@ SRC = Path(__file__).with_name("app.py").read_text(encoding="utf-8")
 
 def load(*names, **env):
     tree = ast.parse(SRC)
-    picked = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    # _requested_tool_groups calls _is_capability_question; pull it (and its patterns) in with any requested helper.
+    wanted = set(names) | {"_is_capability_question"}
+    consts = {"_CAPABILITY", "_ACCESS", "_ACTION_VERB", "_TASK_HINT"}
+    picked = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in wanted)
+              or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") in consts for t in n.targets))]
     scope = {"json": json, "re": re, **env}
     exec(compile(ast.Module(body=picked, type_ignores=[]), "app.py", "exec"), scope)
     return scope

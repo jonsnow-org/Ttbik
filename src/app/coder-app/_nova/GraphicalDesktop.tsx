@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
+import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
@@ -20,12 +21,24 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  // when a live-stream event last arrived: keeps the "live" wording across the 20 s stream's reconnect
+  const lastStreamAt = useRef(0);
   // The picture may be smaller than the real screen (the live stream asks for scale 0.75), so a click must be mapped
   // with the screen size the Studio reports, never with the <img> natural size, or the far edge of the desktop is unreachable.
   const screenRef = useRef<{ w: number; h: number } | null>(null);
   const running = status?.phase === "running";
   const preparing = status?.phase === "installing" || status?.phase === "starting";
   const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
+  // The live stream reconnects every ~20 s; a plain `streaming` flag made this line blink. The mode keeps it steady.
+  // It is computed in an effect (a ref and the clock are read there, not during render).
+  const [mode, setMode] = useState<DesktopStreamMode>("stopped");
+  useEffect(() => {
+    const refresh = () => setMode(desktopStreamMode({ running: Boolean(running), streaming, lastStreamAt: lastStreamAt.current, now: Date.now() }));
+    refresh();
+    if (!running) return;
+    const timer = setInterval(refresh, 1_000);
+    return () => clearInterval(timer);
+  }, [running, streaming]);
 
   const call = useCallback(async (args: Record<string, unknown>) => {
     const result = await api<any>("desktop", { model, args });
@@ -44,6 +57,35 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     setStatus(null);
     void call({ action: "status" }).catch((e: any) => setError(String(e?.message || e)));
   }, [call]);
+
+  // The model works through its persistent computer (terminal, jobs, files, its own browser), which is NOT the graphical
+  // desktop. Poll that session's activity here too, so this tab shows what the model is doing even when no desktop is running.
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let seq = 0;
+    const tick = async () => {
+      if (!stopped && document.visibilityState === "visible") {
+        try {
+          const r = await api<any>("box", { model, args: { action: "activity", since: seq, limit: 40 } });
+          if (!stopped && r?.ok) {
+            seq = Math.max(seq, Number(r.seq) || 0);
+            if (Array.isArray(r.activity) && r.activity.length) {
+              setActivity((current) => {
+                const bySeq = new Map(current.map((item: any) => [item?.seq, item]));
+                for (const item of r.activity) bySeq.set(item?.seq, item);
+                return [...bySeq.values()].sort((a: any, b: any) => (a?.seq || 0) - (b?.seq || 0)).slice(-40);
+              });
+            }
+            if (Array.isArray(r.running_jobs)) setRunningJobs(r.running_jobs);
+          }
+        } catch { /* the next tick retries */ }
+      }
+      if (!stopped) timer = setTimeout(tick, 2500);
+    };
+    void tick();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [model]);
 
   useEffect(() => {
     const phase = String(status?.phase || "");
@@ -106,6 +148,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           }
           if (!response.body) throw new Error("Live desktop stream is empty");
           setStreaming(true);
+          lastStreamAt.current = Date.now();
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
@@ -121,6 +164,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             if (typeof value === "string") { try { event = JSON.parse(value); } catch { return; } }
             if (!event || typeof event !== "object") return;
             retryAttempt = 0;
+            lastStreamAt.current = Date.now();
             const size = screenSizeOf(event);
             if (size) screenRef.current = size;
             if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
@@ -213,7 +257,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         {ar
           ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل. "
           : "Computer hub memory available: " + available + ". Start requires at least 3072 MB. "}
-        {running ? (streaming ? (ar ? "بث حي للشاشة والأنشطة." : "Live screen and activity stream.") : (ar ? "وضع اللقطات الاحتياطي." : "Fallback screenshot mode.")) : null}
+        {running ? (mode === "live" || mode === "reconnecting" ? (ar ? "بث حي للشاشة والأنشطة." : "Live screen and activity stream.") : (ar ? "وضع اللقطات الاحتياطي." : "Fallback screenshot mode.")) : null}
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
@@ -259,10 +303,14 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <button type="button" className="n-btn n-ghost" disabled={zoom >= 1.5} onClick={() => setZoom((v) => Math.min(1.5, Math.round((v + 0.1) * 10) / 10))}>＋</button>
         </div>
       ) : null}
-      {running && (activity.length > 0 || runningJobs.length > 0) ? (
+      {activity.length > 0 || runningJobs.length > 0 ? (
         <div className="n-note" style={{ marginTop: 8, maxHeight: 150, overflow: "auto" }}>
-          <strong>{ar ? "نشاط الحاسوب" : "Computer activity"}</strong>
-          {activity.slice(-6).map((item, index) => <div key={item?.id || item?.seq || index} style={mono}>{String(item?.text || item?.message || item).slice(0, 220)}</div>)}
+          <strong>{ar ? "نشاط الحاسوب (طرفية/مهام/ملفات)" : "Computer activity (terminal / jobs / files)"}</strong>
+          {activity.slice(-6).map((item: any, index: number) => {
+            const line = item?.text || item?.message || [item?.action, item?.detail].filter(Boolean).join(" ");
+            const out = typeof item?.output === "string" ? item.output.split("\n").filter(Boolean).slice(-1)[0] : "";
+            return <div key={item?.seq || item?.id || index} style={mono}>{String(line || "").slice(0, 200)}{out ? " → " + String(out).slice(0, 200) : ""}</div>;
+          })}
           {runningJobs.map((job, index) => <div key={job?.id || index} style={mono}>{String(job?.name || job?.command || "Background job")}: {ar ? "يعمل" : "running"}</div>)}
         </div>
       ) : null}
