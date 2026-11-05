@@ -183,7 +183,9 @@ def run_bank_action(
                     "ON CONFLICT(name) DO UPDATE SET description=CASE WHEN excluded.description='' THEN banks.description ELSE excluded.description END,updated_at=CURRENT_TIMESTAMP",
                     (name, description),
                 )
-            _secure(_root(home) / name, uid, True)
+            bank_path = _root(home) / name
+            bank_path.mkdir(parents=True, exist_ok=True)
+            _secure(bank_path, uid, True)
             return {"ok": True, "created": name, "description": description}
 
         name = _safe_bank(job.get("bank"))
