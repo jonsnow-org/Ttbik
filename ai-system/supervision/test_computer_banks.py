@@ -72,7 +72,7 @@ class ComputerBanksTests(unittest.TestCase):
         self.assertEqual(relations["links"][0]["to_bank"], "two")
         cross_search = self.run_bank(bank_action="search", bank="one", include_related=True,
                                      query="content-addressed object", limit=10)
-        self.assertEqual({item["bank"] for item in cross_search["results"]}, {"one", "two"})
+        self.assertEqual({item.get("bank") or item.get("bank_id") for item in cross_search["results"]}, {"one", "two"})
         deleted = self.run_bank(bank_action="delete", bank="one", item_id=a["item_id"])
         self.assertTrue(deleted["ok"], deleted)
         restored = self.run_bank(bank_action="get", bank="two", item_id=b["item_id"], output_path="restored/shared.txt")
