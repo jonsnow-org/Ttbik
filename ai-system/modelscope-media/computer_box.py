@@ -38,7 +38,7 @@ MAX_JOBS = 4                       # per-session ceiling
 MAX_DESKTOPS = max(1, int(os.environ.get("COMPUTER_MAX_DESKTOPS", "3")))   # graphical desktops at the same time, one per user+model session (the free-memory gate still applies to each)
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
-QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
+QUOTA_BYTES = max(1, min(64, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs
