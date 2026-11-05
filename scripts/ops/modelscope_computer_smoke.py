@@ -376,9 +376,14 @@ def check_banks(api: str, token: str, session: str, marker: str) -> None:
     content = f"# BANK_SMOKE_{marker}\nهذا ملف اختبار لبنك الحاسوب ويجب أن يظهر عند البحث عن {marker}.\n"
     write = box_call(api, token, {"action": "write", "session": session, "path": path, "content": content}, timeout=45)
     assert_ok(write, "bank source file write")
+    box_call(api, token, {"action": "write", "session": session, "path": linked_path,
+                          "content": f"LINKED_DATA_{marker}"}, timeout=45)
     created = box_call(api, token, {"action": "bank", "bank_action": "create", "session": session,
                                     "bank": bank, "category": "documents", "description": "temporary deployment smoke bank"}, timeout=45)
     assert_ok(created, "bank create")
+    linked_created = box_call(api, token, {"action": "bank", "bank_action": "create", "session": session,
+                                           "bank": linked_bank, "category": "datasets", "description": "linked smoke dataset"}, timeout=45)
+    assert_ok(linked_created, "linked bank create")
     try:
         stored = box_call(api, token, {"action": "bank", "bank_action": "put", "session": session,
                                        "bank": bank, "source_path": path, "kind": "document"}, timeout=60)
@@ -386,6 +391,21 @@ def check_banks(api: str, token: str, session: str, marker: str) -> None:
         item_id = str(stored.get("item_id") or "")
         if not item_id or int(stored.get("text_indexed_chars") or 0) < 10:
             fail("bank put did not return an item id and indexed text")
+        linked_item = box_call(api, token, {"action": "bank", "bank_action": "put", "session": session,
+                                            "bank": linked_bank, "source_path": linked_path, "kind": "dataset"}, timeout=60)
+        assert_ok(linked_item, "linked bank put")
+        relation = box_call(api, token, {"action": "bank", "bank_action": "link", "session": session,
+                                         "bank": bank, "target_bank": linked_bank, "relation": "references"}, timeout=45)
+        assert_ok(relation, "bank link")
+        related = box_call(api, token, {"action": "bank", "bank_action": "related", "session": session, "bank": bank}, timeout=45)
+        assert_ok(related, "related bank traversal")
+        if not any(link.get("to_bank") == linked_bank for link in related.get("links") or []):
+            fail("bank related traversal did not return the linked dataset bank")
+        cross = box_call(api, token, {"action": "bank", "bank_action": "search", "session": session,
+                                      "bank": bank, "include_related": True, "query": marker, "limit": 10}, timeout=45)
+        assert_ok(cross, "search across linked banks")
+        if not any(item.get("bank") == linked_bank for item in cross.get("results") or []):
+            fail("search(include_related=true) did not traverse to the linked bank")
         found = box_call(api, token, {"action": "bank", "bank_action": "search", "session": session,
                                       "bank": bank, "query": marker, "limit": 5}, timeout=45)
         assert_ok(found, "bank search")
@@ -399,15 +419,17 @@ def check_banks(api: str, token: str, session: str, marker: str) -> None:
             fail("bank get did not restore searchable document text")
         stats = box_call(api, token, {"action": "bank", "bank_action": "stats", "session": session}, timeout=45)
         assert_ok(stats, "bank stats")
-        if int(stats.get("banks") or 0) < 1 or int(stats.get("items") or 0) < 1:
+        if int(stats.get("banks") or 0) < 2 or int(stats.get("items") or 0) < 2:
             fail("bank stats did not report the smoke-test bank and item")
     finally:
         try:
             box_call(api, token, {"action": "bank", "bank_action": "drop", "session": session,
+                                  "bank": linked_bank, "confirm": True}, timeout=45)
+            box_call(api, token, {"action": "bank", "bank_action": "drop", "session": session,
                                   "bank": bank, "confirm": True}, timeout=45)
         finally:
             box_call(api, token, {"action": "run", "session": session, "timeout": 10,
-                                  "command": f"rm -f '{path}'"}, timeout=30)
+                                  "command": f"rm -f '{path}' '{linked_path}'"}, timeout=30)
     apps = box_call(api, token, {"action": "apps", "session": session}, timeout=45)
     assert_ok(apps, "workstation app inventory")
     if not isinstance(apps.get("apps"), dict):
