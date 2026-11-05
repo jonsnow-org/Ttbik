@@ -664,7 +664,10 @@ class _Worker(threading.Thread):
             parent = dest.parent
             home = computer_box.session_home(session).resolve()
             while parent != home and home in parent.parents:
-                os.chown(parent, computer_box.session_uid(session), computer_box.session_uid(session))
+                try:
+                    os.chown(parent, computer_box.session_uid(session), computer_box.session_uid(session))
+                except OSError:
+                    pass
                 parent = parent.parent
             download.save_as(str(dest))
             try:
