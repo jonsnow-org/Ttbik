@@ -83,17 +83,20 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate your isolated graphical Linux desktop. Start/status/frame/stop a display; action=apps lists applications actually installed; launch starts an available app; open_file opens a file from your private home in its default desktop app. Use click/dblclick, drag, move, mousedown/mouseup, clipboard_set/clipboard_get, pointer, type, key and scroll for precise control. Inspect frames after actions; never assume an input succeeded without checking.",
     obj({
-      action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
-      app: { type: "string", enum: ["browser", "terminal", "files"] },
+      action: { type: "string", enum: ["start", "status", "apps", "frame", "stop", "launch", "open_file", "click", "dblclick", "move", "mousedown", "mouseup", "drag", "clipboard_set", "clipboard_get", "pointer", "type", "key", "scroll"] },
+      app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] },
       url: s("URL to open when launching the browser"),
+      path: s("file path inside your own computer home for open_file"),
       x: n("horizontal pixel coordinate from the latest screenshot"),
       y: n("vertical pixel coordinate from the latest screenshot"),
+      x2: n("drag destination horizontal pixel coordinate"),
+      y2: n("drag destination vertical pixel coordinate"),
       button: { type: "string", enum: ["left", "middle", "right"] },
-      text: s("text to type"),
+      text: s("text to type or put on the desktop clipboard"),
       key: s("key name, e.g. Enter, Tab, Ctrl+L"),
-      direction: { type: "string", enum: ["up", "down"] },
+      direction: { type: "string", enum: ["up", "down", "left", "right"] },
       amount: n("scroll amount, 1-8"),
     }, ["action"])),
 ];
