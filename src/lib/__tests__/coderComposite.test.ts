@@ -20,6 +20,39 @@ describe("composite read tools", () => {
     expect(out).toMatch(/=== README.md ===[\s\S]*content of README.md/);
     expect(out).toMatch(/=== package.json ===[\s\S]*content of package.json/);
   });
+  it("scopes repository scans and audits to the requested folder without fetching the full tree", async () => {
+    const seen: string[] = [];
+    const scopedGh = async (_method: string, path: string) => {
+      seen.push(path);
+      if (path === "/repos/o/r") return { status: 200, data: { full_name: "o/r", default_branch: "main", description: "test" } };
+      if (path === "/repos/o/r/contents/ai-system?ref=main") return { status: 200, data: [
+        { type: "dir", path: "ai-system/app" },
+        { type: "file", path: "ai-system/README.md", size: 20 },
+        { type: "file", path: "ai-system/requirements.txt", size: 30 },
+      ] };
+      if (path.includes("/contents/ai-system/")) {
+        const file = decodeURIComponent(path.split("/contents/")[1].split("?")[0]);
+        return { status: 200, data: { content: b64(`content of ${file}`), sha: "abcdef123" } };
+      }
+      return { status: 404, data: { message: "not found" } };
+    };
+    const scopedRun = (name: string) => runTool({ id: "scoped", type: "function", function: { name, arguments: JSON.stringify({ repo: "o/r", path: "ai-system" }) } }, { gh: scopedGh, addNote: () => undefined } as any);
+
+    for (const name of ["github_repo_scan", "github_repo_audit"]) {
+      seen.length = 0;
+      const out = await scopedRun(name);
+      expect(out).toContain("Scope: ai-system");
+      expect(out).toContain("ai-system/README.md");
+      expect(seen).not.toContain("/repos/o/r/git/trees/main?recursive=1");
+      expect(seen.filter((path) => path.includes("/contents/")).every((path) => path.includes("/contents/ai-system"))).toBe(true);
+    }
+  });
+  it("refuses absolute or traversing repository scan paths", async () => {
+    const gh = jest.fn();
+    expect(await run("github_repo_scan", { repo: "o/r", path: "/ai-system" })).toMatch(/^error: path/);
+    expect(await run("github_repo_audit", { repo: "o/r", path: "src/../other" })).toMatch(/^error: path/);
+    expect(gh).not.toHaveBeenCalled();
+  });
   it("github_read_files reads several files in one call, at most 4", async () => {
     const out = await run("github_read_files", { repo: "o/r", paths: ["a", "b", "c", "d", "e"] });
     expect(out).toMatch(/=== a ===[\s\S]*content of a/);

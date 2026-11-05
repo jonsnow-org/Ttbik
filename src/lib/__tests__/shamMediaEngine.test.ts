@@ -37,7 +37,7 @@ describe("per-model media engine", () => {
     const f = (async (url: string, init?: any) => {
       if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
       const down = String(url).includes("sham-v1-server");
-      return new Response(`event: complete\ndata: [${JSON.stringify(JSON.stringify({ phase: down ? "loading models" : "ready" }))}]\n`, { status: 200 });
+      return new Response(`event: complete\ndata: [${JSON.stringify(JSON.stringify({ phase: down ? "loading models" : "ready", video: { ready: !down } }))}]\n`, { status: 200 });
     }) as unknown as typeof fetch;
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
     const r = await mediaEngineStatus(pgDb() as any, f);

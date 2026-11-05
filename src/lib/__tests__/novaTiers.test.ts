@@ -1,6 +1,6 @@
 // Nova's plan table (Free / Plus / Pro), the Free daily cap, and proof that the OWNER is never limited — in Nova, Sham and Sham v2.
 import { addUsage, checkLimit, DEFAULT_PLANS, limitMessage, listPlans, METRICS, setSubscription, usageSummary, publicUsage } from "@/lib/coderPlans";
-import { shamRunTool, type ShamCtx } from "@/lib/shamExec";
+import { shamRunTool, setShamHost, type ShamCtx, type ShamHost } from "@/lib/shamExec";
 import type { Db } from "@/lib/coderAuth";
 
 function plansDb(): Db & { usage: any[] } {
@@ -98,7 +98,7 @@ describe("Free daily token cap", () => {
 });
 
 describe("the owner is never limited", () => {
-  const huge = async (db: Db, who: number) => { for (const m of METRICS) await addUsage(who, m, 10_000_000, db, T0); };
+  const huge = async (db: Db, who: number, at = T0) => { for (const m of METRICS) await addUsage(who, m, 10_000_000, db, at); };
   it("Nova: every metric passes however much the owner used, including the daily cap, for any plan", async () => {
     const db = plansDb();
     await huge(db, OWNER);
@@ -119,11 +119,25 @@ describe("the owner is never limited", () => {
   const ctx = (who: number, db: Db): ShamCtx => ({ chatId: who, db, githubToken: null, chatKey: `sham:${who}`, runId: `r${who}`, owner: who === OWNER, fetchImpl: (async () => new Response("{}", { status: 500 })) as any });
   it("Sham and Sham v2 share one tool executor: the owner's research is never blocked, an ordinary user's is", async () => {
     const db = plansDb();
-    await huge(db, OWNER); await huge(db, USER);
+    const now = Date.now();
+    await huge(db, OWNER, now); await huge(db, USER, now);
     const call = { id: "1", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: "what is rust" }) } };
-    const owner = await shamRunTool(call, ctx(OWNER, db));
-    const user = await shamRunTool(call, ctx(USER, db));
-    expect(owner).not.toMatch(/allowance is used up/);
-    expect(user).toMatch(/allowance is used up/);
+    const researched: string[] = [];
+    setShamHost({
+      web: { research: async (question: string) => { researched.push(question); return "research result"; } },
+      limits: {
+        ok: async (who: number, metric: any, amount: number, store: Db) => (await checkLimit(who, metric, amount, store, undefined, now)).ok,
+        add: (who: number, metric: any, amount: number, store: Db) => addUsage(who, metric, amount, store, now),
+      },
+    } as unknown as ShamHost);
+    try {
+      const owner = await shamRunTool(call, ctx(OWNER, db));
+      const user = await shamRunTool(call, ctx(USER, db));
+      expect(owner).toBe("research result");
+      expect(user).toMatch(/allowance is used up/);
+      expect(researched).toEqual(["what is rust"]);
+    } finally {
+      setShamHost(null);
+    }
   });
 });
