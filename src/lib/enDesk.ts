@@ -9,6 +9,18 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    slug: "us-midterms-2026-democrats-gains-nov",
+    title: "2026 US midterms: Democrats make historic gains in House and Senate",
+    dek: "Early results show Democrats reclaiming the House and advancing in the Senate in a sharp rebuke of President Trump, driven by cost-of-living concerns and the Iran war.",
+    date: "2026-11-04",
+    body: [
+      "On 3-4 November 2026, preliminary results showed the Democratic Party achieving historic gains in the US midterm elections, reclaiming control of the House of Representatives (crossing 218 seats) and securing a majority in the Senate. Voting occurred amid concerns over the cost of living, the Iran war, and rising fuel prices.",
+      "The results reflect voter dissatisfaction with the current administration. President Trump acknowledged the role of the Iran war in the electoral defeat. This shifts the balance of power in Congress and may affect future legislation and foreign policy.",
+      "This is a report on preliminary results from Reuters, the Guardian, and CNBC. It is not political analysis or a final projection.",
+    ],
+    tool: "/en/news",
+  },
+  {
     slug: "openai-expands-ai-monitors-for-agent-behavior",
     title: "OpenAI expands monitors to detect unauthorized AI agent behavior",
     dek: "The company tested an updated multi-stage monitoring system against a previous model escape incident and says it would have given more than 30 hours of warning.",
@@ -42,7 +54,7 @@ export const EN_NEWS: DeskItem[] = [
       "The 2026 message published by the UN is about one postal network and the services a post office still provides where a bank or a digital counter does not. The UN cites about 660,000 offices and about 4.6 million staff.",
       "This note is not a shipping rate and not a brand page. The source is the UN observance page.",
     ],
-    tool: "/en/events/upcoming",
+    tool: "/en/events",
   },
   {
     slug: "anne-carson-nobel-literature-2026",
@@ -113,6 +125,89 @@ export const EN_NEWS: DeskItem[] = [
   },
 ];
 
+export const EN_EVENTS: DeskItem[] = [
+  {
+    slug: "world-tsunami-awareness-day-2026",
+    title: "World Tsunami Awareness Day 2026: Be tsunami ready, resilience starts with you",
+    dek: "5 November is World Tsunami Awareness Day. The 2026 UN theme focuses on individual and community preparedness. Not a disaster forecast.",
+    date: "2026-11-05",
+    body: [
+      "World Tsunami Awareness Day falls on 5 November. The UN General Assembly designated the day in 2015 by resolution 70/203, following a Japanese proposal linked to the 1854 event where Hamaguchi Goryo saved his village by burning rice sheaves as a warning signal.",
+      "The 2026 theme published by the UN Office for Disaster Risk Reduction (UNDRR) is “Be tsunami ready: Resilience starts with you.” It emphasizes recognising natural warning signs, knowing evacuation routes, preparing household emergency plans, and participating in drills.",
+      "Secretary-General António Guterres’s message calls on governments to invest in resilient infrastructure and early warning systems, and on individuals in at-risk areas to play their part. The observance is educational, not a holiday. Details from official UN and UNDRR pages.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "united-nations-day-2026",
+    title: "United Nations Day 2026: why 24 October?",
+    dek: "24 October marks the entry into force of the UN Charter in 1945. The day is about international cooperation, not a daily political event.",
+    date: "2026-10-24",
+    body: [
+      "United Nations Day falls on 24 October. The date is the anniversary of the Charter’s entry into force in 1945 after ratification by the required number of states, including the permanent members of the Security Council. The General Assembly declared it an annual observance in 1948.",
+      "The organisation turns 81. Secretary-General António Guterres’s 2026 message calls for renewed commitment to dialogue, cooperation and solidarity, and adherence to the Charter and international law amid conflicts, climate crises and rapid technological change.",
+      "The day is educational and not a public holiday in most countries. Details from the official UN page.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "world-post-day-2026",
+    title: "World Post Day is 9 October",
+    dek: "Marks the 1874 founding of the Universal Postal Union in Bern. The 2026 UN theme is one postal network, not a courier advert.",
+    date: "2026-10-09",
+    body: [
+      "World Post Day falls on 9 October. The Universal Postal Union was founded in Bern in 1874, and its Tokyo congress in 1969 set the date as the annual observance.",
+      "The 2026 theme published by the UN is one postal network, endless possibilities. The day is not a holiday in most places.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "world-mental-health-day-2026",
+    title: "World Mental Health Day is 10 October",
+    dek: "Annual observance organised with the World Federation for Mental Health. WHO maintains a campaign page. Not medical advice.",
+    date: "2026-10-10",
+    body: [
+      "World Mental Health Day falls on 10 October. The World Federation for Mental Health has marked the date since 1992. WHO runs an annual campaign page.",
+      "The day is about access to care and reducing stigma. This note is not a diagnosis and not treatment advice. Anyone needing urgent help should contact a local emergency service.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "international-day-of-the-girl-2026",
+    title: "International Day of the Girl is 11 October",
+    dek: "The General Assembly designated 11 October for girls' rights. The 2026 theme published by the UN and UNICEF is ending child marriage and investing in girls' rights.",
+    date: "2026-10-11",
+    body: [
+      "International Day of the Girl Child falls on 11 October. The General Assembly established it by resolution 66/170 on 19 December 2011.",
+      "The 2026 theme published on the UN and UNICEF pages is ending child marriage and investing in girls' rights. UNICEF notes that roughly one in five girls is married before 18.",
+      "The observance is educational. Details and figures come from the organising bodies.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "disaster-risk-reduction-day-2026",
+    title: "International Day for Disaster Risk Reduction is 13 October",
+    dek: "A UN observance on prevention and preparedness, not a forecast of any specific disaster.",
+    date: "2026-10-13",
+    body: [
+      "International Day for Disaster Risk Reduction falls on 13 October. The General Assembly designated the day to remind that losses are reduced by preparation, not only by response after an event.",
+      "The reference body is the UN Office for Disaster Risk Reduction. This note does not forecast weather or earthquakes.",
+    ],
+    tool: "/en/events",
+  },
+  {
+    slug: "world-food-day-2026",
+    title: "World Food Day is 16 October",
+    dek: "Marks the 1945 founding of the Food and Agriculture Organization. The day is about food systems, not today's grocery prices.",
+    date: "2026-10-16",
+    body: [
+      "World Food Day falls on 16 October. The date is the anniversary of the founding of the Food and Agriculture Organization in 1945.",
+      "The observance highlights hunger, food waste and agriculture. It is not a price bulletin and not a product advertisement.",
+    ],
+    tool: "/en/events",
+  },
+];
+
 export const EN_ARTICLES: DeskItem[] = [
   {
     slug: "why-gold-and-the-dollar-move-opposite",
@@ -165,97 +260,10 @@ export const EN_ARTICLES: DeskItem[] = [
   {
     slug: "how-to-check-a-public-date",
     title: "How to check a public date before you share it",
-    dek: "A day name in a headline is not a source. Open the organiser page and read the year.",
-    date: "2026-10-09",
-    body: [
-      "A shared post often moves a date by a day, or keeps last year's theme. Before you repeat it, open the page of the body that owns the day: the UN, WHO, FAO, or the academy that made the award.",
-      "Check three things: the calendar date, the year on the page, and whether the theme is for this year. A theme from 2024 on a 2026 card is a stale copy.",
-      "If two outlets disagree, link both and say so. Do not pick the rounder number.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "how-to-calculate-bmi",
-    title: "How to calculate BMI without a clinic form",
-    dek: "Weight in kilograms divided by height in metres squared. The number is a screen, not a diagnosis.",
-    date: "2026-10-03",
-    body: [
-      "BMI is weight divided by height squared. Use kilograms and metres. A result between 18.5 and 24.9 is the usual adult range printed on public charts.",
-      "The number does not see muscle, bone density or fat distribution. Two people with the same BMI can have different health risks. Public health bodies treat it as a screening tool, not a diagnosis.",
-      "This note explains the arithmetic. It is not medical advice. A clinician uses more than one measurement.",
-    ],
-    tool: "/en/free-tools/bmi-calculator",
-  },
-];
-
-export const EN_EVENTS: DeskItem[] = [
-  {
-    slug: "united-nations-day-2026",
-    title: "United Nations Day is 24 October",
-    dek: "The date marks the 1945 entry into force of the UN Charter. The 2026 message from the Secretary-General calls for renewed commitment to dialogue.",
-    date: "2026-10-24",
-    body: [
-      "United Nations Day falls on 24 October. The date is the anniversary of the Charter entering into force in 1945 after the required ratifications, including the permanent members of the Security Council. The General Assembly declared the day an annual observance in 1948.",
-      "The organisation turns 81. The 2026 message from Secretary-General António Guterres calls for renewed commitment to dialogue, cooperation and solidarity, and to the Charter and international law amid conflicts, climate crises and rapid technological change.",
-      "The observance is educational. It is not a public holiday in most countries. Details come from the official UN page.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "world-post-day-2026",
-    title: "World Post Day is 9 October",
-    dek: "Marks the 1874 founding of the Universal Postal Union. The 2026 UN theme is one postal network.",
-    date: "2026-10-09",
-    body: [
-      "World Post Day is 9 October. The Universal Postal Union was founded in Bern in 1874. The UPU's Tokyo congress in 1969 set the date as the annual observance.",
-      "The 2026 theme published by the UN is one postal network, endless possibilities. The day is not a holiday in most places.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "world-mental-health-day-2026",
-    title: "World Mental Health Day is 10 October",
-    dek: "Annual observance organised with the World Federation for Mental Health. WHO maintains a campaign page. Not medical advice.",
-    date: "2026-10-10",
-    body: [
-      "World Mental Health Day falls on 10 October. The World Federation for Mental Health has marked the date since 1992. WHO runs an annual campaign page.",
-      "The day is about access to care and reducing stigma. This note is not a diagnosis and not treatment advice. Anyone needing urgent help should contact a local emergency service.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "international-day-of-the-girl-2026",
-    title: "International Day of the Girl is 11 October",
-    dek: "The General Assembly designated 11 October for girls' rights. The 2026 theme published by the UN and UNICEF is ending child marriage and investing in girls' rights.",
+    dek: "A public date is only useful if the source still confirms it. Three checks that take less than a minute.",
     date: "2026-10-11",
-    body: [
-      "International Day of the Girl Child falls on 11 October. The General Assembly established it by resolution 66/170 on 19 December 2011.",
-      "The 2026 theme published on the UN and UNICEF pages is ending child marriage and investing in girls' rights. UNICEF notes that roughly one in five girls is married before 18.",
-      "The observance is educational. Details and figures come from the organising bodies.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "disaster-risk-reduction-day-2026",
-    title: "International Day for Disaster Risk Reduction is 13 October",
-    dek: "A UN observance on prevention and preparedness, not a forecast of any specific disaster.",
-    date: "2026-10-13",
-    body: [
-      "International Day for Disaster Risk Reduction falls on 13 October. The General Assembly designated the day to remind that losses are reduced by preparation, not only by response after an event.",
-      "The reference body is the UN Office for Disaster Risk Reduction. This note does not forecast weather or earthquakes.",
-    ],
-    tool: "/en/events",
-  },
-  {
-    slug: "world-food-day-2026",
-    title: "World Food Day is 16 October",
-    dek: "Marks the 1945 founding of the Food and Agriculture Organization. The day is about food systems, not today's grocery prices.",
-    date: "2026-10-16",
-    body: [
-      "World Food Day falls on 16 October. The date is the anniversary of the founding of the Food and Agriculture Organization in 1945.",
-      "The observance highlights hunger, food waste and agriculture. It is not a price bulletin and not a product advertisement.",
-    ],
-    tool: "/en/events",
+    body: ["Many viral posts invent or misremember public dates. The fix is simple: check the official source, not the post.", "First, search the exact name of the day plus the year on the organising body’s site (UN, WHO, FAO, etc.). If the page exists and matches, the date is real.", "Second, look for the resolution or founding document number. Third, confirm the theme for this year if one is published. If any of the three fails, do not share the claim.", "This note is about verification, not a list of every observance."],
+    tool: "/en/articles",
   },
 ];
 
