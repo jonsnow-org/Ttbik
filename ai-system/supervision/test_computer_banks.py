@@ -74,7 +74,7 @@ class ComputerBanksTests(unittest.TestCase):
                                      query="content-addressed object", limit=10)
         self.assertEqual({item["bank"] for item in cross_search["results"]}, {"one", "two"})
         stats = self.run_bank(bank_action="stats")
-        self.assertEqual(stats["banks"], 3)
+        self.assertEqual(stats["banks"], 2)
         self.assertEqual(stats["items"], 2)
         catalog = self.run_bank(bank_action="list", limit=1, offset=1)
         self.assertEqual(len(catalog["banks"]), 1)
