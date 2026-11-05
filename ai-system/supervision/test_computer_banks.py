@@ -9,7 +9,7 @@ from pathlib import Path
 MEDIA_DIR = Path(__file__).resolve().parents[1] / "modelscope-media"
 if str(MEDIA_DIR) not in sys.path:
     sys.path.insert(0, str(MEDIA_DIR))
-from computer_banks import DEFAULT_BANKS, run_bank_action
+from computer_banks import DEFAULT_BANKS, run_bank_action, _connect
 
 
 class ComputerBanks(unittest.TestCase):
@@ -48,11 +48,39 @@ class ComputerBanks(unittest.TestCase):
         found = self.call("search", bank="", query="episodic conversations")
         self.assertTrue(found["hits"], found)
         self.assertEqual(found["hits"][0]["key"], "sham-memory")
+        self.assertTrue(found["ranking"].startswith("SQLite FTS5 BM25"), found["ranking"])
         again = self.call("read", bank="projects", key="sham-memory")
         self.assertIn("Palmyra", again["entry"]["content"])
         # A new connection sees the exact same durable catalog and data.
         reopened = self.call("read", bank="projects", key="sham-memory")
         self.assertEqual(reopened["entry"]["content"], again["entry"]["content"])
+
+    def test_full_text_index_finds_old_and_arabic_entries_beyond_the_old_scan_cap(self):
+        db = _connect(self.home, None)
+        try:
+            triggers = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+            if not {"entries_fts_insert", "entries_fts_update", "entries_fts_delete"}.issubset(triggers):
+                self.skipTest("this SQLite build does not provide FTS5")
+            with db:
+                db.executemany(
+                    "INSERT INTO entries(bank,entry_key,title,description,kind,content,bytes) VALUES(?,?,?,?,?,?,?)",
+                    [
+                        ("projects", f"filler-{i}", f"Filler {i}", "ordinary project note", "text", "nothing special", 10)
+                        for i in range(2600)
+                    ] + [
+                        ("projects", "old-discovery", "Ancient discovery", "one old unique record", "text",
+                         "rare quartz constellation", 28),
+                        ("sessions", "arabic-memory", "ذاكرة شام", "ملاحظات عربية طويلة الأمد", "text",
+                         "بنك ذاكرة تدمر وربط المعلومات", 64),
+                    ],
+                )
+        finally:
+            db.close()
+        old = self.call("search", query="quartz constellation", limit=5)
+        self.assertEqual(old["hits"][0]["key"], "old-discovery")
+        self.assertGreater(old["matched"], 1)
+        arabic = self.call("search", query="ذاكرة تدمر", limit=5)
+        self.assertTrue(any(hit["key"] == "arabic-memory" for hit in arabic["hits"]), arabic)
 
     def test_import_file_and_cross_bank_links(self):
         imported = self.call("import", bank="documents", key="project-plan", source_path="project.md", title="Project plan")
