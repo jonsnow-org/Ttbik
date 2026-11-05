@@ -372,6 +372,8 @@ def check_shell(api: str, token: str, session: str, marker: str) -> None:
 def check_banks(api: str, token: str, session: str, marker: str) -> None:
     """Exercise the deployed bank catalog, object store, search index and restore path."""
     bank = "ci-" + marker
+    linked_bank = bank + "-data"
+    linked_path = f".ci-bank-linked-{marker}.md"
     path = f".ci-bank-{marker}.md"
     content = f"# BANK_SMOKE_{marker}\nهذا ملف اختبار لبنك الحاسوب ويجب أن يظهر عند البحث عن {marker}.\n"
     write = box_call(api, token, {"action": "write", "session": session, "path": path, "content": content}, timeout=45)
