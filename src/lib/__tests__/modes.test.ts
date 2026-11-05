@@ -1,5 +1,5 @@
 // ONE mode system for every model (src/lib/modes.ts, docs/MODES.md): classification, the mode table, thinking rules, Nova's real loop, Sham's agent, the owner's force.
-import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM } from "@/lib/modes";
+import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM, requiresProgressCard } from "@/lib/modes";
 import { _setForcedForTests, forcedMode, refreshForced } from "@/lib/modeForce";
 import { drive, saveState, loadState, withModelIdentity, type Db } from "@/lib/coderSections";
 import { shamAgentRun } from "@/lib/shamAgent";
@@ -52,12 +52,27 @@ beforeEach(() => {
 
 describe("classifyRequest", () => {
   it.each([
-    ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"],
+    ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"], ["مرحبا كيف حالك", "trivial"], ["أهلاً، كيف حالك؟", "trivial"], ["hello, how are you?", "trivial"],
     ["قم بتوليد صورة أسد", "media"], ["make a short video of a rabbit", "media"],
-    ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["اكمل", "chat"],
+    ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["عدّل", "code"], ["اكمل", "code"], ["تابع", "code"],
     ["اكتب دالة بايثون تعكس النص", "code"], ["fix this bug: TypeError in my function", "code"], ["```js\nconst a = 1\n```\nما الخطأ؟", "code"],
     ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
   ])("%s -> %s", (text, klass) => { expect(classifyRequest(text as string)).toBe(klass); });
+
+  it.each(["مرحبا كيف حالك", "أهلاً، كيف حالك؟", "hello, how are you?"])("keeps compound greeting %s on Nova's lite path", (text) => {
+    const profile = resolveProfile({ model: "nova", text });
+    expect(profile.klass).toBe("trivial");
+    expect(profile.lite).toBe(true);
+    expect(profile.think).toBe(false);
+  });
+  it("opens progress only for actual work or live-fact/tool requests", () => {
+    for (const text of ["مرحبا", "مرحبا كيف حالك", "ما هي عاصمة فرنسا؟", "اكتب لي قصيدة قصيرة"]) {
+      expect(requiresProgressCard(text)).toBe(false);
+    }
+    for (const text of ["اكتب دالة بايثون", "عدّل", "اكمل", "اقرأ README في octocat/Hello-World", "ما سعر الذهب اليوم؟", "قم بتوليد صورة أسد"]) {
+      expect(requiresProgressCard(text)).toBe(true);
+    }
+  });
 });
 
 describe("the mode table", () => {
@@ -78,11 +93,14 @@ describe("the mode table", () => {
 
 describe("resolveProfile: thinking, budgets, lite", () => {
   const p = (o: Parameters<typeof resolveProfile>[0]) => resolveProfile(o);
-  it("never thinks for a greeting or a media request, whatever the policy, mode or switch", () => {
-    for (const text of ["مرحبا", "قم بتوليد صورة أسد"]) for (const model of ["nova", "sham_v2"] as const) for (const policy of ["adaptive", "always"]) {
-      const r = p({ model, pref: "precise", policy, text });
-      expect(r.think).toBe(false); expect(r.thinkAct).toBe(false); expect(r.thinkTokens).toBe(0); expect(r.mode).toBe("fast");
-    }
+  it("never thinks for greetings or ordinary chat, whatever the policy, mode, or user switch", () => {
+    for (const text of ["مرحبا", "مرحبا كيف حالك", "ما هي عاصمة فرنسا؟", "أنا بخير", "قم بتوليد صورة أسد"])
+      for (const model of ["nova", "sham_v2"] as const)
+        for (const policy of ["adaptive", "always"])
+          for (const thinkSwitch of [false, true]) {
+            const r = p({ model, pref: "precise", auto: false, policy, thinkSwitch, text });
+            expect(r.think).toBe(false); expect(r.thinkAct).toBe(false); expect(r.thinkTokens).toBe(0);
+          }
   });
   it("Nova, adaptive (the default): thinks at the PLAN stage of code and agent work in every mode, never on the tool steps, never for plain chat", () => {
     for (const pref of ["fast", "balanced", "precise"]) {
@@ -90,9 +108,10 @@ describe("resolveProfile: thinking, budgets, lite", () => {
       expect(p({ model: "nova", pref, text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ think: false, thinkAct: false });
     }
   });
-  it("Nova, always (the old 'deeper thinking' switch): every stage of every non-trivial request; never: nothing", () => {
+  it("Nova, always (the old 'deeper thinking' switch): thinks on tasks, never on ordinary chat", () => {
     expect(p({ model: "nova", thinkSwitch: true, text: "اكتب دالة بايثون" })).toMatchObject({ policy: "always", think: true, thinkAct: true });
-    expect(p({ model: "nova", thinkSwitch: true, text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ think: true, thinkAct: true });
+    expect(p({ model: "nova", thinkSwitch: true, text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ think: false, thinkAct: false });
+    expect(p({ model: "nova", thinkSwitch: true, text: "مرحبا" })).toMatchObject({ think: false, thinkAct: false });
     expect(p({ model: "nova", policy: "never", thinkSwitch: true, text: "اكتب دالة بايثون" })).toMatchObject({ policy: "never", think: false, thinkAct: false });
   });
   it("the thought budget keeps its old sizes: 500 / 1200 / 3000 characters", () => {
@@ -112,13 +131,13 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(p({ model: "nova", text: "مرحبا" })).toMatchObject({ lite: true, maxTokens: 200 });
     expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ lite: true, maxTokens: 450 });
     expect(p({ model: "nova", text: "اكتب دالة بايثون" })).toMatchObject({ lite: false, maxTokens: 0 });
-    expect(p({ model: "nova", text: "عدّل" }).lite).toBe(false);                                   // a terse command continues a task: every tool stays
+    expect(p({ model: "nova", text: "عدّل" })).toMatchObject({ klass: "code", lite: false, think: true }); // a terse command continues a task: every tool stays
     expect(p({ model: "nova", text: "كمل من حيث توقفت" }).lite).toBe(false);
     expect(p({ model: "nova", text: "ما سعر الذهب اليوم؟" }).lite).toBe(false);                    // needs today's facts: the web tools stay
-    expect(p({ model: "nova", pref: "precise", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(false);     // a precise user gets a balanced chat WITH tools
+    expect(p({ model: "nova", pref: "precise", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(true);      // accuracy stays selected, but this is still ordinary chat with no tool block
     expect(p({ model: "nova", text: "اقرأ README في octocat/Hello-World" }).lite).toBe(false);
     expect(p({ model: "sham_v2", text: "مرحبا" }).lite).toBe(true);                                   // Sham v2: no tool block for a greeting only
-    expect(p({ model: "sham_v2", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(false);
+    expect(p({ model: "sham_v2", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(true);
     expect(p({ model: "sham_v2", text: "اكتب دالة بايثون" }).lite).toBe(false);
   });
   it("the old Sham body cannot think", () => { expect(p({ model: "sham", pref: "precise", thinkSwitch: true, text: "اكتب دالة بايثون" }).think).toBe(false); });

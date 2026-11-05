@@ -9,6 +9,7 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { looksLikeToolPlan } from "@/lib/coderMediaFast";
+import { requiresProgressCard } from "@/lib/modes";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
@@ -833,6 +834,27 @@ export function shamCardSteps(bot: TelegramBot, chatId: number, card: Card | nul
     else void cardStepDone(bot, chatId, card, e.ok);
   };
 }
+
+/** A Sham card is created only after the selected model reports real work (thinking, queueing a task, or starting a tool). */
+export function shamProgressCardSteps(bot: TelegramBot, chatId: number, request: string, enabled = requiresProgressCard(request)) {
+  let card: Card | null = null;
+  let attempted = false;
+  let events: Promise<void> = Promise.resolve();
+  const onStep = (e: ShamStepEvent) => {
+    events = events.then(async () => {
+      if (!card && !attempted && enabled && (e.type === "think" || e.type === "queue" || e.type === "tool_start")) {
+        attempted = true;
+        card = await openMsgCard(bot, chatId, request);
+      }
+      if (!card) return;
+      if (e.type === "think") await cardPhase(bot, chatId, card, "think", "جاري التفكير");
+      else if (e.type === "queue") await cardPhase(bot, chatId, card, "queue", e.text);
+      else if (e.type === "tool_start") await cardTool(bot, chatId, card, stepLabel(e.name, e.args));
+      else await cardStepDone(bot, chatId, card, e.ok);
+    }).then(() => undefined).catch(() => undefined);
+  };
+  return { onStep, flush: () => events, getCard: () => card };
+}
 /** The model's own one-line understanding for the card: Sham's Studio, a tiny text-only call (28 tokens, 3.5 s cap). Skipped while the owner's pressure mode is on (that call would take a slot from real work). */
 export function shamUnderstand(text: string): (() => Promise<string | null>) | undefined {
   if (pressureOn()) return undefined;
@@ -1028,7 +1050,7 @@ async function shamQueueNote(runId: string, attempt: number): Promise<string> {
 
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
   await refreshPressure().catch(() => false);
-  const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // ONE message, within seconds: the model's own understanding line + real progress; the answer later takes its place
+  const progress = shamProgressCardSteps(bot, chatId, text);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
   ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
@@ -1038,8 +1060,9 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
-  return shamDeliver(bot, chatId, r, text, botId, 0, runId, card);
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
+  await progress.flush();
+  return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard());
 }
 
 /** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
@@ -1090,8 +1113,13 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
   const r = first.reply;
   let reasked = false;
   await sendShamLater(bot, chatId, r?.later);
+  const card = r?.type === "pending" && Boolean(r.job) && requiresProgressCard(text)
+    ? await openMsgCard(bot, chatId, text)
+    : null;
+  if (card) await cardPhase(bot, chatId, card, "think", "جاري التفكير");
   const done = async (x: ShamReply) => {
-    await sendShamReply(bot, chatId, x);
+    if (card?.msgId && x.type === "text" && x.text) await cardFinish(bot, chatId, card, x.text, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
+    else { await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, x); }
     if (x.type === "text" && x.text) await saveChatTurn(chatId, text, x.text);
   };
   if (!r || r.type === "loading" || r.type === "busy" || r.type === "gone") {
@@ -1102,7 +1130,8 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     await done(r);
     return true;
   }
-  await bot.api.sendMessage(chatId, shamPendingText(r.decision)).catch(() => null);
+  if (!card) await bot.api.sendMessage(chatId, shamPendingText(r.decision)).catch(() => null);
+  else await cardPhase(bot, chatId, card, "think", shamPendingText(r.decision));
   let job: string = r.job;
   while (Date.now() - t0 < 47000) {
     await new Promise((res) => setTimeout(res, 3000));
@@ -1123,7 +1152,8 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
     }
   }
   await shamJobResult(job, true, 4000);       // detach: the Studio hands it over with this user's next message
-  await bot.api.sendMessage(chatId, "ما زال شام يعمل على ردّك — سيصلك مع رسالتك القادمة.").catch(() => null);
+  const stillWorking = "ما زال شام يعمل على ردّك — سيصلك مع رسالتك القادمة.";
+  if (!(await cardSay(bot, chatId, card, stillWorking))) await bot.api.sendMessage(chatId, stillWorking).catch(() => null);
   return true;
 }
 
@@ -1222,7 +1252,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           })));
           return;
         }
-        if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
+        if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
         const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
         let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000, { bypassContentHeuristics: rawTest }) : null;
         if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest });
