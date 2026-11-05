@@ -94,3 +94,6 @@ A passing CI mock proves the software contract only. It does not prove that a pa
 ## Background tasks
 
 Long-running model work keeps its own task/run state and event log. The durable state contains checkpoints and the next step; the worker may resume after an application function or Studio process restarts. This is separate from the graphical desktop session. A task restart does not silently restore a prior open browser window or an in-memory process.
+
+
+> **Current baseline (2026-11-05):** older capacity and desktop-slot figures in this document are historical. Current per-session storage, private bank network, app inventory, browser controls and local-preview boundary are documented in [COMPUTER_BANKS.md](COMPUTER_BANKS.md). That document is the source of truth for the current implementation.
