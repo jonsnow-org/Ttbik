@@ -26,6 +26,11 @@ describe("the model's own browser", () => {
     expect(typed).toMatchObject({ action: "type", id: 3, enter: true, dy: 4000 });
     expect(String(typed!.text).length).toBe(2000);
     expect(cleanBrowserArgs({ action: "click", x: 10, y: 20 })).toEqual({ action: "click", x: 10, y: 20 });
+    expect(cleanBrowserArgs({ action: "upload", id: 4, path: "../my-report.pdf" })).toEqual({ action: "upload", id: 4, path: "../my-report.pdf" });
+    expect(cleanBrowserArgs({ action: "switch_tab", tab: 999 })).toEqual({ action: "switch_tab", tab: 20 });
+    expect(cleanBrowserArgs({ action: "download", id: 5, path: "downloads/report.pdf" })).toEqual({ action: "download", id: 5, path: "downloads/report.pdf" });
+    expect(cleanBrowserArgs({ action: "console" })).toEqual({ action: "console" });
+    expect(cleanBrowserArgs({ action: "close_tab", tab: -2 })).toEqual({ action: "close_tab", tab: 0 });
   });
 
   test("the model reads the page text and the numbered elements", () => {
@@ -43,6 +48,11 @@ describe("the model's own browser", () => {
     expect(text).toContain("DRAWN AREAS WITHOUT READABLE TEXT");
     expect(text).toContain("canvas at x=1 y=2");
     expect(text).toContain("PAGE OUTLINE");
+    const diagnostic = renderBrowserReply({ ok: true, url: "https://a.test/", title: "A", text: "Hi", elements: "", tabs: [{ index: 0, active: true, title: "A", url: "https://a.test/" }], download: { path: "downloads/a.pdf", bytes: 9 }, console: ["error: script failed"], network_errors: ["HTTP 500 https://a.test/api"] });
+    expect(diagnostic).toContain("OPEN TABS");
+    expect(diagnostic).toContain("downloads/a.pdf");
+    expect(diagnostic).toContain("JAVASCRIPT CONSOLE");
+    expect(diagnostic).toContain("NETWORK FAILURES");
   });
 
   test("a call goes to the model's own Studio with its own session id", async () => {
