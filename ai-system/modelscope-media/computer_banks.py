@@ -22,7 +22,7 @@ from typing import Callable
 
 BANK_DIR = ".computer-banks"
 MAX_CONTENT_BYTES = 2 * 1024 * 1024
-MAX_OBJECT_BYTES = 128 * 1024 * 1024
+MAX_OBJECT_BYTES = 512 * 1024 * 1024
 MAX_INDEX_CHARS = 1_000_000
 CHUNK_CHARS = 1800
 MAX_RESULT = 20
@@ -149,7 +149,7 @@ def _compress(src: Path | None, raw: bytes | None, root: Path, uid: int | None) 
     temp = staging / (uuid.uuid4().hex + ".part")
     digest = hashlib.sha256()
     size = 0
-    compressor = zlib.compressobj(level=6)
+    compressor = zlib.compressobj(level=3)
     try:
         with temp.open("xb") as out:
             if raw is not None:
@@ -410,7 +410,7 @@ def perform(
                             break
                         out.write(decompressor.decompress(block))
                     out.write(decompressor.flush())
-                os.chmod(target, 0o600)
+                os.chmod(target, 0o700 if row["kind"] in {"app", "tool"} else 0o600)
                 _owner(target, owner_uid)
                 return {"ok": True, "action": action, "bank": bank, "item_id": row["id"],
                         "name": row["name"], "path": str(target.relative_to(home)),
