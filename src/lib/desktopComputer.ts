@@ -5,7 +5,7 @@ import { browserStudioFor, studioCall, studioStream } from "@/lib/browserCompute
 
 export type DesktopArgs = {
   action?: string;
-  app?: "browser" | "terminal" | "files" | "writer" | "calc" | "impress" | "draw" | "inkscape" | "gimp" | "audacity";
+  app?: "browser" | "terminal" | "files" | "writer" | "calc" | "impress" | "draw" | "inkscape" | "gimp" | "audacity" | "jupyter";
   url?: string;
   path?: string;
   x?: number;
@@ -31,7 +31,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   const out: Record<string, unknown> = { action };
   if (action === "launch") {
     const app = String(input.app || "");
-    if (!["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"].includes(app)) return null;
+    if (!["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity", "jupyter"].includes(app)) return null;
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }
