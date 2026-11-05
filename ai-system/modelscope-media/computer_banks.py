@@ -241,6 +241,7 @@ def perform(
     if action not in {"list", "create", "put", "get", "search", "stats", "delete", "drop", "link", "related"}:
         return {"ok": False, "error": "bank_action must be list, create, put, get, search, stats, delete or drop"}
     root = _root(home, owner_uid)
+    object_dir = root / "objects"
     db = _db(root, owner_uid)
     try:
         now = time.time()
