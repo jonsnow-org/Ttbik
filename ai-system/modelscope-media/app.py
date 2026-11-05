@@ -1066,9 +1066,26 @@ def _warm() -> None:
 
 
 
+def _serve_demo(demo) -> None:
+    """Bind Gradio before loading multi-GB CPU weights so the platform proxy can reach health/status immediately.
+
+    ModelScope marks a Studio Running before its Gradio process has finished binding. Starting the weight
+    warm-up first made the process spend minutes inside Torch/model loading before Gradio served /info,
+    which presented as gateway 500/502 across every isolated media Studio. Start the HTTP server first;
+    keep the process alive explicitly, then warm weights in the background.
+    """
+    demo.queue(default_concurrency_limit=4).launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", 7860)),
+        show_error=True,
+        prevent_thread_lock=True,
+    )
+    threading.Thread(target=_warm, name="media-warm", daemon=True).start()
+    threading.Event().wait()
+
+
 if __name__ == "__main__":
     import gradio as gr
-    threading.Thread(target=_warm, daemon=True).start()
     with gr.Blocks() as demo:
         gr.Markdown("Nova Media Studio — image, Arabic speech and real video. Computer tools run on the separate isolated computer hub.")
         box = gr.Textbox(visible=False)
@@ -1076,4 +1093,4 @@ if __name__ == "__main__":
         for name, fn in (("image", api_image), ("speech", api_speech), ("video", api_video), ("video_start", api_video_start), ("job", api_job)):
             gr.Button(name, visible=False).click(fn, box, out, api_name=name)
         gr.Button("status", visible=False).click(api_status, None, out, api_name="status")
-    demo.queue(default_concurrency_limit=4).launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), show_error=True)
+    _serve_demo(demo)
