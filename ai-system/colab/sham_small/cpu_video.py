@@ -172,8 +172,10 @@ CV_SUPPORTED_DURATIONS = (2, 4, 6, 10, 15, 30, 60, 120)
 
 
 def cv_chunk_plan(seconds: int | float) -> list[int]:
-    """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact."""
+    """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact.
+    `CPU_VIDEO_MAX_PASS_S` lowers the cap (2 on an 8 GB Studio: 16 frames is the proven-safe pass size)."""
     import math
+    import os as _os
     if isinstance(seconds, bool):
         raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     try:
@@ -182,14 +184,21 @@ def cv_chunk_plan(seconds: int | float) -> list[int]:
         raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds") from exc
     if not math.isfinite(requested) or not requested.is_integer() or int(requested) not in CV_SUPPORTED_DURATIONS:
         raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
+    cap = max(2, min(4, int(_os.environ.get("CPU_VIDEO_MAX_PASS_S", "") or 4)))
     remaining = int(requested)
     chunks = []
-    while remaining > 4:
-        chunks.append(4)
-        remaining -= 4
-    if remaining:
+    while remaining > cap:
+        chunks.append(cap)
+        remaining -= cap
+    if remaining == 1:
+        # An odd tail (15 s with a 2 s cap): make the previous pass 3 s instead of leaving an impossible 1 s pass.
+        if chunks:
+            chunks.pop()
+            remaining += cap
         chunks.append(remaining)
-    if any(part < 2 or part > 4 for part in chunks) or sum(chunks) != int(seconds):
+    elif remaining:
+        chunks.append(remaining)
+    if any(part < 2 or part > max(cap, 3) for part in chunks) or sum(chunks) != int(seconds):
         raise ValueError("native-video-duration-limit: this duration cannot be split into supported 2-4 second temporal passes")
     return chunks
 

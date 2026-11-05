@@ -21,6 +21,7 @@ import traceback
 from pathlib import Path
 
 os.environ.setdefault("CPU_VIDEO_KEEP", "1")        # this Studio has nothing else in RAM: keep the pipeline loaded between clips
+os.environ.setdefault("CPU_VIDEO_MAX_PASS_S", "2")  # 8 GB Studio: 2 s (16-frame) passes are the proven-safe size; a 4 s pass died mid-sampling (2026-11-05)
 HERE = Path(__file__).resolve().parent
 _LOCK = threading.Lock()
 STATE = {"phase": "starting", "error": "", "videos": 0, "last_s": 0.0}
