@@ -3,7 +3,7 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; bank_action?: string; command?: string; cwd?: string; timeout?: number; path?: string; source_path?: string; output_path?: string; content?: string; text?: string; id?: string; item_id?: string; name?: string; bank?: string; category?: string; description?: string; kind?: string; query?: string; metadata?: Record<string, unknown>; confirm?: boolean; tail?: number; since?: number; limit?: number; offset?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; bank_action?: string; command?: string; cwd?: string; timeout?: number; path?: string; source_path?: string; output_path?: string; content?: string; text?: string; id?: string; item_id?: string; name?: string; bank?: string; target_bank?: string; relation?: string; note?: string; category?: string; description?: string; kind?: string; query?: string; metadata?: Record<string, unknown>; confirm?: boolean; include_related?: boolean; tail?: number; since?: number; limit?: number; offset?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
 const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "apps", "bank", "batch"]);
@@ -23,7 +23,8 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_apps") return { action: "apps" };
   if (tool === "computer_bank") return {
     action: "bank", bank_action: a.action as string, bank: a.bank as string, category: a.category as string,
-    description: a.description as string, name: a.name as string, source_path: a.source_path as string,
+    description: a.description as string, target_bank: a.target_bank as string, relation: a.relation as string, note: a.note as string,
+    include_related: Boolean(a.include_related), name: a.name as string, source_path: a.source_path as string,
     output_path: a.output_path as string, content: a.content as string, text: a.text as string,
     kind: a.kind as string, item_id: a.item_id as string, query: a.query as string,
     limit: a.limit as number, offset: a.offset as number, metadata: a.metadata as Record<string, unknown>, confirm: Boolean(a.confirm),
@@ -63,6 +64,10 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.bank !== undefined) out.bank = String(a.bank).slice(0, 64);
   if (a.category !== undefined) out.category = String(a.category).slice(0, 30);
   if (a.description !== undefined) out.description = String(a.description).slice(0, 500);
+  if (a.target_bank !== undefined) out.target_bank = String(a.target_bank).slice(0, 64);
+  if (a.relation !== undefined) out.relation = String(a.relation).slice(0, 32);
+  if (a.note !== undefined) out.note = String(a.note).slice(0, 300);
+  if (a.include_related) out.include_related = true;
   if (a.kind !== undefined) out.kind = String(a.kind).slice(0, 20);
   if (a.item_id !== undefined) out.item_id = String(a.item_id).slice(0, 40);
   if (a.query !== undefined) out.query = String(a.query).slice(0, 1000);
