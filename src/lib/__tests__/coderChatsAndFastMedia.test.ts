@@ -110,7 +110,7 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /a beautiful girl/.test(u))).toBe(true);   // the picture Studio got the model's own English prompt
   });
   it("singing requests are answered before the LLM queue and never sent to speech-only Piper", async () => {
-    const urls = await net(() => "CHAT");
+    const urls = net({ type: "image", b64: "" });
     const { bot, sent } = fakeBot();
     await handleCoderSections(bot, botRow, say("اعطني صوت فتاة تغني"), db());
     expect(sent.some((s) => /لا يملك أوزاناً لتوليد الغناء أو الموسيقى/.test(s.text))).toBe(true);
