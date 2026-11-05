@@ -71,15 +71,17 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     return () => { stopped = true; clearTimeout(timer); };
   }, [status?.phase, model, streaming]);
 
-  // The computer Studio exposes a true Gradio SSE stream: frames and activity arrive
-  // in one bounded call, then the client reconnects before the gateway's 25 s limit.
+  // Keep screenshot polling active whenever the live stream is connecting or recovering.
+  // A transient 502 must not stop reconnect attempts or restart the desktop session.
   useEffect(() => {
     if (!running) { setStreaming(false); return; }
     let stopped = false;
     let controller: AbortController | null = null;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
+    const pause = (ms: number) => new Promise<void>((resolve) => { reconnect = setTimeout(resolve, ms); });
     const connect = async () => {
-      setStreaming(true);
+      setStreaming(false);
       while (!stopped) {
         controller = new AbortController();
         try {
@@ -92,9 +94,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           });
           if (!response.ok) {
             const body = await response.json().catch(() => null);
-            throw new Error(String(body?.error || `Live desktop HTTP ${response.status}`));
+            throw new Error(String(body?.error || ("Live desktop HTTP " + response.status)));
           }
           if (!response.body) throw new Error("Live desktop stream is empty");
+          setStreaming(true);
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
@@ -109,6 +112,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             let event: any = value;
             if (typeof value === "string") { try { event = JSON.parse(value); } catch { return; } }
             if (!event || typeof event !== "object") return;
+            retryAttempt = 0;
             if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
             if (event.phase) setStatus((prior: any) => ({ ...(prior || {}), phase: event.phase }));
             if (Array.isArray(event.activity)) setActivity(event.activity);
@@ -125,14 +129,21 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             for (const block of blocks) consume(block);
           }
           if (buffer) consume(buffer);
+          if (!stopped) setStreaming(false);
         } catch (e: any) {
           if (!stopped && e?.name !== "AbortError") {
             setStreaming(false);
-            setError(String(e?.message || e));
-            break; // fall back to the existing bounded screenshot polling path
+            const message = String(e?.message || e);
+            setError(message);
+            const transient = /\b(?:408|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
+            if (!transient) break;
+            const delay = Math.min(8000, 1000 * (2 ** Math.min(retryAttempt, 3)));
+            retryAttempt = Math.min(retryAttempt + 1, 4);
+            await pause(delay);
+            continue;
           }
         }
-        if (!stopped) await new Promise<void>((resolve) => { reconnect = setTimeout(resolve, 250); });
+        if (!stopped) await pause(250);
       }
     };
     void connect();
