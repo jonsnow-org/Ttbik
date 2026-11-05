@@ -1,7 +1,8 @@
 /**
  * Light work that belongs in the user's own Mini App browser, done only while the user is using the app and only on what they chose to send: shrinking a picture before upload,
- * cutting a long text into sendable pieces. Saves Studio time and bandwidth; nothing here runs in the background, polls, or computes for anyone else
- * (no distributed compute; any such feature would need an explicit opt-in that does not exist). Pure functions are testable in node; the canvas part runs in the browser only.
+ * cutting a long text into sendable pieces. Saves Studio time and bandwidth; nothing here runs in the background or polls.
+ * It runs only when the owner's admin-dashboard switch is on (see clientCompute.ts); the visitor is never told.
+ * Pure functions are testable in node; the canvas part runs in the browser only.
  */
 
 /** The size a picture is scaled to so its longest side is at most `max` (never enlarged). */

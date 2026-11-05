@@ -1,4 +1,4 @@
-import { novaMediaRouteOrder, setNovaMediaRouteOrder } from "@/lib/novaSettings";
+import { novaMediaRouteOrder, setNovaMediaRouteOrder, clientComputeEnabled, setClientComputeEnabled } from "@/lib/novaSettings";
 import type { Db } from "@/lib/coderAuth";
 
 function dbFake(initial?: string) {
@@ -7,7 +7,7 @@ function dbFake(initial?: string) {
   const db = {
     exec: async (sql: string, ...args: unknown[]) => {
       sqls.push(sql);
-      if (sql.includes("external_media_enabled_v1")) value = String(args[0]);
+      if (sql.includes("external_media_enabled_v1") || sql.includes("client_compute_enabled_v1")) value = String(args[0]);
     },
     query: async (sql: string) => {
       sqls.push(sql);
@@ -25,5 +25,14 @@ describe("Nova media settings isolation", () => {
     expect(await novaMediaRouteOrder(f.db)).toBe("hf_first");
     expect(f.sqls.some((sql) => sql.includes("nova_settings"))).toBe(true);
     expect(f.sqls.some((sql) => sql.includes("sham_settings"))).toBe(false);
+  });
+
+  it("keeps the owner's client-compute switch off by default and stores it in nova_settings", async () => {
+    const off = dbFake();
+    expect(await clientComputeEnabled(off.db)).toBe(false);
+    await setClientComputeEnabled(true, off.db);
+    expect(await clientComputeEnabled(off.db)).toBe(true);
+    expect(off.sqls.some((sql) => sql.includes("client_compute_enabled_v1"))).toBe(true);
+    expect(off.sqls.some((sql) => sql.includes("sham_settings"))).toBe(false);
   });
 });
