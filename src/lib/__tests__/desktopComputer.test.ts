@@ -25,6 +25,54 @@ describe("the graphical Linux desktop RPC contract", () => {
     }
   });
 
+  test("retries a transient gateway 502 on the event stream using the same live event id", async () => {
+    const previousUrl = process.env.COMPUTER_STUDIO_URL;
+    process.env.COMPUTER_STUDIO_URL = "https://computer.test";
+    try {
+      const calls: Array<{ url: string; method: string }> = [];
+      let reads = 0;
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method || "GET");
+        calls.push({ url, method });
+        if (method === "POST") return new Response(JSON.stringify({ event_id: "live-retry" }), { status: 200 });
+        reads += 1;
+        if (reads === 1) return new Response("upstream gateway", { status: 502 });
+        return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      const response = await desktopLive("lfm25", "77:lfm25", 20, fetchMock);
+      expect(response.ok).toBe(true);
+      expect(calls.map((item) => item.method)).toEqual(["POST", "GET", "GET"]);
+      expect(calls[1].url).toBe(calls[2].url);
+      expect(calls[1].url).toContain("/gradio_api/call/live/live-retry");
+    } finally {
+      if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
+      else process.env.COMPUTER_STUDIO_URL = previousUrl;
+    }
+  });
+
+  test("retries a transient gateway 502 while opening the read-only live stream", async () => {
+    const previousUrl = process.env.COMPUTER_STUDIO_URL;
+    process.env.COMPUTER_STUDIO_URL = "https://computer.test";
+    try {
+      const calls: string[] = [];
+      let submits = 0;
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const method = String(init?.method || "GET");
+        calls.push(method);
+        if (method === "POST" && ++submits === 1) return new Response("upstream gateway", { status: 502 });
+        if (method === "POST") return new Response(JSON.stringify({ event_id: "live-after-retry" }), { status: 200 });
+        return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      const response = await desktopLive("lfm25", "77:lfm25", 20, fetchMock);
+      expect(response.ok).toBe(true);
+      expect(calls).toEqual(["POST", "POST", "GET"]);
+    } finally {
+      if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
+      else process.env.COMPUTER_STUDIO_URL = previousUrl;
+    }
+  });
+
   test("accepts only supported actions and validates keyboard events", () => {
     expect(cleanDesktopArgs({ action: "status" })).toEqual({ action: "status" });
     expect(cleanDesktopArgs({ action: "start" })).toEqual({ action: "start" });
