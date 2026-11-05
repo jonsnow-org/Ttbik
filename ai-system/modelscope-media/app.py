@@ -790,9 +790,12 @@ def _trim_heap() -> None:
 def _free_parent_ram() -> None:
     """Before a clip, everything heavy leaves the parent: the picture worker process is stopped (it restarts on the next picture) and any
     in-process pipeline is dropped. Live 2026-11-04 (8 GB Studio): the clip process was killed -9 after a picture had been made in the parent,
-    whose heap never shrank back; the deploy probe's clip passed (29 frames, 315 s) when the parent had made no picture."""
+    whose heap never shrank back; the deploy probe's clip passed (29 frames, 315 s) when the parent had made no picture.
+    Live 2026-11-05 (LFM2.5 8 GB Studio): the probe makes an image and Arabic speech first, and Piper was still resident when the clip
+    started, so the `job` submit 502'd for minutes while the Studio ran out of memory. The voice reloads lazily, so drop it too."""
     _stop_image_worker()
     _MODELS["pipe"] = None
+    _MODELS["voice"] = None
     _CV["pipe"] = None
     _trim_heap()
 
