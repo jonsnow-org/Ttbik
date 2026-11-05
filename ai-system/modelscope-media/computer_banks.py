@@ -256,6 +256,8 @@ def perform(
             db.commit()
             return {"ok": True, "action": action, "bank": bank, "category": category}
         if action == "link":
+            if not str(job.get("target_bank") or "").strip():
+                return {"ok": False, "error": "target_bank is required for a bank link"}
             target_bank = _valid_bank(job.get("target_bank"))
             relation = str(job.get("relation") or "related").strip().lower()
             if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,31}", relation):
