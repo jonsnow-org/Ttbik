@@ -686,7 +686,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 port = int(probe.getsockname()[1])
             token = secrets.token_urlsafe(24)
             cmd = [
-                str(executable), "lab", "--no-browser", "--ip=127.0.0.1", f"--port={port}",
+                str(executable), "--no-browser", "--ip=127.0.0.1", f"--port={port}",
                 f"--ServerApp.token={token}", "--ServerApp.allow_remote_access=False", "--ServerApp.open_browser=False",
             ]
         elif app in ("writer", "calc", "impress", "draw"):
