@@ -5,10 +5,12 @@ import { browserStudioFor, studioCall, studioStream } from "@/lib/browserCompute
 
 export type DesktopArgs = {
   action?: string;
-  app?: "browser" | "terminal" | "files";
+  app?: "browser" | "terminal" | "files" | "writer" | "calc" | "impress" | "draw" | "inkscape" | "gimp" | "audacity";
   url?: string;
   x?: number;
   y?: number;
+  x2?: number;
+  y2?: number;
   button?: "left" | "middle" | "right";
   text?: string;
   key?: string;
@@ -18,7 +20,7 @@ export type DesktopArgs = {
 
 const ACTIONS = new Set([
   "status", "start", "frame", "stop", "launch",
-  "click", "move", "type", "key", "scroll",
+  "click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "clipboard_set", "clipboard_get", "pointer",
 ]);
 
 export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | null {
@@ -27,19 +29,28 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   const out: Record<string, unknown> = { action };
   if (action === "launch") {
     const app = String(input.app || "");
-    if (!["browser", "terminal", "files"].includes(app)) return null;
+    if (!["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"].includes(app)) return null;
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }
-  if (action === "click" || action === "move") {
+  if (["click", "dblclick", "move", "drag", "mousedown", "mouseup"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
     out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
-    if (action === "click") {
+    if (action === "drag") {
+      if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
+      out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
+      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+    }
+    if (["click", "mousedown", "mouseup"].includes(action)) {
       const button = String(input.button || "left");
       if (!["left", "middle", "right"].includes(button)) return null;
       out.button = button;
     }
+  }
+  if (action === "clipboard_set") {
+    if (input.text === undefined) return null;
+    out.text = String(input.text).slice(0, 20000);
   }
   if (action === "type") {
     if (input.text === undefined) return null;
