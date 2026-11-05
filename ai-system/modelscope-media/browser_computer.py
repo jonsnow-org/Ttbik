@@ -538,8 +538,20 @@ class _Worker(threading.Thread):
             suggested = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(download.suggested_filename).name)[:120] or "download.bin"
             relative = str(job.get("path") or f"downloads/{suggested}")[:500]
             target = box.safe_path(session, relative)
+            if target.is_symlink():
+                return {"ok": False, "error": "download destination must not be a symlink"}
             if target.exists() and target.is_dir():
                 return {"ok": False, "error": "download destination is a directory"}
+            temporary = download.path()
+            if not temporary:
+                return {"ok": False, "error": "the browser could not access the completed download"}
+            size = Path(temporary).stat().st_size
+            if size > 512 * 1024 * 1024:
+                return {"ok": False, "error": "one browser download is limited to 512 MB"}
+            previous_size = target.stat().st_size if target.is_file() else 0
+            projected = box.dir_size(box.session_home(session)) - previous_size + size
+            if projected > box.QUOTA_BYTES:
+                return {"ok": False, "error": "this download would exceed the existing per-session computer disk quota"}
             target.parent.mkdir(parents=True, exist_ok=True)
             download.save_as(str(target))
             if box.is_root():
