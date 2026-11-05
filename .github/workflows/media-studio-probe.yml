@@ -51,6 +51,12 @@ jobs:
           PROBE_SEED: ${{ inputs.seed }}
           PROBE_OUT: ${{ runner.temp }}
         run: python ai-system/app/nova_media_probe.py
+      - name: Nova media Studio run log when the check fails
+        if: failure()
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/nova-media-server/logs/run" | tail -c 8000; echo
       - uses: actions/upload-artifact@v4
         if: always()
         with:
