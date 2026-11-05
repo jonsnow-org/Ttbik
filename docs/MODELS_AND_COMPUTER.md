@@ -30,6 +30,19 @@ The model-facing `computer_bank` tool can list/create banks, store text entries,
 
 Search currently uses a lightweight local lexical index over titles, descriptions, keys, and indexed text. It does not load an embedding model or claim Palmyra-style vector retrieval. File content remains available through the returned private path and the existing computer file/read/view tools. No new external database service is required.
 
+### Optional applications and developer workbench
+
+The computer-only Studio keeps its small initial bootstrap. Optional applications are installed only when a model asks through the model-facing `computer_apps` tool; installation groups are allowlisted, run in the background, and check actual free disk before starting:
+
+- `office`: LibreOffice Writer, Calc, Impress and Draw.
+- `ocr`: Tesseract Arabic + English, OCRmyPDF, qpdf and Poppler tools.
+- `data`: JupyterLab, DuckDB, Polars, pandas, Matplotlib and openpyxl, installed under the persistent shared computer-apps tool directory.
+- `creative`: Inkscape, GIMP and Audacity.
+
+The install manifest lives on the computer Studio's persistent workspace volume; only groups explicitly requested are restored after a Studio restart. The software binaries are shared by the dedicated computer host (they contain no user documents); each model's notebooks, files, browser context, cookies and projects still live under its own private `user:model` home. Use `desktop action=apps` to inspect actual installed apps. JupyterLab can be launched through `desktop action=launch app=jupyter`; it binds only to loopback on a session-owned port and returns a private URL for that session's headless browser. Arabic scanned PDFs can be processed with `ocrmypdf -l ara+eng --skip-text input.pdf output.pdf`.
+
+The headless browser now supports tab management, upload from the session's own home into page file inputs, saving downloads back into that home, and reading JavaScript console / failed network diagnostics. The local preview exception is deliberately narrow: only a loopback listener whose process runs under the exact session UID is reachable; other private/internal networks and metadata endpoints remain blocked.
+
 The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to six shell jobs globally (and a per-session job cap of four), guarded by the live free-memory admission gate. The 16 GB app config supports up to five separate graphical desktop slots when total memory is above 12 GB; each new desktop requires at least 3 GB free RAM, while new terminal jobs require at least 2 GB available. `COMPUTER_QUOTA_GB=8` is the per-session workspace disk allowance, not the Studio RAM allocation. Compiler and language runtimes (Node.js, GCC, Go, Java, Rust, Ruby, PHP, etc.) are installed in the extended developer-tool phase and are checked separately from the initial terminal bootstrap. With inference weights removed, the computer is no longer competing with MiniCPM for the Studio's memory.
 
 ## Router
