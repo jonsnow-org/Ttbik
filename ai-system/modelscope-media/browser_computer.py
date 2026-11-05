@@ -549,9 +549,9 @@ class _Worker(threading.Thread):
             if size > 512 * 1024 * 1024:
                 return {"ok": False, "error": "one browser download is limited to 512 MB"}
             previous_size = target.stat().st_size if target.is_file() else 0
-            projected = box.dir_size(box.session_home(session)) - previous_size + size
-            if projected > box.QUOTA_BYTES:
-                return {"ok": False, "error": "this download would exceed the existing per-session computer disk quota"}
+            additional = max(0, size - previous_size)
+            if box.over_quota(session, additional):
+                return {"ok": False, "error": "this download would exceed the per-session quota or shared computer disk reserve"}
             target.parent.mkdir(parents=True, exist_ok=True)
             download.save_as(str(target))
             if box.is_root():
