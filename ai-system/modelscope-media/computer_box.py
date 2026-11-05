@@ -1589,7 +1589,7 @@ def run_bank_action(session: str, job: dict) -> dict:
     return bank_action(
         session, job, home=session_home(session),
         safe_path=lambda value: safe_path(session, value),
-        over_quota=lambda: over_quota(session),
+        over_quota=lambda additional=0: dir_size(session_home(session)) + max(0, int(additional or 0)) > QUOTA_BYTES,
         uid=session_uid(session) if is_root() else None,
     )
 
