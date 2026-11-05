@@ -247,24 +247,27 @@ def perform(
             db.commit()
             return {"ok": True, "action": action, "bank": bank, "category": category}
         if action == "list":
+            limit = max(1, min(200, int(job.get("limit") or 100)))
+            offset = max(0, int(job.get("offset") or 0))
             banks = [dict(row) for row in db.execute(
                 "SELECT b.id,b.category,b.description,b.created_at,b.updated_at,COUNT(i.id) AS items,"
                 "COALESCE(SUM(i.size_bytes),0) AS logical_bytes FROM banks b LEFT JOIN items i ON i.bank_id=b.id "
-                "GROUP BY b.id ORDER BY b.updated_at DESC").fetchall()]
+                "GROUP BY b.id ORDER BY b.updated_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()]
             items = []
             if job.get("bank"):
                 items = [dict(row) for row in db.execute(
                     "SELECT id,bank_id,name,kind,mime_type,sha256,size_bytes,compressed_bytes,text_chars,created_at "
-                    "FROM items WHERE bank_id=? ORDER BY created_at DESC LIMIT 100", (bank,)).fetchall()]
-            return {"ok": True, "action": action, "banks": banks[:200], "items": items}
+                    "FROM items WHERE bank_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (bank, limit, offset)).fetchall()]
+            return {"ok": True, "action": action, "banks": banks, "items": items, "limit": limit, "offset": offset}
         if action == "stats":
-            rows = db.execute("SELECT COUNT(*) AS items,COALESCE(SUM(size_bytes),0) AS logical,"
-                              "COALESCE(SUM(compressed_bytes),0) AS compressed FROM items").fetchone()
+            rows = db.execute("SELECT COUNT(*) AS items,COALESCE(SUM(size_bytes),0) AS logical FROM items").fetchone()
+            compressed = db.execute("SELECT COALESCE(SUM(size_bytes),0) AS bytes FROM "
+                                    "(SELECT MAX(compressed_bytes) AS size_bytes FROM items GROUP BY sha256)").fetchone()
             counts = db.execute("SELECT COUNT(*) AS banks FROM banks").fetchone()
             disk = shutil.disk_usage(home)
             return {"ok": True, "action": action, "banks": int(counts["banks"]),
                     "items": int(rows["items"]), "logical_bytes": int(rows["logical"]),
-                    "compressed_bytes": int(rows["compressed"]),
+                    "compressed_bytes": int(compressed["bytes"]),
                     "free_bytes": int(disk.free), "quota_bytes": int(quota_bytes),
                     "session_used_bytes": int(used_bytes)}
         if action == "put":
