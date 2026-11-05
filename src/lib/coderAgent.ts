@@ -143,7 +143,7 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({})),
   tool("computer_bank", "Manage your private, disk-backed bank network (no Supabase or external DB): create unlimited named banks by topic/category; store files from source_path or small text content; deduplicate blobs; index searchable text (including PDF text when pdftotext is installed); search and restore items. User+model isolated; physical disk and session quota still apply. Actions: list/create/put/get/search/stats/delete/drop. For put use source_path for large/binary files; get binary items with output_path.",
     obj({
-      action: { type: "string", enum: ["list", "create", "put", "get", "search", "stats", "delete", "drop", "link", "related"] },
+      action: { type: "string", enum: ["list", "create", "put", "get", "search", "stats", "delete", "drop", "link", "related", "gc"] },
       bank: s("bank id, e.g. documents, datasets, apps, tools, sessions"),
       target_bank: s("destination bank id for link"),
       relation: s("short relation name for link, e.g. uses, contains, references"),
