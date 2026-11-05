@@ -18,6 +18,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import importlib.util
 import os
 import re
 import resource
@@ -827,6 +828,10 @@ def workspace_apps_status() -> dict:
         "gimp": bool(shutil.which("gimp")),
         "audacity": bool(shutil.which("audacity")),
         "jupyterlab": bool(shutil.which("jupyter") or shutil.which("jupyter-lab")),
+        "pandas": importlib.util.find_spec("pandas") is not None,
+        "openpyxl": importlib.util.find_spec("openpyxl") is not None,
+        "matplotlib": importlib.util.find_spec("matplotlib") is not None,
+        "duckdb": importlib.util.find_spec("duckdb") is not None,
         "devtools_status": STATE.get("apps", "not started"),
     }
 
@@ -850,6 +855,12 @@ def ensure_workspace_apps() -> str:
                     continue
                 result = apt_install([package], timeout=900)
                 (installed if result.returncode == 0 else skipped).append(package if result.returncode == 0 else f"{package}: not installable")
+        if _free_gb() >= APP_MIN_FREE_GB["data"]:
+            try:
+                pip_result = subprocess.run(["python3", "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--break-system-packages", "duckdb"], capture_output=True, text=True, timeout=900, check=False)
+                (installed if pip_result.returncode == 0 else skipped).append("duckdb (pip)" if pip_result.returncode == 0 else "duckdb (pip): not installable")
+            except Exception as exc:
+                skipped.append(f"duckdb (pip): {type(exc).__name__}")
         STATE["apps"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:500]})" if skipped else "")
     except Exception as exc:  # optional packages must never break the base computer
         STATE["apps"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
