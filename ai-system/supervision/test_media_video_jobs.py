@@ -1,4 +1,4 @@
-"""The media Studio's background video jobs (modelscope-media/app.py): a clip runs in a thread and `job` is asked back-to-back (each call short)."""
+"""The media Studio's background video jobs: a clip runs in a thread; each `job` poll holds no longer than five seconds."""
 import importlib.util
 import json
 import threading
@@ -23,7 +23,7 @@ class VideoJobs(unittest.TestCase):
 
         def fake_run(kind, payload):
             with self.app._LOCK:
-                self.gate.wait(5)
+                self.gate.wait(60)
                 return {"type": "video", "b64": "AAAA", "text": payload.get("prompt", "")}
         self.app._run = fake_run
 
@@ -50,12 +50,15 @@ class VideoJobs(unittest.TestCase):
     def test_unknown_job_is_lost(self):
         self.assertEqual(json.loads(self.app.api_job(json.dumps({"job": "nope", "wait": 0})))["reason"], "job_lost")
 
-    def test_wait_is_capped(self):
+    def test_wait_is_capped_to_five_seconds_even_for_legacy_long_polls(self):
         start = json.loads(self.app.api_video_start(json.dumps({"prompt": "x", "seconds": 6})))
         t0 = time.time()
-        threading.Timer(0.5, self.gate.set).start()
-        self.app.api_job(json.dumps({"job": start["job"], "wait": 999}))
-        self.assertLess(time.time() - t0, 21)
+        running = json.loads(self.app.api_job(json.dumps({"job": start["job"], "wait": 999})))
+        self.assertEqual(running["type"], "running")
+        self.assertLess(time.time() - t0, 7)
+        self.gate.set()
+        done = json.loads(self.app.api_job(json.dumps({"job": start["job"], "wait": 999})))
+        self.assertEqual(done["type"], "video")
 
     def test_endpoints_are_exposed(self):
         src = PATH.read_text(encoding="utf-8")

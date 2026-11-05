@@ -151,8 +151,8 @@ async function videoByJob(base: string, payload: unknown, headers: Record<string
   if (s.type !== "job" || !s.job) return s;                                  // busy / loading / error: the caller's queue loop handles it
   const pause = process.env.NODE_ENV === "test" ? 0 : 5000;
   for (let misses = 0; Date.now() < deadline;) {
-    const wait = Math.max(0, Math.min(20, Math.floor((deadline - Date.now()) / 1000) - 5));
-    const poll: CallOut = await gradioCall(base, "job", { job: s.job, wait }, headers, f, deadline, 30000, (wait + 25) * 1000)
+    const wait = Math.max(0, Math.min(5, Math.floor((deadline - Date.now()) / 1000) - 3));
+    const poll: CallOut = await gradioCall(base, "job", { job: s.job, wait }, headers, f, deadline, 30000, (wait + 15) * 1000)
       .catch(() => ({ error: { type: "error", reason: "studio_unreachable", text: MEDIA_ERR.unreachable } }));
     const r = "error" in poll ? null : poll.reply;
     if (r && r.type === "running") { misses = 0; continue; }
