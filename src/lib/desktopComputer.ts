@@ -37,7 +37,9 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "open_file") {
     if (!input.path) return null;
-    out.path = String(input.path).slice(0, 500);
+    const path = String(input.path).replace(/\\/g, "/");
+    if (path.split("/").some((part) => part === "..") || path.includes("\\0")) return null;
+    out.path = path.slice(0, 500);
   }
   if (["click", "move", "dblclick", "mousedown", "mouseup", "drag"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
