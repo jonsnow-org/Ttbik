@@ -6,6 +6,7 @@
 import { prismaDb, type Db } from "@/lib/shamDb";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
+import type { DesktopArgs } from "@/lib/desktopComputer";
 
 /** What Sham needs from the platform it runs on (web access, the VM driver, limits, memory, schedules, the user's connections). Sham never imports Nova's modules:
  *  everything comes through this interface, implemented in ONE place (shamHost.ts), which is the only file where the two meet. */
@@ -21,6 +22,7 @@ export interface ShamHost {
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
   computer: { run(c: { chatId: number; modelId: string; db: Db }, tool: string, args: Record<string, unknown>): Promise<string> };
   browser: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<string> };
+  desktop: { run(c: { chatId: number; modelId: string; db: Db }, args: DesktopArgs): Promise<Record<string, any>> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
