@@ -718,6 +718,15 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const selectedModel = st.model || "coder";
   if (selectedModel === "sham" || selectedModel === "sham_v2") return false; // Sham uses its own handler and media route.
   const mf = await import("@/lib/coderMediaFast");
+  // Nova's connected speech model is Piper TTS with one Arabic voice; it cannot compose or sing music.
+  // Do not spend a queued LLM-routing call and then a second full chat call on a request it cannot serve.
+  if (mf.isMusicGenerationRequest(content)) {
+    const why = "مولّد الصوت المتصل حالياً يحوّل النص إلى كلام منطوق بصوت عربي واحد؛ ولا يملك أوزاناً لتوليد الغناء أو الموسيقى أو اختيار صوت فتاة. لم أبدأ مهمة انتظار ولم أرسل كلاماً عادياً بديلاً عن الغناء.";
+    st.messages.push({ role: "user", content }, { role: "assistant", content: why });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, why);
+    return true;
+  }
   const lastOf = (role: "user" | "assistant") => { for (let i = st.messages.length - 1; i >= 0; i--) { const m = st.messages[i]; if (m.role === role && typeof m.content === "string") return m.content; } return ""; };
   const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
   if (!mf.mediaRouteNeeded(content, context)) return false;
