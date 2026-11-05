@@ -211,7 +211,9 @@ class AsyncVideoJobs(unittest.TestCase):
         with self.assertRaises(P.ProbeError) as err:
             st.video_job({"prompt": "a cat", "seconds": 6}, timeout=60)
         self.assertIn("HTTP 500", str(err.exception))
-        self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start"])
+        posts = [item[1] for item in calls if item[0] == "POST"]
+        self.assertTrue(posts and all(api == "video_start" for api in posts))   # the 500 is retried on video_start, never downgraded to the sync /video
+        self.assertGreater(len(posts), 1)
 
     def test_a_cut_job_poll_is_retried_until_the_clip_arrives(self):
         events, calls, waits = {}, [], []
@@ -351,6 +353,30 @@ class Waiting(unittest.TestCase):
         self.assertIn("HTTP 429", str(err.exception))
         self.assertIn("7 submit attempt(s)", str(err.exception))
         self.assertEqual(len(calls), 7)
+
+    def test_a_502_on_the_submit_is_retried_not_fatal(self):
+        inner = FakeStudio([{"phase": "ready"}], apis=("image", "speech", "video", "status", "job"))
+        state = {"cut": 1}
+        def flaky(method, url, payload=None):
+            if method == "POST" and "/call/v2/job" in url and state["cut"] > 0:
+                state["cut"] -= 1
+                return 502, "bad gateway"                       # the gateway edge blip that failed the LFM2.5/Nova video probe
+            return inner(method, url, payload)
+        out = self.studio(flaky).call("job", {"job": "j1", "wait": 5}, timeout=60)
+        self.assertEqual(out["type"], "job")
+        self.assertEqual(state["cut"], 0)
+
+    def test_a_dropped_connection_on_the_submit_is_retried(self):
+        inner = FakeStudio([{"phase": "ready"}], apis=("image", "speech", "video", "status", "video_start"))
+        state = {"cut": 1}
+        def flaky(method, url, payload=None):
+            if method == "POST" and "/call/v2/video_start" in url and state["cut"] > 0:
+                state["cut"] -= 1
+                return 0, "RemoteDisconnected"
+            return inner(method, url, payload)
+        out = self.studio(flaky).call("video_start", {"prompt": "x", "seconds": 4}, timeout=60)
+        self.assertEqual(out["type"], "video_start")
+        self.assertEqual(state["cut"], 0)
 
     def test_call_returns_decoded_json(self):
         out = self.studio(FakeStudio([{"phase": "ready"}])).call("image", {"prompt": "x"})
