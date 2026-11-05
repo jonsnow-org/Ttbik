@@ -47,6 +47,7 @@ const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pu
 
 // planning / design / analysis requests: they need a real thought before the answer, like code does
 const PLAN_CUES = /خطّ?ط|خطة|خطط|تخطيط|صمّ?م|تصميم|بنية|معمارية|هيكلة|استراتيجية|حلّ?ل|قارن|\b(?:plan|architecture|architect|design|roadmap|strategy|analy[sz]e|compare|trade-?offs?|break (?:it )?down)\b/i;
+const SHORT_TASK_CUES = /^(?:عدّل|عدل|كمل|اكمل|أكمل|تابع|نفّذ|نفذ|شغّل|شغل|جرّب|جرب|اختبر|افحص|صلّح|صلح|صحح|غيّر|غير|أضف|اضف|احذف|أنشئ|انشئ|اقرأ|افتح)(?:\s|$)/u;
 
 const PLAIN_QUESTION = /[?؟]\s*$|^\s*(?:اشرح|فسّر|فسر|عرّف|عرف|ما (?:هو|هي|هم|معنى|الفرق)|ماذا|من (?:هو|هي)|لماذا|كيف|متى|أين|ما الفرق|what|why|how|when|where|who|explain|define|difference)\b/i;
 /** Is this a plain knowledge question (answerable from the model's own knowledge)? Terse commands like "عدّل" or "كمل" are NOT: they continue a task and keep every tool. */
@@ -63,7 +64,7 @@ export function classifyRequest(text: string): ReqClass {
   if (t.length <= 100 && !t.includes("\n") && (GREETING.test(t) || GREETING_WITH_CHECKIN.test(t))) return "trivial";
   if (t.length <= 40 && !t.includes("\n") && IDENTITY_Q.test(t)) return "trivial";   // «من انت» took minutes on the full tool path
   if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
-  if (PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
+  if (SHORT_TASK_CUES.test(t) || PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
 }
 

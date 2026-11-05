@@ -54,7 +54,7 @@ describe("classifyRequest", () => {
   it.each([
     ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"], ["مرحبا كيف حالك", "trivial"], ["أهلاً، كيف حالك؟", "trivial"], ["hello, how are you?", "trivial"],
     ["قم بتوليد صورة أسد", "media"], ["make a short video of a rabbit", "media"],
-    ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["اكمل", "chat"],
+    ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["عدّل", "code"], ["اكمل", "code"], ["تابع", "code"],
     ["اكتب دالة بايثون تعكس النص", "code"], ["fix this bug: TypeError in my function", "code"], ["```js\nconst a = 1\n```\nما الخطأ؟", "code"],
     ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
   ])("%s -> %s", (text, klass) => { expect(classifyRequest(text as string)).toBe(klass); });
@@ -69,7 +69,7 @@ describe("classifyRequest", () => {
     for (const text of ["مرحبا", "مرحبا كيف حالك", "ما هي عاصمة فرنسا؟", "اكتب لي قصيدة قصيرة"]) {
       expect(requiresProgressCard(text)).toBe(false);
     }
-    for (const text of ["اكتب دالة بايثون", "اقرأ README في octocat/Hello-World", "ما سعر الذهب اليوم؟", "قم بتوليد صورة أسد"]) {
+    for (const text of ["اكتب دالة بايثون", "عدّل", "اكمل", "اقرأ README في octocat/Hello-World", "ما سعر الذهب اليوم؟", "قم بتوليد صورة أسد"]) {
       expect(requiresProgressCard(text)).toBe(true);
     }
   });
@@ -131,7 +131,7 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(p({ model: "nova", text: "مرحبا" })).toMatchObject({ lite: true, maxTokens: 200 });
     expect(p({ model: "nova", text: "ما هي عاصمة فرنسا؟" })).toMatchObject({ lite: true, maxTokens: 450 });
     expect(p({ model: "nova", text: "اكتب دالة بايثون" })).toMatchObject({ lite: false, maxTokens: 0 });
-    expect(p({ model: "nova", text: "عدّل" }).lite).toBe(false);                                   // a terse command continues a task: every tool stays
+    expect(p({ model: "nova", text: "عدّل" })).toMatchObject({ klass: "code", lite: false, think: true }); // a terse command continues a task: every tool stays
     expect(p({ model: "nova", text: "كمل من حيث توقفت" }).lite).toBe(false);
     expect(p({ model: "nova", text: "ما سعر الذهب اليوم؟" }).lite).toBe(false);                    // needs today's facts: the web tools stay
     expect(p({ model: "nova", pref: "precise", text: "ما هي عاصمة فرنسا؟" }).lite).toBe(true);      // accuracy stays selected, but this is still ordinary chat with no tool block
