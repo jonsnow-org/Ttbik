@@ -6,10 +6,10 @@ import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
 export type BrowserArgs = {
-  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
+  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean; tab?: number; path?: string;
 };
 
-const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
+const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "console", "network"]);
 
 /** All supported models use the dedicated computer-only hub Studio.
  * The user+model session key still isolates each model's files, browser cookies and desktop. */
@@ -37,6 +37,8 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.key !== undefined) out.key = String(a.key).slice(0, 30);
   if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
   if (a.seconds !== undefined && Number.isFinite(Number(a.seconds))) out.seconds = Math.max(1, Math.min(20, Math.trunc(Number(a.seconds))));
+  if (a.tab !== undefined && Number.isFinite(Number(a.tab))) out.tab = Math.max(0, Math.min(20, Math.trunc(Number(a.tab))));
+  if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
   return out;
 }
 
@@ -56,6 +58,10 @@ export function renderBrowserReply(r: Record<string, any>): string {
   // drawn areas (canvas / video / svg / iframes) have no text: tell the model where they are so it can click by x,y or ask for the outline
   if (r.visual) parts.push("", "DRAWN AREAS WITHOUT READABLE TEXT (click them with x,y, or call action=aria for the page outline):", String(r.visual));
   if (r.outline) parts.push("", "PAGE OUTLINE (roles and names):", String(r.outline));
+  if (Array.isArray(r.tabs)) parts.push("", "OPEN TABS:", r.tabs.map((t: any) => `[${t.index}]${t.active ? " *" : ""} ${t.title} — ${t.url}`).join("\n"));
+  if (r.download) parts.push("", `DOWNLOADED: ${r.download.path} (${r.download.bytes} bytes)`);
+  if (Array.isArray(r.console) && r.console.length) parts.push("", "JAVASCRIPT CONSOLE:", r.console.join("\n"));
+  if (Array.isArray(r.network_errors) && r.network_errors.length) parts.push("", "NETWORK FAILURES:", r.network_errors.join("\n"));
   return parts.join("\n");
 }
 
