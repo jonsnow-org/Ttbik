@@ -122,6 +122,22 @@ export type RoutedMedia =
   | { kind: "chat" }
 
 const MEDIA_WORDS = set("صوره صور رسمه رسم لوحه لوغو لوجو شعار خلفيه صوت صوتي اغنيه نشيد مقطع كليب انيميشن فيديو فديو image picture photo pic logo wallpaper illustration drawing video clip animation audio voice speech song narrate");
+
+const AUDIO_WORDS = set("صوت صوتي صوتيه صوتية audio voice speech");
+const MUSIC_WORDS = set("غناء غنا غنائي غنائيه اغنيه اغاني اغانيه نشيد اناشيد موسيقي موسيقيه موسيقى لحن الحان تلحين يغني تغني تغنين يغنون غن song songs sing singing singer singers sung music musical musician musicians melody melodies tune tunes rap rapping rapper beat");
+
+/** Requests for songs / singing cannot use the current speech endpoint: it is Piper text-to-speech, not a music or singing model.
+ * Detect these before asking the LLM router so an unsupported request is answered immediately instead of entering the model queue twice. */
+export function isMusicGenerationRequest(text: string): boolean {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length > 400 || raw.startsWith("/")) return false;
+  const ws = words(raw).map((w) => norm(w));
+  const music = ws.some((w) => inSet(w, MUSIC_WORDS));
+  if (!music) return false;
+  const explicitGenerate = ws.some((w) => inSet(w, VERBS));
+  const asksForSingingVoice = ws.some((w) => inSet(w, AUDIO_WORDS)) && ws.some((w) => inSet(w, set("غن يغني تغني تغنين يغنون singing sing sings sung singer singers")));
+  return explicitGenerate || asksForSingingVoice;
+}
 /** True when the message is worth asking the model about (cheap pre-check, never the decision itself). */
 export function mediaRouteNeeded(text: string, context: MediaFollowupContext = {}): boolean {
   const raw = String(text || "").trim();
