@@ -112,6 +112,37 @@ def _connect(home: Path, uid: int | None) -> sqlite3.Connection:
         );
         """
     )
+    # FTS5 is a local SQLite index: no server, embeddings or model weights.
+    # Keep the older bounded lexical ranking as a fallback on SQLite builds without FTS5.
+    try:
+        db.executescript(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+              bank, entry_key, title, description, content,
+              tokenize='unicode61 remove_diacritics 2'
+            );
+            CREATE TRIGGER IF NOT EXISTS entries_fts_insert AFTER INSERT ON entries BEGIN
+              INSERT INTO entries_fts(rowid,bank,entry_key,title,description,content)
+              VALUES(new.rowid,new.bank,new.entry_key,new.title,new.description,new.content);
+            END;
+            CREATE TRIGGER IF NOT EXISTS entries_fts_update AFTER UPDATE ON entries BEGIN
+              DELETE FROM entries_fts WHERE rowid=old.rowid;
+              INSERT INTO entries_fts(rowid,bank,entry_key,title,description,content)
+              VALUES(new.rowid,new.bank,new.entry_key,new.title,new.description,new.content);
+            END;
+            CREATE TRIGGER IF NOT EXISTS entries_fts_delete AFTER DELETE ON entries BEGIN
+              DELETE FROM entries_fts WHERE rowid=old.rowid;
+            END;
+            """
+        )
+        with db:
+            db.execute(
+                "INSERT OR IGNORE INTO entries_fts(rowid,bank,entry_key,title,description,content) "
+                "SELECT rowid,bank,entry_key,title,description,content FROM entries"
+            )
+    except sqlite3.Error:
+        # FTS5 is optional on some platform Python builds; the storage catalog remains usable.
+        pass
     with db:
         db.executemany(
             "INSERT OR IGNORE INTO banks(name, description) VALUES (?, ?)",
@@ -300,6 +331,36 @@ def run_bank_action(
             bank_filter = str(job.get("bank") or "").strip().lower()
             if bank_filter and not _ensure_bank(db, bank_filter):
                 return {"ok": False, "error": f"bank '{bank_filter}' does not exist"}
+            limit = max(1, min(20, int(job.get("limit") or 8)))
+            fts_ready = False
+            try:
+                names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'entries_fts_%'")}
+                fts_ready = names.issuperset({"entries_fts_insert", "entries_fts_update", "entries_fts_delete"})
+            except sqlite3.Error:
+                fts_ready = False
+            if fts_ready:
+                match_query = " OR ".join('"' + term.replace('"', '""') + '"' for term in sorted(terms))
+                where = "entries_fts MATCH ?" + (" AND e.bank=?" if bank_filter else "")
+                params = [match_query] + ([bank_filter] if bank_filter else [])
+                matched = int(db.execute(
+                    "SELECT COUNT(*) FROM entries_fts JOIN entries e ON e.rowid=entries_fts.rowid WHERE " + where,
+                    params,
+                ).fetchone()[0])
+                rows = db.execute(
+                    "SELECT e.*, bm25(entries_fts) AS rank FROM entries_fts "
+                    "JOIN entries e ON e.rowid=entries_fts.rowid WHERE " + where +
+                    " ORDER BY rank ASC, e.updated_at DESC LIMIT ?",
+                    [*params, limit],
+                ).fetchall()
+                hits = []
+                for row in rows:
+                    result = _entry_row(row)
+                    excerpt = row["content"].replace("\n", " ")[:420]
+                    result["excerpt"] = excerpt or row["description"][:420]
+                    result["score"] = round(-float(row["rank"]), 6)
+                    hits.append(result)
+                return {"ok": True, "query": query[:200], "hits": hits, "matched": matched,
+                        "ranking": "SQLite FTS5 BM25 full-text index; Arabic and English tokens; no model weights or hosted database required"}
             sql = "SELECT * FROM entries" + (" WHERE bank=?" if bank_filter else "") + " ORDER BY updated_at DESC LIMIT ?"
             params = (bank_filter, MAX_SEARCH_ROWS) if bank_filter else (MAX_SEARCH_ROWS,)
             rows = db.execute(sql, params).fetchall()
@@ -315,7 +376,6 @@ def run_bank_action(
                     score += 2.0
                 ranked.append((score, row))
             ranked.sort(key=lambda x: (x[0], x[1]["updated_at"]), reverse=True)
-            limit = max(1, min(20, int(job.get("limit") or 8)))
             hits = []
             for score, row in ranked[:limit]:
                 result = _entry_row(row)
@@ -324,7 +384,7 @@ def run_bank_action(
                 result["score"] = round(score, 3)
                 hits.append(result)
             return {"ok": True, "query": query[:200], "hits": hits, "matched": len(ranked),
-                    "ranking": "local lexical index; no model weights or hosted database required"}
+                    "ranking": "bounded local lexical fallback; no model weights or hosted database required"}
 
         if action == "link":
             source_key = _safe_key(job.get("key"))
