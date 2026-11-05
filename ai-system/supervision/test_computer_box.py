@@ -161,6 +161,16 @@ class Paths(Box):
 
 
 class Running(Box):
+    def test_model_bank_tool_is_connected_to_the_private_persistent_home(self):
+        created = self.run_box(session="alice:nova", action="bank", bank_action="create", bank="project_notes", description="Alice's notes")
+        self.assertTrue(created["ok"], created)
+        saved = self.run_box(session="alice:nova", action="bank", bank_action="put", bank="project_notes", key="decision-1", title="Decision", content="Keep Nova and Sham computer sessions isolated.")
+        self.assertTrue(saved["ok"], saved)
+        read = self.run_box(session="alice:nova", action="bank", bank_action="read", bank="project_notes", key="decision-1")
+        self.assertIn("computer sessions isolated", read["entry"]["content"])
+        other = self.run_box(session="bob:sham", action="bank", bank_action="search", query="computer sessions isolated")
+        self.assertEqual(other["hits"], [])
+
     def test_a_command_runs_in_the_home_and_files_stay(self):
         self.assertTrue(self.run_box(session="u:m", action="write", path="hello.txt", content="hi there")["ok"])
         out = self.run_box(session="u:m", action="run", command="cat hello.txt && pwd")
