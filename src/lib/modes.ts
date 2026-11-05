@@ -37,6 +37,7 @@ export function normalizePref(x: unknown): Pref | undefined {
 
 // ---------------------------------------------------------------- classification of one request
 const GREETING = /^(?:(?:ال)?سلام(?: عليكم)?(?: ورحمة الله(?: وبركاته)?)?|مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|كيفك|كيف حالك|كيف حالك اليوم|شلونك|كيف الحال|شكرا|شكراً|شكرا لك|مشكور|تسلم|يعطيك العافية|ممتاز|رائع|الحمد لله|وداعا|مع السلامة|باي|من انت|من أنت|مين انت|ما اسمك|ما هو اسمك|who are you|what is your name|hi|hello|hey|hola|salam|thanks|thank you|thx|bye|good (?:morning|evening|night))(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
+const GREETING_WITH_CHECKIN = /^(?:مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|(?:ال)?سلام(?: عليكم)?|hi|hello|hey|hola|salam)[\s،,]+(?:كيف(?: حالك(?: اليوم)?| الحال|ك)|شلونك|how are you(?: doing)?)[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
 /** Short "who are you / what is your name" questions: answered on the lite path (identity only, no tools). */
 const IDENTITY_Q = /^(?:(?:و\s*)?(?:من|مين|شو|ما)\s+(?:انت|أنت|إنت|انتي|أنتِ|اسمك|هو اسمك)|عرّ?ف(?:نا)?\s+(?:ب|عن\s+)?نفسك|who\s+are\s+you|what(?:'s|\s+is)\s+your\s+name)(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,]*$/iu;
 const RUN_CUES = /شغّ?ل|شغل|نفّ?ذ|نفذ|جرّ?ب|جرب|اختبرها|اختبره|ثبّ?ت|ثبت|run it|run the|execute|install|sandbox|terminal|clone/i;
@@ -59,7 +60,7 @@ export function classifyRequest(text: string): ReqClass {
   const t = String(text || "").trim();
   if (!t) return "chat";
   if (detectMediaIntent(t)) return "media";
-  if (t.length <= 60 && !t.includes("\n") && GREETING.test(t)) return "trivial";
+  if (t.length <= 100 && !t.includes("\n") && (GREETING.test(t) || GREETING_WITH_CHECKIN.test(t))) return "trivial";
   if (t.length <= 40 && !t.includes("\n") && IDENTITY_Q.test(t)) return "trivial";   // «من انت» took minutes on the full tool path
   if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
   if (PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
