@@ -943,7 +943,7 @@ def api_video(body: str) -> str:
 # A clip takes minutes (about 2.5 min per 4 s pass on the free CPU). One long SSE read through the ModelScope gateway was cut after ~20 s - 4 min
 # ("unreadable" / 502), and with no request in flight the serverless instance stopped giving the job CPU: sampling sat at 0/4 for 13+ minutes
 # (run-log 2026-11-04 08:41 Beijing) and every later request answered 500/502. Now the clip runs in a background thread and the caller asks
-# `job` back-to-back; each call waits at most ~20 s, so a request is always in flight and none is long enough to be cut.
+# `job` back-to-back; each poll holds for at most 5 s, so gateways don't strand a Gradio worker on a long response.
 _JOBS: dict = {}
 _JOBS_LOCK = threading.Lock()
 JOB_KEEP_S = 1800
@@ -986,7 +986,9 @@ def api_job(body: str) -> str:
     {"type":"error","reason":"job_lost"} when the id is unknown (the Studio restarted, or the result expired)."""
     req = json.loads(body or "{}")
     jid = str(req.get("job") or "")
-    wait = max(0.0, min(20.0, float(req.get("wait", 15) or 0)))
+    # ModelScope's Gradio gateway has been observed to leave 20 s job reads hanging until HTTP 500.
+    # Keep each poll below that gateway window; the caller immediately asks again while the CPU job runs.
+    wait = max(0.0, min(5.0, float(req.get("wait", 5) or 0)))
     with _JOBS_LOCK:
         job = _JOBS.get(jid)
     if job is None:

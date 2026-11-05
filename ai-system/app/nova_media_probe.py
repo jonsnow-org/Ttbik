@@ -169,7 +169,7 @@ class Studio:
         raise ProbeError(f"{api}: no result after {timeout:.0f}s")
 
     def video_job(self, payload: dict, timeout: float = 2400) -> dict:
-        """Exercise Nova's production video route: video_start, then short job polls; never the legacy synchronous video API."""
+        """Exercise Nova's production video route: video_start, then five-second job polls; never the legacy synchronous video API."""
         end = self.now() + timeout
         last = None
         while self.now() < end:
@@ -188,10 +188,11 @@ class Studio:
             job_id = str(started["job"])
             while self.now() < end:
                 left = end - self.now()
-                wait = max(1, min(20, int(left) - 3))
-                result = self.call("job", {"job": job_id, "wait": wait}, timeout=min(60.0, wait + 30.0, left))
+                wait = max(1, min(5, int(left) - 3))
+                result = self.call("job", {"job": job_id, "wait": wait}, timeout=min(30.0, wait + 20.0, left))
                 kind = str(result.get("type") or "")
                 if kind == "running":
+                    self.sleep(2)
                     continue
                 if kind == "video":
                     return result
