@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import socket
 from unittest.mock import patch
 import tempfile
 import time
@@ -170,6 +171,29 @@ class Running(Box):
         self.assertIn("computer sessions isolated", read["entry"]["content"])
         other = self.run_box(session="bob:sham", action="bank", bank_action="search", query="computer sessions isolated")
         self.assertEqual(other["hits"], [])
+
+    @unittest.skipUnless(cb.is_root(), "needs root to verify the private session UID")
+    def test_local_preview_port_is_authorized_only_for_its_own_session(self):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        started = self.run_box(
+            session="alice:nova", action="job_start",
+            command=f"python3 -m http.server {port} --bind 127.0.0.1", name="local-preview",
+        )
+        self.assertTrue(started["ok"], started)
+        try:
+            deadline = time.monotonic() + 5
+            owned = False
+            while time.monotonic() < deadline:
+                owned = cb.session_owns_tcp_port("alice:nova", port)
+                if owned:
+                    break
+                time.sleep(0.1)
+            self.assertTrue(owned, "the session's own localhost development server should be recognized")
+            self.assertFalse(cb.session_owns_tcp_port("bob:sham", port), "another model must not borrow the port")
+        finally:
+            self.run_box(session="alice:nova", action="job_stop", id=started["id"])
 
     def test_a_command_runs_in_the_home_and_files_stay(self):
         self.assertTrue(self.run_box(session="u:m", action="write", path="hello.txt", content="hi there")["ok"])
