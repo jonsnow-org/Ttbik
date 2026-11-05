@@ -18,6 +18,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import importlib.util
 import os
 import re
 import resource
@@ -38,7 +39,7 @@ MAX_JOBS = 4                       # per-session ceiling
 MAX_DESKTOPS = max(1, int(os.environ.get("COMPUTER_MAX_DESKTOPS", "3")))   # graphical desktops at the same time, one per user+model session (the free-memory gate still applies to each)
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
-QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
+QUOTA_BYTES = max(1, min(64, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs
@@ -56,7 +57,7 @@ _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
 _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
-STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
+STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}, "apps": "not started"}
 _APT_INDEX_UPDATED_AT = 0.0
 
 
@@ -688,7 +689,7 @@ _QUIET_ACTIONS = {"status", "activity", "job_list"}
 
 
 def _act_detail(action: str, job: dict) -> str:
-    for key in ("command", "path", "url", "pattern", "repo", "id", "app", "key"):
+    for key in ("command", "path", "source_path", "name", "bank", "item_id", "url", "pattern", "repo", "id", "app", "key"):
         value = job.get(key)
         if value:
             return str(value)[:240]
@@ -799,6 +800,72 @@ DEV_TIERS = [
 ]
 DEV_MIN_FREE_GB = {"core": 1.5, "languages": 3.0, "tools": 3.0}
 
+# Optional workstation applications are installed only after the core computer is ready.
+# A short disk gate keeps the computer responsive and never makes the main toolchain depend on these packages.
+APP_PACKAGE_BUNDLES = {
+    "documents": ["libreoffice-writer", "libreoffice-calc", "libreoffice-impress", "libreoffice-draw", "tesseract-ocr", "tesseract-ocr-ara", "ocrmypdf", "qpdf"],
+    "data": ["python3-pandas", "python3-openpyxl", "python3-matplotlib", "python3-jupyterlab"],
+    "visual": ["inkscape", "gimp", "audacity"],
+}
+APP_MIN_FREE_GB = {"documents": 3.5, "data": 4.5, "visual": 7.0}
+
+
+def workspace_apps_status() -> dict:
+    def has_tesseract_arabic() -> bool:
+        roots = (Path("/usr/share/tesseract-ocr"), Path("/usr/share/tessdata"))
+        return any(p.exists() for root in roots for p in root.rglob("ara.traineddata"))
+    return {
+        "writer": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "calc": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "impress": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "draw": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "tesseract": bool(shutil.which("tesseract")),
+        "tesseract_arabic": has_tesseract_arabic(),
+        "ocrmypdf": bool(shutil.which("ocrmypdf")),
+        "qpdf": bool(shutil.which("qpdf")),
+        "pdftotext": bool(shutil.which("pdftotext")),
+        "inkscape": bool(shutil.which("inkscape")),
+        "gimp": bool(shutil.which("gimp")),
+        "audacity": bool(shutil.which("audacity")),
+        "jupyterlab": bool(shutil.which("jupyter") or shutil.which("jupyter-lab")),
+        "pandas": importlib.util.find_spec("pandas") is not None,
+        "openpyxl": importlib.util.find_spec("openpyxl") is not None,
+        "matplotlib": importlib.util.find_spec("matplotlib") is not None,
+        "duckdb": importlib.util.find_spec("duckdb") is not None,
+        "devtools_status": STATE.get("apps", "not started"),
+    }
+
+
+def ensure_workspace_apps() -> str:
+    if not is_root():
+        STATE["apps"] = "skipped: not root"
+        return STATE["apps"]
+    installed: list[str] = []
+    skipped: list[str] = []
+    try:
+        STATE["apps"] = "installing optional workstation apps"
+        for tier, packages in APP_PACKAGE_BUNDLES.items():
+            minimum = APP_MIN_FREE_GB.get(tier, 4.0)
+            if _free_gb() < minimum:
+                skipped.append(f"{tier}: only {_free_gb():.1f} GB free")
+                continue
+            for package in packages:
+                if _free_gb() < max(1.5, minimum - 1.5):
+                    skipped.append(f"{package}: disk reserve reached")
+                    continue
+                result = apt_install([package], timeout=900)
+                (installed if result.returncode == 0 else skipped).append(package if result.returncode == 0 else f"{package}: not installable")
+        if _free_gb() >= APP_MIN_FREE_GB["data"]:
+            try:
+                pip_result = subprocess.run(["python3", "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--break-system-packages", "duckdb"], capture_output=True, text=True, timeout=900, check=False)
+                (installed if pip_result.returncode == 0 else skipped).append("duckdb (pip)" if pip_result.returncode == 0 else "duckdb (pip): not installable")
+            except Exception as exc:
+                skipped.append(f"duckdb (pip): {type(exc).__name__}")
+        STATE["apps"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:500]})" if skipped else "")
+    except Exception as exc:  # optional packages must never break the base computer
+        STATE["apps"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
+    return STATE["apps"]
+
 
 def _free_gb() -> float:
     return shutil.disk_usage("/").free / 1024 ** 3
@@ -830,6 +897,7 @@ def ensure_dev_tools() -> str:
         STATE["devtools"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:300]})" if skipped else "")
     except Exception as exc:  # noqa: BLE001
         STATE["devtools"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
+    threading.Thread(target=ensure_workspace_apps, daemon=True, name="computer-apps-install").start()
     return STATE["devtools"]
 
 
@@ -1227,7 +1295,7 @@ def status(session: str = "") -> dict:
 
 # ---------------------------------------------------------------- patch + test (2026-11-04: fewer tokens per change, one call per test run)
 TOOL_NAMES = ("python3", "pip", "node", "npm", "git", "gh", "rg", "fdfind", "jq", "gcc", "make", "curl", "unzip", "patch", "ffmpeg", "convert", "pandoc",
-              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java")
+              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java", "libreoffice", "tesseract", "ocrmypdf", "qpdf", "inkscape", "gimp", "audacity", "jupyter")
 MAX_PATCH = 400_000
 
 
@@ -1292,9 +1360,10 @@ def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
 
 
 def tools_inventory(session: str = "") -> dict:
-    """Which tools this computer has right now (and how the background installation is going)."""
-    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "toolchain": STATE.get("toolchain", "not checked"),
-            "devtools": STATE.get("devtools", "not started"), "apt_cache": str(apt_cache_dir())}
+    """Which tools and workstation applications this computer has right now."""
+    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "apps": workspace_apps_status(),
+            "toolchain": STATE.get("toolchain", "not checked"), "devtools": STATE.get("devtools", "not started"),
+            "apt_cache": str(apt_cache_dir())}
 
 def api_box_status(body: str = "") -> str:
     session = ""
@@ -1351,6 +1420,19 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
         out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
     elif action == "tools":
         out = tools_inventory(session)
+    elif action == "apps":
+        out = {"ok": True, "apps": workspace_apps_status(), "install_status": STATE.get("apps", "not started")}
+    elif action == "bank":
+        if str(job.get("bank_action") or "").lower() == "put" and over_quota(session):
+            out = {"ok": False, "error": f"computer storage quota reached ({QUOTA_BYTES // 1024 ** 3} GB); free space first"}
+        else:
+            import computer_banks
+            home = session_home(session)
+            out = computer_banks.perform(
+                home, job, quota_bytes=QUOTA_BYTES, used_bytes=dir_size(home),
+                path_resolver=lambda value: safe_path(session, value),
+                owner_uid=session_uid(session) if is_root() else None,
+            )
     else:
         out = {"ok": False, "error": "unknown action " + action[:30]}
     return out
@@ -1418,7 +1500,7 @@ def api_box_do(body: str) -> str:
         out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch", "bank", "apps"):
         try:
             tips = welcome(session)                        # once per session, never repeated
         except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error

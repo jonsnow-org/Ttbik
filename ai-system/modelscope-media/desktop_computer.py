@@ -617,6 +617,17 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             if not shutil.which("pcmanfm"):
                 return {"ok": False, "error": "The file manager is not installed in this Studio."}
             cmd = ["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))]
+        elif app in ("writer", "calc", "impress", "draw"):
+            binary = shutil.which("libreoffice") or shutil.which("soffice")
+            if not binary:
+                return {"ok": False, "error": "LibreOffice is not installed yet; check computer_apps for the workstation package status."}
+            mode = {"writer": "--writer", "calc": "--calc", "impress": "--impress", "draw": "--draw"}[app]
+            cmd = [binary, "--nologo", "--norestore", mode]
+        elif app in ("inkscape", "gimp", "audacity"):
+            binary = shutil.which(app)
+            if not binary:
+                return {"ok": False, "error": f"{app} is not installed yet; check computer_apps for the workstation package status."}
+            cmd = [binary]
         elif app == "browser":
             url = str(job.get("url") or "about:blank").strip()
             if url != "about:blank":
@@ -641,7 +652,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
             ]
         else:
-            return {"ok": False, "error": "app must be terminal, files or browser"}
+            return {"ok": False, "error": "app is not in the computer's approved desktop app catalog"}
         proc = _spawn(cmd, _ENV, "app-" + app)
         _PROCESSES.append(proc)
         return {"ok": True, "phase": "running", "app": app}

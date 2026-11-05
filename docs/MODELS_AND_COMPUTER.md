@@ -31,3 +31,6 @@ The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to 
 ## Verification
 
 The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-03-r4\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.
+
+
+The current private bank storage, application inventory, browser controls and capacity limits are documented in [COMPUTER_BANKS.md](COMPUTER_BANKS.md).

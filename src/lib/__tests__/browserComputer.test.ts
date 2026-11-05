@@ -28,6 +28,26 @@ describe("the model's own browser", () => {
     expect(cleanBrowserArgs({ action: "click", x: 10, y: 20 })).toEqual({ action: "click", x: 10, y: 20 });
   });
 
+  test("exposes real tabs, file transfer, form controls and browser diagnostics", () => {
+    expect(cleanBrowserArgs({ action: "tabs" })).toEqual({ action: "tabs" });
+    expect(cleanBrowserArgs({ action: "new_tab" })).toEqual({ action: "new_tab" });
+    expect(cleanBrowserArgs({ action: "switch_tab", index: 99 })).toEqual({ action: "switch_tab", index: 11 });
+    expect(cleanBrowserArgs({ action: "upload", id: 3, file_path: "Documents/arabic.pdf" })).toEqual({ action: "upload", id: 3, file_path: "Documents/arabic.pdf" });
+    expect(cleanBrowserArgs({ action: "download", selector: "a.export", output_path: "Downloads/report.pdf" }))
+      .toEqual({ action: "download", selector: "a.export", output_path: "Downloads/report.pdf" });
+    expect(cleanBrowserArgs({ action: "select", id: 4, value: "ar" })).toEqual({ action: "select", id: 4, value: "ar" });
+    expect(cleanBrowserArgs({ action: "check", selector: "input[type=checkbox]" })).toEqual({ action: "check", selector: "input[type=checkbox]" });
+    expect(cleanBrowserArgs({ action: "console" })).toEqual({ action: "console" });
+    expect(cleanBrowserArgs({ action: "network" })).toEqual({ action: "network" });
+    expect(cleanBrowserArgs({ action: "upload", file_path: "../secrets.txt" })).toEqual({ action: "upload", file_path: "../secrets.txt" }); // path is revalidated inside the session by the Studio
+    expect(cleanBrowserArgs({ action: "network", selector: "x".repeat(1000) })!.selector as string).toHaveLength(300);
+    const reply = renderBrowserReply({ ok: true, url: "https://a.test/", title: "A", text: "ok", elements: "", tabs: [{ index: 0, active: true, url: "https://a.test/" }], console_errors: ["pageerror: script failed"], network_errors: ["500 https://a.test/api"], download: { path: "Downloads/a.pdf", bytes: 12 } });
+    expect(reply).toContain("OPEN TABS");
+    expect(reply).toContain("PAGE CONSOLE ERRORS");
+    expect(reply).toContain("FAILED / HTTP ERROR REQUESTS");
+    expect(reply).toContain("DOWNLOADED FILE");
+  });
+
   test("the model reads the page text and the numbered elements", () => {
     const text = renderBrowserReply({ ok: true, url: "https://a.test/", title: "A", text: "Hello", elements: '[1] link "Home"' });
     expect(text).toContain("PAGE TEXT:\nHello");

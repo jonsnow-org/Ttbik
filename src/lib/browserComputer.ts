@@ -6,10 +6,10 @@ import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
 export type BrowserArgs = {
-  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
+  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean; selector?: string; file_path?: string; output_path?: string; value?: string; index?: number;
 };
 
-const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
+const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "select", "check", "uncheck", "hover", "console", "network"]);
 
 /** All supported models use the dedicated computer-only hub Studio.
  * The user+model session key still isolates each model's files, browser cookies and desktop. */
@@ -37,6 +37,12 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.key !== undefined) out.key = String(a.key).slice(0, 30);
   if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
   if (a.seconds !== undefined && Number.isFinite(Number(a.seconds))) out.seconds = Math.max(1, Math.min(20, Math.trunc(Number(a.seconds))));
+  if (a.selector !== undefined) out.selector = String(a.selector).slice(0, 300);
+  if (a.file_path !== undefined) out.file_path = String(a.file_path).slice(0, 500);
+  if (a.output_path !== undefined) out.output_path = String(a.output_path).slice(0, 500);
+  if (a.value !== undefined) out.value = String(a.value).slice(0, 200);
+  if (a.index !== undefined && Number.isFinite(Number(a.index))) out.index = Math.max(0, Math.min(11, Math.trunc(Number(a.index))));
+  if (a.screenshot) out.screenshot = true;
   return out;
 }
 
@@ -56,6 +62,11 @@ export function renderBrowserReply(r: Record<string, any>): string {
   // drawn areas (canvas / video / svg / iframes) have no text: tell the model where they are so it can click by x,y or ask for the outline
   if (r.visual) parts.push("", "DRAWN AREAS WITHOUT READABLE TEXT (click them with x,y, or call action=aria for the page outline):", String(r.visual));
   if (r.outline) parts.push("", "PAGE OUTLINE (roles and names):", String(r.outline));
+  if (Array.isArray(r.tabs)) parts.push("", "OPEN TABS:", JSON.stringify(r.tabs).slice(0, 2500));
+  if (Array.isArray(r.console_errors) && r.console_errors.length) parts.push("", "PAGE CONSOLE ERRORS:", r.console_errors.join("\n").slice(0, 2500));
+  if (Array.isArray(r.network_errors) && r.network_errors.length) parts.push("", "FAILED / HTTP ERROR REQUESTS:", r.network_errors.join("\n").slice(0, 2500));
+  if (r.download) parts.push("", "DOWNLOADED FILE:", JSON.stringify(r.download));
+  if (r.uploaded) parts.push("", "UPLOADED FILE:", String(r.uploaded));
   return parts.join("\n");
 }
 
@@ -77,7 +88,7 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   const base = browserStudioFor(modelId);
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
-  if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";
+  if (!clean) return "error: unsupported browser action or invalid arguments";
   try {
     // Use the same authenticated b64 envelope and bounded gateway retry path as
     // desktop_do and box_do. This keeps every computer action on one transport.

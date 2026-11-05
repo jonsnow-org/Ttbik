@@ -3,10 +3,10 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; bank_action?: string; command?: string; cwd?: string; timeout?: number; path?: string; source_path?: string; output_path?: string; content?: string; text?: string; id?: string; item_id?: string; name?: string; bank?: string; target_bank?: string; relation?: string; note?: string; category?: string; description?: string; kind?: string; query?: string; metadata?: Record<string, unknown>; confirm?: boolean; include_related?: boolean; tail?: number; since?: number; limit?: number; offset?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "apps", "bank", "batch"]);
 const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo"]);
 
 /** The tool names a model sees → what the Studio understands. */
@@ -20,6 +20,15 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_patch") return { action: "patch", diff: a.diff as string, cwd: (a.cwd as string) || "." };
   if (tool === "computer_test") return { action: "test", cwd: (a.cwd as string) || ".", command: (a.command as string) || "" };
   if (tool === "computer_tools") return { action: "tools" };
+  if (tool === "computer_apps") return { action: "apps" };
+  if (tool === "computer_bank") return {
+    action: "bank", bank_action: a.action as string, bank: a.bank as string, category: a.category as string,
+    description: a.description as string, target_bank: a.target_bank as string, relation: a.relation as string, note: a.note as string,
+    include_related: Boolean(a.include_related), name: a.name as string, source_path: a.source_path as string,
+    output_path: a.output_path as string, content: a.content as string, text: a.text as string,
+    kind: a.kind as string, item_id: a.item_id as string, query: a.query as string,
+    limit: a.limit as number, offset: a.offset as number, metadata: a.metadata as Record<string, unknown>, confirm: Boolean(a.confirm),
+  };
   if (tool === "computer_batch") {
     // several computer actions in ONE round trip: each step is {tool: "computer_run"|..., ...its arguments}
     const steps = (Array.isArray(a.steps) ? a.steps : []).slice(0, 8).map((st: any) => {
@@ -47,7 +56,24 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.cwd !== undefined) out.cwd = String(a.cwd).slice(0, 300);
   if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(90, Math.trunc(Number(a.timeout))));
   if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
-  if (a.content !== undefined) out.content = String(a.content).slice(0, 1_000_000);
+  if (a.content !== undefined) out.content = String(a.content).slice(0, 2_000_000);
+  if (a.text !== undefined) out.text = String(a.text).slice(0, 1_000_000);
+  if (a.source_path !== undefined) out.source_path = String(a.source_path).slice(0, 500);
+  if (a.output_path !== undefined) out.output_path = String(a.output_path).slice(0, 500);
+  if (a.bank_action !== undefined) out.bank_action = String(a.bank_action).slice(0, 20);
+  if (a.bank !== undefined) out.bank = String(a.bank).slice(0, 64);
+  if (a.category !== undefined) out.category = String(a.category).slice(0, 30);
+  if (a.description !== undefined) out.description = String(a.description).slice(0, 500);
+  if (a.target_bank !== undefined) out.target_bank = String(a.target_bank).slice(0, 64);
+  if (a.relation !== undefined) out.relation = String(a.relation).slice(0, 32);
+  if (a.note !== undefined) out.note = String(a.note).slice(0, 300);
+  if (a.include_related) out.include_related = true;
+  if (a.kind !== undefined) out.kind = String(a.kind).slice(0, 20);
+  if (a.item_id !== undefined) out.item_id = String(a.item_id).slice(0, 40);
+  if (a.query !== undefined) out.query = String(a.query).slice(0, 1000);
+  if (a.offset !== undefined && Number.isFinite(Number(a.offset))) out.offset = Math.max(0, Math.min(1_000_000, Math.trunc(Number(a.offset))));
+  if (a.confirm) out.confirm = true;
+  if (a.metadata && typeof a.metadata === "object" && !Array.isArray(a.metadata)) out.metadata = a.metadata;
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
   if (a.name !== undefined) out.name = String(a.name).slice(0, 60);
   if (a.tail !== undefined && Number.isFinite(Number(a.tail))) out.tail = Math.max(1, Math.min(400, Math.trunc(Number(a.tail))));
@@ -106,7 +132,10 @@ function renderBody(action: string, r: Record<string, any>): string {
     case "test":
       return `tests started as job ${r.id} (${r.command} in ${r.cwd}). Read the result with computer_job action=log id=${r.id}; the last line is TESTS_EXIT=<code>.`;
     case "tools":
-      return "installed: " + Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => v).map(([k]) => k).join(" ") + `\nnot yet: ${Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => !v).map(([k]) => k).join(" ") || "-"}\nbackground install: ${typeof r.devtools === "string" ? r.devtools : JSON.stringify(r.devtools || "").slice(0, 200)}`;
+      return "installed: " + Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => v).map(([k]) => k).join(" ") + `\nnot yet: ${Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => !v).map(([k]) => k).join(" ") || "-"}\nbackground install: ${typeof r.devtools === "string" ? r.devtools : JSON.stringify(r.devtools || "").slice(0, 200)}\nworkstation apps: ${JSON.stringify(r.apps || {}).slice(0, 1400)}`;
+    case "apps":
+    case "bank":
+      return JSON.stringify(r, null, 2).slice(0, 6000);
     case "batch":
       return [`${((r.results as any[]) || []).length} step(s) in one call · ${r.seconds}s`, ...((r.results as any[]) || []).map((x, i) => `[${i + 1}] ${x.action}: ${x.skipped ? "not run (" + x.error + ")" : x.ok === false ? "error: " + String(x.error || "").slice(0, 300) + (x.output ? "\n" + String(x.output).slice(0, 400) : "") : renderBody(String(x.action), x)}`)].join("\n\n").slice(0, 12000);
     case "job_list":

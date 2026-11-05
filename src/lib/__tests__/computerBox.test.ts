@@ -35,6 +35,21 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("patch", { ok: false, error: "the patch does not apply here (nothing was changed)", output: "hunk FAILED" })).toMatch(/does not apply[\s\S]*hunk FAILED/);
   });
 
+  test("the model can inspect installed apps and use its private persistent bank network", () => {
+    expect(boxActionFor("computer_apps", {})).toEqual({ action: "apps" });
+    const mapped = boxActionFor("computer_bank", { action: "put", bank: "documents", source_path: "reports/guide.pdf", kind: "document", metadata: { lang: "ar" }, offset: 12 });
+    expect(mapped).toMatchObject({ action: "bank", bank_action: "put", bank: "documents", source_path: "reports/guide.pdf", kind: "document", offset: 12 });
+    const link = boxActionFor("computer_bank", { action: "link", bank: "documents", target_bank: "datasets", relation: "references", note: "project data" });
+    expect(link).toMatchObject({ action: "bank", bank_action: "link", target_bank: "datasets", relation: "references", note: "project data" });
+    expect(cleanBoxArgs(mapped!)).toMatchObject({ action: "bank", bank_action: "put", source_path: "reports/guide.pdf", offset: 12 });
+    expect(renderBoxReply("bank", { ok: true, action: "put", item_id: "abc", deduplicated: true })).toContain("deduplicated");
+    expect(renderBoxReply("apps", { ok: true, apps: { writer: true, tesseract_arabic: false } })).toContain("tesseract_arabic");
+    const names = toolGroups(true, false).computer.map((item) => item.function.name);
+    expect(names).toContain("computer_bank");
+    expect(names).toContain("computer_apps");
+    expect(COMPUTER_PLAYBOOK).toMatch(/private computer bank network/);
+  });
+
   test("fields are bounded before they reach the Studio", () => {
     const clean = cleanBoxArgs({ action: "run", command: "x".repeat(20000), timeout: 9999, cwd: "src" })!;
     expect(String(clean.command).length).toBe(8000);

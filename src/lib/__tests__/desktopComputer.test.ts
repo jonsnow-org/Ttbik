@@ -90,6 +90,20 @@ describe("the graphical Linux desktop RPC contract", () => {
     expect(cleanDesktopArgs({ action: "click", x: "not-a-number", y: 1 })).toBeNull();
   });
 
+  test("exposes native drag, double-click, clipboard and approved workstation apps", () => {
+    expect(cleanDesktopArgs({ action: "dblclick", x: 400, y: 250 })).toEqual({ action: "dblclick", x: 400, y: 250 });
+    expect(cleanDesktopArgs({ action: "drag", x: 10, y: 20, x2: 2000, y2: 800 })).toEqual({ action: "drag", x: 10, y: 20, x2: 1599, y2: 800 });
+    expect(cleanDesktopArgs({ action: "mousedown", x: 10, y: 20, button: "right" })).toEqual({ action: "mousedown", x: 10, y: 20, button: "right" });
+    expect(cleanDesktopArgs({ action: "mouseup", x: 10, y: 20, button: "middle" })).toEqual({ action: "mouseup", x: 10, y: 20, button: "middle" });
+    expect(cleanDesktopArgs({ action: "clipboard_set", text: "copied" })).toEqual({ action: "clipboard_set", text: "copied" });
+    expect(cleanDesktopArgs({ action: "clipboard_get" })).toEqual({ action: "clipboard_get" });
+    expect(cleanDesktopArgs({ action: "pointer" })).toEqual({ action: "pointer" });
+    expect(cleanDesktopArgs({ action: "launch", app: "writer" })).toEqual({ action: "launch", app: "writer" });
+    expect(cleanDesktopArgs({ action: "launch", app: "gimp" })).toEqual({ action: "launch", app: "gimp" });
+    expect(cleanDesktopArgs({ action: "launch", app: "arbitrary-shell" as any })).toBeNull();
+    expect(cleanDesktopArgs({ action: "drag", x: 1, y: 1, x2: "bad" as any, y2: 2 })).toBeNull();
+  });
+
   test("bounds text, scrolling, browser launch and file/terminal launch", () => {
     const typed = cleanDesktopArgs({ action: "type", text: "x".repeat(5000) });
     expect(String(typed?.text).length).toBe(1200);

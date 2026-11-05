@@ -15,6 +15,18 @@ class SafeUrl(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 bc.safe_url(bad)
 
+    def test_only_a_listener_owned_by_the_same_model_session_can_be_previewed(self):
+        from unittest.mock import patch
+        with patch.object(bc, "_session_owns_loopback_port", return_value=True):
+            self.assertEqual(bc.safe_url("http://127.0.0.1:3000/app", "owner:sham_v2"), "http://127.0.0.1:3000/app")
+            self.assertEqual(bc.safe_url("http://localhost:3000/app", "owner:sham_v2"), "http://127.0.0.1:3000/app")
+            with self.assertRaises(ValueError):
+                bc.safe_url("http://10.2.3.4:3000/", "owner:sham_v2")
+        with patch.object(bc, "_session_owns_loopback_port", return_value=False):
+            for url in ("http://127.0.0.1:3000/", "http://localhost:3000/"):
+                with self.assertRaises(ValueError, msg=url):
+                    bc.safe_url(url, "another-user:nova")
+
     def test_other_schemes_are_refused(self):
         for bad in ("file:///etc/passwd", "ftp://93.184.216.34/x", "javascript:alert(1)"):
             with self.assertRaises(ValueError, msg=bad):
@@ -85,8 +97,10 @@ class Pooling(unittest.TestCase):
         bc.STORE = Path(tempfile.mkdtemp())
         try:
             self.assertEqual(bc.load_meta("u:m"), {})
-            bc.save_meta("u:m", "https://example.com/a")
+            bc.save_meta("u:m", "https://example.com/a", ["https://example.com/a", "https://docs.example.com/"], 1)
             self.assertEqual(bc.load_meta("u:m")["url"], "https://example.com/a")
+            self.assertEqual(bc.load_meta("u:m")["tabs"], ["https://example.com/a", "https://docs.example.com/"])
+            self.assertEqual(bc.load_meta("u:m")["active"], 1)
             self.assertEqual(bc.load_meta("other"), {})                       # another user / model never sees it
             self.assertEqual(bc.state_file("u:m").parent, bc.session_dir("u:m"))
         finally:
