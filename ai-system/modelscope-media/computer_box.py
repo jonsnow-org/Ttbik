@@ -23,6 +23,7 @@ import re
 import resource
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -58,6 +59,16 @@ _ACTIVE_COMMANDS: set[str] = set()
 _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
 STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
 _APT_INDEX_UPDATED_AT = 0.0
+_APP_INSTALL_LOCK = threading.RLock()
+_APP_INSTALLS: dict[str, dict] = {}
+
+APP_INSTALL_GROUPS = {
+    "office": {"packages": ["libreoffice-writer", "libreoffice-calc", "libreoffice-impress", "libreoffice-draw"], "binaries": ["libreoffice"], "minimum_free_gb": 2.0, "description": "LibreOffice Writer, Calc, Impress and Draw"},
+    "ocr": {"packages": ["tesseract-ocr", "tesseract-ocr-ara", "tesseract-ocr-eng", "ocrmypdf", "qpdf", "poppler-utils"], "binaries": ["tesseract", "ocrmypdf"], "minimum_free_gb": 0.8, "description": "Arabic+English Tesseract OCR, OCRmyPDF and PDF utilities"},
+    "data": {"pip": ["jupyterlab", "duckdb", "polars", "pandas", "matplotlib", "openpyxl"], "binaries": ["jupyter"], "minimum_free_gb": 3.0, "description": "JupyterLab, DuckDB, Polars, pandas, Matplotlib and openpyxl"},
+    "creative": {"packages": ["inkscape", "gimp", "audacity"], "binaries": ["inkscape", "gimp", "audacity"], "minimum_free_gb": 3.0, "description": "Inkscape, GIMP and Audacity"},
+}
+
 
 
 def rewrite_ubuntu_apt_sources_text(text: str, architecture: str | None = None) -> str:
@@ -117,7 +128,8 @@ def prepare_ubuntu_apt_sources(sources_root: str | Path | None = None, architect
 def apt_environment() -> dict[str, str]:
     """Minimal system package-manager environment; never use a model session's HOME/TMPDIR."""
     env = {
-        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH": str(ROOT.parent / "computer-apps" / "bin") + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONPATH": str(ROOT.parent / "computer-apps" / "python"),
         "HOME": "/root" if is_root() else os.environ.get("HOME", "/tmp"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
@@ -890,6 +902,181 @@ def ensure_dev_tools() -> str:
     return STATE["devtools"]
 
 
+
+
+def _app_root() -> Path:
+    return ROOT.parent / "computer-apps"
+
+
+def _app_manifest() -> Path:
+    return _app_root() / "installed-groups.json"
+
+
+def _read_app_manifest() -> list[str]:
+    try:
+        raw = json.loads(_app_manifest().read_text(encoding="utf-8"))
+        return sorted({str(x) for x in raw if str(x) in APP_INSTALL_GROUPS}) if isinstance(raw, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _write_app_manifest(groups: list[str]) -> None:
+    root = _app_root()
+    root.mkdir(parents=True, exist_ok=True)
+    target = _app_manifest()
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(sorted(set(groups)), separators=(",", ":")), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    os.chmod(target, 0o600)
+
+
+def _app_group_ready(group: str) -> bool:
+    if group not in APP_INSTALL_GROUPS:
+        return False
+    spec = APP_INSTALL_GROUPS[group]
+    if group == "data":
+        app_root = _app_root()
+        return ((app_root / "bin" / "jupyter").is_file()
+                and (app_root / "python" / "jupyterlab").is_dir()
+                and (app_root / "python" / "duckdb").is_dir())
+    return all(shutil.which(binary) for binary in spec["binaries"])
+
+
+def _install_app_group_now(group: str) -> dict:
+    if group not in APP_INSTALL_GROUPS:
+        return {"ok": False, "error": "unknown app group"}
+    spec = APP_INSTALL_GROUPS[group]
+    free = shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free / 1024 ** 3
+    if free < float(spec["minimum_free_gb"]):
+        return {"ok": False, "error": f"{group} needs at least {spec['minimum_free_gb']:.1f} GB free; currently {free:.1f} GB remains"}
+    if not is_root():
+        return {"ok": False, "error": "app installation requires the computer Studio's trusted root installer"}
+    try:
+        if spec.get("packages"):
+            update = apt_update(timeout=420)
+            if update.returncode != 0:
+                return {"ok": False, "error": "APT update failed: " + (update.stderr or update.stdout or "")[-500:]}
+            result = apt_install(list(spec["packages"]), timeout=1800)
+            if result.returncode != 0:
+                return {"ok": False, "error": f"package installation failed (exit {result.returncode}): {(result.stderr or result.stdout or '')[-900:]}"}
+        if group == "data":
+            app_root = _app_root()
+            python_root = app_root / "python"
+            bin_root = app_root / "bin"
+            python_root.mkdir(parents=True, exist_ok=True)
+            bin_root.mkdir(parents=True, exist_ok=True)
+            env = apt_environment()
+            env.update({
+                "PIP_INDEX_URL": os.environ.get("COMPUTER_PIP_INDEX", "https://mirrors.aliyun.com/pypi/simple/"),
+                "PIP_TRUSTED_HOST": "mirrors.aliyun.com",
+                "PIP_DEFAULT_TIMEOUT": "20",
+            })
+            pip = subprocess.run(
+                [shutil.which("python3") or "python3", "-m", "pip", "install", "--disable-pip-version-check",
+                 "--no-warn-script-location", "--break-system-packages", "--upgrade", "--target", str(python_root), *spec["pip"]],
+                capture_output=True, text=True, timeout=1800, env=env,
+            )
+            if pip.returncode != 0:
+                return {"ok": False, "error": f"Python data workbench installation failed: {(pip.stderr or pip.stdout or '')[-900:]}"}
+            wrapper = bin_root / "jupyter"
+            wrapper.write_text(
+                "#!/bin/sh\n"
+                f"export PYTHONPATH={str(python_root)!r}:$PYTHONPATH\n"
+                "exec python3 -m jupyterlab \"$@\"\n",
+                encoding="utf-8",
+            )
+            os.chmod(wrapper, 0o755)
+            os.chmod(python_root, 0o755)
+        if not _app_group_ready(group):
+            return {"ok": False, "error": f"installer completed but expected executables for {group} are still missing"}
+        groups = _read_app_manifest()
+        if group not in groups:
+            groups.append(group)
+        _write_app_manifest(groups)
+        return {"ok": True, "group": group, "description": spec["description"], "installed": True,
+                "binaries": spec["binaries"], "free_gb_after": round(shutil.disk_usage(ROOT.parent).free / 1024 ** 3, 2)}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "installation exceeded its 30-minute background limit"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
+
+def ensure_saved_app_groups() -> dict:
+    """Reinstall only groups explicitly requested earlier; packages are restored from the persistent apt cache."""
+    groups = _read_app_manifest()
+    results = []
+    for group in groups:
+        if _app_group_ready(group):
+            results.append({"group": group, "ok": True, "already_ready": True})
+            continue
+        results.append({"group": group, **_install_app_group_now(group)})
+    return {"ok": all(item.get("ok") for item in results), "groups": results}
+
+
+def _app_install_worker(install_id: str, group: str) -> None:
+    with _APP_INSTALL_LOCK:
+        current = _APP_INSTALLS.get(install_id)
+        if not current:
+            return
+        current["status"] = "installing"
+    result = _install_app_group_now(group)
+    with _APP_INSTALL_LOCK:
+        current = _APP_INSTALLS.get(install_id)
+        if current:
+            current["status"] = "ready" if result.get("ok") else "failed"
+            current["result"] = result
+            current["finished_at"] = int(time.time())
+
+
+def computer_apps_action(session: str, job: dict) -> dict:
+    """List or install one allowlisted free app group; installation runs in a bounded background thread."""
+    action = str(job.get("app_action") or "list").strip().lower()
+    if action == "list":
+        return {
+            "ok": True,
+            "groups": [
+                {"id": group, "description": spec["description"], "installed": _app_group_ready(group),
+                 "minimum_free_gb": spec["minimum_free_gb"]}
+                for group, spec in APP_INSTALL_GROUPS.items()
+            ],
+            "available": sorted({binary for spec in APP_INSTALL_GROUPS.values() for binary in spec["binaries"] if shutil.which(binary)}),
+            "saved_groups": _read_app_manifest(),
+            "free_gb": round(shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free / 1024 ** 3, 2),
+        }
+    if action == "install":
+        group = str(job.get("group") or "").strip().lower()
+        if group not in APP_INSTALL_GROUPS:
+            return {"ok": False, "error": "group must be office, ocr, data or creative"}
+        if not is_root() or not shutil.which("apt-get"):
+            return {"ok": False, "error": "the computer Studio does not have the trusted installer enabled"}
+        if str(STATE.get("devtools", "")).startswith("installing"):
+            return {"ok": False, "error": "the initial developer tool installation is still running; retry after computer_apps action=list"}
+        if _app_group_ready(group):
+            return {"ok": True, "group": group, "status": "ready", "already_installed": True}
+        free = shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free / 1024 ** 3
+        minimum = float(APP_INSTALL_GROUPS[group]["minimum_free_gb"])
+        if free < minimum:
+            return {"ok": False, "error": f"{group} requires at least {minimum:.1f} GB free; currently {free:.1f} GB remains"}
+        with _APP_INSTALL_LOCK:
+            for old_id, item in _APP_INSTALLS.items():
+                if item.get("group") == group and item.get("status") in ("queued", "installing") and item.get("session_hash") == digest(session):
+                    return {"ok": True, "group": group, "status": item["status"], "install_id": old_id}
+            install_id = hashlib.sha256(os.urandom(32)).hexdigest()[:12]
+            _APP_INSTALLS[install_id] = {"group": group, "session_hash": digest(session), "status": "queued", "created_at": int(time.time())}
+        threading.Thread(target=_app_install_worker, args=(install_id, group), daemon=True, name="computer-app-" + group).start()
+        return {"ok": True, "group": group, "status": "queued", "install_id": install_id,
+                "note": "installation is running in the background; poll action=status with the install_id"}
+    if action == "status":
+        install_id = str(job.get("install_id") or "").strip()
+        with _APP_INSTALL_LOCK:
+            item = _APP_INSTALLS.get(install_id)
+            if not item or item.get("session_hash") != digest(session):
+                return {"ok": False, "error": "unknown installation id for this user:model session"}
+            return {"ok": True, **{k: v for k, v in item.items() if k != "session_hash"}, "result": item.get("result", {})}
+    return {"ok": False, "error": "app_action must be list, install or status"}
+
+
 # ---------------------------------------------------------------- files
 def write_file(session: str, path: str, content: str) -> dict:
     data = str(content or "")
@@ -1426,6 +1613,8 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
         out = tools_inventory(session)
     elif action == "bank":
         out = run_bank_action(session, job)
+    elif action == "apps":
+        out = computer_apps_action(session, job)
     else:
         out = {"ok": False, "error": "unknown action " + action[:30]}
     return out
