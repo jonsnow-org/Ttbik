@@ -38,7 +38,11 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
   if (a.seconds !== undefined && Number.isFinite(Number(a.seconds))) out.seconds = Math.max(1, Math.min(20, Math.trunc(Number(a.seconds))));
   if (a.tab !== undefined && Number.isFinite(Number(a.tab))) out.tab = Math.max(0, Math.min(20, Math.trunc(Number(a.tab))));
-  if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
+  if (a.path !== undefined) {
+    const path = String(a.path).replace(/\\/g, "/");
+    if (path.split("/").some((part) => part === "..") || path.includes("\\0")) return null;
+    out.path = path.slice(0, 500);
+  }
   return out;
 }
 
