@@ -21,6 +21,7 @@ export interface ShamHost {
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
   computer: { run(c: { chatId: number; modelId: string; db: Db }, tool: string, args: Record<string, unknown>): Promise<string> };
   browser: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<string> };
+  desktop: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<Record<string, any>> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
@@ -87,6 +88,17 @@ export const SHAM_TOOLS: CoderTool[] = [
   }, ["action"])),
   tool("computer_publish", "Publish all changed files from a computer_repo checkout on YOUR persistent computer to one GitHub commit. Nothing is sent until the user confirms; GitHub credentials stay in the app server, never in the terminal.", obj({ repo: REPO, branch: s("target branch; creates it from the default branch if missing"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Manage browser tabs; upload a file from your own computer home with action=upload{id,path}; save browser downloads with action=download{id,path}; inspect JavaScript console and failed network requests with console/network. Browser data stays private to this Sham user:model session. Local preview is allowed only for localhost ports owned by this exact session; other private/internal addresses remain blocked.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "console", "network"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20"), tab: n("tab index for switch_tab/close_tab"), path: s("private computer file path for upload or download destination") }, ["action"])),
+  tool("desktop", "Use Sham's own isolated graphical Linux desktop. Inspect status/available apps; start a desktop; launch an installed browser, terminal, file manager, office or graphics app; open private files; click/double-click/drag; use the clipboard and keyboard; inspect a fresh frame after actions. The model's home and desktop are private to this Sham user:model session.", obj({
+    action: { type: "string", enum: ["status", "apps", "start", "frame", "stop", "launch", "open_file", "click", "dblclick", "move", "mousedown", "mouseup", "drag", "clipboard_set", "clipboard_get", "pointer", "type", "key", "scroll"] },
+    app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] },
+    url: s("URL for browser launch"),
+    path: s("file inside your own computer home for open_file"),
+    x: n("horizontal pixel from the latest frame"), y: n("vertical pixel from the latest frame"),
+    x2: n("drag destination x"), y2: n("drag destination y"),
+    button: { type: "string", enum: ["left", "middle", "right"] },
+    text: s("text to type or copy"), key: s("key name such as Enter or Ctrl+L"),
+    direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: n("scroll amount, 1-8")
+  }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run commands in the separate temporary task workspace. Use computer_run for normal work on your persistent computer; use this only for isolated tests/builds. Long commands return an id for sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -395,6 +407,9 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     }
     if (name === "browser") {
       return clip(await H0.browser.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a));
+    }
+    if (name === "desktop") {
+      return clip(await H0.desktop.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a));
     }
     if (H0.sandbox.has(name)) {
       const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));
