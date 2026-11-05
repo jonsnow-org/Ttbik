@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
-import { listTasks, taskEvents, type TaskModelFilter } from "@/lib/coderTasks";
+import { listTasks, taskEvents, isTaskModelFilter, type TaskModelFilter } from "@/lib/coderTasks";
 import { loadState } from "@/lib/coderSections";
 import { prismaDb } from "@/lib/coderAuth";
 import { terminalAllowed } from "@/lib/coderPlans";
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const after = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
   const requestedModel = String(q.get("model") || "all");
-  if (!["all", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (!isTaskModelFilter(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
   try {
     if (!runId) {

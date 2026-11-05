@@ -69,10 +69,10 @@ describe("Nova: one message per request", () => {
     });
     const { bot, sent, edits } = fakeBot();
     const db = fakeDb();
-    await handleCoderSections(bot, botRow, { message: { chat: { id: 6161 }, text: "اشرح لي هذا المشروع بإيجاز" } }, db);
+    await handleCoderSections(bot, botRow, { message: { chat: { id: 6161 }, text: "اكتب دالة بايثون تعكس النص" } }, db);
     expect(sent).toHaveLength(1);                                        // opened by the time the webhook returns: the instant line
     expect(sent[0].text).toMatch(/^🕒 /);
-    expect(sent[0].text).not.toMatch(/فهمت طلبك|اشرح لي هذا المشروع/);       // no canned echo
+    expect(sent[0].text).not.toMatch(/فهمت طلبك|اكتب دالة بايثون/);       // no canned echo
     expect(sent[0].text).toMatch(/📋 التقدم/);
     for (let i = 0; i < 80 && !/وتنتهي هنا/.test(sent[0]?.text || ""); i++) await new Promise((r) => setTimeout(r, 100));
     expect(sent).toHaveLength(1);                                        // ONE message the whole time

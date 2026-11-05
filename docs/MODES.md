@@ -24,7 +24,7 @@ trivial (greeting / thanks / who are you) · chat · code · agentic (GitHub, ru
 
 ## 4. Where latency is cut WITHOUT touching thinking
 1. Greetings only get a short system text, no tool block (Nova: ~10 s → ~4.7-5 s; the Studio prefix cache survives the switch back: the next full-prompt call re-read 15 tokens, not 9.8k).
-2. A plain knowledge question in *fast* mode (`isPlainQuestion`, no fresh-facts words) uses the chat system text without tools. A terse command ("عدّل", "كمل") never does: it continues a task and keeps every tool.
+2. Any ordinary chat that needs no fresh external facts is a direct model reply: the chat system text with no tool block, whatever mode the user picked (precise included). A terse command ("عدّل", "كمل") never does: it continues a task and keeps every tool.
 3. Plain chat has an answer cap per mode (450 / 900 / 1600 tokens); code and tool steps are never capped (a cut tool call is a failed call).
 4. One fixed tool list at every step, so the Studio's prompt cache is reused.
 

@@ -152,7 +152,7 @@ describe("a cold Studio", () => {
       return new Response("{}", { status: 202 });
     });
     const { bot, sent } = fakeBot();
-    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT + 2 }, text: "اشرح لي هذا المشروع بإيجاز" } }, db);
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT + 2 }, text: "اكتب دالة بايثون تعكس النص" } }, db);
     for (let i = 0; i < 80 && !sent.some((s) => /جاهز بعد التقصير/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 100));
     expect(sent.some((s) => /جاهز بعد التقصير/.test(s.text))).toBe(true);
     expect(sizes.length).toBeGreaterThanOrEqual(2);

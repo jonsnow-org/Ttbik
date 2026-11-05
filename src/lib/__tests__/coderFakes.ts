@@ -7,6 +7,7 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
   let clock = Date.parse("2026-10-21T00:00:00Z");
   const ts = () => new Date((clock += 1000)).toISOString();
   const state = new Map<string, any>();
+  const tgSeen = new Set<string>();
   let eid = 0;
   const db: any = {
     t, state,
@@ -100,6 +101,12 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
         return own ? t.events.filter((e) => e.run_id === a[0] && e.id > a[2]).map((e) => ({ ...e, created_at: "" })) : [];
       }
       if (sql.includes("coder_stall_log")) return [];
+      if (sql.includes("INSERT INTO tg_seen_updates")) {           // claimTelegramUpdate: first delivery goes on, a retry of the same update_id is skipped
+        const k = a.join("|");
+        if (tgSeen.has(k)) return [];
+        tgSeen.add(k);
+        return [{ update_id: String(a[2]) }];
+      }
       if (sql.includes("DELETE FROM coder_memories")) {
         const n = t.mems.length;
         t.mems = t.mems.filter((m) => !(m.chat_key === a[0] && m.id === Number(a[1])));
