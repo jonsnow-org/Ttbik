@@ -29,6 +29,11 @@ describe("the model's own persistent computer", () => {
     expect(boxActionFor("computer_patch", { diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" })).toEqual({ action: "patch", diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" });
     expect(boxActionFor("computer_test", { cwd: "repos/a-b" })).toEqual({ action: "test", cwd: "repos/a-b", command: "" });
     expect(boxActionFor("computer_tools", {})).toEqual({ action: "tools" });
+    expect(boxActionFor("computer_apps", { action: "install", group: "ocr" })).toEqual({ action: "apps", app_action: "install", group: "ocr", install_id: undefined });
+    expect(cleanBoxArgs({ action: "apps", app_action: "install", group: "ocr", install_id: "abc123" }))
+      .toEqual({ action: "apps", app_action: "install", group: "ocr", install_id: "abc123" });
+    expect(renderBoxReply("apps", { ok: true, status: "queued", group: "office", install_id: "abc123", note: "working" })).toContain("install_id=abc123");
+    expect(renderBoxReply("apps", { ok: true, free_gb: 4, groups: [{ id: "office", installed: false, minimum_free_gb: 2, description: "LibreOffice" }] })).toContain("office: not installed");
     expect(boxActionFor("computer_bank", { action: "put", bank: "projects", key: "plan", content: "hello" }))
       .toMatchObject({ action: "bank", bank_action: "put", bank: "projects", key: "plan", content: "hello" });
     expect(boxActionFor("computer_bank", { action: "import", bank: "documents", source_path: "report.pdf" }))
@@ -95,6 +100,7 @@ describe("the model's own persistent computer", () => {
     const worker = (toolGroups(false, false).worker || []).map((t) => t.function.name);
     for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "computer_bank", "browser"]) expect(computer).toContain(name);
     expect(computer).toContain("desktop");
+    expect(computer).toContain("computer_apps");
     expect(computer).not.toContain("sandbox_exec");
     expect(worker).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_search"]));
     expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
