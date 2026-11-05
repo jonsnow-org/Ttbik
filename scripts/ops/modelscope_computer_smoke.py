@@ -404,7 +404,7 @@ def check_banks(api: str, token: str, session: str, marker: str) -> None:
         cross = box_call(api, token, {"action": "bank", "bank_action": "search", "session": session,
                                       "bank": bank, "include_related": True, "query": marker, "limit": 10}, timeout=45)
         assert_ok(cross, "search across linked banks")
-        if not any(item.get("bank") == linked_bank for item in cross.get("results") or []):
+        if not any((item.get("bank") or item.get("bank_id")) == linked_bank for item in cross.get("results") or []):
             fail("search(include_related=true) did not traverse to the linked bank")
         found = box_call(api, token, {"action": "bank", "bank_action": "search", "session": session,
                                       "bank": bank, "query": marker, "limit": 5}, timeout=45)
