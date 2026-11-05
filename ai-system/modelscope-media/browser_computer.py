@@ -356,6 +356,8 @@ class _Worker(threading.Thread):
         self.pages: dict[str, tuple] = {}              # session -> (context, page, last_used)
         self.browser = None
         self.resumed: set[str] = set()
+        self.console_logs: dict[str, list[str]] = {}
+        self.network_logs: dict[str, list[str]] = {}
 
     def run(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -401,6 +403,17 @@ class _Worker(threading.Thread):
         except Exception:  # noqa: BLE001
             pass
 
+    def _record_event(self, store: dict[str, list[str]], session: str, message: str) -> None:
+        events = store.setdefault(session, [])
+        events.append(str(message)[:700])
+        del events[:-60]
+
+    def _watch_page(self, session: str, page) -> None:
+        page.on("console", lambda msg, sid=session: self._record_event(self.console_logs, sid, f"{msg.type}: {msg.text}"))
+        page.on("pageerror", lambda error, sid=session: self._record_event(self.console_logs, sid, "pageerror: " + str(error)))
+        page.on("requestfailed", lambda req, sid=session: self._record_event(self.network_logs, sid, f"failed {req.method} {req.url}: {req.failure or 'request failed'}"))
+        page.on("response", lambda res, sid=session: self._record_event(self.network_logs, sid, f"HTTP {res.status} {res.url}") if res.status >= 400 else None)
+
     def _hibernate(self, session: str) -> None:
         got = self.pages.pop(session, None)
         if not got:
@@ -433,6 +446,7 @@ class _Worker(threading.Thread):
         ctx.route("**/*", lambda route, session=session: _guard_route(route, session))
         page = ctx.new_page()
         page.set_default_timeout(25000)
+        self._watch_page(session, page)
         self.pages[session] = (ctx, page, time.time())
         last = load_meta(session).get("url")
         if last and state.exists():
@@ -468,7 +482,84 @@ class _Worker(threading.Thread):
         session = str(job.get("session") or "default")
         page = self._page(p, session)
         mutating = True
-        if action == "open":
+        if action == "tabs":
+            ctx = self.pages[session][0]
+            reply = self._snapshot(page, False)
+            reply["tabs"] = [{"index": i, "active": tab is page, "url": tab.url, "title": tab.title()[:160]} for i, tab in enumerate(ctx.pages)]
+            return reply
+        elif action == "new_tab":
+            ctx = self.pages[session][0]
+            page = ctx.new_page()
+            page.set_default_timeout(25000)
+            self._watch_page(session, page)
+            self.pages[session] = (ctx, page, time.time())
+            if job.get("url"):
+                page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
+        elif action == "switch_tab":
+            ctx = self.pages[session][0]
+            tabs = ctx.pages
+            index = int(job.get("tab", 0))
+            if index < 0 or index >= len(tabs):
+                return {"ok": False, "error": f"tab index must be between 0 and {max(0, len(tabs) - 1)}"}
+            page = tabs[index]
+            page.bring_to_front()
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "close_tab":
+            ctx = self.pages[session][0]
+            tabs = ctx.pages
+            index = int(job.get("tab", tabs.index(page)))
+            if index < 0 or index >= len(tabs):
+                return {"ok": False, "error": "unknown tab index"}
+            closing = tabs[index]
+            closing.close()
+            remaining = ctx.pages
+            if not remaining:
+                page = ctx.new_page()
+                page.set_default_timeout(25000)
+                self._watch_page(session, page)
+            else:
+                page = remaining[min(index, len(remaining) - 1)]
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "upload":
+            import computer_box as box
+            path = box.safe_path(session, str(job.get("path") or ""))
+            if path.is_symlink() or not path.is_file():
+                return {"ok": False, "error": "upload path must be a regular file in your own computer home"}
+            if not job.get("id"):
+                return {"ok": False, "error": "give the numbered file-input element id from the last page inspection"}
+            page.set_input_files(f'[data-bid="{int(job["id"])}"]', str(path), timeout=10000)
+        elif action == "download":
+            import computer_box as box
+            if not job.get("id"):
+                return {"ok": False, "error": "give the numbered download link/button id from the last page inspection"}
+            with page.expect_download(timeout=30000) as pending:
+                page.click(f'[data-bid="{int(job["id"])}"]', timeout=10000)
+            download = pending.value
+            suggested = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(download.suggested_filename).name)[:120] or "download.bin"
+            relative = str(job.get("path") or f"downloads/{suggested}")[:500]
+            target = box.safe_path(session, relative)
+            if target.exists() and target.is_dir():
+                return {"ok": False, "error": "download destination is a directory"}
+            target.parent.mkdir(parents=True, exist_ok=True)
+            download.save_as(str(target))
+            if box.is_root():
+                uid = box.session_uid(session)
+                os.chown(target.parent, uid, uid)
+                os.chown(target, uid, uid)
+            page.wait_for_timeout(200)
+            mutating = False
+            reply = self._snapshot(page, bool(job.get("screenshot")))
+            reply["download"] = {"path": str(target.relative_to(box.session_home(session))), "bytes": target.stat().st_size, "filename": suggested}
+            return reply
+        elif action == "console":
+            reply = self._snapshot(page, False)
+            reply["console"] = self.console_logs.get(session, [])[-40:]
+            return reply
+        elif action == "network":
+            reply = self._snapshot(page, False)
+            reply["network_errors"] = self.network_logs.get(session, [])[-40:]
+            return reply
+        elif action == "open":
             page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
         elif action == "click":
             if job.get("id"):
