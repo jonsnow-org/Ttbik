@@ -26,7 +26,8 @@ describe("the model's own browser", () => {
     expect(typed).toMatchObject({ action: "type", id: 3, enter: true, dy: 4000 });
     expect(String(typed!.text).length).toBe(2000);
     expect(cleanBrowserArgs({ action: "click", x: 10, y: 20 })).toEqual({ action: "click", x: 10, y: 20 });
-    expect(cleanBrowserArgs({ action: "upload", id: 4, path: "../my-report.pdf" })).toEqual({ action: "upload", id: 4, path: "../my-report.pdf" });
+    expect(cleanBrowserArgs({ action: "upload", id: 4, path: "../my-report.pdf" })).toBeNull();
+    expect(cleanBrowserArgs({ action: "upload", id: 4, path: "reports/my-report.pdf" })).toEqual({ action: "upload", id: 4, path: "reports/my-report.pdf" });
     expect(cleanBrowserArgs({ action: "switch_tab", tab: 999 })).toEqual({ action: "switch_tab", tab: 20 });
     expect(cleanBrowserArgs({ action: "download", id: 5, path: "downloads/report.pdf" })).toEqual({ action: "download", id: 5, path: "downloads/report.pdf" });
     expect(cleanBrowserArgs({ action: "console" })).toEqual({ action: "console" });
