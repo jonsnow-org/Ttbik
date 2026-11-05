@@ -94,6 +94,7 @@ describe("the model's own persistent computer", () => {
     const computer = (toolGroups(false, false).computer || []).map((t) => t.function.name);
     const worker = (toolGroups(false, false).worker || []).map((t) => t.function.name);
     for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "computer_bank", "browser"]) expect(computer).toContain(name);
+    expect(computer).toContain("desktop");
     expect(computer).not.toContain("sandbox_exec");
     expect(worker).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_search"]));
     expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
