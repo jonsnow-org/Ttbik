@@ -21,6 +21,8 @@ export interface ShamHost {
   sandbox: { readFile(c: { chatKey: string; runId: string; githubToken: string | null }, path: string, cwd?: string): Promise<{ path: string; bytes: Buffer } | null>; has(name: string): boolean; run(name: string, args: Record<string, unknown>, c: { chatKey: string; runId: string; githubToken: string | null; owner: boolean; db: Db }): Promise<string | null> };
   computer: { run(c: { chatId: number; modelId: string; db: Db }, tool: string, args: Record<string, unknown>): Promise<string> };
   browser: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<string> };
+  /** The graphical Linux desktop of this model's own computer session (isolated per user+model), the same one Nova drives. */
+  desktop: { run(c: { chatId: number; modelId: string; db: Db }, args: Record<string, unknown>): Promise<{ ok?: boolean; error?: string; [k: string]: unknown }> };
   account(chatId: number, db: Db): Promise<{ githubToken: string | null; owner: boolean; chatKey: string; connectors: string[] }>;
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
@@ -72,6 +74,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("computer_search", "Search files on your private computer using ripgrep.", obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
   tool("computer_publish", "Publish all changed files from a computer_repo checkout on YOUR persistent computer to one GitHub commit. Nothing is sent until the user confirms; GitHub credentials stay in the app server, never in the terminal.", obj({ repo: REPO, branch: s("target branch; creates it from the default branch if missing"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
+  tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run commands in the separate temporary task workspace. Use computer_run for normal work on your persistent computer; use this only for isolated tests/builds. Long commands return an id for sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -380,6 +383,14 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     }
     if (name === "browser") {
       return clip(await H0.browser.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a));
+    }
+    if (name === "desktop") {
+      const r = await H0.desktop.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, a);
+      const shot = typeof (r as { screenshot_b64?: unknown })?.screenshot_b64 === "string" ? String((r as { screenshot_b64: string }).screenshot_b64) : "";
+      const { screenshot_b64: _discard, ...metadata } = (r || {}) as Record<string, unknown>;
+      // A screenshot is only useful to Sham if its own vision reads it; the selected Sham Studio does that, no other model.
+      const seen = shot ? await shamUnderstandImage(shot) : "";
+      return clip({ ...metadata, ...(seen ? { screen: seen } : {}) });
     }
     if (H0.sandbox.has(name)) {
       const c = ctx.owner || (await H0.limits.ok(ctx.chatId, "sandbox_minutes", 0, ctx.db));

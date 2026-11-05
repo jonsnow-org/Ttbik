@@ -39,6 +39,12 @@ export const shamHost: ShamHost = {
   browser: {
     run: (c, args) => browserDo(c.modelId, `${c.chatId}:${c.modelId}`, args as BrowserArgs),
   },
+  desktop: {
+    run: async (c, args) => {
+      const { desktopDo } = await import("@/lib/desktopComputer");
+      return desktopDo(c.modelId, `${c.chatId}:${c.modelId}`, args as never);
+    },
+  },
   account: async (chatId, db) => {
     const conn = await resolveConnections(chatId, d(db));
     const connectors = (await connectedIds(chatId, d(db)).catch(() => [] as string[])).filter((x) => x !== "github");

@@ -34,6 +34,7 @@ const EXAMPLES: [string, string][] = [
   ["computer_publish", "نشر التعديلات من الحاسوب الدائم إلى GitHub بعد تأكيد المستخدم ← computer_publish(repo, branch, message)"],
   ["web_search", "معلومة حديثة ← web_search(query)"],
   ["computer_write", "كتابة ملف في الحاسوب الدائم ← computer_write ثم computer_run لتشغيله"],
+  ["desktop", "تشغيل سطح المكتب الرسومي والنقر والكتابة عليه ← desktop(action, x, y)"],
   ["make_media", "صورة أو صوت أو فيديو ← make_media(kind, prompt)"],
   ["delegate", "عدة تحقيقات مستقلة (قراءة/بحث/CI) تتم معاً ← delegate(tasks)"],
   ["github_ci", "لماذا فشل الاختبار ← github_ci(repo)"],

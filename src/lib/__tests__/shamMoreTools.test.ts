@@ -11,8 +11,13 @@ const fakeHost = {
   sandbox: { has: () => false, run: async () => null, readFile: async (_c: unknown, p: string) => (p === "report.md" ? { path: "/home/sham/report.md", bytes: Buffer.from("# done") } : null) },
 } as unknown as ShamHost;
 const sent: string[] = [];
+const desktops: Record<string, unknown>[] = [];
+const desktopHost = {
+  ...fakeHost,
+  desktop: { run: async (_c: unknown, args: Record<string, unknown>) => { desktops.push(args); return args.action === "status" ? { ok: true, phase: "running", width: 1344, height: 840 } : { ok: false, error: "no display" }; } },
+} as unknown as ShamHost;
 const ctx = (over: Partial<ShamCtx> = {}): ShamCtx => ({ chatId: 7, db: {} as any, githubToken: null, chatKey: "sham:7", runId: "sham-7", owner: false, sendFile: async (n, b) => { sent.push(`${n}:${b.length}`); }, ...over });
-beforeEach(() => { bank.length = 0; requests.length = 0; sent.length = 0; setShamHost(fakeHost); });
+beforeEach(() => { bank.length = 0; requests.length = 0; sent.length = 0; desktops.length = 0; setShamHost(fakeHost); });
 afterAll(() => setShamHost(null));
 
 describe("Sham v2 tools", () => {
@@ -42,6 +47,16 @@ describe("Sham v2 tools", () => {
     expect(sent).toEqual(["report.md:6"]);
     expect(await shamRunTool(call("send_file", { path: "nope.md" }), ctx())).toMatch(/^error: the file was not found/);
     expect(await shamRunTool(call("send_file", { path: "report.md" }), ctx({ sendFile: undefined }))).toMatch(/^error/);
+  });
+  it("desktop: Sham drives its own graphical desktop through the host, like Nova (no other model is used)", async () => {
+    const names = shamTools(false).map((t) => t.function.name);
+    expect(names).toContain("desktop");
+    expect(SHAM_TOOLS.find((t) => t.function.name === "desktop")!.function.parameters).toMatchObject({ required: ["action"] });
+    setShamHost(desktopHost);
+    const out = await shamRunTool(call("desktop", { action: "status" }), ctx());
+    expect(desktops).toEqual([{ action: "status" }]);
+    expect(out).toContain("running");
+    expect(out).not.toContain("screenshot_b64");        // the pixels never reach the text transcript
   });
 });
 

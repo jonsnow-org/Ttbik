@@ -9,8 +9,8 @@ SRC = Path(__file__).with_name("app.py").read_text(encoding="utf-8")
 
 def load():
     tree = ast.parse(SRC)
-    names = {"_is_plain_chat", "_needs_script_fix", "_strip_cjk"}
-    consts = {"_TASK_HINT", "_ARABIC", "_CJK"}
+    names = {"_is_plain_chat", "_needs_script_fix", "_strip_cjk", "_is_capability_question"}
+    consts = {"_TASK_HINT", "_ARABIC", "_CJK", "_CAPABILITY", "_ACCESS", "_ACTION_VERB"}
     picked = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in names)
               or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") in consts for t in n.targets))]
     scope = {"re": re}
@@ -33,6 +33,16 @@ class FastLane(unittest.TestCase):
 
     def test_media_attachment_is_never_plain(self):
         self.assertFalse(S["_is_plain_chat"]("ما هذا", ["image"]))
+
+    def test_capability_question_is_recognised(self):
+        for text in ["هل تستطيع الوصول للموصلات وحساب جيتهوب والقراءة والكتابة على المستودع؟",
+                     "can you reach the connectors and my GitHub account?",
+                     "هل يمكنك استدعاء الأدوات والحاسوب؟"]:
+            self.assertTrue(S["_is_capability_question"](text), text)
+
+    def test_capability_question_with_a_real_action_is_not_plain(self):
+        for text in ["هل يمكنك فتح الملف وتشغيله؟", "can you run the tests now?", "هل تستطيع أن تثبّت الحزم؟"]:
+            self.assertFalse(S["_is_capability_question"](text), text)
 
 
 class ScriptGuard(unittest.TestCase):

@@ -30,7 +30,7 @@ from tool_parsing import parse_tool_calls, strip_tool_call_markup
 
 CONFIG_PATH = Path(__file__).with_name("candidate.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-APP_REVISION = "donor-bakeoff-2026-11-04-r20"
+APP_REVISION = "donor-bakeoff-2026-11-05-r21"
 ROOT = Path(__file__).resolve().parent
 def _persistent_root() -> Path | None:
     """Require writable persistent /mnt/workspace for multi-GB candidate weights; never fall back to ephemeral container storage."""
@@ -1179,6 +1179,8 @@ def _requested_tool_groups(prompt: str, tool_bridge: dict | None) -> list[str]:
         return []
     text = str(prompt or "").lower()
     groups = []
+    if _is_capability_question(text):
+        return groups                                  # "can you reach …?" asks about ability; no group is fetched up front
     if _computer_action_request(text) or _project_execution_request(text):
         groups.append("computer")
     github_words = (
@@ -1432,6 +1434,33 @@ def _is_plain_chat(prompt: str, media_labels: list) -> bool:
     if media_labels or not text or len(text) > 400:
         return False
     return not _TASK_HINT.search(text)
+
+
+# A capability question ("can you reach the connectors / my GitHub account?") asks about the model's ACCESS, not for an action.
+# Preloading the connector, computer and GitHub groups for it only made the first inference wait minutes on a 2-vCPU Studio
+# before a yes/no answer. The groups stay available through load_tools; they are simply not fetched up front.
+# The test is deliberately narrow: an ability phrase AND an access/reach word, and no imperative action verb.
+_CAPABILITY = re.compile(
+    r"هل\s*(يمكنك|تستطيع|تقدر|بإمكانك|بامكانك|لديك|لديكم)|"
+    r"\b(can you|could you|are you able|do you have|are you capable|do you support)\b|"
+    r"قادر(ة)?\s*(على|علي)",
+    re.IGNORECASE,
+)
+_ACCESS = re.compile(
+    r"الوصول|اوصول|أوصل|الاطلاع|الاتصال|تتصل|متصل|الموصلات|موصلات|الأدوات|الادوات|استدعاء|connector|reach|access|connect|tool",
+    re.IGNORECASE,
+)
+_ACTION_VERB = re.compile(
+    r"\b(run|execute|open|click|type|install|build|test|debug|inspect|write|edit|launch|clone|compile|fix|modify|create|make|generate|send|delete)\b|"
+    r"افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ثبّت|ثبت|ابن|افحص|اقرأ|اقرا|اكتب|عدّل|عدل|أصلح|اصلح|انسخ|استنسخ|نزّل|نزل|احفظ|انقر|أرسل|ارسل|احذف",
+    re.IGNORECASE,
+)
+
+
+def _is_capability_question(text: str) -> bool:
+    """True when the user asks about the model's access, not for an action on a specific file or command."""
+    text = str(text or "").strip()
+    return bool(_CAPABILITY.search(text)) and bool(_ACCESS.search(text)) and not _ACTION_VERB.search(text)
 
 
 _ARABIC = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
