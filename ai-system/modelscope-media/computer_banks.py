@@ -98,6 +98,15 @@ def _db(root: Path, uid: int | None) -> sqlite3.Connection:
             PRIMARY KEY(item_id, chunk_no)
         );
         CREATE INDEX IF NOT EXISTS chunks_bank ON chunks(bank_id);
+        CREATE TABLE IF NOT EXISTS bank_links (
+            from_bank TEXT NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+            to_bank TEXT NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+            relation TEXT NOT NULL DEFAULT 'related',
+            note TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            PRIMARY KEY(from_bank, to_bank, relation)
+        );
+        CREATE INDEX IF NOT EXISTS bank_links_reverse ON bank_links(to_bank);
     """)
     try:
         db.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts
@@ -229,7 +238,7 @@ def perform(
     """Execute one bank action inside a single user:model workspace."""
     home = Path(home).resolve()
     action = str(job.get("bank_action") or job.get("operation") or "list").strip().lower()
-    if action not in {"list", "create", "put", "get", "search", "stats", "delete", "drop"}:
+    if action not in {"list", "create", "put", "get", "search", "stats", "delete", "drop", "link", "related"}:
         return {"ok": False, "error": "bank_action must be list, create, put, get, search, stats, delete or drop"}
     root = _root(home, owner_uid)
     db = _db(root, owner_uid)
@@ -246,6 +255,25 @@ def perform(
                        (category, str(job.get("description") or "")[:500], now, bank))
             db.commit()
             return {"ok": True, "action": action, "bank": bank, "category": category}
+        if action == "link":
+            target_bank = _valid_bank(job.get("target_bank"))
+            relation = str(job.get("relation") or "related").strip().lower()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,31}", relation):
+                return {"ok": False, "error": "relation must be 1-32 lowercase letters, numbers, dot, underscore or hyphen"}
+            if not db.execute("SELECT 1 FROM banks WHERE id=?", (bank,)).fetchone():
+                return {"ok": False, "error": f"source bank {bank!r} does not exist"}
+            if not db.execute("SELECT 1 FROM banks WHERE id=?", (target_bank,)).fetchone():
+                return {"ok": False, "error": f"target bank {target_bank!r} does not exist"}
+            db.execute("INSERT OR IGNORE INTO bank_links(from_bank,to_bank,relation,note,created_at) VALUES(?,?,?,?,?)",
+                       (bank, target_bank, relation, str(job.get("note") or "")[:300], now))
+            db.commit()
+            return {"ok": True, "action": action, "from_bank": bank, "to_bank": target_bank,
+                    "relation": relation}
+        if action == "related":
+            links = [dict(row) for row in db.execute(
+                "SELECT from_bank,to_bank,relation,note,created_at FROM bank_links "
+                "WHERE from_bank=? OR to_bank=? ORDER BY created_at DESC LIMIT 200", (bank, bank)).fetchall()]
+            return {"ok": True, "action": action, "bank": bank, "links": links}
         if action == "list":
             limit = max(1, min(200, int(job.get("limit") or 100)))
             offset = max(0, int(job.get("offset") or 0))
