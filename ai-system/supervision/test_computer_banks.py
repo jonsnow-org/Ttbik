@@ -66,6 +66,13 @@ class ComputerBanksTests(unittest.TestCase):
         b = self.run_bank(bank_action="put", bank="two", source_path="same.txt")
         self.assertTrue(a["ok"] and b["ok"])
         self.assertTrue(b["deduplicated"])
+        linked = self.run_bank(bank_action="link", bank="one", target_bank="two", relation="references", note="shared dataset")
+        self.assertTrue(linked["ok"], linked)
+        relations = self.run_bank(bank_action="related", bank="one")
+        self.assertEqual(relations["links"][0]["to_bank"], "two")
+        cross_search = self.run_bank(bank_action="search", bank="one", include_related=True,
+                                     query="content-addressed object", limit=10)
+        self.assertEqual({item["bank"] for item in cross_search["results"]}, {"one", "two"})
         stats = self.run_bank(bank_action="stats")
         self.assertEqual(stats["banks"], 3)
         self.assertEqual(stats["items"], 2)
