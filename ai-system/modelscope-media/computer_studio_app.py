@@ -17,7 +17,7 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-04-r7-live"
+APP_REVISION = "computer-hub-16gb-2026-11-05-r8-banks"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
