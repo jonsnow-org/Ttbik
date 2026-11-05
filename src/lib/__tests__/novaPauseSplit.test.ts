@@ -7,6 +7,10 @@ jest.mock("@/lib/novaPause", () => ({ NOVA_LEGACY_BACKEND_PAUSED: false, NOVA_LE
 
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { shamVariant } from "@/lib/shamStudio";
+import * as shamStudio from "@/lib/shamStudio";
+import * as coderSections from "@/lib/coderSections";
+import * as shamThreads from "@/lib/shamThreads";
+import { drainLater } from "@/lib/coderRuntime";
 
 const root = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -39,5 +43,40 @@ describe("legacy Nova backend flag (was NOVA_PAUSED)", () => {
     const users = ["src/app/pay/nova/page.tsx", "src/app/api/nova/me/route.ts", "src/app/api/payments/nova-create-invoice/route.ts", "src/lib/novaAssist.ts"];
     for (const f of users) expect(read(f)).toMatch(/NOVA_LEGACY_BACKEND_PAUSED/);
     expect(read("src/lib/novaPause.ts")).not.toMatch(/export const NOVA_PAUSED\b/);
+  });
+  it("routes a Telegram photo through only the selected Sham v2 vision call", async () => {
+    const previousToken = process.env.MODELSCOPE_API_TOKEN;
+    process.env.MODELSCOPE_API_TOKEN = "unit-test-token";
+    const photo = jest.spyOn(coderSections, "telegramPhoto").mockResolvedValue("data:image/jpeg;base64,aGVsbG8=");
+    const vision = jest.spyOn(shamStudio, "shamUnderstandImage").mockImplementation(async (_b64, question) => {
+      expect(shamVariant.getStore()).toBe("v2");
+      return vision.mock.calls.length === 1 ? `رأيت الصورة: ${question}` : "error: selected Sham Studio returned no readable screenshot description.";
+    });
+    const save = jest.spyOn(shamThreads, "saveChatTurn").mockResolvedValue(undefined);
+    const { bot, sent } = fakeBot();
+    try {
+      await shamVariant.run("v2", () => handleNovaBotUpdate(bot, { id: "b", template: "NOVA_BOT", token: "unused" } as any, {
+        update_id: undefined,
+        message: { chat: { id: 4242 }, from: { id: 4242 }, caption: "ما الذي يظهر؟", photo: [{ file_id: "photo-1", width: 800 }] },
+      }));
+      await drainLater(1000);
+      expect(photo).toHaveBeenCalledWith(bot, expect.objectContaining({ id: "b" }), [{ file_id: "photo-1", width: 800 }]);
+      expect(vision).toHaveBeenCalledWith("aGVsbG8=", "ما الذي يظهر؟");
+      expect(save).toHaveBeenCalledWith(4242, "[صورة] ما الذي يظهر؟", "رأيت الصورة: ما الذي يظهر؟");
+      expect(sent.some((message) => message.text === "رأيت الصورة: ما الذي يظهر؟")).toBe(true);
+      await shamVariant.run("v2", () => handleNovaBotUpdate(bot, { id: "b", template: "NOVA_BOT", token: "unused" } as any, {
+        update_id: undefined,
+        message: { chat: { id: 4242 }, from: { id: 4242 }, photo: [{ file_id: "photo-2", width: 800 }] },
+      }));
+      await drainLater(1000);
+      expect(vision).toHaveBeenCalledTimes(2);
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(sent.some((message) => /تعذّر على شام v2 فهم الصورة عبر استوديوه المختار/.test(message.text))).toBe(true);
+      expect(sent.some((message) => /Nova/.test(message.text))).toBe(false);
+    } finally {
+      jest.restoreAllMocks();
+      if (previousToken === undefined) delete process.env.MODELSCOPE_API_TOKEN;
+      else process.env.MODELSCOPE_API_TOKEN = previousToken;
+    }
   });
 });
