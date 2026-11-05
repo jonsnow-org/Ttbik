@@ -644,8 +644,8 @@ class _Worker(threading.Thread):
             target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else str(job.get("selector") or "")[:300]
             if not target:
                 return {"ok": False, "error": "upload requires a file-input element id or selector"}
-            if source.stat().st_size > 128 * 1024 * 1024:
-                return {"ok": False, "error": "upload is limited to 128 MB"}
+            if source.stat().st_size > 512 * 1024 * 1024:
+                return {"ok": False, "error": "upload is limited to 512 MB"}
             page.locator(target).set_input_files(str(source), timeout=20000)
         elif action == "download":
             import computer_box
@@ -656,8 +656,8 @@ class _Worker(threading.Thread):
                 page.locator(target).click(timeout=10000)
             download = waiting.value
             temp_download = download.path()
-            if temp_download and Path(temp_download).stat().st_size > 128 * 1024 * 1024:
-                return {"ok": False, "error": "download is larger than the 128 MB per-file transfer limit"}
+            if temp_download and Path(temp_download).stat().st_size > 512 * 1024 * 1024:
+                return {"ok": False, "error": "download is larger than the 512 MB per-file transfer limit"}
             relative = str(job.get("output_path") or ("Downloads/" + Path(download.suggested_filename or "download.bin").name))[:500]
             dest = computer_box.safe_path(session, relative)
             dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
