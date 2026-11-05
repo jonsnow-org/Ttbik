@@ -192,6 +192,9 @@ class AsyncVideoJobs(unittest.TestCase):
         self.assertEqual([item[1] for item in calls if item[0] == "POST"], ["video_start", "job", "job"])
         self.assertNotIn("video", [item[1] for item in calls if item[0] == "POST"])
         self.assertEqual(json.loads(calls[0][2]["body"]), {"prompt": "a red apple", "seconds": 6})
+        job_payloads = [json.loads(item[2]["body"]) for item in calls if item[0] == "POST" and item[1] == "job"]
+        self.assertEqual(job_payloads, [{"job": "clip-1", "wait": 5}, {"job": "clip-1", "wait": 5}])
+        self.assertEqual(waits, [2.0])
 
     def test_busy_studio_is_retried_before_starting_a_job(self):
         st, calls, waits = self.studio(
