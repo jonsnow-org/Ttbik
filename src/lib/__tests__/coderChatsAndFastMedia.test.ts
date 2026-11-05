@@ -109,6 +109,14 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect(await until(() => (api as any).sendPhoto.mock.calls.length === 1)).toBe(true);
     expect(urls.some((u) => u.includes("/gradio_api/call/image ") && /a beautiful girl/.test(u))).toBe(true);   // the picture Studio got the model's own English prompt
   });
+  it("singing requests are answered before the LLM queue and never sent to speech-only Piper", async () => {
+    const urls = net({ type: "image", b64: "" });
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, say("اعطني صوت فتاة تغني"), db());
+    expect(sent.some((s) => /لا يملك أوزاناً لتوليد الغناء أو الموسيقى/.test(s.text))).toBe(true);
+    expect(urls).toHaveLength(0); // no routing call, no queued chat/task call, no media submit
+    expect((await listTasks(FREE, { limit: 10 }, db())).length).toBe(0);
+  });
   it("the 4th picture of the day gets the quota message and nothing is generated", async () => {
     const urls = net({ type: "image", b64: b64(await png("gradient", 256)) });
     const { bot, api, sent } = fakeBot();

@@ -1,4 +1,27 @@
-import { detectMediaIntent } from "@/lib/coderMediaFast";
+import { detectMediaIntent, isMusicGenerationRequest } from "@/lib/coderMediaFast";
+
+describe("music generation is not mistaken for speech synthesis", () => {
+  it.each([
+    "اعطني صوت فتاة تغني",
+    "أريد أغنية بصوت امرأة",
+    "أنشئ أغنية قصيرة",
+    "generate a song with a female singer",
+    "make a girl singing voice",
+  ])("recognizes unsupported song requests early: %s", (prompt) => {
+    expect(isMusicGenerationRequest(prompt)).toBe(true);
+  });
+
+  it.each([
+    "حوّل هذا النص إلى صوت: مرحباً بكم",
+    "اقرأ هذه الجملة بصوت: أهلاً",
+    "ما أشهر أغاني فيروز؟",
+    "كيف أضيف الموسيقى إلى الفيديو؟",
+    "مرحبا",
+  ])("does not block ordinary speech or music discussion: %s", (prompt) => {
+    expect(isMusicGenerationRequest(prompt)).toBe(false);
+  });
+});
+
 
 describe("Arabic subject-only media follow-ups", () => {
   it("turns a short Arabic image description into a media request only after Sham asked for the missing image description", () => {
