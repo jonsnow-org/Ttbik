@@ -5,20 +5,24 @@ import { browserStudioFor, studioCall, studioStream } from "@/lib/browserCompute
 
 export type DesktopArgs = {
   action?: string;
-  app?: "browser" | "terminal" | "files";
+  app?: "browser" | "terminal" | "files" | "writer" | "calc" | "impress" | "draw" | "inkscape" | "gimp" | "audacity";
   url?: string;
+  path?: string;
   x?: number;
   y?: number;
+  x2?: number;
+  y2?: number;
   button?: "left" | "middle" | "right";
   text?: string;
   key?: string;
-  direction?: "up" | "down";
+  direction?: "up" | "down" | "left" | "right";
   amount?: number;
 };
 
 const ACTIONS = new Set([
-  "status", "start", "frame", "stop", "launch",
-  "click", "move", "type", "key", "scroll",
+  "status", "apps", "start", "frame", "stop", "launch", "open_file",
+  "click", "dblclick", "move", "mousedown", "mouseup", "drag",
+  "clipboard_set", "clipboard_get", "pointer", "type", "key", "scroll",
 ]);
 
 export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | null {
@@ -27,23 +31,32 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   const out: Record<string, unknown> = { action };
   if (action === "launch") {
     const app = String(input.app || "");
-    if (!["browser", "terminal", "files"].includes(app)) return null;
+    if (!["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"].includes(app)) return null;
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }
-  if (action === "click" || action === "move") {
+  if (action === "open_file") {
+    if (!input.path) return null;
+    out.path = String(input.path).slice(0, 500);
+  }
+  if (["click", "move", "dblclick", "mousedown", "mouseup", "drag"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
     out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
-    if (action === "click") {
+    if (action === "drag") {
+      if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
+      out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
+      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+    }
+    if (["click", "mousedown", "mouseup"].includes(action)) {
       const button = String(input.button || "left");
       if (!["left", "middle", "right"].includes(button)) return null;
       out.button = button;
     }
   }
-  if (action === "type") {
+  if (action === "type" || action === "clipboard_set") {
     if (input.text === undefined) return null;
-    out.text = String(input.text).slice(0, 1200);
+    out.text = String(input.text).slice(0, action === "type" ? 1200 : 20000);
   }
   if (action === "key") {
     const key = String(input.key || "");
@@ -52,9 +65,13 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "scroll") {
     const direction = String(input.direction || "down");
-    if (!["up", "down"].includes(direction)) return null;
+    if (!["up", "down", "left", "right"].includes(direction)) return null;
     out.direction = direction;
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
+    if (input.x !== undefined && input.y !== undefined && Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y))) {
+      out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
+      out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+    }
   }
   return out;
 }
