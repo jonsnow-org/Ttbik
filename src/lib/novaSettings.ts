@@ -25,19 +25,3 @@ export async function setNovaMediaRouteOrder(order: NovaMediaRouteOrder, db: Db 
   const value = order === "hf_first" ? "enabled" : "disabled";
   await db.exec(`INSERT INTO nova_settings (key, value, updated_at) VALUES ('external_media_enabled_v1', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, value);
 }
-
-/** Owner switch (admin dashboard): may the app take a small slice of a visitor's own device for their own task? Off by default. */
-export async function clientComputeEnabled(db: Db = prismaDb): Promise<boolean> {
-  try {
-    await novaSettingsTable(db);
-    const rows = await db.query<{ value: string }>(`SELECT value FROM nova_settings WHERE key = 'client_compute_enabled_v1'`);
-    return rows[0]?.value === "enabled";
-  } catch {
-    return false;
-  }
-}
-
-export async function setClientComputeEnabled(on: boolean, db: Db = prismaDb): Promise<void> {
-  await novaSettingsTable(db);
-  await db.exec(`INSERT INTO nova_settings (key, value, updated_at) VALUES ('client_compute_enabled_v1', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, on ? "enabled" : "disabled");
-}

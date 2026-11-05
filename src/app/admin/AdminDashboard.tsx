@@ -8,7 +8,6 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [computeOn, setComputeOn] = useState<boolean | null>(null);
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/orders");
     if (res.ok) {
@@ -20,25 +19,9 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     load();
-    fetch("/api/admin/compute")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setComputeOn(d ? !!d.enabled : false))
-      .catch(() => setComputeOn(false));
     const interval = setInterval(load, 8000);
     return () => clearInterval(interval);
   }, [load]);
-
-  async function toggleCompute() {
-    if (computeOn === null) return;
-    const next = !computeOn;
-    setComputeOn(next);
-    const r = await fetch("/api/admin/compute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: next }),
-    });
-    if (!r.ok) setComputeOn(!next);
-  }
 
   async function decide(id: string, action: "approve" | "reject") {
     setBusyId(id);
@@ -86,22 +69,6 @@ export default function AdminDashboard() {
       <p className="mb-4 text-xs text-slate-500">
         إدارة البوتات (بث، إعلانات إجبارية، إحصائيات، سحوبات) انتقلت بالكامل إلى أمر <code className="font-mono">/admin</code> داخل بوت تليجرام نفسه.
       </p>
-
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4">
-        <div>
-          <p className="font-bold text-slate-900">استخدام جزء صغير من جهاز الزائر</p>
-          <p className="text-xs text-slate-500">يعمل فقط أثناء استخدام الزائر للتطبيق ومن أجل مهمته هو، بنسبة صغيرة لا تُثقل جهازه. يُفعّل عند الضرورة فقط.</p>
-        </div>
-        <button
-          type="button"
-          disabled={computeOn === null}
-          onClick={toggleCompute}
-          aria-pressed={!!computeOn}
-          className={`rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-50 ${computeOn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-400 hover:bg-slate-500"}`}
-        >
-          {computeOn === null ? "..." : computeOn ? "مُفعّل — إيقاف" : "مُعطّل — تفعيل"}
-        </button>
-      </div>
 
       <div className="space-y-4">
         {pending.map((o) => (
