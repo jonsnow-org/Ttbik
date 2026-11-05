@@ -540,7 +540,7 @@ HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
     server_code = server_code.replace("__MARKER__", marker)
     box_call(api, token, {"action": "write", "session": session, "path": server_file, "content": server_code}, timeout=45)
     box_call(api, token, {"action": "write", "session": session, "path": upload_file, "content": "UPLOAD_SOURCE_" + marker}, timeout=45)
-    job = box_call(api, token, {"action": "job_start", "session": session, "name": "ci-local-preview",
+    job = box_call(api, token, {"action": "job_start", "session": session, "name": "ci-local-preview", "cwd": ".",
                                "command": f"python3 '{server_file}' {port}"}, timeout=45)
     assert_ok(job, "same-session preview server start")
     job_id = str(job.get("id") or "")
@@ -572,7 +572,7 @@ HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
         assert_ok(downloaded, "browser file download")
         restored = box_call(api, token, {"action": "read", "session": session, "path": download_file}, timeout=45)
         assert_ok(restored, "read downloaded file")
-        if "DOWNLOAD_OK_" + marker not in str(restored.get("text") or ""):
+        if "DOWNLOAD_OK_" + marker not in str(restored.get("text") or restored.get("content") or ""):
             fail("downloaded file contents did not arrive in the computer workspace")
         errors = gradio_call(api, "browser_do", {"action": "console", "session": session}, token, timeout=45)
         assert_ok(errors, "browser console diagnostics")
