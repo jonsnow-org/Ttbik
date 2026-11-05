@@ -63,9 +63,9 @@ export const donorTestOptions = (selected?: string) => DONOR_TESTS.map((x) => ({
 }));
 
 const OWNER = "novaai2026";
-const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-04-r19";
-// The previous revision stays usable while the Studios roll to r18 one by one (no downtime during a redeploy).
-const ACCEPTED_DONOR_APP_REVISIONS = new Set([EXPECTED_DONOR_APP_REVISION, "donor-bakeoff-2026-11-04-r18", "donor-bakeoff-2026-11-03-r17"]);
+const EXPECTED_DONOR_APP_REVISION = "donor-bakeoff-2026-11-04-r20";
+// The previous revisions stay usable while the Studios roll forward one by one (no downtime during a redeploy).
+const ACCEPTED_DONOR_APP_REVISIONS = new Set([EXPECTED_DONOR_APP_REVISION, "donor-bakeoff-2026-11-04-r19", "donor-bakeoff-2026-11-04-r18", "donor-bakeoff-2026-11-03-r17"]);
 const MS = "https://www.modelscope.cn";
 const tokenOf = () => (process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 const configOf = (id: string) => {

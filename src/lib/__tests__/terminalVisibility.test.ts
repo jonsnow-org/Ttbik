@@ -6,6 +6,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { bot: { findUnique: jest.fn(async ()
 jest.mock("@/lib/tmaInitData", () => ({ verifyTmaInitData: jest.fn((h: string) => (h.startsWith("u") ? { id: Number(h.slice(1)) } : null)) }));
 jest.mock("@/lib/coderPlans", () => ({ terminalAllowed: jest.fn(async (id: number) => PAID.has(Number(id))) }));
 jest.mock("@/lib/coderTasks", () => ({
+  ...jest.requireActual("@/lib/coderTasks"),                     // keep the real isTaskModelFilter / TASK_MODEL_FILTERS
   listTasks: jest.fn(async (id: number) => [{ run_id: `run-of-${id}`, status: "running" }]),
   taskEvents: jest.fn(async (id: number, runId: string) => (runId === `run-of-${id}` ? [{ id: 1, run_id: runId, kind: "text", text: `سري ${id}` }] : [])),
 }));
@@ -16,6 +17,14 @@ const call = async (mod: string, user: string, qs = "") => {
   const { GET } = await import(mod);
   const r = await GET(new NextRequest(`https://x.test/api/coder/${mod.includes("stream") ? "stream" : "terminal"}${qs}`, { headers: { "x-telegram-init-data": user } }));
   return { status: r.status, body: await r.json().catch(() => ({})) };
+};
+
+// Status only: the stream route answers 200 with an open SSE body, so read the status and cancel it (never consume the stream).
+const statusOf = async (mod: string, user: string, qs = "") => {
+  const { GET } = await import(mod);
+  const r = await GET(new NextRequest(`https://x.test/api/coder/${mod.includes("stream") ? "stream" : "terminal"}${qs}`, { headers: { "x-telegram-init-data": user } }));
+  await r.body?.cancel?.().catch(() => {});
+  return r.status;
 };
 
 describe("terminal visibility", () => {
@@ -39,5 +48,14 @@ describe("terminal visibility", () => {
     expect(peek.body.events).toEqual([]);
     const own = await call("@/app/api/coder/terminal/route", "u2", "?runId=run-of-2");
     expect(own.body.events[0].text).toBe("سري 2");
+  });
+  it("both routes accept the SAME model filter list (no silent 400 for a supported model)", async () => {
+    const { TASK_MODEL_FILTERS } = await import("@/lib/coderTasks");
+    for (const m of ["@/app/api/coder/terminal/route", "@/app/api/coder/stream/route"]) {
+      for (const model of TASK_MODEL_FILTERS) {
+        expect(await statusOf(m, "u1", `?runId=run-of-1&model=${model}`)).toBe(200);
+      }
+      expect(await statusOf(m, "u1", "?runId=run-of-1&model=nope")).toBe(400);
+    }
   });
 });

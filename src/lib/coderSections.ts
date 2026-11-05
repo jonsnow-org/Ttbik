@@ -698,7 +698,9 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
-  // Do not pre-open a status card. The model/worker creates one only after a real task phase or tool-start event.
+  // Ordinary chat opens no card at all (owner 2026-11-05): the model's own reply is the first thing in the chat. A real task (code / agent work / media / fresh facts) still opens
+  // the ONE message within seconds (date + time, the model's own understanding line, then real steps), later edited into the live answer.
+  if (freshRun && st.run && requiresProgressCard(content)) await openCard(bot, chatId, st.run, content, db);
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
   await saveState(chatId, st, db);

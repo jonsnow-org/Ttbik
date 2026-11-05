@@ -150,7 +150,7 @@ Measured from the task log: step 1 ~1 min (thinking), step 2 ~1.5 min, a file re
 - The segment summary is now written by the harness (`fallbackSummary`, no model call); the model's own: `CODER_SEGMENT_MODEL_SUMMARY=on`.
 - `github_repo_scan` / `github_read_files` return less per call (files 3000 chars, README 2000, manifests 1200; `CODER_READ_FILES_CHARS`): one big read costs minutes of prefill on CPU, and Arabic is ~2.4x more tokens than the char estimate.
 - A 429 is retried after at least 10 s (it used to be hit again within 1-2 s).
-- The Telegram progress card is live (`refreshCard`): tool steps plus the model's state (reading %, thinking, writing, queue) and the time of the last update, edited in place every ~5 s (`CODER_CARD_REFRESH_MS`).
+- The Telegram progress card is live (`refreshCard`): tool steps plus the model's state (reading %, thinking, writing, queue) and the time of the last update, edited in place every ~5 s (`CODER_CARD_REFRESH_MS`). Ordinary chat opens no card (owner 2026-11-05): the model's own reply is the first thing in the chat. A real task — code / agent work, media, or a chat that needs a live external fact (`requiresProgressCard`) — still opens the ONE message within seconds, then edits it into the live answer.
 Still true: a ~10k-token context read from zero is ~4-5 min on these 2 vCPU Studios; the only real fix is to keep the prefix stable on the same Studio (done) and the context small.
 
 ## Tool audit and additions (2026-10-25)

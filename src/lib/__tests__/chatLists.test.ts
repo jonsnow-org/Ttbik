@@ -173,7 +173,10 @@ describe("Sham chat list", () => {
 describe("Nova chat list (coder_threads)", () => {
   async function seed(db: any, titles: string[]) {
     const out: string[] = [];
-    for (const t of titles) out.push(await N.createThread(U, { title: t, messages: [{ role: "user", content: t }, { role: "assistant", content: "رد على " + t + " كلمة_سرية_" + t }] as any }, db));
+    for (const t of titles) {
+      out.push(await N.createThread(U, { title: t, messages: [{ role: "user", content: t }, { role: "assistant", content: "رد على " + t + " كلمة_سرية_" + t }] as any }, db));
+      await new Promise((r) => setTimeout(r, 5));                       // distinct updated_at: three threads made in the same instant have no "newest"
+    }
     return out;
   }
   it("list: newest first, pinned first, archived hidden, search in title and in the conversation", async () => {

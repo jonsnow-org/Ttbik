@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
+import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
@@ -19,6 +20,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  // The picture may be smaller than the real screen (the live stream asks for scale 0.75), so a click must be mapped
+  // with the screen size the Studio reports, never with the <img> natural size, or the far edge of the desktop is unreachable.
+  const screenRef = useRef<{ w: number; h: number } | null>(null);
   const running = status?.phase === "running";
   const preparing = status?.phase === "installing" || status?.phase === "starting";
   const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
@@ -26,6 +30,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const call = useCallback(async (args: Record<string, unknown>) => {
     const result = await api<any>("desktop", { model, args });
     setStatus(result);
+    const size = screenSizeOf(result);
+    if (size) screenRef.current = size;
     if (typeof result?.screenshot_b64 === "string") setFrame("data:image/jpeg;base64," + result.screenshot_b64);
     if (result?.ok === false) setError(String(result.error || "Desktop request failed"));
     else setError("");
@@ -54,6 +60,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           const result = await api<any>("desktop", { model, args: { action } });
           if (!stopped) {
             setStatus(result);
+            const size = screenSizeOf(result);
+            if (size) screenRef.current = size;
             if (typeof result?.screenshot_b64 === "string") setFrame("data:image/jpeg;base64," + result.screenshot_b64);
             if (result?.ok === false) setError(String(result.error || "Desktop request failed"));
             else if (result?.error) setError(String(result.error));
@@ -113,6 +121,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             if (typeof value === "string") { try { event = JSON.parse(value); } catch { return; } }
             if (!event || typeof event !== "object") return;
             retryAttempt = 0;
+            const size = screenSizeOf(event);
+            if (size) screenRef.current = size;
             if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
             if (event.phase) setStatus((prior: any) => ({ ...(prior || {}), phase: event.phase }));
             if (Array.isArray(event.activity)) setActivity(event.activity);
@@ -167,11 +177,11 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   };
   const clickScreen = (event: React.MouseEvent<HTMLImageElement>, button: "left" | "right" = "left") => {
     const image = imageRef.current;
-    if (!image || !image.naturalWidth || !image.naturalHeight) return;
+    if (!image) return;
     const rect = image.getBoundingClientRect();
-    const x = Math.round(((event.clientX - rect.left) / rect.width) * image.naturalWidth);
-    const y = Math.round(((event.clientY - rect.top) / rect.height) * image.naturalHeight);
-    void perform({ action: "click", x, y, button });
+    const point = desktopPoint(rect, event, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
+    if (!point) return;
+    void perform({ action: "click", x: point.x, y: point.y, button });
   };
   const sendText = async () => {
     const value = typed;

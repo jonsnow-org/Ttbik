@@ -9,7 +9,7 @@
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
-import { needsFreshFacts, resolveProfile } from "@/lib/modes";
+import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -82,7 +82,9 @@ export async function shamAgentRun(opts: {
   const maxNew = Math.max(20, opts.maxNew ?? (variant === "v2" ? 512 : 160));
   const v2 = variant === "v2";
   const rawAsk: ShamAsk = opts.ask || ((p, n, t) => shamModeCtx.run(effMode, () => shamGenerateAny(p, n, t, { bypassContentHeuristics: Boolean(opts.ctx.owner) })));
-  const announceThinking = () => { if (prof.think || prof.thinkAct) opts.onStep?.({ type: "think" }); };
+  // A real thought only when the profile allows it (Sham v2 was never trained to think). Any request that is actual work still
+  // gets one "working" beat, so a lazily-opened progress card has a first real event even when no tool is called.
+  const announceThinking = () => { if (prof.think || prof.thinkAct || requiresProgressCard(opts.text)) opts.onStep?.({ type: "think" }); };
   const ask: ShamAsk = (p, n, t) => { announceThinking(); return rawAsk(p, n, t); };      // direct conversation path
   const rawAgentAsk: (p: string, n: number, t: number, activeTools?: CoderTool[]) => Promise<ShamReply | null> =
     opts.agentAsk || (!opts.ask && v2

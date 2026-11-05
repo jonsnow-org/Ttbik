@@ -75,24 +75,24 @@ export function cardRender(card: Card | null | undefined, tail: string[] = []): 
   return renderTimeline(card, Date.now(), { tail });
 }
 
-/** A phase of the model (thinking, writing, sending, queued…): a real state it is in now. Same key again only refreshes the label. */
-export async function cardPhase(bot: Bot, chatId: number, card: Card | null | undefined, key: string, label: string): Promise<void> {
+/** A phase of the model (thinking, writing, sending, queued…): a real state it is in now. Same key again only refreshes the label. `force` edits at once (a fresh card). */
+export async function cardPhase(bot: Bot, chatId: number, card: Card | null | undefined, key: string, label: string, force = false): Promise<void> {
   if (!card?.msgId) return;
   const changed = beginStep(card, "phase", key, label);
   void changed;
-  await touch(bot, chatId, card);
+  await touch(bot, chatId, card, force);
 }
-/** A tool the agent really called (قراءة ملف …); it stays "running" until cardToolDone. */
-export async function cardTool(bot: Bot, chatId: number, card: Card | null | undefined, label: string): Promise<void> {
+/** A tool the agent really called (قراءة ملف …); it stays "running" until cardToolDone. `force` edits at once (a fresh card). */
+export async function cardTool(bot: Bot, chatId: number, card: Card | null | undefined, label: string, force = false): Promise<void> {
   if (!card?.msgId) return;
   beginStep(card, "tool", "tool", label);
-  await touch(bot, chatId, card);
+  await touch(bot, chatId, card, force);
 }
-/** The running step ended (ok / failed). The next event starts the next step; nothing is invented in between. */
-export async function cardStepDone(bot: Bot, chatId: number, card: Card | null | undefined, ok = true): Promise<void> {
+/** The running step ended (ok / failed). The next event starts the next step; nothing is invented in between. `force` edits at once. */
+export async function cardStepDone(bot: Bot, chatId: number, card: Card | null | undefined, ok = true, force = false): Promise<void> {
   if (!card?.msgId) return;
   endStep(card, ok);
-  await touch(bot, chatId, card);
+  await touch(bot, chatId, card, force);
 }
 /** Legacy single line (an info event): a phase step with that text. */
 export async function cardNote(bot: Bot, chatId: number, card: Card | null | undefined, line: string, force = false): Promise<void> {

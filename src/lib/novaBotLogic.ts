@@ -842,15 +842,17 @@ export function shamProgressCardSteps(bot: TelegramBot, chatId: number, request:
   let events: Promise<void> = Promise.resolve();
   const onStep = (e: ShamStepEvent) => {
     events = events.then(async () => {
+      let fresh = false;
       if (!card && !attempted && enabled && (e.type === "think" || e.type === "queue" || e.type === "tool_start")) {
         attempted = true;
         card = await openMsgCard(bot, chatId, request);
+        fresh = Boolean(card);                                  // the first real event must land on the just-opened card at once, not after the throttle window
       }
       if (!card) return;
-      if (e.type === "think") await cardPhase(bot, chatId, card, "think", "جاري التفكير");
-      else if (e.type === "queue") await cardPhase(bot, chatId, card, "queue", e.text);
-      else if (e.type === "tool_start") await cardTool(bot, chatId, card, stepLabel(e.name, e.args));
-      else await cardStepDone(bot, chatId, card, e.ok);
+      if (e.type === "think") await cardPhase(bot, chatId, card, "think", "جاري التفكير", fresh);
+      else if (e.type === "queue") await cardPhase(bot, chatId, card, "queue", e.text, fresh);
+      else if (e.type === "tool_start") await cardTool(bot, chatId, card, stepLabel(e.name, e.args), fresh);
+      else await cardStepDone(bot, chatId, card, e.ok, fresh);
     }).then(() => undefined).catch(() => undefined);
   };
   return { onStep, flush: () => events, getCard: () => card };
