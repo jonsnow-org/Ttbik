@@ -23,7 +23,7 @@ class VideoJobs(unittest.TestCase):
 
         def fake_run(kind, payload):
             with self.app._LOCK:
-                self.gate.wait(5)
+                self.gate.wait(60)
                 return {"type": "video", "b64": "AAAA", "text": payload.get("prompt", "")}
         self.app._run = fake_run
 
