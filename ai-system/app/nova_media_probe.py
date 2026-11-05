@@ -147,17 +147,18 @@ class Studio:
     def call(self, api: str, payload: dict, timeout: float = 900) -> dict:
         end = self.now() + timeout
         post_payload = {} if api == "status" else {"body": json.dumps(payload)}
-        # ModelScope can temporarily return 429 when several Studio endpoints are
-        # called close together. A rejected submit has no event/job id, so retrying
-        # this POST is safe. Keep the retry budget inside the one overall deadline.
+        # The ModelScope gateway answers 429 to a burst and 500/502/503/504 while an instance is under memory pressure,
+        # restarting, or fronted by a flaky edge (the LFM2.5/Nova video probe of 2026-11-05 got a bare 502 on the
+        # `job` submit). A rejected submit created no job, so asking again is safe. Keep the retry inside the one deadline.
         waits = (2, 5, 10, 20, 30, 45)
+        retryable = {0, 429, 500, 502, 503, 504}   # 0 = the connection itself was dropped (the gateway closed it); no job was created
         for attempt in range(len(waits) + 1):
             code, text = self.http("POST", f"{self.base}/gradio_api/call/v2/{api}", post_payload)
             if code == 200:
                 break
             if code == 404:
                 raise ProbeError(f"the Studio has no '{api}' API: it is still running OLD code (deploy not finished or not applied)")
-            if code != 429 or attempt == len(waits) or self.now() + waits[attempt] >= end:
+            if code not in retryable or attempt == len(waits) or self.now() + waits[attempt] >= end:
                 raise ProbeError(f"{api}: HTTP {code} from the Studio after {attempt + 1} submit attempt(s)")
             self.sleep(waits[attempt])
         try:
