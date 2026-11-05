@@ -569,7 +569,7 @@ def cv_release():
 
 
 def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
-    """H.264 MP4 of the generated frames (ffmpeg from imageio-ffmpeg or PATH): lanczos upscale to out_side, then motion-compensated interpolation to double the frame rate (smooth motion; skipped if ffmpeg cannot do it)."""
+    """H.264 MP4 of the generated frames (ffmpeg from imageio-ffmpeg or PATH): lanczos upscale to out_side, then double the frame rate with `framerate` (exact duration; `minterpolate` dropped the tail frames and shortened each clip)."""
     import shutil as _sh
     import subprocess as _sp
     import tempfile as _tf
@@ -587,7 +587,7 @@ def cv_encode_mp4(frames, fps: int = 8, out_side: int = 0) -> bytes:
         scale = f"scale={int(out_side)}:{int(out_side)}:flags=lanczos," if out_side and out_side != frames[0].size[0] else ""
         tail = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
         last = None
-        for vf in (f"{scale}minterpolate=fps={fps * 2}:mi_mode=mci:mc_mode=aobmc:vsbmc=1", scale.rstrip(",")):
+        for vf in (f"{scale}framerate=fps={fps * 2}", scale.rstrip(",")):
             cmd = [exe, "-y", "-v", "error", "-framerate", str(fps), "-i", f"{d}/f%03d.png"] + (["-vf", vf] if vf else []) + tail
             try:
                 _sp.run(cmd, check=True, timeout=120)

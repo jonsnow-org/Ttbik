@@ -92,6 +92,13 @@ class RequestedDuration(unittest.TestCase):
                     self.assertEqual(sum(chunks), seconds)
                     self.assertTrue(all(2 <= part <= 3 for part in chunks))
 
+    def test_frame_rate_is_doubled_without_shortening_the_clip(self):
+        # `minterpolate` dropped the tail frames (2.00 s -> 1.81 s) and the loss accumulated over a segmented clip (3x2 s -> 5.44 s,
+        # "duration_mismatch: requested=6s actual=5.44s" on 2026-11-05); the exact-duration `framerate` filter is used instead.
+        text = (AI / "modelscope-media" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("framerate=fps={fps * 2}", text)
+        self.assertNotIn("minterpolate=fps", text)
+
     def test_profile_smaller_than_one_segment_is_refused(self):
         with self.assertRaises(ValueError):
             cpu_video.cv_requested_frames(4, {"fps": 8, "max_frames": 16})
