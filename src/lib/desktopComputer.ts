@@ -14,7 +14,7 @@ export type DesktopArgs = {
   button?: "left" | "middle" | "right";
   text?: string;
   key?: string;
-  direction?: "up" | "down";
+  direction?: "up" | "down" | "left" | "right";
   amount?: number;
 };
 
@@ -63,7 +63,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "scroll") {
     const direction = String(input.direction || "down");
-    if (!["up", "down"].includes(direction)) return null;
+    if (!["up", "down", "left", "right"].includes(direction)) return null;
     out.direction = direction;
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
