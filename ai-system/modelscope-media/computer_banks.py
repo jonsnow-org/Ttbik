@@ -150,9 +150,6 @@ def _compress(src: Path | None, raw: bytes | None, root: Path, uid: int | None) 
         with temp.open("xb") as out:
             if raw is not None:
                 chunks = (raw[i:i + 1024 * 1024] for i in range(0, len(raw), 1024 * 1024))
-            else:
-                assert src is not None
-                chunks = iter(lambda: src.read_bytes() if False else b"", b"")  # replaced by streaming below
             if raw is not None:
                 for block in chunks:
                     size += len(block)
@@ -306,7 +303,8 @@ def perform(
                     object_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
                     _owner(object_dir, owner_uid)
                     stored = object_dir / (sha[2:] + ".z")
-                    if not stored.exists():
+                    blob_reused = stored.exists()
+                    if not blob_reused:
                         if used_bytes + packed_size > quota_bytes:
                             return {"ok": False, "error": "computer session storage quota reached; free space or add a persistent storage volume"}
                         os.replace(temp, stored)
@@ -329,7 +327,7 @@ def perform(
                 return {"ok": True, "action": action, "bank": bank, "item_id": item_id,
                         "name": name, "sha256": sha, "size_bytes": original_size,
                         "compressed_bytes": packed_size, "text_indexed_chars": text_chars,
-                        "deduplicated": stored.exists() and stored.stat().st_size != packed_size}
+                        "deduplicated": blob_reused}
             finally:
                 temp.unlink(missing_ok=True)
         if action == "search":
