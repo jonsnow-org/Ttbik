@@ -128,6 +128,11 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_test", "Run the project's tests on YOUR computer as a background job (runner detected: npm/pnpm/yarn test, pytest, go test, cargo test, make test). Read it with computer_job action=log.",
     obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
   tool("computer_tools", "List the tools installed on YOUR computer now (git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node go cargo java).", obj({})),
+  tool("computer_apps", "List the computer's optional app groups or install one free, allowlisted group in the background. First call action=list to inspect actual install state and free disk. Then install one group only if useful: office (LibreOffice Writer/Calc/Impress/Draw), ocr (Arabic+English Tesseract, OCRmyPDF and PDF utilities), data (JupyterLab, DuckDB, Polars, pandas, Matplotlib, openpyxl), creative (Inkscape, GIMP, Audacity). Installs are optional, disk-checked and persisted across Studio restarts; poll action=status with the returned install_id. After installing, call computer_tools and desktop action=apps to verify executables before using them. JupyterLab runs in your private home and can be opened in your local browser preview.", obj({
+    action: { type: "string", enum: ["list", "install", "status"] },
+    group: { type: "string", enum: ["office", "ocr", "data", "creative"] },
+    install_id: s("installation id returned by action=install, for status polling")
+  }, ["action"])),
   tool("computer_bank", "Use your private persistent storage-bank network on the computer. Banks are separate logical shelves for project knowledge, documents, datasets, assets, sessions and tools; create as many as physical disk space and your existing session quota allow. Store text notes or import files from your home, search across banks, read entries, and link related entries across banks. This is file-backed on your persistent computer, not an external database; each user+model has a separate catalog.", obj({
     action: { type: "string", enum: ["list", "create", "put", "import", "read", "search", "link", "links", "stats"] },
     bank: s("bank name, e.g. projects, documents, datasets, assets, sessions or your own new name"),
