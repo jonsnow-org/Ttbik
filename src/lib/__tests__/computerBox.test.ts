@@ -29,6 +29,13 @@ describe("the model's own persistent computer", () => {
     expect(boxActionFor("computer_patch", { diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" })).toEqual({ action: "patch", diff: "--- a/x\n+++ b/x\n", cwd: "repos/a-b" });
     expect(boxActionFor("computer_test", { cwd: "repos/a-b" })).toEqual({ action: "test", cwd: "repos/a-b", command: "" });
     expect(boxActionFor("computer_tools", {})).toEqual({ action: "tools" });
+    expect(boxActionFor("computer_bank", { action: "put", bank: "projects", key: "plan", content: "hello" }))
+      .toMatchObject({ action: "bank", bank_action: "put", bank: "projects", key: "plan", content: "hello" });
+    expect(boxActionFor("computer_bank", { action: "import", bank: "documents", source_path: "report.pdf" }))
+      .toMatchObject({ action: "bank", bank_action: "import", bank: "documents", source_path: "report.pdf" });
+    expect(cleanBoxArgs({ action: "bank", bank_action: "put", bank: "projects", key: "plan", content: "hello" }))
+      .toMatchObject({ action: "bank", bank_action: "put", bank: "projects", key: "plan", content: "hello" });
+    expect(renderBoxReply("bank", { ok: true, banks: [{ name: "projects", entries: 3, bytes: 120, description: "Project notes" }] })).toContain("projects: 3 entries");
     expect(cleanBoxArgs({ action: "patch", diff: "d".repeat(500_000) })?.diff).toHaveLength(400_000);
     expect(renderBoxReply("patch", { ok: true, files: ["a.ts", "b.ts"], output: "PATCH_OK via git" })).toMatch(/a\.ts, b\.ts/);
     expect(renderBoxReply("test", { ok: true, id: "j1", command: "npm test --silent", cwd: "p" })).toMatch(/TESTS_EXIT/);
@@ -86,7 +93,7 @@ describe("the model's own persistent computer", () => {
   test("persistent computer and temporary worker are separate tool groups", () => {
     const computer = (toolGroups(false, false).computer || []).map((t) => t.function.name);
     const worker = (toolGroups(false, false).worker || []).map((t) => t.function.name);
-    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "browser"]) expect(computer).toContain(name);
+    for (const name of ["computer_run", "computer_write", "computer_read", "computer_job", "computer_repo", "computer_search", "computer_bank", "browser"]) expect(computer).toContain(name);
     expect(computer).not.toContain("sandbox_exec");
     expect(worker).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_search"]));
     expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
