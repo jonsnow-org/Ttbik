@@ -3,11 +3,13 @@ import importlib.util
 import json
 import os
 import subprocess
+import socket
 from unittest.mock import patch
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 PATH = Path(__file__).resolve().parents[1] / "modelscope-media" / "computer_box.py"
 spec = importlib.util.spec_from_file_location("computer_box", PATH)
@@ -28,6 +30,57 @@ class Box(unittest.TestCase):
 
     def run_box(self, **job):
         return json.loads(cb.api_box_do(json.dumps(job)))
+
+
+class OptionalApps(Box):
+    def setUp(self):
+        super().setUp()
+        cb._APP_INSTALLS.clear()
+
+    def tearDown(self):
+        cb._APP_INSTALLS.clear()
+        super().tearDown()
+
+    def test_app_inventory_lists_only_allowlisted_groups_and_disk_requirements(self):
+        result = self.run_box(session="alice:nova", action="apps", app_action="list")
+        self.assertTrue(result["ok"], result)
+        groups = {item["id"]: item for item in result["groups"]}
+        self.assertEqual(set(groups), {"office", "ocr", "data", "creative"})
+        self.assertGreater(groups["ocr"]["minimum_free_gb"], 0)
+        self.assertIn("saved_groups", result)
+
+    def test_saved_app_groups_persist_in_the_shared_computer_volume(self):
+        cb._write_app_manifest(["ocr", "office", "ocr"])
+        self.assertEqual(cb._read_app_manifest(), ["ocr", "office"])
+        restored = self.run_box(session="alice:nova", action="apps", app_action="list")
+        self.assertEqual(restored["saved_groups"], ["ocr", "office"])
+
+    def test_unknown_app_group_is_refused_without_running_an_installer(self):
+        result = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "random-shell"})
+        self.assertFalse(result["ok"])
+        self.assertIn("office, ocr, data or creative", result["error"])
+        self.assertFalse(cb._APP_INSTALLS)
+
+    def test_background_install_status_is_bound_to_the_requesting_session(self):
+        original_which = cb.shutil.which
+        with patch.object(cb, "is_root", return_value=True), \
+             patch.object(cb.shutil, "which", side_effect=lambda name: "/usr/bin/apt-get" if name == "apt-get" else original_which(name)), \
+             patch.object(cb.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024 ** 3)), \
+             patch.object(cb, "_app_group_ready", return_value=False), \
+             patch.object(cb, "_install_app_group_now", return_value={"ok": True, "group": "office", "installed": True}):
+            started = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "office"})
+            self.assertTrue(started["ok"], started)
+            self.assertIn(started["status"], ("queued", "installing", "ready"))
+            install_id = started["install_id"]
+            deadline = time.monotonic() + 2
+            status = cb.computer_apps_action("alice:nova", {"app_action": "status", "install_id": install_id})
+            while time.monotonic() < deadline and status.get("status") != "ready":
+                time.sleep(0.01)
+                status = cb.computer_apps_action("alice:nova", {"app_action": "status", "install_id": install_id})
+            self.assertEqual(status["status"], "ready", status)
+            denied = cb.computer_apps_action("bob:sham", {"app_action": "status", "install_id": install_id})
+            self.assertFalse(denied["ok"])
+            self.assertIn("unknown installation id", denied["error"])
 
 
 class Capacity(Box):
@@ -161,6 +214,39 @@ class Paths(Box):
 
 
 class Running(Box):
+    def test_model_bank_tool_is_connected_to_the_private_persistent_home(self):
+        created = self.run_box(session="alice:nova", action="bank", bank_action="create", bank="project_notes", description="Alice's notes")
+        self.assertTrue(created["ok"], created)
+        saved = self.run_box(session="alice:nova", action="bank", bank_action="put", bank="project_notes", key="decision-1", title="Decision", content="Keep Nova and Sham computer sessions isolated.")
+        self.assertTrue(saved["ok"], saved)
+        read = self.run_box(session="alice:nova", action="bank", bank_action="read", bank="project_notes", key="decision-1")
+        self.assertIn("computer sessions isolated", read["entry"]["content"])
+        other = self.run_box(session="bob:sham", action="bank", bank_action="search", query="computer sessions isolated")
+        self.assertEqual(other["hits"], [])
+
+    @unittest.skipUnless(cb.is_root(), "needs root to verify the private session UID")
+    def test_local_preview_port_is_authorized_only_for_its_own_session(self):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        started = self.run_box(
+            session="alice:nova", action="job_start",
+            command=f"python3 -m http.server {port} --bind 127.0.0.1", name="local-preview",
+        )
+        self.assertTrue(started["ok"], started)
+        try:
+            deadline = time.monotonic() + 5
+            owned = False
+            while time.monotonic() < deadline:
+                owned = cb.session_owns_tcp_port("alice:nova", port)
+                if owned:
+                    break
+                time.sleep(0.1)
+            self.assertTrue(owned, "the session's own localhost development server should be recognized")
+            self.assertFalse(cb.session_owns_tcp_port("bob:sham", port), "another model must not borrow the port")
+        finally:
+            self.run_box(session="alice:nova", action="job_stop", id=started["id"])
+
     def test_a_command_runs_in_the_home_and_files_stay(self):
         self.assertTrue(self.run_box(session="u:m", action="write", path="hello.txt", content="hi there")["ok"])
         out = self.run_box(session="u:m", action="run", command="cat hello.txt && pwd")
@@ -176,6 +262,9 @@ class Running(Box):
             os.environ.pop("STUDIO_SECRET_FOR_TEST", None)
         self.assertNotIn("do-not-leak", out["output"])
         self.assertIn("HOME=" + str(cb.session_home("u:m")), out["output"])
+        env = cb.clean_env("u:m")
+        self.assertIn(str(cb.ROOT.parent / "computer-apps" / "bin"), env["PATH"])
+        self.assertEqual(env["PYTHONPATH"], str(cb.ROOT.parent / "computer-apps" / "python"))
 
     @unittest.skipUnless(cb.is_root(), "needs root to switch users")
     def test_commands_are_not_root_and_cannot_read_another_sessions_files(self):
@@ -192,6 +281,15 @@ class Running(Box):
         self.assertTrue(out.get("timed_out"))
         self.assertIn("computer_job", out["hint"])
         self.assertLess(time.time() - started, 15)
+
+    def test_session_quota_also_reserves_shared_disk_for_other_users(self):
+        low = SimpleNamespace(free=512 * 1024 ** 2)
+        with patch.object(cb.shutil, "disk_usage", return_value=low):
+            self.assertTrue(cb.over_quota("u:m", 0))
+        reserve = 1024 * 1024 ** 2
+        with patch.object(cb.shutil, "disk_usage", return_value=SimpleNamespace(free=reserve + 10)):
+            self.assertTrue(cb.over_quota("u:m", 11))
+            self.assertFalse(cb.over_quota("u:m", 10))
 
     def test_the_disk_quota_stops_new_work(self):
         old = cb.QUOTA_BYTES

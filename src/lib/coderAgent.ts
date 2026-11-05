@@ -77,23 +77,26 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 
 /** Free headless browser on the shared computer hub; each user+model session keeps separate cookies and storage. */
 export const BROWSER_TOOL_DEFS: CoderTool[] = [
-  tool("browser", "Your own web browser (real pages, JavaScript; it keeps your cookies and logins between calls, even after you were away). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list (or click{x,y} for a drawn area); type{id,text,enter} fills a field; press{key}; scroll{dy}; back; wait{text,seconds} waits for a single-page app to show some text, then reads the page; aria gives the page outline (roles and names) when the numbered list is not enough. Every answer lists the page text and numbered clickable elements.",
-    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
+  tool("browser", "Your own web browser (real pages, JavaScript; it keeps your cookies and logins between calls, even after you were away). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list (or click{x,y} for a drawn area); type{id,text,enter} fills a field; press{key}; scroll{dy}; back; wait{text,seconds} waits for a single-page app to show some text, then reads the page; aria gives the page outline; tabs/new_tab/switch_tab/close_tab manage pages; upload{id,path} sends a file from your own computer home into a page file input; download{id,path} saves a page download into your home; console and network show browser errors. Every answer lists page text and numbered elements. Local preview: open localhost only when the port belongs to your own user:model session; other private addresses stay blocked. For local development previews, open http://127.0.0.1:<port> only when a server on that port is running under your own user:model session; other private/internal addresses remain blocked.",
+    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "console", "network"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20"), tab: n("tab index for switch_tab/close_tab"), path: s("private file path in your computer for upload, or destination path for download") }, ["action"])),
 ];
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate your isolated graphical Linux desktop. Start/status/frame/stop a display; action=apps lists applications actually installed; launch starts an available app; open_file opens a file from your private home in its default desktop app. Use click/dblclick, drag, move, mousedown/mouseup, clipboard_set/clipboard_get, pointer, type, key and scroll for precise control. Inspect frames after actions; never assume an input succeeded without checking. Use computer_apps action=list/install/status for optional Office, OCR, data and creative suites; action=launch app=jupyter starts a private JupyterLab server and returns its session-local URL.",
     obj({
-      action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
-      app: { type: "string", enum: ["browser", "terminal", "files"] },
+      action: { type: "string", enum: ["start", "status", "apps", "frame", "stop", "launch", "open_file", "click", "dblclick", "move", "mousedown", "mouseup", "drag", "clipboard_set", "clipboard_get", "pointer", "type", "key", "scroll"] },
+      app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity", "jupyter"] },
       url: s("URL to open when launching the browser"),
+      path: s("file path inside your own computer home for open_file"),
       x: n("horizontal pixel coordinate from the latest screenshot"),
       y: n("vertical pixel coordinate from the latest screenshot"),
+      x2: n("drag destination horizontal pixel coordinate"),
+      y2: n("drag destination vertical pixel coordinate"),
       button: { type: "string", enum: ["left", "middle", "right"] },
-      text: s("text to type"),
+      text: s("text to type or put on the desktop clipboard"),
       key: s("key name, e.g. Enter, Tab, Ctrl+L"),
-      direction: { type: "string", enum: ["up", "down"] },
+      direction: { type: "string", enum: ["up", "down", "left", "right"] },
       amount: n("scroll amount, 1-8"),
     }, ["action"])),
 ];
@@ -108,6 +111,8 @@ export const COMPUTER_PLAYBOOK = [
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
   "- several small steps (read + search + run + write) go in ONE computer_batch call (up to 8 steps): every separate computer call costs about 2 s.",
+  "- optional apps: computer_apps action=list, install one needed group (office / ocr / data / creative), poll its install_id, then verify with desktop action=apps. OCR a scanned PDF with ocrmypdf -l ara+eng --skip-text input.pdf output.pdf; use JupyterLab for CSV/XLSX data and open its returned localhost URL in your own browser.",
+  "- persistent storage banks: computer_bank list/create/put/import/read/search/link/links/stats; search across all banks when bank is omitted; the real physical disk and session quota still apply.",
   "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
 ].join("\n");
 
@@ -125,7 +130,27 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_test", "Run the project's tests on YOUR computer as a background job (runner detected: npm/pnpm/yarn test, pytest, go test, cargo test, make test). Read it with computer_job action=log.",
     obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
   tool("computer_tools", "List the tools installed on YOUR computer now (git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node go cargo java).", obj({})),
-  tool("computer_batch", "Run up to 8 computer actions in ONE call, in order (each call costs ~2 s of network time: batch reads, searches, small runs and writes). Each step = {tool: computer_run|computer_write|computer_read|computer_edit|computer_search|computer_patch|computer_test|computer_tools|computer_job|computer_repo, ...that tool's arguments}. Stops at the first error unless the step sets continue_on_error.",
+  tool("computer_apps", "List the computer's optional app groups or install one free, allowlisted group in the background. First call action=list to inspect actual install state and free disk. Then install one group only if useful: office (LibreOffice Writer/Calc/Impress/Draw), ocr (Arabic+English Tesseract, OCRmyPDF and PDF utilities), data (JupyterLab, DuckDB, Polars, pandas, Matplotlib, openpyxl), creative (Inkscape, GIMP, Audacity). Installs are optional, disk-checked and persisted across Studio restarts; poll action=status with the returned install_id. After installing, call computer_tools and desktop action=apps to verify executables before using them. JupyterLab runs in your private home and can be opened in your local browser preview.", obj({
+    action: { type: "string", enum: ["list", "install", "status"] },
+    group: { type: "string", enum: ["office", "ocr", "data", "creative"] },
+    install_id: s("installation id returned by action=install, for status polling")
+  }, ["action"])),
+  tool("computer_bank", "Use your private persistent storage-bank network on the computer. Banks are separate logical shelves for project knowledge, documents, datasets, assets, sessions and tools; create as many as physical disk space and your existing session quota allow. Store text notes or import files from your home, search across banks, read entries, and link related entries across banks. This is file-backed on your persistent computer, not an external database; each user+model has a separate catalog.", obj({
+    action: { type: "string", enum: ["list", "create", "put", "import", "read", "search", "link", "links", "stats"] },
+    bank: s("bank name, e.g. projects, documents, datasets, assets, sessions or your own new name"),
+    key: s("unique entry key within this bank"),
+    title: s("short title for an entry"),
+    description: s("what this entry contains"),
+    content: s("text to store for put; max 1 MB"),
+    source_path: s("for import: existing file path inside your private computer home"),
+    file_name: s("optional name for the imported copy"),
+    query: s("search query across the banks or inside the named bank"),
+    target_bank: s("for link: another bank name"),
+    target_key: s("for link: the other entry key"),
+    relation: s("relationship label, e.g. documents, implements, references"),
+    limit: n("search results, 1-20")
+  }, ["action"])),
+  tool("computer_batch", "Run up to 8 computer actions in ONE call, in order (each call costs ~2 s of network time: batch reads, searches, small runs and writes). Each step = {tool: computer_run|computer_write|computer_read|computer_edit|computer_search|computer_patch|computer_test|computer_tools|computer_job|computer_repo|computer_bank, ...that tool's arguments}. Stops at the first error unless the step sets continue_on_error.",
     obj({ steps: { type: "array", items: obj({ tool: s("computer_* tool name"), continue_on_error: { type: "boolean" } }, ["tool"]) } }, ["steps"])),
   tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),

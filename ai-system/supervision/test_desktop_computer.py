@@ -72,6 +72,51 @@ class Desktop(unittest.TestCase):
         with self.assertRaises(ValueError):
             desktop.clamp_point("x", 2)
 
+    def test_apps_inventory_reports_jupyter_from_the_persistent_optional_apps_folder(self):
+        old_root = box.ROOT
+        try:
+            box.ROOT = self.tmp / "computer"
+            wrapper = box.ROOT.parent / "computer-apps" / "bin" / "jupyter"
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            result = desktop.app_inventory()
+            jupyter = next(item for item in result["apps"] if item["id"] == "jupyter")
+            self.assertTrue(jupyter["available"])
+        finally:
+            box.ROOT = old_root
+
+    def test_launch_jupyter_returns_a_private_local_preview_url(self):
+        old_env, old_uid, old_processes = desktop._ENV, desktop._UID, desktop._PROCESSES
+        try:
+            box.ROOT = self.tmp / "computer"
+            wrapper = box.ROOT.parent / "computer-apps" / "bin" / "jupyter"
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            session = "alice:nova"
+            desktop._ENV = {**box.clean_env(session), "DESKTOP_UID": "100123"}
+            desktop._UID = 100123
+            desktop._PROCESSES = []
+            captured = {}
+            proc = SimpleNamespace(pid=12345)
+            def spawn(command, env, label):
+                captured["command"] = command
+                captured["env"] = env
+                captured["label"] = label
+                return proc
+            with patch.object(desktop, "_spawn", side_effect=spawn):
+                result = desktop._input_action(session, "launch", {"app": "jupyter"})
+            self.assertTrue(result["ok"], result)
+            self.assertRegex(result["url"], r"^http://127\.0\.0\.1:\d+/lab\?token=")
+            self.assertEqual(captured["command"][1], "--no-browser")
+            self.assertNotIn("lab", captured["command"])
+            self.assertIn("--ip=127.0.0.1", captured["command"])
+            port_arg = next(item for item in captured["command"] if item.startswith("--port="))
+            self.assertEqual(int(port_arg.split("=", 1)[1]), result["port"])
+            self.assertTrue(any(item.startswith("--ServerApp.token=") for item in captured["command"]))
+            self.assertEqual(captured["env"]["HOME"], str(box.session_home(session)))
+        finally:
+            desktop._ENV, desktop._UID, desktop._PROCESSES = old_env, old_uid, old_processes
+
     def test_unknown_or_unauthenticated_desktop_actions_do_not_start_processes(self):
         missing = self.call(action="status")
         self.assertFalse(missing["ok"])

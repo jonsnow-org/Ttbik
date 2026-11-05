@@ -1,7 +1,10 @@
 """Unit tests for the model's free headless browser: the pure parts (address safety, element list, session folders). No browser is started."""
 import importlib.util
 import unittest
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 PATH = Path(__file__).resolve().parents[1] / "modelscope-media" / "browser_computer.py"
 spec = importlib.util.spec_from_file_location("browser_computer", PATH)
@@ -19,6 +22,23 @@ class SafeUrl(unittest.TestCase):
         for bad in ("file:///etc/passwd", "ftp://93.184.216.34/x", "javascript:alert(1)"):
             with self.assertRaises(ValueError, msg=bad):
                 bc.safe_url(bad)
+
+    def test_localhost_preview_requires_a_listener_owned_by_the_exact_session(self):
+        info = (bc.socket.AF_INET, bc.socket.SOCK_STREAM, bc.socket.IPPROTO_TCP, "", ("127.0.0.1", 3000))
+        fake_box = SimpleNamespace(
+            session_owns_tcp_port=lambda session, port: session == "alice:nova" and port == 3000
+        )
+        with patch.object(bc.socket, "getaddrinfo", return_value=[info]), patch.dict(sys.modules, {"computer_box": fake_box}):
+            self.assertEqual(bc.safe_url("http://localhost:3000/", "alice:nova"), "http://localhost:3000/")
+            with self.assertRaisesRegex(ValueError, "localhost preview is allowed only"):
+                bc.safe_url("http://localhost:3000/", "bob:sham")
+
+    def test_local_preview_does_not_authorize_other_private_networks(self):
+        info = (bc.socket.AF_INET, bc.socket.SOCK_STREAM, bc.socket.IPPROTO_TCP, "", ("10.0.0.7", 3000))
+        fake_box = SimpleNamespace(session_owns_tcp_port=lambda session, port: True)
+        with patch.object(bc.socket, "getaddrinfo", return_value=[info]), patch.dict(sys.modules, {"computer_box": fake_box}):
+            with self.assertRaisesRegex(ValueError, "private or internal"):
+                bc.safe_url("http://10.0.0.7:3000/", "alice:nova")
 
     def test_a_public_address_is_kept_and_a_bare_host_gets_https(self):
         self.assertEqual(bc.safe_url("http://93.184.216.34/page"), "http://93.184.216.34/page")

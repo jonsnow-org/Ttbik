@@ -9,6 +9,7 @@ on:
     paths:
       - ai-system/modelscope-media/computer_studio_app.py
       - ai-system/modelscope-media/computer_box.py
+      - ai-system/modelscope-media/computer_banks.py
       - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/browser_computer.py
       - ai-system/modelscope-media/requirements-computer.txt
@@ -45,13 +46,14 @@ jobs:
           python3 -m py_compile \
             ai-system/modelscope-media/computer_studio_app.py \
             ai-system/modelscope-media/computer_box.py \
+            ai-system/modelscope-media/computer_banks.py \
             ai-system/modelscope-media/desktop_computer.py \
             ai-system/modelscope-media/browser_computer.py \
             scripts/ops/modelscope_computer_smoke.py
           python3 - <<'PY'
           from pathlib import Path
           app = Path("ai-system/modelscope-media/computer_studio_app.py").read_text()
-          assert 'APP_REVISION = "computer-hub-16gb-2026-11-04-r6"' in app
+          assert 'APP_REVISION = "computer-hub-16gb-2026-11-05-r9-apps"' in app
           assert "model_loaded" in app and "api_desktop_do" in app and "api_browser_do" in app
           assert "donor-bakeoff/minicpmo45-big/model_cache" in app
           print("computer app syntax and contracts: OK")
@@ -122,6 +124,7 @@ jobs:
           git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
           cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
           cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
+          cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
           cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
           cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
           cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt
@@ -178,7 +181,7 @@ jobs:
           if isinstance(value,str):
               try: value=json.loads(value)
               except Exception: value={}
-          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-04-r6" and value.get("role")=="computer-only" and value.get("model_loaded") is False
+          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-05-r9-apps" and value.get("role")=="computer-only" and value.get("model_loaded") is False
           print("Computer app status:",{k:value.get(k) for k in ("phase","app_revision","role","model_loaded","hardware")} if isinstance(value,dict) else value)
           raise SystemExit(0 if ok else 1)
           PY

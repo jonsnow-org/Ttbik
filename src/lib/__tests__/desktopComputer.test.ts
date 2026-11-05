@@ -78,6 +78,12 @@ describe("the graphical Linux desktop RPC contract", () => {
     expect(cleanDesktopArgs({ action: "start" })).toEqual({ action: "start" });
     expect(cleanDesktopArgs({ action: "key", key: "alt+Tab" })).toEqual({ action: "key", key: "alt+Tab" });
     expect(cleanDesktopArgs({ action: "key", key: "Return;touch /tmp/x" })).toBeNull();
+    expect(cleanDesktopArgs({ action: "dblclick", x: 20, y: 30 })).toEqual({ action: "dblclick", x: 20, y: 30 });
+    expect(cleanDesktopArgs({ action: "drag", x: 1, y: 2, x2: 900, y2: 700 })).toEqual({ action: "drag", x: 1, y: 2, x2: 900, y2: 700 });
+    expect(cleanDesktopArgs({ action: "clipboard_set", text: "x".repeat(30000) })?.text).toHaveLength(20000);
+    expect(cleanDesktopArgs({ action: "clipboard_get" })).toEqual({ action: "clipboard_get" });
+    expect(cleanDesktopArgs({ action: "pointer" })).toEqual({ action: "pointer" });
+    expect(cleanDesktopArgs({ action: "open_file", path: "../other-user/private" })).toBeNull();
     expect(cleanDesktopArgs({ action: "rm -rf" })).toBeNull();
   });
 
@@ -101,5 +107,8 @@ describe("the graphical Linux desktop RPC contract", () => {
     expect(cleanDesktopArgs({ action: "launch", app: "terminal" }))
       .toEqual({ action: "launch", app: "terminal" });
     expect(cleanDesktopArgs({ action: "launch", app: "notepad" as any })).toBeNull();
+    expect(cleanDesktopArgs({ action: "launch", app: "writer" })).toMatchObject({ action: "launch", app: "writer" });
+    expect(cleanDesktopArgs({ action: "open_file", path: "reports/a.pdf" })).toEqual({ action: "open_file", path: "reports/a.pdf" });
+    expect(cleanDesktopArgs({ action: "scroll", direction: "left", amount: 2 })).toEqual({ action: "scroll", direction: "left", amount: 2 });
   });
 });

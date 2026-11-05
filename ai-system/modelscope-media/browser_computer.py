@@ -55,23 +55,39 @@ def _note(step: str) -> None:
 
 
 # ---------------------------------------------------------------- pure helpers (unit-tested)
-def safe_url(raw: str) -> str:
-    """http(s) only, and never a private / loopback / link-local address (the Studio must not be used to reach its own network)."""
+def safe_url(raw: str, session: str = "") -> str:
+    """Public HTTP(S) targets are allowed; localhost is allowed only for a port owned by this exact user:model session."""
     url = str(raw or "").strip()
-    if not re.match(r"^https?://", url, re.I):
+    if not re.match(r"^(?:https?|wss?)://", url, re.I):
         url = "https://" + url
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError("only http(s) addresses are allowed")
+    if parsed.scheme not in ("http", "https", "ws", "wss") or not parsed.hostname:
+        raise ValueError("only HTTP(S) and WebSocket(S) addresses are allowed")
     host = parsed.hostname
+    default_port = 443 if parsed.scheme in ("https", "wss") else 80
     try:
-        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, parsed.port or default_port, proto=socket.IPPROTO_TCP)
     except OSError as exc:
         raise ValueError("cannot resolve " + host) from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast:
-            raise ValueError("address not allowed: " + host)
+    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
+    restricted = [
+        address for address in addresses
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast
+    ]
+    if restricted:
+        # A local preview is an explicit capability of one session, not a blanket
+        # exception for private networks. Only loopback and only a TCP listener
+        # owned by the session's unique unprivileged UID may pass.
+        port = parsed.port or default_port
+        if not session or len(restricted) != len(addresses) or not all(a.is_loopback for a in addresses):
+            raise ValueError("private or internal network address is blocked: " + host)
+        try:
+            import computer_box
+            allowed = computer_box.session_owns_tcp_port(session, port)
+        except Exception:
+            allowed = False
+        if not allowed:
+            raise ValueError("localhost preview is allowed only for a server running in this user:model session on the requested port")
     return url
 
 
@@ -340,6 +356,8 @@ class _Worker(threading.Thread):
         self.pages: dict[str, tuple] = {}              # session -> (context, page, last_used)
         self.browser = None
         self.resumed: set[str] = set()
+        self.console_logs: dict[str, list[str]] = {}
+        self.network_logs: dict[str, list[str]] = {}
 
     def run(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -385,6 +403,17 @@ class _Worker(threading.Thread):
         except Exception:  # noqa: BLE001
             pass
 
+    def _record_event(self, store: dict[str, list[str]], session: str, message: str) -> None:
+        events = store.setdefault(session, [])
+        events.append(str(message)[:700])
+        del events[:-60]
+
+    def _watch_page(self, session: str, page) -> None:
+        page.on("console", lambda msg, sid=session: self._record_event(self.console_logs, sid, f"{msg.type}: {msg.text}"))
+        page.on("pageerror", lambda error, sid=session: self._record_event(self.console_logs, sid, "pageerror: " + str(error)))
+        page.on("requestfailed", lambda req, sid=session: self._record_event(self.network_logs, sid, f"failed {req.method} {req.url}: {req.failure or 'request failed'}"))
+        page.on("response", lambda res, sid=session: self._record_event(self.network_logs, sid, f"HTTP {res.status} {res.url}") if res.status >= 400 else None)
+
     def _hibernate(self, session: str) -> None:
         got = self.pages.pop(session, None)
         if not got:
@@ -414,14 +443,15 @@ class _Worker(threading.Thread):
         if state.exists():
             options["storage_state"] = str(state)
         ctx = browser.new_context(**options)
-        ctx.route("**/*", _guard_route)
+        ctx.route("**/*", lambda route, session=session: _guard_route(route, session))
         page = ctx.new_page()
         page.set_default_timeout(25000)
+        self._watch_page(session, page)
         self.pages[session] = (ctx, page, time.time())
         last = load_meta(session).get("url")
         if last and state.exists():
             try:
-                page.goto(safe_url(last), wait_until="domcontentloaded", timeout=20000)
+                page.goto(safe_url(last, session), wait_until="domcontentloaded", timeout=20000)
                 self.resumed.add(session)
             except Exception:  # noqa: BLE001
                 pass
@@ -452,8 +482,97 @@ class _Worker(threading.Thread):
         session = str(job.get("session") or "default")
         page = self._page(p, session)
         mutating = True
-        if action == "open":
-            page.goto(safe_url(job.get("url", "")), wait_until="domcontentloaded", timeout=30000)
+        if action == "tabs":
+            ctx = self.pages[session][0]
+            reply = self._snapshot(page, False)
+            reply["tabs"] = [{"index": i, "active": tab is page, "url": tab.url, "title": tab.title()[:160]} for i, tab in enumerate(ctx.pages)]
+            return reply
+        elif action == "new_tab":
+            ctx = self.pages[session][0]
+            page = ctx.new_page()
+            page.set_default_timeout(25000)
+            self._watch_page(session, page)
+            self.pages[session] = (ctx, page, time.time())
+            if job.get("url"):
+                page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
+        elif action == "switch_tab":
+            ctx = self.pages[session][0]
+            tabs = ctx.pages
+            index = int(job.get("tab", 0))
+            if index < 0 or index >= len(tabs):
+                return {"ok": False, "error": f"tab index must be between 0 and {max(0, len(tabs) - 1)}"}
+            page = tabs[index]
+            page.bring_to_front()
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "close_tab":
+            ctx = self.pages[session][0]
+            tabs = ctx.pages
+            index = int(job.get("tab", tabs.index(page)))
+            if index < 0 or index >= len(tabs):
+                return {"ok": False, "error": "unknown tab index"}
+            closing = tabs[index]
+            closing.close()
+            remaining = ctx.pages
+            if not remaining:
+                page = ctx.new_page()
+                page.set_default_timeout(25000)
+                self._watch_page(session, page)
+            else:
+                page = remaining[min(index, len(remaining) - 1)]
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "upload":
+            import computer_box as box
+            path = box.safe_path(session, str(job.get("path") or ""))
+            if path.is_symlink() or not path.is_file():
+                return {"ok": False, "error": "upload path must be a regular file in your own computer home"}
+            if not job.get("id"):
+                return {"ok": False, "error": "give the numbered file-input element id from the last page inspection"}
+            page.set_input_files(f'[data-bid="{int(job["id"])}"]', str(path), timeout=10000)
+        elif action == "download":
+            import computer_box as box
+            if not job.get("id"):
+                return {"ok": False, "error": "give the numbered download link/button id from the last page inspection"}
+            with page.expect_download(timeout=30000) as pending:
+                page.click(f'[data-bid="{int(job["id"])}"]', timeout=10000)
+            download = pending.value
+            suggested = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(download.suggested_filename).name)[:120] or "download.bin"
+            relative = str(job.get("path") or f"downloads/{suggested}")[:500]
+            target = box.safe_path(session, relative)
+            if target.is_symlink():
+                return {"ok": False, "error": "download destination must not be a symlink"}
+            if target.exists() and target.is_dir():
+                return {"ok": False, "error": "download destination is a directory"}
+            temporary = download.path()
+            if not temporary:
+                return {"ok": False, "error": "the browser could not access the completed download"}
+            size = Path(temporary).stat().st_size
+            if size > 512 * 1024 * 1024:
+                return {"ok": False, "error": "one browser download is limited to 512 MB"}
+            previous_size = target.stat().st_size if target.is_file() else 0
+            additional = max(0, size - previous_size)
+            if box.over_quota(session, additional):
+                return {"ok": False, "error": "this download would exceed the per-session quota or shared computer disk reserve"}
+            target.parent.mkdir(parents=True, exist_ok=True)
+            download.save_as(str(target))
+            if box.is_root():
+                uid = box.session_uid(session)
+                os.chown(target.parent, uid, uid)
+                os.chown(target, uid, uid)
+            page.wait_for_timeout(200)
+            mutating = False
+            reply = self._snapshot(page, bool(job.get("screenshot")))
+            reply["download"] = {"path": str(target.relative_to(box.session_home(session))), "bytes": target.stat().st_size, "filename": suggested}
+            return reply
+        elif action == "console":
+            reply = self._snapshot(page, False)
+            reply["console"] = self.console_logs.get(session, [])[-40:]
+            return reply
+        elif action == "network":
+            reply = self._snapshot(page, False)
+            reply["network_errors"] = self.network_logs.get(session, [])[-40:]
+            return reply
+        elif action == "open":
+            page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
         elif action == "click":
             if job.get("id"):
                 page.click(f'[data-bid="{int(job["id"])}"]', timeout=10000)
@@ -504,10 +623,10 @@ class _Worker(threading.Thread):
         return reply
 
 
-def _guard_route(route) -> None:
-    """Every request the page makes (not only the first address) is checked: no private network, http(s) only."""
+def _guard_route(route, session: str = "") -> None:
+    """Check every navigation/subrequest; only a same-session local dev port may reach loopback."""
     try:
-        safe_url(route.request.url)
+        safe_url(route.request.url, session)
     except Exception:  # noqa: BLE001
         route.abort()
         return
