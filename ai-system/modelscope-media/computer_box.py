@@ -398,6 +398,63 @@ def ensure_home(session: str) -> Path:
     return home
 
 
+def session_owns_tcp_port(session: str, port: int) -> bool:
+    """True only when a loopback/wildcard IPv4 listener on this port belongs to this session UID."""
+    try:
+        wanted_port = int(port)
+    except (TypeError, ValueError):
+        return False
+    if not 1 <= wanted_port <= 65535:
+        return False
+    try:
+        uid = session_uid(session)
+        lines = Path("/proc/net/tcp").read_text(encoding="ascii", errors="replace").splitlines()[1:]
+    except (OSError, RuntimeError):
+        return False
+
+    inodes: set[str] = set()
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 10 or fields[3] != "0A":  # TCP_LISTEN
+            continue
+        try:
+            address_hex, port_hex = fields[1].split(":", 1)
+            if int(port_hex, 16) != wanted_port:
+                continue
+            import ipaddress
+            address = ipaddress.IPv4Address(bytes.fromhex(address_hex)[::-1])
+            if not (address.is_loopback or address.is_unspecified):
+                continue
+            inodes.add(fields[9])
+        except (ValueError, IndexError):
+            continue
+    if not inodes:
+        return False
+
+    # The process must actually run as this session's unique unprivileged UID.
+    # A port opened by root, another user, or another model is never authorized.
+    try:
+        pids = (item for item in os.listdir("/proc") if item.isdigit())
+    except OSError:
+        return False
+    for pid in pids:
+        proc = Path("/proc") / pid
+        try:
+            if proc.stat().st_uid != uid:
+                continue
+            fds = proc / "fd"
+            for fd in fds.iterdir():
+                try:
+                    target = os.readlink(fd)
+                except OSError:
+                    continue
+                if target.startswith("socket:[") and target.endswith("]") and target[8:-1] in inodes:
+                    return True
+        except (OSError, PermissionError):
+            continue
+    return False
+
+
 def install_egress_rules() -> str:
     """Best-effort firewall for private, link-local, and cloud metadata destinations.
 
