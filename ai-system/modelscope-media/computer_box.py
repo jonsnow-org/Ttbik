@@ -60,6 +60,7 @@ _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does 
 STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
 _APT_INDEX_UPDATED_AT = 0.0
 _APP_INSTALL_LOCK = threading.RLock()
+_APP_PACKAGE_LOCK = threading.Lock()
 _APP_INSTALLS: dict[str, dict] = {}
 
 APP_INSTALL_GROUPS = {
@@ -128,8 +129,7 @@ def prepare_ubuntu_apt_sources(sources_root: str | Path | None = None, architect
 def apt_environment() -> dict[str, str]:
     """Minimal system package-manager environment; never use a model session's HOME/TMPDIR."""
     env = {
-        "PATH": str(ROOT.parent / "computer-apps" / "bin") + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "PYTHONPATH": str(ROOT.parent / "computer-apps" / "python"),
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": "/root" if is_root() else os.environ.get("HOME", "/tmp"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
@@ -286,7 +286,8 @@ def clean_env(session: str) -> dict:
     """Only what a shell needs. The Studio's own environment (tokens, secrets, API keys) never reaches a command."""
     home = str(session_home(session))
     return {
-        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH": str(ROOT.parent / "computer-apps" / "bin") + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONPATH": str(ROOT.parent / "computer-apps" / "python"),
         "HOME": home, "USER": "model", "LOGNAME": "model", "SHELL": "/bin/bash",
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm", "TMPDIR": home + "/.tmp",
         "PYTHONUNBUFFERED": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_INPUT": "1", "npm_config_cache": home + "/.npm",
@@ -1014,13 +1015,22 @@ def ensure_saved_app_groups() -> dict:
     return {"ok": all(item.get("ok") for item in results), "groups": results}
 
 
+def ensure_computer_extras() -> dict:
+    """Finish base toolchain installation, then restore only explicitly enabled optional computer apps."""
+    toolchain = ensure_dev_tools()
+    if toolchain != "ready" and not str(toolchain).startswith("done:"):
+        return {"ok": False, "toolchain": toolchain, "apps": {"ok": False, "groups": []}}
+    return {"ok": True, "toolchain": toolchain, "apps": ensure_saved_app_groups()}
+
+
 def _app_install_worker(install_id: str, group: str) -> None:
     with _APP_INSTALL_LOCK:
         current = _APP_INSTALLS.get(install_id)
         if not current:
             return
         current["status"] = "installing"
-    result = _install_app_group_now(group)
+    with _APP_PACKAGE_LOCK:
+        result = _install_app_group_now(group)
     with _APP_INSTALL_LOCK:
         current = _APP_INSTALLS.get(install_id)
         if current:
