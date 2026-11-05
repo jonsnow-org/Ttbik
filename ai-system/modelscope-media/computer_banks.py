@@ -188,8 +188,9 @@ def run_bank_action(
             _secure(bank_path, uid, True)
             return {"ok": True, "created": name, "description": description}
 
-        name = _safe_bank(job.get("bank"))
-        if not _ensure_bank(db, name):
+        search_all = action == "search" and not str(job.get("bank") or "").strip()
+        name = "projects" if search_all else _safe_bank(job.get("bank"))
+        if not search_all and not _ensure_bank(db, name):
             return {"ok": False, "error": f"bank '{name}' does not exist; create it first or call list"}
         bank_dir = _root(home) / name
         bank_dir.mkdir(parents=True, exist_ok=True)
