@@ -15,6 +15,18 @@ class SafeUrl(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 bc.safe_url(bad)
 
+    def test_only_a_listener_owned_by_the_same_model_session_can_be_previewed(self):
+        from unittest.mock import patch
+        with patch.object(bc, "_session_owns_loopback_port", return_value=True):
+            self.assertEqual(bc.safe_url("http://127.0.0.1:3000/app", "owner:sham_v2"), "http://127.0.0.1:3000/app")
+            self.assertEqual(bc.safe_url("http://localhost:3000/app", "owner:sham_v2"), "http://127.0.0.1:3000/app")
+            with self.assertRaises(ValueError):
+                bc.safe_url("http://10.2.3.4:3000/", "owner:sham_v2")
+        with patch.object(bc, "_session_owns_loopback_port", return_value=False):
+            for url in ("http://127.0.0.1:3000/", "http://localhost:3000/"):
+                with self.assertRaises(ValueError, msg=url):
+                    bc.safe_url(url, "another-user:nova")
+
     def test_other_schemes_are_refused(self):
         for bad in ("file:///etc/passwd", "ftp://93.184.216.34/x", "javascript:alert(1)"):
             with self.assertRaises(ValueError, msg=bad):
