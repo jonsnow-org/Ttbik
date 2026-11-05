@@ -116,6 +116,10 @@ def _finish_db(db: sqlite3.Connection, root: Path, uid: int | None) -> None:
         for name in ("catalog.sqlite3", "catalog.sqlite3-wal", "catalog.sqlite3-shm"):
             p = root / name
             if p.exists():
+                try:
+                    os.chmod(p, 0o600)
+                except OSError:
+                    pass
                 _owner(p, uid)
 
 
@@ -387,7 +391,11 @@ def perform(
                 resolved.relative_to(home)
                 if target.is_symlink() or target.is_dir():
                     return {"ok": False, "error": "output_path must be a regular file path inside this session"}
-                target.parent.mkdir(parents=True, exist_ok=True)
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                parent = target.parent
+                while parent != home and home in parent.parents:
+                    _owner(parent, owner_uid)
+                    parent = parent.parent
                 decompressor = zlib.decompressobj()
                 with object_file.open("rb") as packed, target.open("wb") as out:
                     while True:
