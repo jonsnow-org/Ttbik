@@ -88,6 +88,38 @@ def _package_status() -> dict:
         "files": bool(shutil.which("pcmanfm")),
     }
 
+APP_BINARIES = {
+    "terminal": ("xterm", "Terminal"),
+    "files": ("pcmanfm", "File manager"),
+    "writer": ("libreoffice", "LibreOffice Writer"),
+    "calc": ("libreoffice", "LibreOffice Calc"),
+    "impress": ("libreoffice", "LibreOffice Impress"),
+    "draw": ("libreoffice", "LibreOffice Draw"),
+    "inkscape": ("inkscape", "Inkscape vector editor"),
+    "gimp": ("gimp", "GIMP image editor"),
+    "audacity": ("audacity", "Audacity audio editor"),
+    "tesseract": ("tesseract", "Tesseract OCR command line"),
+    "ocrmypdf": ("ocrmypdf", "OCRmyPDF searchable PDF"),
+    "jupyter": ("jupyter", "Jupyter"),
+}
+
+
+def app_inventory() -> dict:
+    """Report actual executable availability; never claim an optional app is installed from package metadata alone."""
+    apps = []
+    for app, (binary, label) in APP_BINARIES.items():
+        available = bool(shutil.which(binary))
+        apps.append({"id": app, "label": label, "binary": binary, "available": available})
+    try:
+        import browser_computer
+        browser_ready = browser_computer.STATE.get("phase") == "ready"
+    except Exception:
+        browser_ready = False
+    apps.insert(2, {"id": "browser", "label": "Chromium headless browser", "binary": "playwright chromium", "available": browser_ready})
+    return {"ok": True, "apps": apps, "available_count": sum(1 for app in apps if app["available"])}
+
+
+
 
 def _install_packages() -> None:
     missing = [name for name in PACKAGES if not shutil.which(name)]
@@ -564,10 +596,12 @@ def api_desktop_do(body: str) -> str:
         action = str(job.get("action") or "").lower()
         if not session or len(session) > 240:
             return json.dumps({"ok": False, "error": "a valid session is required"})
-        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer"}:
+        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer", "apps", "open_file"}:
             return json.dumps({"ok": False, "error": "unknown desktop action"})
         if action == "status":
             return json.dumps(_desktop_status(session), ensure_ascii=False)
+        if action == "apps":
+            return json.dumps(app_inventory(), ensure_ascii=False)
         if action == "start":
             try:
                 _start_async(session)
@@ -640,11 +674,35 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
             ]
+        elif app in ("writer", "calc", "impress", "draw"):
+            executable = shutil.which("libreoffice")
+            if not executable:
+                return {"ok": False, "error": "LibreOffice is not installed. Check desktop action=apps before launching."}
+            mode = {"writer": "--writer", "calc": "--calc", "impress": "--impress", "draw": "--draw"}[app]
+            cmd = [executable, mode, "--nologo", "--norestore", "--nodefault"]
+        elif app in ("inkscape", "gimp", "audacity"):
+            executable = shutil.which(app)
+            if not executable:
+                return {"ok": False, "error": app + " is not installed. Check desktop action=apps before launching."}
+            cmd = [executable]
         else:
-            return {"ok": False, "error": "app must be terminal, files or browser"}
+            return {"ok": False, "error": "unknown app id; call action=apps to see available apps"}
         proc = _spawn(cmd, _ENV, "app-" + app)
         _PROCESSES.append(proc)
         return {"ok": True, "phase": "running", "app": app}
+    if action == "open_file":
+        try:
+            target = box.safe_path(session, str(job.get("path") or ""))
+        except ValueError as exc:
+            raise ValueError(str(exc))
+        if target.is_symlink() or not target.is_file():
+            return {"ok": False, "error": "open_file needs an existing regular file inside your private home"}
+        opener = shutil.which("xdg-open")
+        if not opener:
+            return {"ok": False, "error": "xdg-open is not installed in this Studio"}
+        proc = _spawn([opener, str(target)], _ENV, "open-file")
+        _PROCESSES.append(proc)
+        return {"ok": True, "phase": "running", "path": str(target.relative_to(box.session_home(session)))}
     if action == "click":
         x, y = clamp_point(job.get("x"), job.get("y"))
         button = str(job.get("button") or "left").lower()
