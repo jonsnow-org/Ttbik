@@ -282,6 +282,15 @@ class Running(Box):
         self.assertIn("computer_job", out["hint"])
         self.assertLess(time.time() - started, 15)
 
+    def test_session_quota_also_reserves_shared_disk_for_other_users(self):
+        low = SimpleNamespace(free=512 * 1024 ** 2)
+        with patch.object(cb.shutil, "disk_usage", return_value=low):
+            self.assertTrue(cb.over_quota("u:m", 0))
+        reserve = 1024 * 1024 ** 2
+        with patch.object(cb.shutil, "disk_usage", return_value=SimpleNamespace(free=reserve + 10)):
+            self.assertTrue(cb.over_quota("u:m", 11))
+            self.assertFalse(cb.over_quota("u:m", 10))
+
     def test_the_disk_quota_stops_new_work(self):
         old = cb.QUOTA_BYTES
         cb.QUOTA_BYTES = 10
