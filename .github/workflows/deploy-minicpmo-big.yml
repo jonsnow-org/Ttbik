@@ -63,8 +63,15 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$T"
-          code=$(curl -sS --connect-timeout 8 --max-time 25 -o studio.json -w '%{http_code}' \
-            -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          # Retry the lookup: the API occasionally answers 200 with an empty body (see the stop step below).
+          code=""
+          for attempt in $(seq 1 5); do
+            code=$(curl -sS --connect-timeout 8 --max-time 25 -o studio.json -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+            if [ "$code" = "200" ] && python3 -c "import json;json.load(open('studio.json',encoding='utf-8'))" 2>/dev/null; then break; fi
+            echo "Studio lookup not readable (HTTP $code, attempt $attempt/5); retrying in 5 s."
+            sleep 5
+          done
           test "$code" = "200" || { echo "Studio lookup failed: HTTP $code"; cat studio.json; exit 1; }
           python3 - <<'PY'
           import json
@@ -85,10 +92,20 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
+          # The ModelScope API intermittently answers 200 with an EMPTY body (2026-11-05: this step died on
+          # `json.load` "Expecting value: line 1 column 1" and failed the whole deploy on a transient read).
+          # Read the runtime state with retries; an unreadable answer is "unknown" (treated as running, so the
+          # stop path runs) instead of crashing the deploy.
           read_state() {
-            curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" \
-              "$MS/openapi/v1/studios/$OWNER/$REPO" > studio-state.json
-            python3 -c "import json;d=json.load(open('studio-state.json')).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')"
+            local body="" attempt
+            for attempt in $(seq 1 5); do
+              body=$(curl -sS --connect-timeout 8 --max-time 20 -H "Authorization: Bearer $T" \
+                "$MS/openapi/v1/studios/$OWNER/$REPO" 2>/dev/null || true)
+              if printf '%s' "$body" | python3 -c "import sys,json;json.load(sys.stdin)" 2>/dev/null; then break; fi
+              echo "Studio lookup returned no readable JSON (attempt $attempt/5); retrying in 5 s." >&2
+              sleep 5
+            done
+            printf '%s' "$body" | python3 -c "import sys,json;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || echo "unknown"
           }
           state="$(read_state)"
           echo "Previous Studio runtime: $state"

@@ -21,6 +21,7 @@ jobs:
           sparse-checkout: |
             deploy/hosting/site.json
             scripts/promo/supervise.mjs
+            scripts/supervisors/run.mjs
             src/lib/freeTools.ts
             src/app/free-tools/*/page.tsx
             public/zenobia/*.html
