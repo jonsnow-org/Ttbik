@@ -24,6 +24,7 @@ describe("the tool list the model is shown", () => {
     expect(block).toContain("- computer_job(");
     expect(block).toContain("- computer_publish(");
     expect(block).toContain("- computer_bank(");
+    expect(block).toContain("- desktop(");
     expect(block).toContain("- browser(");
     expect(block).toContain("الحاسوب الدائم");
     expect(block).toContain("computer_write");
@@ -62,7 +63,7 @@ describe("the tool list the model is shown", () => {
   it("helpers can only use read tools that really exist", () => {
     const all = new Set(SHAM_TOOLS.map((t) => t.function.name));
     for (const n of SHAM_HELPER_TOOLS) expect(all.has(n)).toBe(true);
-    for (const w of ["sandbox_exec", "sandbox_write_file", "sandbox_edit_file", "sandbox_push", "computer_run", "computer_write", "computer_publish", "github_create_pr", "github_merge_pr", "make_media", "ask_user", "delegate", "mcp_call", "connector_api", "schedule_create"]) expect(SHAM_HELPER_TOOLS.has(w)).toBe(false);
+    for (const w of ["sandbox_exec", "sandbox_write_file", "sandbox_edit_file", "sandbox_push", "computer_run", "computer_write", "computer_publish", "desktop", "github_create_pr", "github_merge_pr", "make_media", "ask_user", "delegate", "mcp_call", "connector_api", "schedule_create"]) expect(SHAM_HELPER_TOOLS.has(w)).toBe(false);
   });
 });
 
