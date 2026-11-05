@@ -24,6 +24,7 @@ describe("the tool list the model is shown", () => {
     expect(block).toContain("- computer_job(");
     expect(block).toContain("- computer_publish(");
     expect(block).toContain("- computer_bank(");
+    expect(block).toContain("- computer_apps(");
     expect(block).toContain("- desktop(");
     expect(block).toContain("- browser(");
     expect(block).toContain("الحاسوب الدائم");
