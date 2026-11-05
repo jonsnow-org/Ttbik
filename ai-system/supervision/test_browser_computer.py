@@ -97,8 +97,10 @@ class Pooling(unittest.TestCase):
         bc.STORE = Path(tempfile.mkdtemp())
         try:
             self.assertEqual(bc.load_meta("u:m"), {})
-            bc.save_meta("u:m", "https://example.com/a")
+            bc.save_meta("u:m", "https://example.com/a", ["https://example.com/a", "https://docs.example.com/"], 1)
             self.assertEqual(bc.load_meta("u:m")["url"], "https://example.com/a")
+            self.assertEqual(bc.load_meta("u:m")["tabs"], ["https://example.com/a", "https://docs.example.com/"])
+            self.assertEqual(bc.load_meta("u:m")["active"], 1)
             self.assertEqual(bc.load_meta("other"), {})                       # another user / model never sees it
             self.assertEqual(bc.state_file("u:m").parent, bc.session_dir("u:m"))
         finally:
