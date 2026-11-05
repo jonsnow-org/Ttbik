@@ -153,7 +153,7 @@ def run_bank_action(
     *,
     home: Path,
     safe_path: Callable[[str], Path],
-    over_quota: Callable[[], bool],
+    over_quota: Callable[[int], bool],
     uid: int | None = None,
 ) -> dict:
     """Run one catalog operation inside the caller-supplied, session-private home."""
@@ -202,8 +202,10 @@ def run_bank_action(
             size = len(content.encode("utf-8"))
             if size > MAX_TEXT_BYTES:
                 return {"ok": False, "error": "a bank text entry is limited to 1 MB; split it into smaller keyed entries"}
-            if over_quota():
-                return {"ok": False, "error": "this session has reached its existing computer disk quota"}
+            previous = db.execute("SELECT bytes,stored_path FROM entries WHERE bank=? AND entry_key=?", (name, key)).fetchone()
+            previous_bytes = int(previous["bytes"] or 0) if previous else 0
+            if over_quota(max(0, size - previous_bytes)):
+                return {"ok": False, "error": "this write would exceed the existing per-session computer disk quota"}
             title = str(job.get("title") or key)[:240]
             description = str(job.get("description") or "")[:1000]
             digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -214,6 +216,13 @@ def run_bank_action(
                     (name, key, title, description, "text", content, digest, size),
                 )
             _secure(_root(home) / "catalog.sqlite3", uid)
+            if previous and previous["stored_path"]:
+                old_path = home / str(previous["stored_path"])
+                try:
+                    if old_path.is_file() and not old_path.is_symlink() and _root(home) in old_path.parents:
+                        old_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             return {"ok": True, "bank": name, "key": key, "bytes": size, "sha256": digest}
 
         if action == "import":
@@ -227,8 +236,10 @@ def run_bank_action(
             size = source.stat().st_size
             if size > 512 * 1024 * 1024:
                 return {"ok": False, "error": "one imported file is limited to 512 MB"}
-            if over_quota():
-                return {"ok": False, "error": "this session has reached its existing computer disk quota"}
+            previous = db.execute("SELECT bytes,stored_path FROM entries WHERE bank=? AND entry_key=?", (name, key)).fetchone()
+            previous_bytes = int(previous["bytes"] or 0) if previous else 0
+            if over_quota(max(0, size - previous_bytes)):
+                return {"ok": False, "error": "this import would exceed the existing per-session computer disk quota"}
             original = str(job.get("file_name") or source.name)
             filename = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(original).name).strip("._")[:100] or "file"
             object_dir = bank_dir / "files"
@@ -259,6 +270,13 @@ def run_bank_action(
                     (name, key, title, description, "file", searchable, relative, mime, digest.hexdigest(), size),
                 )
             _secure(_root(home) / "catalog.sqlite3", uid)
+            if previous and previous["stored_path"]:
+                old_path = home / str(previous["stored_path"])
+                try:
+                    if old_path.is_file() and not old_path.is_symlink() and _root(home) in old_path.parents and old_path != target:
+                        old_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             return {"ok": True, "bank": name, "key": key, "path": relative, "mime_type": mime, "bytes": size,
                     "indexed_text": bool(searchable), "sha256": digest.hexdigest()}
 
