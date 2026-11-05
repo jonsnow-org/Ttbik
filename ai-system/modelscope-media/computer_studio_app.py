@@ -13,6 +13,7 @@ os.environ.setdefault("COMPUTER_MAX_GLOBAL_JOBS", "6")  # several users at once,
 os.environ.setdefault("COMPUTER_MIN_AVAILABLE_MB", "2048")
 os.environ.setdefault("COMPUTER_MEMORY_KILL_MB", "8192")
 os.environ.setdefault("COMPUTER_QUOTA_GB", "8")
+os.environ.setdefault("COMPUTER_MIN_FREE_DISK_MB", "1024")
 os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
