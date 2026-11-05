@@ -188,22 +188,49 @@ jobs:
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1000; echo
+          set -euo pipefail
           API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
-          for i in $(seq 1 40); do
-            sleep 30
-            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
-            echo "$(date -u +%H:%M:%S) Sham v1 Studio: $st"
-            case "$st" in *ail*|*rror*|*topped*) curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 3500; exit 1;; esac
-            if echo "$st" | grep -qi running; then
-              ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
-              out=""
-              [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true)
-              echo "$out" | head -c 1200
-              echo "$out" | grep -q 'phase[^,]*ready' && exit 0
-              echo "$out" | grep -q 'phase[^,]*error' && { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 3500; exit 1; }
+          # ModelScope occasionally loses its short-lived internal sbuild-* ref while
+          # creating the container. Retry once ONLY for that exact transient build error;
+          # do not loop on application errors, missing weights, or unrelated BuildFailed states.
+          for attempt in 1 2; do
+            echo "Deploying Sham v1 Studio (attempt $attempt/2)"
+            curl -fsS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1000; echo
+            retry_build_ref=0
+            for i in $(seq 1 40); do
+              sleep 30
+              st=$(curl -fsS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
+              echo "$(date -u +%H:%M:%S) Sham v1 Studio: $st"
+              case "$st" in
+                *ail*|*rror*|*topped*)
+                  build_log=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" || true)
+                  if [ "$attempt" -eq 1 ] && printf '%s' "$build_log" | grep -Fq "couldn't find remote ref refs/heads/sbuild-"; then
+                    echo "::warning::ModelScope lost its temporary sbuild ref; retrying this deployment once without changing the checkpoint or app."
+                    retry_build_ref=1
+                    break
+                  fi
+                  printf '%s' "$build_log" | tail -c 3500
+                  curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 3500
+                  echo "::error::Sham v1 Studio entered terminal state: $st"
+                  exit 1
+                  ;;
+              esac
+              if echo "$st" | grep -qi running; then
+                ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                out=""
+                [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true)
+                echo "$out" | head -c 1200
+                echo "$out" | grep -q 'phase[^,]*ready' && exit 0
+                echo "$out" | grep -q 'phase[^,]*error' && { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 3500; exit 1; }
+              fi
+            done
+            if [ "$retry_build_ref" -eq 1 ]; then
+              sleep 25
+              continue
             fi
+            break
           done
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 3500
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 3500
-          echo "::error::Sham v1 Studio did not become ready"
+          echo "::error::Sham v1 Studio did not become ready after the bounded deployment retry"
           exit 1
