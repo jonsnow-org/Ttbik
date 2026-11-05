@@ -11,6 +11,14 @@ class ComputerHubWorkflowTests(unittest.TestCase):
         self.assertIn('browser=value.get("browser",value)', source)
         self.assertIn('browser.get("phase")=="ready"', source)
 
+    def test_deploy_copies_and_compiles_the_private_bank_module(self):
+        workflow = (ROOT / ".github" / "workflows" / "deploy-minicpmo-big.yml").read_text(encoding="utf-8")
+        app = (ROOT / "ai-system" / "modelscope-media" / "computer_studio_app.py").read_text(encoding="utf-8")
+        self.assertIn("ai-system/modelscope-media/computer_banks.py", workflow)
+        self.assertIn("ms/computer_banks.py", workflow)
+        self.assertIn("computer-hub-16gb-2026-11-05-r8-banks", app)
+        self.assertIn("computer-hub-16gb-2026-11-05-r8-banks", workflow)
+
     def test_real_browser_smoke_runs_after_a_successful_computer_deploy(self):
         source = (ROOT / ".github" / "workflows" / "computer-hub-terminal-browser-smoke.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", source)
