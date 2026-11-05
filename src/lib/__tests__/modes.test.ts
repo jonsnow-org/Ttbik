@@ -52,12 +52,19 @@ beforeEach(() => {
 
 describe("classifyRequest", () => {
   it.each([
-    ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"],
+    ["مرحبا", "trivial"], ["السلام عليكم", "trivial"], ["شكرا لك", "trivial"], ["hi", "trivial"], ["من انت", "trivial"], ["كيف حالك؟", "trivial"], ["مرحبا كيف حالك", "trivial"], ["أهلاً، كيف حالك؟", "trivial"], ["hello, how are you?", "trivial"],
     ["قم بتوليد صورة أسد", "media"], ["make a short video of a rabbit", "media"],
     ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["اكمل", "chat"],
     ["اكتب دالة بايثون تعكس النص", "code"], ["fix this bug: TypeError in my function", "code"], ["```js\nconst a = 1\n```\nما الخطأ؟", "code"],
     ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
   ])("%s -> %s", (text, klass) => { expect(classifyRequest(text as string)).toBe(klass); });
+
+  it.each(["مرحبا كيف حالك", "أهلاً، كيف حالك؟", "hello, how are you?"])("keeps compound greeting %s on Nova's lite path", (text) => {
+    const profile = resolveProfile({ model: "nova", text });
+    expect(profile.klass).toBe("trivial");
+    expect(profile.lite).toBe(true);
+    expect(profile.think).toBe(false);
+  });
 });
 
 describe("the mode table", () => {
