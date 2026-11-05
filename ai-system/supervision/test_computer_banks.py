@@ -31,7 +31,7 @@ class ComputerBanks(unittest.TestCase):
             self.session, {"bank_action": action, **kwargs},
             home=self.home,
             safe_path=lambda p: (self.home / p).resolve(),
-            over_quota=lambda: False,
+            over_quota=lambda additional=0: False,
         )
 
     def test_bootstraps_logical_banks_without_a_fixed_bank_count(self):
@@ -71,10 +71,35 @@ class ComputerBanks(unittest.TestCase):
         other_home = self.homes["bob:sham"]
         other = run_bank_action(
             "bob:sham", {"bank_action": "search", "query": "private project detail"},
-            home=other_home, safe_path=lambda p: other_home / p, over_quota=lambda: False,
+            home=other_home, safe_path=lambda p: other_home / p, over_quota=lambda additional=0: False,
         )
         self.assertEqual(other["hits"], [])
         self.assertEqual(other["bank_count"] if "bank_count" in other else 0, 0)
+
+    def test_projected_quota_is_checked_before_import_and_text_write(self):
+        common = {"home": self.home, "safe_path": lambda p: (self.home / p).resolve()}
+        denied_text = run_bank_action(
+            self.session, {"bank_action": "put", "bank": "projects", "key": "too-large", "content": "x" * 20},
+            **common, over_quota=lambda additional: additional > 10,
+        )
+        self.assertFalse(denied_text["ok"])
+        self.assertIn("exceed", denied_text["error"])
+        denied_file = run_bank_action(
+            self.session, {"bank_action": "import", "bank": "documents", "key": "large", "source_path": "project.md"},
+            **common, over_quota=lambda additional: additional > 10,
+        )
+        self.assertFalse(denied_file["ok"])
+        self.assertIn("exceed", denied_file["error"])
+        self.assertFalse((self.home / "banks" / "documents" / "files").exists())
+
+    def test_replacing_imported_file_with_text_removes_old_object_copy(self):
+        imported = self.call("import", bank="documents", key="replace-me", source_path="project.md")
+        self.assertTrue(imported["ok"], imported)
+        old_file = self.home / imported["path"]
+        self.assertTrue(old_file.exists())
+        replaced = self.call("put", bank="documents", key="replace-me", content="now this is a text note")
+        self.assertTrue(replaced["ok"], replaced)
+        self.assertFalse(old_file.exists())
 
     def test_rejects_paths_outside_the_session_home_and_oversized_text(self):
         bad = run_bank_action(
