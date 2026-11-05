@@ -418,51 +418,71 @@ def perform(
                                  "kind": row["kind"], "mime_type": row["mime_type"], "size_bytes": row["size_bytes"],
                                  "sha256": row["sha256"], "excerpt": str(row["body"])[:1800]} for row in hits]}
         if action == "get":
-            item_id = str(job.get("item_id") or "").strip()
-            name = str(job.get("name") or "").strip()
-            if item_id:
-                row = db.execute("SELECT * FROM items WHERE id=? AND bank_id=?", (item_id, bank)).fetchone()
-            elif name:
-                row = db.execute("SELECT * FROM items WHERE bank_id=? AND name=? ORDER BY created_at DESC LIMIT 1",
-                                 (bank, Path(name).name)).fetchone()
-            else:
-                return {"ok": False, "error": "provide item_id or name"}
+            row = db.execute(
+                "SELECT id,bank_id,name,kind,mime_type,sha256,size_bytes,compressed_bytes,text_chars,metadata "
+                "FROM items WHERE id=? AND bank_id=?", (str(job.get("item_id") or ""), bank)
+            ).fetchone()
             if not row:
-                return {"ok": False, "error": "bank item not found"}
-            object_file = root / "objects" / row["sha256"][:2] / (row["sha256"][2:] + ".z")
-            if not object_file.is_file():
-                return {"ok": False, "error": "stored object is missing"}
-            output_path = str(job.get("output_path") or "").strip()
-            if output_path:
-                target = path_resolver(output_path) if path_resolver else (home / output_path)
-                resolved = target.resolve()
-                resolved.relative_to(home)
-                if target.is_symlink() or target.is_dir():
-                    return {"ok": False, "error": "output_path must be a regular file path inside this session"}
+                return {"ok": False, "error": "item not found in this bank"}
+            stored = object_dir / row["sha256"][:2] / (row["sha256"][2:] + ".z")
+            if not stored.is_file():
+                return {"ok": False, "error": "bank object is missing"}
+            if job.get("output_path"):
+                target = path_resolver(str(job["output_path"]))
+                target = Path(target).resolve()
+                try:
+                    target.relative_to(home)
+                except ValueError:
+                    return {"ok": False, "error": "restore path must stay inside this computer session"}
                 target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 parent = target.parent
                 while parent != home and home in parent.parents:
                     _owner(parent, owner_uid)
                     parent = parent.parent
+                existing_size = target.stat().st_size if target.is_file() else 0
+                additional = max(0, int(row["size_bytes"]) - existing_size)
+                if max(0, used_bytes - existing_size) + int(row["size_bytes"]) > quota_bytes:
+                    return {"ok": False, "error": "restored file would exceed this computer session's storage quota"}
+                reserve_gb = max(1, min(8, int(os.environ.get("COMPUTER_BANK_FREE_RESERVE_GB", "2"))))
+                if shutil.disk_usage(root).free < additional + reserve_gb * 1024 ** 3:
+                    return {"ok": False, "error": f"host disk must keep {reserve_gb} GB free; there is not enough room to restore this item"}
+                restore_tmp = target.with_name("." + target.name + ".restore-" + uuid.uuid4().hex[:8])
                 decompressor = zlib.decompressobj()
-                with object_file.open("rb") as packed, target.open("wb") as out:
-                    while True:
-                        block = packed.read(1024 * 1024)
-                        if not block:
-                            break
-                        out.write(decompressor.decompress(block))
-                    out.write(decompressor.flush())
-                os.chmod(target, 0o700 if row["kind"] in {"app", "tool"} else 0o600)
-                _owner(target, owner_uid)
-                return {"ok": True, "action": action, "bank": bank, "item_id": row["id"],
-                        "name": row["name"], "path": str(target.relative_to(home)),
-                        "size_bytes": row["size_bytes"], "sha256": row["sha256"]}
+                digest = hashlib.sha256()
+                written = 0
+                try:
+                    with stored.open("rb") as inp, restore_tmp.open("wb") as out:
+                        while True:
+                            block = inp.read(CHUNK_BYTES)
+                            if not block:
+                                break
+                            data = decompressor.decompress(block)
+                            if data:
+                                out.write(data)
+                                digest.update(data)
+                                written += len(data)
+                        tail = decompressor.flush()
+                        if tail:
+                            out.write(tail)
+                            digest.update(tail)
+                            written += len(tail)
+                    if written != int(row["size_bytes"]) or digest.hexdigest() != row["sha256"]:
+                        return {"ok": False, "error": "bank object checksum or size verification failed"}
+                    os.replace(restore_tmp, target)
+                    try:
+                        os.chmod(target, 0o700 if row["kind"] in {"app", "tool"} else 0o600)
+                    except OSError:
+                        pass
+                    _owner(target, owner_uid)
+                    return {"ok": True, "action": action, "item_id": row["id"], "path": str(target.relative_to(home)),
+                            "bytes": written, "kind": row["kind"], "sha256": row["sha256"]}
+                finally:
+                    restore_tmp.unlink(missing_ok=True)
             if row["text_chars"]:
-                text_rows = db.execute("SELECT body FROM chunks WHERE item_id=? ORDER BY chunk_no", (row["id"],)).fetchall()
-                body = "\n".join(str(x["body"]) for x in text_rows)
-                return {"ok": True, "action": action, "bank": bank, "item_id": row["id"],
-                        "name": row["name"], "text": body[:12000], "cut": len(body) > 12000}
-            return {"ok": False, "error": "binary item: set output_path to restore it into your private computer"}
+                text = _read_item_text(db, row["id"])
+                return {"ok": True, "action": action, "item_id": row["id"], "name": row["name"],
+                        "kind": row["kind"], "text": text}
+            return {"ok": False, "error": "output_path is required to restore this binary item"}
         if action == "delete":
             item_id = str(job.get("item_id") or "").strip()
             if not item_id:
