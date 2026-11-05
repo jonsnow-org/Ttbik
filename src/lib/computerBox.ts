@@ -3,11 +3,11 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean; bank_action?: string; bank?: string; key?: string; title?: string; description?: string; source_path?: string; file_name?: string; target_bank?: string; target_key?: string; relation?: string; query?: string;
 };
 
-const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
-const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo"]);
+const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "bank", "batch"]);
+const BATCH_TOOLS = new Set(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_patch", "computer_test", "computer_tools", "computer_job", "computer_repo", "computer_bank"]);
 
 /** The tool names a model sees → what the Studio understands. */
 export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs | null {
@@ -20,6 +20,13 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_patch") return { action: "patch", diff: a.diff as string, cwd: (a.cwd as string) || "." };
   if (tool === "computer_test") return { action: "test", cwd: (a.cwd as string) || ".", command: (a.command as string) || "" };
   if (tool === "computer_tools") return { action: "tools" };
+  if (tool === "computer_bank") return {
+    action: "bank", bank_action: a.action as string, bank: a.bank as string,
+    key: a.key as string, title: a.title as string, description: a.description as string,
+    content: a.content as string, source_path: a.source_path as string, file_name: a.file_name as string,
+    target_bank: a.target_bank as string, target_key: a.target_key as string,
+    relation: a.relation as string, query: a.query as string, limit: a.limit as number,
+  };
   if (tool === "computer_batch") {
     // several computer actions in ONE round trip: each step is {tool: "computer_run"|..., ...its arguments}
     const steps = (Array.isArray(a.steps) ? a.steps : []).slice(0, 8).map((st: any) => {
@@ -64,6 +71,17 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.repo !== undefined) out.repo = String(a.repo).slice(0, 200);
   if (a.dir !== undefined) out.dir = String(a.dir).slice(0, 300);
   if (a.diff !== undefined) out.diff = String(a.diff).slice(0, 400_000);
+  if (a.bank_action !== undefined) out.bank_action = String(a.bank_action).slice(0, 24);
+  if (a.bank !== undefined) out.bank = String(a.bank).slice(0, 48);
+  if (a.key !== undefined) out.key = String(a.key).slice(0, 180);
+  if (a.title !== undefined) out.title = String(a.title).slice(0, 240);
+  if (a.description !== undefined) out.description = String(a.description).slice(0, 1000);
+  if (a.source_path !== undefined) out.source_path = String(a.source_path).slice(0, 500);
+  if (a.file_name !== undefined) out.file_name = String(a.file_name).slice(0, 120);
+  if (a.target_bank !== undefined) out.target_bank = String(a.target_bank).slice(0, 48);
+  if (a.target_key !== undefined) out.target_key = String(a.target_key).slice(0, 180);
+  if (a.relation !== undefined) out.relation = String(a.relation).slice(0, 80);
+  if (a.query !== undefined) out.query = String(a.query).slice(0, 500);
   if (a.continue_on_error) out.continue_on_error = true;
   if (action === "batch") {
     const steps = (a.steps || []).slice(0, 8).map((st) => (String(st?.action || "") === "batch" ? null : cleanBoxArgs(st)));
@@ -107,6 +125,11 @@ function renderBody(action: string, r: Record<string, any>): string {
       return `tests started as job ${r.id} (${r.command} in ${r.cwd}). Read the result with computer_job action=log id=${r.id}; the last line is TESTS_EXIT=<code>.`;
     case "tools":
       return "installed: " + Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => v).map(([k]) => k).join(" ") + `\nnot yet: ${Object.entries((r.tools as Record<string, boolean>) || {}).filter(([, v]) => !v).map(([k]) => k).join(" ") || "-"}\nbackground install: ${typeof r.devtools === "string" ? r.devtools : JSON.stringify(r.devtools || "").slice(0, 200)}`;
+    case "bank":
+      if (Array.isArray(r.banks)) return "storage banks:\n" + r.banks.map((b: any) => `- ${b.name}: ${b.entries} entries, ${b.bytes} bytes — ${b.description}`).join("\n");
+      if (Array.isArray(r.hits)) return r.hits.length ? r.hits.map((h: any) => `[${h.bank}/${h.key}] ${h.title} (${h.kind}, ${h.bytes} bytes)\n${h.excerpt || h.description || ""}`).join("\n\n") : "no matching entries";
+      if (r.entry) return JSON.stringify(r.entry).slice(0, 10000);
+      return JSON.stringify(r).slice(0, 3000);
     case "batch":
       return [`${((r.results as any[]) || []).length} step(s) in one call · ${r.seconds}s`, ...((r.results as any[]) || []).map((x, i) => `[${i + 1}] ${x.action}: ${x.skipped ? "not run (" + x.error + ")" : x.ok === false ? "error: " + String(x.error || "").slice(0, 300) + (x.output ? "\n" + String(x.output).slice(0, 400) : "") : renderBody(String(x.action), x)}`)].join("\n\n").slice(0, 12000);
     case "job_list":
