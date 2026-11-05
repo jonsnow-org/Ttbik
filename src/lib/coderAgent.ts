@@ -23,8 +23,8 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_whoami", "Who the GitHub token belongs to.", obj({})),
   tool("github_list_repos", "List repositories the token can access.", obj({ owner: s("optional org or user") })),
   tool("github_repo_info", "Repository facts: default branch, description, visibility, open issues.", obj({ repo: REPO }, ["repo"])),
-  tool("github_repo_scan", "ONE call that gives the lay of a repository: facts, top-level folders and files, the README start and the main manifest (package.json / pyproject / requirements). Use it first on an unfamiliar repo instead of several separate calls.", obj({ repo: REPO }, ["repo"])),
-  tool("github_repo_audit", "Read-only initial audit in ONE call: repository facts + file tree + up to 8 key file excerpts selected from README, manifest, config, entry points, schema, CI and tests. Use first for a broad project review; follow up on specific files for a complete audit.", obj({ repo: REPO, ref: s("branch / commit, optional") }, ["repo"])),
+  tool("github_repo_scan", "ONE call that gives the lay of a repository or one named folder: facts, immediate folders and files, the README start and the main manifest. Set path when the user named a project folder; only that folder is listed or read.", obj({ repo: REPO, path: s("optional repository-relative folder; restricts the scan to this folder") }, ["repo"])),
+  tool("github_repo_audit", "Read-only initial audit in ONE call: repository facts + a file listing + up to 8 key file excerpts selected from README, manifest, config, entry points, schema, CI and tests. Set path when the user named a project folder; only that folder is listed or read.", obj({ repo: REPO, ref: s("branch / commit, optional"), path: s("optional repository-relative folder; restricts the audit to this folder") }, ["repo"])),
   tool("github_read_files", "Read up to 4 text files of one repository in ONE call (the start of each). Use it when you already know which files you need.", obj({ repo: REPO, paths: { type: "array", items: { type: "string" }, description: "file paths, at most 4" }, ref: s("branch / sha") }, ["repo", "paths"])),
   tool("github_list_files", "List files of a repository (recursive tree, or one folder).", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a text file. Use start_line/end_line for big files.", obj({ repo: REPO, path: s("file path"), ref: s("branch / sha"), start_line: n("1-based"), end_line: n("inclusive") }, ["repo", "path"])),
@@ -810,6 +810,22 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     if (name === "github_repo_scan" || name === "github_read_files" || name === "github_repo_audit") {
       // composite reads: the independent GitHub calls inside run together and come back as one compact report (fewer slow model steps)
       const sub = (n: string, args: Record<string, unknown>) => runTool({ id: `${call.id || "c"}_${n}`, type: "function", function: { name: n, arguments: JSON.stringify(args) } }, ctx);
+      const requestedPath = String(a.path || "").trim();
+      const scopePath = requestedPath.replace(/\/+$/, "");
+      if (requestedPath.startsWith("/") || scopePath.includes("\\") || (scopePath && scopePath.split("/").some((part) => !part || part === "." || part === ".."))) {
+        return "error: path must be a repository-relative folder inside the repository";
+      }
+      const listScopedEntries = (raw: string) => {
+        const lines = raw.split("\n").filter(Boolean);
+        if (!scopePath) return lines.slice(1).map((line) => ({ path: line.trim(), relative: line.trim(), directory: false }));
+        return lines.flatMap((line) => {
+          const directory = line.startsWith("📁 ");
+          const path = line.replace(/^📁\s+/, "").trim().replace(/ \(\d+\)$/, "");
+          const prefix = scopePath + "/";
+          return path.startsWith(prefix) ? [{ path, relative: path.slice(prefix.length), directory }] : [];
+        });
+      };
+      const readScopedFile = (path: string) => scopePath ? `${scopePath}/${path}` : path;
       if (name === "github_read_files") {
         const paths = (Array.isArray(a.paths) ? a.paths : []).map(String).filter(Boolean).slice(0, 4);
         if (!paths.length) return "error: paths is required (1 to 4 files)";
@@ -819,9 +835,10 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (name === "github_repo_audit") {
         const [info, top] = await Promise.all([
           sub("github_repo_info", { repo: a.repo }),
-          sub("github_list_files", { repo: a.repo, path: "", ...(a.ref ? { ref: a.ref } : {}) }),
+          sub("github_list_files", { repo: a.repo, path: scopePath, ...(a.ref ? { ref: a.ref } : {}) }),
         ]);
-        const files = top.split("\n").slice(1).map((p) => p.trim()).filter((p) => p && !/^error\b/i.test(p));
+        const entries = listScopedEntries(top);
+        const files = entries.filter((entry) => !entry.directory).map((entry) => entry.relative);
         const picks: string[] = [];
         const take = (predicate: (p: string) => boolean) => {
           if (picks.length >= 8) return;
@@ -842,22 +859,31 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         take((p) => /(?:^|\/)(?:__tests__|tests|test)\//i.test(p) || /\.(?:test|spec)\.[^.]+$/i.test(p));
         take((p) => /^(?:src|app|lib|server)\/.*\.(?:ts|tsx|js|jsx|py|go|rs)$/i.test(p) && !/(?:^|\/)(?:__tests__|tests|test)\//i.test(p));
         take((p) => /\.(?:ts|tsx|js|jsx|py|go|rs)$/i.test(p));
-        const dirs = [...new Set(files.filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].slice(0, 35);
+        const dirs = [...new Set([
+          ...entries.filter((entry) => entry.directory).map((entry) => entry.relative),
+          ...(!scopePath ? files.filter((p) => p.includes("/")).map((p) => p.split("/")[0]) : []),
+        ])].slice(0, 35);
         const excerpts = await Promise.all(picks.map(async (path) => {
-          const body = await sub("github_read_file", { repo: a.repo, path, ...(a.ref ? { ref: a.ref } : {}), end_line: 80 });
+          const body = await sub("github_read_file", { repo: a.repo, path: readScopedFile(path), ...(a.ref ? { ref: a.ref } : {}), end_line: 80 });
           const max = /^README/i.test(path) ? 1250 : /(?:package\.json|pyproject\.toml|requirements\.txt)$/.test(path) ? 1250 : /(?:workflow|test|spec)/i.test(path) ? 950 : 1050;
-          return "=== " + path + " ===\n" + body.slice(0, max);
+          return "=== " + readScopedFile(path) + " ===\n" + body.slice(0, max);
         }));
-        return clip("READ-ONLY REPOSITORY AUDIT (initial map; excerpts, not every line)\n" + info + "\nTree: " + (top.split("\n")[0] || "unavailable") + "\nTop-level folders: " + (dirs.join(", ") || "-") + "\nSelected key paths: " + (picks.join(", ") || "none") + "\n\n" + excerpts.join("\n\n"), RESULT_MAX);
+        const location = scopePath ? "Scope: " + scopePath : "Tree: " + (top.split("\n")[0] || "unavailable");
+        return clip("READ-ONLY REPOSITORY AUDIT (initial map; excerpts, not every line)\n" + info + "\n" + location + "\nTop-level folders: " + (dirs.join(", ") || "-") + "\nSelected key paths: " + (picks.map(readScopedFile).join(", ") || "none") + "\n\n" + excerpts.join("\n\n"), RESULT_MAX);
       }
-      const [info, top] = await Promise.all([sub("github_repo_info", { repo: a.repo }), sub("github_list_files", { repo: a.repo, path: "" })]);
-      const files = top.split("\n").slice(1);
-      const has = (re: RegExp) => files.find((f) => re.test(f.trim()));
+      const [info, top] = await Promise.all([sub("github_repo_info", { repo: a.repo }), sub("github_list_files", { repo: a.repo, path: scopePath })]);
+      const entries = listScopedEntries(top);
+      const files = entries.filter((entry) => !entry.directory).map((entry) => entry.relative);
+      const has = (re: RegExp) => files.find((f) => re.test(f));
       const readme = has(/^README(\.md)?$/i), manifests = ["package.json", "pyproject.toml", "requirements.txt", "go.mod", "Cargo.toml"].filter((m) => files.includes(m));
-      const roots = [...new Set(files.filter((f) => !f.includes("/")))].slice(0, 40), dirs = [...new Set(files.filter((f) => f.includes("/")).map((f) => f.split("/")[0]))].slice(0, 40);
+      const roots = [...new Set(files.filter((f) => !f.includes("/")))].slice(0, 40), dirs = [...new Set([
+        ...entries.filter((entry) => entry.directory).map((entry) => entry.relative),
+        ...(!scopePath ? files.filter((f) => f.includes("/")).map((f) => f.split("/")[0]) : []),
+      ])].slice(0, 40);
       const picks = [readme, ...manifests.slice(0, 2)].filter(Boolean) as string[];
-      const got = await Promise.all(picks.map((path) => sub("github_read_file", { repo: a.repo, path, end_line: path.startsWith("README") ? 60 : 50 })));
-      return clip(`${info}\n\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, picks[i].startsWith("README") ? 2000 : 1200)}`).join("\n\n")}`);
+      const got = await Promise.all(picks.map((path) => sub("github_read_file", { repo: a.repo, path: readScopedFile(path), end_line: path.startsWith("README") ? 60 : 50 })));
+      if (!scopePath) return clip(`${info}\n\nfolders: ${dirs.join(", ") || "-"}\nroot files: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${picks[i]} ===\n${g.slice(0, picks[i].startsWith("README") ? 2000 : 1200)}`).join("\n\n")}`);
+      return clip(`${info}\n\nScope: ${scopePath || "."}\nFolders: ${dirs.join(", ") || "-"}\nFiles: ${roots.join(", ") || "-"}\n\n${got.map((g, i) => `=== ${readScopedFile(picks[i])} ===\n${g.slice(0, picks[i].startsWith("README") ? 2000 : 1200)}`).join("\n\n")}`);
     }
     switch (name) {
       case "github_whoami": {
@@ -1132,7 +1158,7 @@ export const queryDraftPrompt = (request: string): CoderMessage[] => [{
 
 /** Keep all drafted words when adding the GitHub search scope. */
 export function githubQuery(q: string): string {
-  if (/[a-z]+:\\S/i.test(q)) return q;
+  if (/[a-z]+:\S/i.test(q)) return q;
   const topic = String(q || "").trim().replace(/\s+/g, " ").slice(0, 180);
   return topic ? topic + " in:name,description stars:>20" : q;
 }

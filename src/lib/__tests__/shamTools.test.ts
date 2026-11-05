@@ -1,7 +1,11 @@
 import { parseShamToolCalls, shamToolBlock, shamToolConversation, shamToolsEnabled } from "@/lib/shamTools";
 import { GITHUB_TOOLS, toolGroups } from "@/lib/coderAgent";
 
-const tools = [...GITHUB_TOOLS.filter((t) => ["github_read_file", "github_list_files", "github_repo_scan"].includes(t.function.name)), ...toolGroups(true, false).computer];
+const tools = [
+  ...GITHUB_TOOLS.filter((t) => ["github_read_file", "github_list_files", "github_repo_scan"].includes(t.function.name)),
+  ...toolGroups(true, false).computer,
+  ...toolGroups(true, false).worker.filter((t) => t.function.name === "sandbox_exec"),
+];
 
 describe("Sham gets Nova's tools as text", () => {
   it("is off by default, on with SHAM_TOOLS=on or SHAM_LIMITS=open, and SHAM_TOOLS=off always wins", () => {
@@ -60,9 +64,9 @@ describe("Sham's calls are checked before they run, and wrong ones go back to Sh
     const user: any[] = [{ role: "user", content: "اكتب دالة جمع" }];
     expect(codeNotTried(code, user, tools)).toBe(true);
     expect(codeNotTried("جواب بلا كود", user, tools)).toBe(false);
-    expect(codeNotTried(code, [...user, { role: "tool", name: "sandbox_exec", content: "ok" }], tools)).toBe(false);
-    expect(codeNotTried(code, user, tools.filter((t) => !t.function.name.startsWith("sandbox_")))).toBe(false);
-    expect(SHAM_CODE_NOTE).toMatch(/sandbox_exec/);
+    expect(codeNotTried(code, [...user, { role: "tool", name: "computer_run", content: "exit 0" }], tools)).toBe(false);
+    expect(codeNotTried(code, user, tools.filter((t) => !t.function.name.startsWith("computer_")))).toBe(false);
+    expect(SHAM_CODE_NOTE).toMatch(/computer_run/);
   });
 });
 

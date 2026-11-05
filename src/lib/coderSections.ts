@@ -1549,7 +1549,8 @@ function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | und
 export async function resolvePending(
   bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
 ): Promise<boolean> {
-  const selected = await engineModelForRun(chatId, runId, db);
+  const slot = (await taskSlot(runId, chatId, db)) ?? "";
+  const selected = await engineModelForRun(chatId, runId, db, slot);
   if (!selected) return false;
   return withEngineModel(selected, () => resolvePendingInner(bot, botRow, chatId, runId, nonce, answer, db, msgId));
 }
@@ -1656,7 +1657,7 @@ const contextOf = (run: Run): Context => (run.agent ? run.parentCtx || "interact
 const toolCallKey = (call: CoderToolCall): string => call.id || `${call.function.name}:${call.function.arguments}`;
 
 /** The largest size of a Telegram photo, downloaded and shrunk to what the model should be shown. */
-async function telegramPhoto(bot: TelegramBot, botRow: BotRow, sizes: { file_id: string; file_size?: number; width?: number }[]): Promise<string | null> {
+export async function telegramPhoto(bot: TelegramBot, botRow: BotRow, sizes: { file_id: string; file_size?: number; width?: number }[]): Promise<string | null> {
   try {
     const big = [...sizes].sort((x, y) => (y.width || 0) - (x.width || 0) || (y.file_size || 0) - (x.file_size || 0))[0];
     const f = await bot.api.getFile(big.file_id);

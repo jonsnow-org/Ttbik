@@ -446,7 +446,8 @@ describe("research fast path: one deep research first, then the report", () => {
     await new Promise((r) => setTimeout(r, 1500));
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
     expect(chat).toHaveLength(2);                                                         // a short query-draft call, then ONE report step (the harness did the searching)
-    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
+    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into relevant web-search queries/);
+    expect(JSON.stringify(chat[0].body)).toMatch(/Preserve Arabic wording/);
     const body = JSON.stringify(chat[1].body);
     expect(body).toMatch(/deep_research/);
     expect(body).toMatch(/found little or nothing|already run for you/);   // (the mocked searches return nothing: the "do not invent" variant)
@@ -499,7 +500,8 @@ describe("research fast path for GitHub requests", () => {
     expect(sent.some((s) => /التقرير: مشروع a\/tg-llm/.test(s.text))).toBe(true);
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
     expect(chat.length).toBeGreaterThanOrEqual(2);                                         // one query-draft call, then the report: written in parallel sections and joined by the model
-    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
+    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into relevant web-search queries/);
+    expect(JSON.stringify(chat[0].body)).toMatch(/Preserve Arabic wording/);
     const searched = calls.filter((c) => /bing|brave|duckduckgo|wikipedia/.test(c.url)).map((c) => decodeURIComponent(c.url));
     expect(searched.some((u) => /telegram bot message queue retry/.test(u))).toBe(true);   // the drafted queries went to the search engines
     expect(searched.some((u) => /اذهب وابحث/.test(u) && u.length > 400)).toBe(false);      // not the whole command sentence as a query

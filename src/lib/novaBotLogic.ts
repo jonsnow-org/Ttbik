@@ -18,8 +18,9 @@ import { later } from "@/lib/coderRuntime";
 import { postShamContinuation } from "@/lib/shamContinuation";
 import { shamTaskSlot, taskEvent, taskIsActive, taskStart, taskStatus, taskTouch } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
-import { shamLastFailure, shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
+import { telegramPhoto } from "@/lib/coderSections";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -1137,6 +1138,44 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
       const chatId = update.message.chat.id;
+      if (Array.isArray(update.message.photo) && update.message.photo.length) {
+        const variant = shamVariant.getStore();
+        if (variant !== "v1" && variant !== "v2") {
+          await bot.api.sendMessage(chatId, "لم يُحدّد نموذج شام لهذه الصورة؛ لم تُرسل إلى أي نموذج.").catch(() => null);
+          return;
+        }
+        if (!(await shamClaimUpdate(chatId, update.update_id))) return;
+        const question = String(update.message.caption || "").trim() || "صف هذه الصورة وأجب عن أي سؤال ظاهر في رسالتي.";
+        await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+        later(() => shamVariant.run(variant, async () => {
+          try {
+            if (!shamStudioEnabled()) {
+              await bot.api.sendMessage(chatId, "استوديو شام غير مُعدّ الآن؛ لم تُرسل الصورة إلى أي نموذج.").catch(() => null);
+              return;
+            }
+            const image = await telegramPhoto(bot, _botRow, update.message.photo);
+            if (!image) {
+              await bot.api.sendMessage(chatId, "تعذّر تحميل الصورة من تيليغرام؛ لم تُرسل إلى أي نموذج.").catch(() => null);
+              return;
+            }
+            const comma = image.indexOf(",");
+            if (comma < 0) {
+              await bot.api.sendMessage(chatId, "تعذّر تجهيز الصورة بصيغة مفهومة للنموذج.").catch(() => null);
+              return;
+            }
+            const answer = await shamUnderstandImage(image.slice(comma + 1), question);
+            if (answer.startsWith("error:")) {
+              await bot.api.sendMessage(chatId, `تعذّر على ${variant === "v2" ? "شام v2" : "شام"} فهم الصورة عبر استوديوه المختار: ${answer.slice(6).trim().slice(0, 300)}`).catch(() => null);
+              return;
+            }
+            await saveChatTurn(chatId, `[صورة] ${question}`, answer);
+            await sendShamReply(bot, chatId, { type: "text", text: answer });
+          } catch (error) {
+            await bot.api.sendMessage(chatId, `تعذّر إرسال الصورة إلى ${variant === "v2" ? "شام v2" : "شام"}: ${String((error as Error)?.message || error).slice(0, 240)}`).catch(() => null);
+          }
+        }));
+        return;
+      }
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
       // 2026-10-14: with SHAM_THINK on, a bare word («صورة …») is no longer a keyword rule — only the explicit slash command (/image, /صورة …)
       // is the user's own choice; everything else is for the model to decide. REVIEW: the bare-word form is kept for SHAM_THINK=0.

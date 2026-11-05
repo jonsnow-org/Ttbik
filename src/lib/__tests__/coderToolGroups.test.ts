@@ -79,7 +79,8 @@ describe("tool groups the model loads itself (CODER_TOOL_GROUPS=lazy)", () => {
     expect(n).toContain("load_tools");
   });
   it("every group loaded: load_tools itself is gone, all tools present", () => {
-    const msgs: any[] = [{ role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "load_tools", arguments: '{"groups":["github","computer","web","media","memory","schedule"]}' } }] }];
+    const groups = Object.keys(toolGroups(true, false));
+    const msgs: any[] = [{ role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "load_tools", arguments: JSON.stringify({ groups }) } }] }];
     expect(names(coderToolsFor(true, false, msgs)).sort()).toEqual(names(coderTools(true)).sort());
   });
   it("CODER_TOOL_GROUPS=off sends every tool", () => {
@@ -133,9 +134,9 @@ describe("researchQuestion: when a message is a plain research request", () => {
 
 describe("githubQuery", () => {
   const { githubQuery } = require("@/lib/coderAgent");
-  it("drops 'GitHub' and filler, searches names and descriptions, asks for stars", () => {
-    expect(githubQuery("GitHub AI Telegram bot projects")).toBe("ai telegram bot in:name,description stars:>20");
-    expect(githubQuery("Telegram bot message size optimization")).toBe("telegram bot message in:name,description stars:>20");
+  it("preserves drafted terms while adding the default GitHub search scope", () => {
+    expect(githubQuery("GitHub AI Telegram bot projects")).toBe("GitHub AI Telegram bot projects in:name,description stars:>20");
+    expect(githubQuery("Telegram bot message size optimization")).toBe("Telegram bot message size optimization in:name,description stars:>20");
   });
   it("leaves a query that already has qualifiers alone", () => {
     expect(githubQuery("telegram bot language:python stars:>500")).toBe("telegram bot language:python stars:>500");
