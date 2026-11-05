@@ -126,7 +126,7 @@ jobs:
           API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
           for i in $(seq 1 40); do
             sleep 30
-            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
+            st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;s=sys.stdin.read().strip();d=json.loads(s) if s.startswith('{') else {};d=d.get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')")
             echo "$(date -u +%H:%M:%S) studio: $st"
             case "$st" in
               *ail*|*rror*|*topped*)
