@@ -1320,6 +1320,22 @@ BATCH_MAX_STEPS = 8
 BATCH_BUDGET_S = float(os.environ.get("BOX_BATCH_BUDGET_S", "20"))   # the gateway can drop a call near 30 s: start no new step after this
 
 
+def run_bank_action(session: str, job: dict) -> dict:
+    """Dispatch to the session-private, file-backed bank catalog."""
+    ensure_home(session)
+    import sys
+    media_dir = str(Path(__file__).resolve().parent)
+    if media_dir not in sys.path:
+        sys.path.insert(0, media_dir)
+    from computer_banks import run_bank_action as bank_action
+    return bank_action(
+        session, job, home=session_home(session),
+        safe_path=lambda value: safe_path(session, value),
+        over_quota=lambda: over_quota(session),
+        uid=session_uid(session) if is_root() else None,
+    )
+
+
 def _dispatch_inner(session: str, action: str, job: dict) -> dict:
     if action == "run":
         out = run_command(session, job.get("command", ""), job.get("cwd", "."), int(job.get("timeout") or DEFAULT_TIMEOUT))
@@ -1351,6 +1367,8 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
         out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
     elif action == "tools":
         out = tools_inventory(session)
+    elif action == "bank":
+        out = run_bank_action(session, job)
     else:
         out = {"ok": False, "error": "unknown action " + action[:30]}
     return out
@@ -1418,7 +1436,7 @@ def api_box_do(body: str) -> str:
         out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch", "bank"):
         try:
             tips = welcome(session)                        # once per session, never repeated
         except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error
