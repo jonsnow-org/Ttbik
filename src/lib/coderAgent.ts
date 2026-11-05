@@ -83,10 +83,10 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate your isolated graphical Linux desktop. Start/status/frame/stop a display; action=apps lists applications actually installed; launch starts an available app; open_file opens a file from your private home in its default desktop app. Use click/dblclick, drag, move, mousedown/mouseup, clipboard_set/clipboard_get, pointer, type, key and scroll for precise control. Inspect frames after actions; never assume an input succeeded without checking.",
+  tool("desktop", "Operate your isolated graphical Linux desktop. Start/status/frame/stop a display; action=apps lists applications actually installed; launch starts an available app; open_file opens a file from your private home in its default desktop app. Use click/dblclick, drag, move, mousedown/mouseup, clipboard_set/clipboard_get, pointer, type, key and scroll for precise control. Inspect frames after actions; never assume an input succeeded without checking. Use computer_apps action=list/install/status for optional Office, OCR, data and creative suites; action=launch app=jupyter starts a private JupyterLab server and returns its session-local URL.",
     obj({
       action: { type: "string", enum: ["start", "status", "apps", "frame", "stop", "launch", "open_file", "click", "dblclick", "move", "mousedown", "mouseup", "drag", "clipboard_set", "clipboard_get", "pointer", "type", "key", "scroll"] },
-      app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] },
+      app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity", "jupyter"] },
       url: s("URL to open when launching the browser"),
       path: s("file path inside your own computer home for open_file"),
       x: n("horizontal pixel coordinate from the latest screenshot"),
