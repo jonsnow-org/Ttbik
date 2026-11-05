@@ -58,7 +58,16 @@ def generate_video(body: str) -> str:
             return json.dumps({"type": "error", "text": "a text prompt is required"})
         STATE["phase"] = "making video"
         requested_seconds = float(payload.get("seconds", 4) or 4)
-        clip = cpu_video.cv_generate_long(HERE, prompt, requested_seconds, int(payload.get("seed", 0) or 0), ENVS)
+        # 8 GB Studio: 2 s (16-frame) passes are the proven-safe size; a 4 s/32-frame pass died mid-sampling (2026-11-05).
+        previous_cap = os.environ.get("CPU_VIDEO_MAX_PASS_S")
+        os.environ["CPU_VIDEO_MAX_PASS_S"] = "2"
+        try:
+            clip = cpu_video.cv_generate_long(HERE, prompt, requested_seconds, int(payload.get("seed", 0) or 0), ENVS)
+        finally:
+            if previous_cap is None:
+                os.environ.pop("CPU_VIDEO_MAX_PASS_S", None)
+            else:
+                os.environ["CPU_VIDEO_MAX_PASS_S"] = previous_cap
         check_mp4(clip, expected_seconds=requested_seconds, min_width=480, min_height=270)
         STATE["videos"] += 1
         STATE["last_s"] = round(time.time() - t0, 1)
