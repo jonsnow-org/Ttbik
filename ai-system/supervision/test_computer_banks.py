@@ -78,7 +78,7 @@ class ComputerBanks(unittest.TestCase):
             db.close()
         old = self.call("search", query="quartz constellation", limit=5)
         self.assertEqual(old["hits"][0]["key"], "old-discovery")
-        self.assertGreater(old["matched"], 1)
+        self.assertEqual(old["matched"], 1)
         arabic = self.call("search", query="ذاكرة تدمر", limit=5)
         self.assertTrue(any(hit["key"] == "arabic-memory" for hit in arabic["hits"]), arabic)
 
