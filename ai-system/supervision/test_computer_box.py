@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 PATH = Path(__file__).resolve().parents[1] / "modelscope-media" / "computer_box.py"
 spec = importlib.util.spec_from_file_location("computer_box", PATH)
@@ -29,6 +30,50 @@ class Box(unittest.TestCase):
 
     def run_box(self, **job):
         return json.loads(cb.api_box_do(json.dumps(job)))
+
+
+class OptionalApps(Box):
+    def setUp(self):
+        super().setUp()
+        cb._APP_INSTALLS.clear()
+
+    def tearDown(self):
+        cb._APP_INSTALLS.clear()
+        super().tearDown()
+
+    def test_app_inventory_lists_only_allowlisted_groups_and_disk_requirements(self):
+        result = self.run_box(session="alice:nova", action="apps", app_action="list")
+        self.assertTrue(result["ok"], result)
+        groups = {item["id"]: item for item in result["groups"]}
+        self.assertEqual(set(groups), {"office", "ocr", "data", "creative"})
+        self.assertGreater(groups["ocr"]["minimum_free_gb"], 0)
+        self.assertIn("saved_groups", result)
+
+    def test_unknown_app_group_is_refused_without_running_an_installer(self):
+        result = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "random-shell"})
+        self.assertFalse(result["ok"])
+        self.assertIn("office, ocr, data or creative", result["error"])
+        self.assertFalse(cb._APP_INSTALLS)
+
+    def test_background_install_status_is_bound_to_the_requesting_session(self):
+        original_which = cb.shutil.which
+        with patch.object(cb, "is_root", return_value=True), \
+             patch.object(cb.shutil, "which", side_effect=lambda name: "/usr/bin/apt-get" if name == "apt-get" else original_which(name)), \
+             patch.object(cb.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * 1024 ** 3)), \
+             patch.object(cb, "_install_app_group_now", return_value={"ok": True, "group": "office", "installed": True}):
+            started = cb.computer_apps_action("alice:nova", {"app_action": "install", "group": "office"})
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(started["status"], "queued")
+            install_id = started["install_id"]
+            deadline = time.monotonic() + 2
+            status = cb.computer_apps_action("alice:nova", {"app_action": "status", "install_id": install_id})
+            while time.monotonic() < deadline and status.get("status") != "ready":
+                time.sleep(0.01)
+                status = cb.computer_apps_action("alice:nova", {"app_action": "status", "install_id": install_id})
+            self.assertEqual(status["status"], "ready", status)
+            denied = cb.computer_apps_action("bob:sham", {"app_action": "status", "install_id": install_id})
+            self.assertFalse(denied["ok"])
+            self.assertIn("unknown installation id", denied["error"])
 
 
 class Capacity(Box):
@@ -210,6 +255,9 @@ class Running(Box):
             os.environ.pop("STUDIO_SECRET_FOR_TEST", None)
         self.assertNotIn("do-not-leak", out["output"])
         self.assertIn("HOME=" + str(cb.session_home("u:m")), out["output"])
+        env = cb.clean_env("u:m")
+        self.assertIn(str(cb.ROOT.parent / "computer-apps" / "bin"), env["PATH"])
+        self.assertEqual(env["PYTHONPATH"], str(cb.ROOT.parent / "computer-apps" / "python"))
 
     @unittest.skipUnless(cb.is_root(), "needs root to switch users")
     def test_commands_are_not_root_and_cannot_read_another_sessions_files(self):
