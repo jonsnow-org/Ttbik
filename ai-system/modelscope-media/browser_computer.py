@@ -170,11 +170,15 @@ def state_file(session: str) -> Path:
     return session_dir(session) / "state.json"
 
 
-def save_meta(session: str, url: str) -> None:
-    """Remember where the session was, so a hibernated session comes back to the same page."""
+def save_meta(session: str, url: str, tabs: list[str] | None = None, active: int = 0) -> None:
+    """Persist the active page and open tab URLs when a session hibernates."""
     folder = session_dir(session)
     folder.mkdir(parents=True, exist_ok=True)
-    meta_file(session).write_text(json.dumps({"url": str(url)[:2000], "saved": int(time.time())}), encoding="utf-8")
+    safe_tabs = [str(item)[:2000] for item in (tabs or [url]) if str(item).startswith(("http://", "https://", "about:"))][:12]
+    meta_file(session).write_text(json.dumps({
+        "url": str(url)[:2000], "tabs": safe_tabs or [str(url)[:2000]],
+        "active": max(0, min(len(safe_tabs or [url]) - 1, int(active))), "saved": int(time.time()),
+    }), encoding="utf-8")
 
 
 def load_meta(session: str) -> dict:
@@ -399,6 +403,8 @@ class _Worker(threading.Thread):
         self.pages: dict[str, tuple] = {}              # session -> (context, page, last_used)
         self.browser = None
         self.resumed: set[str] = set()
+        self.console_logs: dict[str, list[str]] = {}
+        self.network_logs: dict[str, list[str]] = {}
 
     def run(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -437,10 +443,45 @@ class _Worker(threading.Thread):
             raise
         return self.browser
 
+    def _watch_page(self, session: str, page) -> None:
+        console_items = self.console_logs.setdefault(session, [])
+        network_items = self.network_logs.setdefault(session, [])
+
+        def safe_url_label(raw: str) -> str:
+            parsed = urlparse(str(raw))
+            return (parsed.scheme + "://" + parsed.netloc + parsed.path)[:300] if parsed.scheme and parsed.netloc else str(raw)[:300]
+
+        def add_console(kind: str, message: str) -> None:
+            cleaned = re.sub(r"(?i)(bearer\s+)[^\s]+", r"\1[redacted]", str(message))
+            cleaned = re.sub(r"(?i)(token|key|secret|password)=([^&\s]+)", r"\1=[redacted]", cleaned)
+            console_items.append(f"{kind}: {cleaned[:500]}")
+            del console_items[:-40]
+
+        def add_network(label: str) -> None:
+            network_items.append(label[:500])
+            del network_items[:-40]
+
+        page.on("console", lambda msg: add_console("console", msg.text) if msg.type == "error" else None)
+        page.on("pageerror", lambda error: add_console("pageerror", str(error)))
+        page.on("requestfailed", lambda request: add_network("failed " + request.method + " " + safe_url_label(request.url)))
+        page.on("response", lambda response: add_network(str(response.status) + " " + safe_url_label(response.url)) if response.status >= 400 else None)
+
+    def _tabs(self, ctx, active) -> list[dict]:
+        result = []
+        for index, page in enumerate([item for item in ctx.pages if not item.is_closed()]):
+            try:
+                result.append({"index": index, "active": page == active, "url": page.url[:500], "title": page.title()[:120]})
+            except Exception:
+                result.append({"index": index, "active": page == active, "url": "", "title": ""})
+        return result
+
     def _save(self, session: str, ctx, page) -> None:
         try:
             ctx.storage_state(path=str(state_file(session)))
-            save_meta(session, page.url)
+            pages = [item for item in ctx.pages if not item.is_closed()]
+            urls = [item.url for item in pages]
+            active = pages.index(page) if page in pages else 0
+            save_meta(session, page.url, urls, active)
         except Exception:  # noqa: BLE001
             pass
 
@@ -474,16 +515,33 @@ class _Worker(threading.Thread):
             options["storage_state"] = str(state)
         ctx = browser.new_context(**options)
         ctx.route("**/*", lambda route: _guard_route(route, session))
-        page = ctx.new_page()
-        page.set_default_timeout(25000)
-        self.pages[session] = (ctx, page, time.time())
-        last = load_meta(session).get("url")
-        if last and state.exists():
+        first = ctx.new_page()
+        first.set_default_timeout(25000)
+        self._watch_page(session, first)
+        pages = [first]
+        meta = load_meta(session)
+        urls = meta.get("tabs") if isinstance(meta.get("tabs"), list) else []
+        if not urls and meta.get("url"):
+            urls = [meta.get("url")]
+        for raw_url in urls[1:12]:
             try:
-                page.goto(safe_url(last, session), wait_until="domcontentloaded", timeout=20000)
-                self.resumed.add(session)
+                tab = ctx.new_page()
+                tab.set_default_timeout(25000)
+                self._watch_page(session, tab)
+                tab.goto(safe_url(str(raw_url), session), wait_until="domcontentloaded", timeout=20000)
+                pages.append(tab)
+            except Exception:  # noqa: BLE001
+                continue
+        active_index = max(0, min(len(pages) - 1, int(meta.get("active", 0) or 0)))
+        page = pages[active_index]
+        if not urls and meta.get("url"):
+            try:
+                page.goto(safe_url(str(meta["url"]), session), wait_until="domcontentloaded", timeout=20000)
             except Exception:  # noqa: BLE001
                 pass
+        if state.exists() and urls:
+            self.resumed.add(session)
+        self.pages[session] = (ctx, page, time.time())
         return page
 
     def _snapshot(self, page, shot: bool) -> dict:
@@ -510,22 +568,101 @@ class _Worker(threading.Thread):
         action = str(job.get("action") or "")
         session = str(job.get("session") or "default")
         page = self._page(p, session)
+        ctx = self.pages[session][0]
         mutating = True
-        if action == "open":
+
+        if action == "tabs":
+            reply = self._snapshot(page, bool(job.get("screenshot")))
+            reply["tabs"] = self._tabs(ctx, page)
+            return reply
+        if action == "console":
+            return {"ok": True, "url": page.url, "console_errors": self.console_logs.get(session, [])[-30:]}
+        if action == "network":
+            return {"ok": True, "url": page.url, "network_errors": self.network_logs.get(session, [])[-30:]}
+        if action == "new_tab":
+            page = ctx.new_page()
+            page.set_default_timeout(25000)
+            self._watch_page(session, page)
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "switch_tab":
+            pages = [item for item in ctx.pages if not item.is_closed()]
+            index = max(0, min(len(pages) - 1, int(job.get("index", 0) or 0)))
+            if not pages:
+                page = ctx.new_page()
+                self._watch_page(session, page)
+            else:
+                page = pages[index]
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "close_tab":
+            pages = [item for item in ctx.pages if not item.is_closed()]
+            if len(pages) <= 1:
+                page.goto("about:blank")
+            else:
+                page.close()
+                remaining = [item for item in ctx.pages if not item.is_closed()]
+                page = remaining[min(len(remaining) - 1, max(0, int(job.get("index", 0) or 0)))]
+            self.pages[session] = (ctx, page, time.time())
+        elif action == "open":
             page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
         elif action == "click":
             if job.get("id"):
                 page.click(f'[data-bid="{int(job["id"])}"]', timeout=10000)
+            elif job.get("selector"):
+                page.locator(str(job["selector"])[:300]).click(timeout=10000)
             else:
                 page.mouse.click(int(job.get("x", 0)), int(job.get("y", 0)))
         elif action == "type":
-            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else None
+            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else (str(job["selector"])[:300] if job.get("selector") else None)
             if target:
                 page.fill(target, str(job.get("text", ""))[:2000], timeout=10000)
             else:
                 page.keyboard.type(str(job.get("text", ""))[:2000])
             if job.get("enter"):
                 page.keyboard.press("Enter")
+        elif action == "select":
+            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else str(job.get("selector") or "")[:300]
+            if not target:
+                return {"ok": False, "error": "select requires element id or selector"}
+            page.locator(target).select_option(str(job.get("value", ""))[:200], timeout=10000)
+        elif action in ("check", "uncheck", "hover"):
+            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else str(job.get("selector") or "")[:300]
+            if not target:
+                return {"ok": False, "error": action + " requires element id or selector"}
+            if action == "check":
+                page.locator(target).check(timeout=10000)
+            elif action == "uncheck":
+                page.locator(target).uncheck(timeout=10000)
+            else:
+                page.locator(target).hover(timeout=10000)
+        elif action == "upload":
+            import computer_box
+            source = computer_box.safe_path(session, str(job.get("file_path") or ""))
+            if source.is_symlink() or not source.is_file():
+                return {"ok": False, "error": "upload source must be a regular file inside this computer session"}
+            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else str(job.get("selector") or "")[:300]
+            if not target:
+                return {"ok": False, "error": "upload requires a file-input element id or selector"}
+            if source.stat().st_size > 128 * 1024 * 1024:
+                return {"ok": False, "error": "upload is limited to 128 MB"}
+            page.locator(target).set_input_files(str(source), timeout=20000)
+        elif action == "download":
+            import computer_box
+            target = f'[data-bid="{int(job["id"])}"]' if job.get("id") else str(job.get("selector") or "")[:300]
+            if not target:
+                return {"ok": False, "error": "download requires an element id or selector"}
+            with page.expect_download(timeout=30000) as waiting:
+                page.locator(target).click(timeout=10000)
+            download = waiting.value
+            relative = str(job.get("output_path") or ("Downloads/" + Path(download.suggested_filename or "download.bin").name))[:500]
+            dest = computer_box.safe_path(session, relative)
+            dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            download.save_as(str(dest))
+            try:
+                os.chown(dest, computer_box.session_uid(session), computer_box.session_uid(session))
+                os.chmod(dest, 0o600)
+            except OSError:
+                pass
+            downloaded = {"path": str(dest.relative_to(computer_box.session_home(session))), "name": Path(download.suggested_filename or dest.name).name, "bytes": dest.stat().st_size}
         elif action == "press":
             page.keyboard.press(str(job.get("key", "Enter"))[:30])
         elif action == "scroll":
@@ -535,7 +672,6 @@ class _Worker(threading.Thread):
         elif action == "back":
             page.go_back(wait_until="domcontentloaded", timeout=15000)
         elif action == "wait":
-            # single-page apps render after the load event: wait until some text shows up (or a time passes), then read the page
             wanted = str(job.get("text", ""))[:200]
             seconds = max(1, min(20, int(job.get("seconds", 8) or 8)))
             if wanted:
@@ -544,21 +680,27 @@ class _Worker(threading.Thread):
                 page.wait_for_timeout(seconds * 1000)
             mutating = False
         elif action == "aria":
-            # the page as the browser's accessibility outline (roles + names), for pages whose numbered list is not enough
             snapshot = clip_text(page.locator("body").aria_snapshot(timeout=8000), ARIA_LIMIT)
             reply = self._snapshot(page, False)
             reply["outline"] = snapshot
+            reply["tabs"] = self._tabs(ctx, page)
             return reply
         elif action not in ("look", ""):
             return {"ok": False, "error": "unknown action " + action[:30]}
         else:
             mutating = False
+
+        self.pages[session] = (ctx, page, time.time())
         reply = self._snapshot(page, bool(job.get("screenshot")))
+        reply["tabs"] = self._tabs(ctx, page)
+        if action == "download":
+            reply["download"] = downloaded
+        if action == "upload":
+            reply["uploaded"] = str(job.get("file_path") or "")[:300]
         if session in self.resumed:
             self.resumed.discard(session)
             reply["resumed"] = True
         if mutating:
-            ctx = self.pages[session][0]
             self._save(session, ctx, page)
         return reply
 
