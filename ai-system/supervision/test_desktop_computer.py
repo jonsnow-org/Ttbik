@@ -106,7 +106,7 @@ class Desktop(unittest.TestCase):
             with patch.object(desktop, "_spawn", side_effect=spawn):
                 result = desktop._input_action(session, "launch", {"app": "jupyter"})
             self.assertTrue(result["ok"], result)
-            self.assertRegex(result["url"], r"^http://127\\.0\\.0\\.1:\\d+/lab\\?token=")
+            self.assertRegex(result["url"], r"^http://127\.0\.0\.1:\d+/lab\?token=")
             self.assertEqual(captured["command"][1], "--no-browser")
             self.assertNotIn("lab", captured["command"])
             self.assertIn("--ip=127.0.0.1", captured["command"])
