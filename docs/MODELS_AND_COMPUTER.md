@@ -22,6 +22,14 @@ The host runs no LLM, image, audio or video weights. It provides:
 - Private unprivileged UID and home for every user+model key under \`/mnt/workspace/computer\`; browser data lives under \`/mnt/workspace/browser\`.
 - Eight-GB per-session workspace quota, a memory watcher, clean terminal environment and no provider credentials passed into shell processes.
 
+### Persistent linked storage banks
+
+Each private `user:model` home now contains a `banks/` directory and its own SQLite catalog on the same persistent ModelScope workspace volume. It is not a Supabase dependency or a separate hosted database. First use creates the logical banks `projects`, `documents`, `datasets`, `assets`, `sessions`, and `tools`; models may create additional named banks without a fixed bank-count limit.
+
+The model-facing `computer_bank` tool can list/create banks, store text entries, import a file already in that session's home into a bank, read entries, search one or all banks, link entries across banks, and inspect bank statistics. Imported files are copied into the bank so their catalog reference is stable. All catalog rows, link edges, and file objects remain under that session's private home and are covered by the existing per-session disk quota. The filesystem and free space are still finite; “no fixed number of banks” does not mean unlimited physical storage.
+
+Search currently uses a lightweight local lexical index over titles, descriptions, keys, and indexed text. It does not load an embedding model or claim Palmyra-style vector retrieval. File content remains available through the returned private path and the existing computer file/read/view tools. No new external database service is required.
+
 The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to six shell jobs globally (and a per-session job cap of four), guarded by the live free-memory admission gate. The 16 GB app config supports up to five separate graphical desktop slots when total memory is above 12 GB; each new desktop requires at least 3 GB free RAM, while new terminal jobs require at least 2 GB available. `COMPUTER_QUOTA_GB=8` is the per-session workspace disk allowance, not the Studio RAM allocation. Compiler and language runtimes (Node.js, GCC, Go, Java, Rust, Ruby, PHP, etc.) are installed in the extended developer-tool phase and are checked separately from the initial terminal bootstrap. With inference weights removed, the computer is no longer competing with MiniCPM for the Studio's memory.
 
 ## Router
