@@ -523,22 +523,23 @@ class _Worker(threading.Thread):
         urls = meta.get("tabs") if isinstance(meta.get("tabs"), list) else []
         if not urls and meta.get("url"):
             urls = [meta.get("url")]
+        if urls and str(urls[0]).startswith(("http://", "https://")):
+            try:
+                first.goto(safe_url(str(urls[0]), session), wait_until="domcontentloaded", timeout=20000)
+            except Exception:  # noqa: BLE001
+                pass
         for raw_url in urls[1:12]:
             try:
                 tab = ctx.new_page()
                 tab.set_default_timeout(25000)
                 self._watch_page(session, tab)
-                tab.goto(safe_url(str(raw_url), session), wait_until="domcontentloaded", timeout=20000)
+                if str(raw_url).startswith(("http://", "https://")):
+                    tab.goto(safe_url(str(raw_url), session), wait_until="domcontentloaded", timeout=20000)
                 pages.append(tab)
             except Exception:  # noqa: BLE001
                 continue
         active_index = max(0, min(len(pages) - 1, int(meta.get("active", 0) or 0)))
         page = pages[active_index]
-        if not urls and meta.get("url"):
-            try:
-                page.goto(safe_url(str(meta["url"]), session), wait_until="domcontentloaded", timeout=20000)
-            except Exception:  # noqa: BLE001
-                pass
         if state.exists() and urls:
             self.resumed.add(session)
         self.pages[session] = (ctx, page, time.time())
@@ -589,6 +590,7 @@ class _Worker(threading.Thread):
             index = max(0, min(len(pages) - 1, int(job.get("index", 0) or 0)))
             if not pages:
                 page = ctx.new_page()
+                page.set_default_timeout(25000)
                 self._watch_page(session, page)
             else:
                 page = pages[index]
@@ -653,9 +655,17 @@ class _Worker(threading.Thread):
             with page.expect_download(timeout=30000) as waiting:
                 page.locator(target).click(timeout=10000)
             download = waiting.value
+            temp_download = download.path()
+            if temp_download and Path(temp_download).stat().st_size > 128 * 1024 * 1024:
+                return {"ok": False, "error": "download is larger than the 128 MB per-file transfer limit"}
             relative = str(job.get("output_path") or ("Downloads/" + Path(download.suggested_filename or "download.bin").name))[:500]
             dest = computer_box.safe_path(session, relative)
             dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            parent = dest.parent
+            home = computer_box.session_home(session).resolve()
+            while parent != home and home in parent.parents:
+                os.chown(parent, computer_box.session_uid(session), computer_box.session_uid(session))
+                parent = parent.parent
             download.save_as(str(dest))
             try:
                 os.chown(dest, computer_box.session_uid(session), computer_box.session_uid(session))
