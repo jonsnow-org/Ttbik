@@ -55,23 +55,39 @@ def _note(step: str) -> None:
 
 
 # ---------------------------------------------------------------- pure helpers (unit-tested)
-def safe_url(raw: str) -> str:
-    """http(s) only, and never a private / loopback / link-local address (the Studio must not be used to reach its own network)."""
+def safe_url(raw: str, session: str = "") -> str:
+    """Public HTTP(S) targets are allowed; localhost is allowed only for a port owned by this exact user:model session."""
     url = str(raw or "").strip()
-    if not re.match(r"^https?://", url, re.I):
+    if not re.match(r"^(?:https?|wss?)://", url, re.I):
         url = "https://" + url
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError("only http(s) addresses are allowed")
+    if parsed.scheme not in ("http", "https", "ws", "wss") or not parsed.hostname:
+        raise ValueError("only HTTP(S) and WebSocket(S) addresses are allowed")
     host = parsed.hostname
+    default_port = 443 if parsed.scheme in ("https", "wss") else 80
     try:
-        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, parsed.port or default_port, proto=socket.IPPROTO_TCP)
     except OSError as exc:
         raise ValueError("cannot resolve " + host) from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast:
-            raise ValueError("address not allowed: " + host)
+    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
+    restricted = [
+        address for address in addresses
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast
+    ]
+    if restricted:
+        # A local preview is an explicit capability of one session, not a blanket
+        # exception for private networks. Only loopback and only a TCP listener
+        # owned by the session's unique unprivileged UID may pass.
+        port = parsed.port or default_port
+        if not session or len(restricted) != len(addresses) or not all(a.is_loopback for a in addresses):
+            raise ValueError("private or internal network address is blocked: " + host)
+        try:
+            import computer_box
+            allowed = computer_box.session_owns_tcp_port(session, port)
+        except Exception:
+            allowed = False
+        if not allowed:
+            raise ValueError("localhost preview is allowed only for a server running in this user:model session on the requested port")
     return url
 
 
@@ -414,14 +430,14 @@ class _Worker(threading.Thread):
         if state.exists():
             options["storage_state"] = str(state)
         ctx = browser.new_context(**options)
-        ctx.route("**/*", _guard_route)
+        ctx.route("**/*", lambda route, session=session: _guard_route(route, session))
         page = ctx.new_page()
         page.set_default_timeout(25000)
         self.pages[session] = (ctx, page, time.time())
         last = load_meta(session).get("url")
         if last and state.exists():
             try:
-                page.goto(safe_url(last), wait_until="domcontentloaded", timeout=20000)
+                page.goto(safe_url(last, session), wait_until="domcontentloaded", timeout=20000)
                 self.resumed.add(session)
             except Exception:  # noqa: BLE001
                 pass
@@ -453,7 +469,7 @@ class _Worker(threading.Thread):
         page = self._page(p, session)
         mutating = True
         if action == "open":
-            page.goto(safe_url(job.get("url", "")), wait_until="domcontentloaded", timeout=30000)
+            page.goto(safe_url(job.get("url", ""), session), wait_until="domcontentloaded", timeout=30000)
         elif action == "click":
             if job.get("id"):
                 page.click(f'[data-bid="{int(job["id"])}"]', timeout=10000)
@@ -504,10 +520,10 @@ class _Worker(threading.Thread):
         return reply
 
 
-def _guard_route(route) -> None:
-    """Every request the page makes (not only the first address) is checked: no private network, http(s) only."""
+def _guard_route(route, session: str = "") -> None:
+    """Check every navigation/subrequest; only a same-session local dev port may reach loopback."""
     try:
-        safe_url(route.request.url)
+        safe_url(route.request.url, session)
     except Exception:  # noqa: BLE001
         route.abort()
         return
