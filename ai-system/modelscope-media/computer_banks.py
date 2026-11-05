@@ -314,6 +314,9 @@ def perform(
                     if not blob_reused:
                         if used_bytes + packed_size > quota_bytes:
                             return {"ok": False, "error": "computer session storage quota reached; free space or add a persistent storage volume"}
+                        reserve_gb = max(1, min(8, int(os.environ.get("COMPUTER_BANK_FREE_RESERVE_GB", "2"))))
+                        if shutil.disk_usage(root).free < reserve_gb * 1024 ** 3:
+                            return {"ok": False, "error": f"computer host disk reserve reached ({reserve_gb} GB must remain free); expand the Studio's persistent volume before storing more"}
                         os.replace(temp, stored)
                         os.chmod(stored, 0o600)
                         _owner(stored, owner_uid)
