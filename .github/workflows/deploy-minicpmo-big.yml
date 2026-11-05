@@ -47,12 +47,15 @@ jobs:
             ai-system/modelscope-media/computer_studio_app.py \
             ai-system/modelscope-media/computer_box.py \
              ai-system/modelscope-media/computer_banks.py \
+             ai-system/modelscope-media/computer_banks.py \
             ai-system/modelscope-media/desktop_computer.py \
             ai-system/modelscope-media/browser_computer.py \
             scripts/ops/modelscope_computer_smoke.py
           python3 - <<'PY'
           from pathlib import Path
           app = Path("ai-system/modelscope-media/computer_studio_app.py").read_text()
+           bank = Path("ai-system/modelscope-media/computer_banks.py").read_text()
+           assert "content-addressed" in bank and "CREATE TABLE IF NOT EXISTS banks" in bank
            bank = Path("ai-system/modelscope-media/computer_banks.py").read_text()
            assert "content-addressed" in bank and "CREATE TABLE IF NOT EXISTS banks" in bank
           assert 'APP_REVISION = "computer-hub-16gb-2026-11-05-r8-banks"' in app
@@ -127,6 +130,7 @@ jobs:
           cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
           cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
            cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
+           cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
           cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
           cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
           cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt
@@ -136,6 +140,7 @@ jobs:
           # Dedicated 16 GB computer hub
           This private Studio is reserved for the persistent Linux computer, headless Chromium browser, and X11 graphical desktop.
           No LLM, MiniCPM, image, speech, or video weights are loaded here.
+           Each user:model session has a private sharded bank network; office and Arabic PDF/OCR packages install as an optional tier.
            Each user:model session has a private sharded file bank; office and Arabic PDF/OCR packages install as an optional tier.
           Workspaces are isolated by user+model session keys under /mnt/workspace/computer and /mnt/workspace/browser.
           The MiniCPM big-model app and its dedicated download cache were retired; the separate MiniCPM candidate Studio is unchanged.
