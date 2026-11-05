@@ -938,9 +938,9 @@ def _app_group_ready(group: str) -> bool:
     spec = APP_INSTALL_GROUPS[group]
     if group == "data":
         app_root = _app_root()
+        required = ("jupyterlab", "duckdb", "polars", "pandas", "matplotlib", "openpyxl")
         return ((app_root / "bin" / "jupyter").is_file()
-                and (app_root / "python" / "jupyterlab").is_dir()
-                and (app_root / "python" / "duckdb").is_dir())
+                and all((app_root / "python" / package).is_dir() for package in required))
     return all(shutil.which(binary) for binary in spec["binaries"])
 
 
@@ -1011,7 +1011,8 @@ def ensure_saved_app_groups() -> dict:
         if _app_group_ready(group):
             results.append({"group": group, "ok": True, "already_ready": True})
             continue
-        results.append({"group": group, **_install_app_group_now(group)})
+        with _APP_PACKAGE_LOCK:
+            results.append({"group": group, **_install_app_group_now(group)})
     return {"ok": all(item.get("ok") for item in results), "groups": results}
 
 
@@ -1050,7 +1051,10 @@ def computer_apps_action(session: str, job: dict) -> dict:
                  "minimum_free_gb": spec["minimum_free_gb"]}
                 for group, spec in APP_INSTALL_GROUPS.items()
             ],
-            "available": sorted({binary for spec in APP_INSTALL_GROUPS.values() for binary in spec["binaries"] if shutil.which(binary)}),
+            "available": sorted(
+                {binary for spec in APP_INSTALL_GROUPS.values() for binary in spec["binaries"] if shutil.which(binary)}
+                | ({"jupyter"} if _app_group_ready("data") else set())
+            ),
             "saved_groups": _read_app_manifest(),
             "free_gb": round(shutil.disk_usage(ROOT.parent if ROOT.parent.exists() else ROOT).free / 1024 ** 3, 2),
         }
