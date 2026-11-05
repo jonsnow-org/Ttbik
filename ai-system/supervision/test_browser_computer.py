@@ -30,7 +30,7 @@ class SafeUrl(unittest.TestCase):
         )
         with patch.object(bc.socket, "getaddrinfo", return_value=[info]), patch.dict(sys.modules, {"computer_box": fake_box}):
             self.assertEqual(bc.safe_url("http://localhost:3000/", "alice:nova"), "http://localhost:3000/")
-            with self.assertRaisesRegex(ValueError, "same user:model session"):
+            with self.assertRaisesRegex(ValueError, "localhost preview is allowed only"):
                 bc.safe_url("http://localhost:3000/", "bob:sham")
 
     def test_local_preview_does_not_authorize_other_private_networks(self):
