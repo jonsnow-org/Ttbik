@@ -167,6 +167,35 @@ export async function studioCall(base: string, api: string, payload: Record<stri
   return reply;
 }
 
+const TRANSIENT_LIVE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+async function liveStreamFetch(
+  url: string,
+  makeInit: () => RequestInit,
+  api: string,
+  stage: string,
+  fetchImpl: typeof fetch,
+): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let response: Response;
+    try {
+      response = await fetchImpl(url, makeInit());
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : 300 * (attempt + 1)));
+      continue;
+    }
+    if (response.ok) return response;
+    const detail = await studioHttpError(response, api, stage);
+    if (!TRANSIENT_LIVE_HTTP_STATUSES.has(response.status) || attempt === 2) throw new Error(detail);
+    lastError = new Error(detail);
+    await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : 300 * (attempt + 1)));
+  }
+  throw lastError instanceof Error ? lastError : new Error("the live computer stream could not connect");
+}
+
 /** Open a bounded Gradio event stream (used by the graphical computer's live screen). */
 export async function studioStream(
   base: string,
@@ -177,17 +206,25 @@ export async function studioStream(
 ): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
   const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
-  const start = await fetchImpl(`${base}/gradio_api/call/${api}`, {
-    method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
-    body: JSON.stringify({ data: [wire] }),
-  });
-  if (!start.ok) throw new Error(await studioHttpError(start, api, "submit"));
+  // The live endpoint only streams frames/activity; retrying its submit after a
+  // transient gateway error cannot repeat a desktop input or mutate the session.
+  const start = await liveStreamFetch(
+    base + "/gradio_api/call/" + api,
+    () => ({
+      method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ data: [wire] }),
+    }),
+    api, "submit", fetchImpl,
+  );
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no live-stream request id");
-  const stream = await fetchImpl(`${base}/gradio_api/call/${api}/${encodeURIComponent(event_id)}`, {
-    headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
-  });
-  if (!stream.ok) throw new Error(await studioHttpError(stream, api, "stream"));
+  const stream = await liveStreamFetch(
+    base + "/gradio_api/call/" + api + "/" + encodeURIComponent(event_id),
+    () => ({
+      headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
+    }),
+    api, "stream", fetchImpl,
+  );
   if (!stream.body) throw new Error("the Studio returned an empty live stream");
   return stream;
 }
