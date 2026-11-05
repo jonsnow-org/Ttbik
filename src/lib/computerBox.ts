@@ -3,7 +3,7 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 
 export type BoxArgs = {
-  action?: string; bank_action?: string; command?: string; cwd?: string; timeout?: number; path?: string; source_path?: string; output_path?: string; content?: string; text?: string; id?: string; item_id?: string; name?: string; bank?: string; category?: string; description?: string; kind?: string; query?: string; metadata?: Record<string, unknown>; confirm?: boolean; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; bank_action?: string; command?: string; cwd?: string; timeout?: number; path?: string; source_path?: string; output_path?: string; content?: string; text?: string; id?: string; item_id?: string; name?: string; bank?: string; category?: string; description?: string; kind?: string; query?: string; metadata?: Record<string, unknown>; confirm?: boolean; tail?: number; since?: number; limit?: number; offset?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
 const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "apps", "bank", "batch"]);
@@ -26,7 +26,7 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
     description: a.description as string, name: a.name as string, source_path: a.source_path as string,
     output_path: a.output_path as string, content: a.content as string, text: a.text as string,
     kind: a.kind as string, item_id: a.item_id as string, query: a.query as string,
-    limit: a.limit as number, metadata: a.metadata as Record<string, unknown>, confirm: Boolean(a.confirm),
+    limit: a.limit as number, offset: a.offset as number, metadata: a.metadata as Record<string, unknown>, confirm: Boolean(a.confirm),
   };
   if (tool === "computer_batch") {
     // several computer actions in ONE round trip: each step is {tool: "computer_run"|..., ...its arguments}
@@ -66,6 +66,7 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.kind !== undefined) out.kind = String(a.kind).slice(0, 20);
   if (a.item_id !== undefined) out.item_id = String(a.item_id).slice(0, 40);
   if (a.query !== undefined) out.query = String(a.query).slice(0, 1000);
+  if (a.offset !== undefined && Number.isFinite(Number(a.offset))) out.offset = Math.max(0, Math.min(1_000_000, Math.trunc(Number(a.offset))));
   if (a.confirm) out.confirm = true;
   if (a.metadata && typeof a.metadata === "object" && !Array.isArray(a.metadata)) out.metadata = a.metadata;
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
