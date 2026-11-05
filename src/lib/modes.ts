@@ -67,6 +67,12 @@ export function classifyRequest(text: string): ReqClass {
   return "chat";
 }
 
+/** True only when a request has real work to track: coding/agent execution, media generation, or a chat that needs a live external fact/tool. */
+export function requiresProgressCard(text: string): boolean {
+  const klass = classifyRequest(text);
+  return klass === "code" || klass === "agentic" || klass === "media" || (klass === "chat" && needsFreshFacts(text));
+}
+
 // ---------------------------------------------------------------- the effective mode
 /** The mode actually used for a request. `auto` off = the user's preference as chosen, except that trivial and media never get more than fast. */
 export function effectiveMode(pref: Pref, klass: ReqClass, auto: boolean): Pref {
@@ -151,9 +157,10 @@ export function resolveProfile(i: ProfileInput): Profile {
   const work = klass === "code" || klass === "agentic";
   const sham = i.model === "sham" || i.model === "sham_v2";
   const canThink = i.canThink ?? (i.model !== "sham");
-  // THINKING POLICY (explicit): the user's switch = "always"; otherwise the owner's / env default (adaptive). Greetings and media never think. The old Sham body cannot think.
+  // Thinking is reserved for actual work. A user forcing "always" or choosing maximum accuracy
+  // must not turn ordinary chat into a reasoning/task session. The old Sham body cannot think.
   const policy: ThinkPolicy = normalizeThinkPolicy(i.policy) || (i.thinkSwitch ? "always" : defaultThinkPolicy());
-  const eligible = canThink && klass !== "trivial" && klass !== "media";
+  const eligible = canThink && work;
   // Nova: adaptive thinks at the plan stage of code / agent work. Sham v2 (never trained to think): only when asked ("always"), and only on code / agent work.
   const think = eligible && policy !== "never" && (policy === "always" ? (sham ? work : true) : !sham && work);
   const thinkAct = eligible && policy === "always" && (sham ? work : true);
@@ -165,7 +172,9 @@ export function resolveProfile(i: ProfileInput): Profile {
     temperature: TEMPERATURE[mode],
     maxNewFactor: mode === "fast" ? 0.6 : mode === "precise" ? 1.5 : 1,
     corrections: mode === "fast" ? 1 : mode === "precise" ? 3 : 2,
-    lite: klass === "trivial" || (!sham && klass === "chat" && mode === "fast" && isPlainQuestion(i.text || "") && !needsFreshFacts(i.text || "")),
+    // Any ordinary chat that needs no fresh external facts is a direct model reply:
+    // no tool schemas and no reasoning mode, even when the user selected precise / always.
+    lite: klass === "trivial" || (klass === "chat" && !needsFreshFacts(i.text || "")),
     liteSystem: klass === "trivial" ? NOVA_LITE_SYSTEM : NOVA_CHAT_SYSTEM,
     note: sham ? NOTE_SHAM[mode] : NOTE[mode],
     image,

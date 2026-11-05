@@ -1,8 +1,9 @@
 // The progress card (owner 2026-10-28): the understanding line comes from the MODEL (time-boxed, neutral fallback), the steps come from REAL events with their exact
 // Istanbul time and duration, still ONE message edited in place. Nothing is invented: no event, no line.
 import { beginStep, cleanUnderstanding, clockAt, dateAt, endStep, fmtDur, NEUTRAL_ACK, newTimeline, renderTimeline, stepLabel, understandRequest, understandingPrompt } from "@/lib/agentCard";
-import { cardFinish, cardPhase, cardRestore, cardSnapshot, cardStepDone, cardTool, openCard } from "@/lib/singleMessage";
+import { cardDrop, cardFinish, cardPhase, cardRestore, cardSnapshot, cardStepDone, cardTool, openCard } from "@/lib/singleMessage";
 import { shamAgentRun, shamToolDefs, type ShamAsk, type ShamStepEvent } from "@/lib/shamAgent";
+import { shamProgressCardSteps } from "@/lib/novaBotLogic";
 import { shamVariant } from "@/lib/shamStudio";
 import type { ShamCtx } from "@/lib/shamExec";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -165,6 +166,30 @@ const script = (answers: Array<ReturnType<typeof say>>): ShamAsk => async () => 
 
 describe("Sham v2 agent -> card events (real, in order)", () => {
   const read = '<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"README.md"}}</tool_call>';
+  it("a plain greeting never emits a thought event even with precise + always enabled", async () => {
+    const ev: ShamStepEvent[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "مرحبا", ctx, tools: shamToolDefs(true), budgetMs: 60000, now: () => Date.now(),
+      mode: { accuracy: "precise", auto: false, policy: "always", think: true },
+      ask: script([say("أهلاً بك.")]), onStep: (e) => ev.push(e),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "أهلاً بك." });
+    expect(ev).toEqual([]);
+  });
+  it("the Sham progress card is lazy: no card for chat, one card on a task's first real event", async () => {
+    const { bot, sent } = fakeBot();
+    const chat = shamProgressCardSteps(bot, 5, "مرحبا");
+    chat.onStep({ type: "think" });
+    await chat.flush();
+    expect(sent).toHaveLength(0);
+
+    const task = shamProgressCardSteps(bot, 5, "اكتب دالة بايثون");
+    task.onStep({ type: "think" });
+    await task.flush();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("جاري التفكير");
+    await cardDrop(bot, 5, task.getCard());
+  });
   it("think, tool start (with the repo and path), tool end ok, think again", async () => {
     const ev: ShamStepEvent[] = [];
     const r = await shamVariant.run("v2", () => shamAgentRun({
@@ -200,6 +225,26 @@ describe("Nova: the card is written from the loop's real events", () => {
     process.env.SUPER_ADMIN_TELEGRAM_ID = "6161"; process.env.CODER_GITHUB_TOKEN = "gh"; process.env.CODER_CARD_GAP_MS = "0";
   });
   afterEach(() => { delete process.env.CODER_CARD_GAP_MS; });
+  it("a greeting goes straight to the selected model without opening a thinking card, even when always-thinking is configured", async () => {
+    process.env.CODER_THINK_POLICY = "always";
+    const reply = { type: "done", job: "hello", text: "أهلاً بك، أنا بخير.", tool_calls: [] };
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "hello-event" }), { status: 200 });
+      if (url.includes("status")) return new Response(sse({ phase: "ready", queue: 0 }), { status: 200 });
+      if (url.includes("/gradio_api/call/")) return new Response(sse(reply), { status: 200 });
+      return new Response("{}", { status: 202 });
+    });
+    const { bot, sent, edits } = fakeBot();
+    await handleCoderSections(bot, botRow, {
+      update_id: 61610,
+      message: { chat: { id: 6161 }, from: { id: 6161 }, text: "مرحبا" },
+    }, fakeDb());
+    for (let k = 0; k < 80 && !sent.some((x) => x.text === reply.text); k++) await new Promise((r) => setTimeout(r, 100));
+    expect(sent.map((x) => x.text)).toContain(reply.text);
+    expect(sent.some((x) => /استلام الطلب|جاري التفكير|جاري قراءة المهمة/.test(x.text))).toBe(false);
+    expect(edits).toHaveLength(0);
+    delete process.env.CODER_THINK_POLICY;
+  });
   it("a file read shows «قراءة ملف repo:path» with its time, then ✅ with a duration; the answer replaces the card in the same message", async () => {
     const replies = [
       { type: "done", job: "j1", text: "", tool_calls: [tc("r1", "github_read_file", { repo: "a/b", path: "src/x.ts" })] },
