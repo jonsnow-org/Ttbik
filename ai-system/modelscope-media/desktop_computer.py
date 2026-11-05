@@ -109,6 +109,8 @@ def app_inventory() -> dict:
     apps = []
     for app, (binary, label) in APP_BINARIES.items():
         available = bool(shutil.which(binary))
+        if app == "jupyter":
+            available = available or (box.ROOT.parent / "computer-apps" / "bin" / "jupyter").is_file()
         apps.append({"id": app, "label": label, "binary": binary, "available": available})
     try:
         import browser_computer
@@ -674,6 +676,16 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
             ]
+        elif app == "jupyter":
+            executable = box.ROOT.parent / "computer-apps" / "bin" / "jupyter"
+            if not executable.is_file():
+                return {"ok": False, "error": "JupyterLab is not installed. Install the data group with computer_apps first."}
+            port = 8890
+            token = secrets.token_urlsafe(24)
+            cmd = [
+                str(executable), "lab", "--no-browser", "--ip=127.0.0.1", f"--port={port}",
+                f"--ServerApp.token={token}", "--ServerApp.allow_remote_access=False", "--ServerApp.open_browser=False",
+            ]
         elif app in ("writer", "calc", "impress", "draw"):
             executable = shutil.which("libreoffice")
             if not executable:
@@ -689,6 +701,9 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             return {"ok": False, "error": "unknown app id; call action=apps to see available apps"}
         proc = _spawn(cmd, _ENV, "app-" + app)
         _PROCESSES.append(proc)
+        if app == "jupyter":
+            return {"ok": True, "phase": "running", "app": app, "url": f"http://127.0.0.1:8890/lab?token={token}",
+                    "note": "wait for JupyterLab to finish starting, then open this URL in your private headless browser"}
         return {"ok": True, "phase": "running", "app": app}
     if action == "open_file":
         try:
