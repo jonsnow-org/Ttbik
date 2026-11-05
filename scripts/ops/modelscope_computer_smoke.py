@@ -565,7 +565,7 @@ HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
     job = box_call(api, token, {"action": "job_start", "session": session, "name": "ci-local-preview", "cwd": ".",
                                "command": f"python3 '{server_file}' {port}"}, timeout=45)
     assert_ok(job, "same-session preview server start")
-    job_id = str(job.get("id") or "")
+    job_id = str(job.get("id") or job.get("job_id") or "")
     if not job_id:
         fail("same-session preview server did not return a background job id")
     try:
