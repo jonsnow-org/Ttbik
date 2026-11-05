@@ -113,6 +113,7 @@ export const COMPUTER_PLAYBOOK = [
   "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
   "- keep durable files and knowledge in the private computer bank network: create topic banks, put files by source_path, search before rereading, and get an item back to a path when needed; banks are isolated by user+model and share no data across sessions.",
   "- use computer_apps to inspect actual installed workstation apps; launch writer/calc/impress/draw/inkscape/gimp/audacity with desktop. For Arabic scanned PDFs use ocrmypdf -l ara+eng; use pdftotext/qpdf for PDF tasks and LibreOffice for office files.",
+  "- for data work use pandas/openpyxl/matplotlib and DuckDB when computer_apps reports them; JupyterLab should run as a background computer job bound to 127.0.0.1 and be opened with the headless browser, not by exposing a public port.",
   "- for Jupyter or a local web preview, run the server as a background computer_job bound to 127.0.0.1; the headless browser permits localhost only when the listening process belongs to this exact session. Never bind a preview to 0.0.0.0.",
 ].join("\n");
 
