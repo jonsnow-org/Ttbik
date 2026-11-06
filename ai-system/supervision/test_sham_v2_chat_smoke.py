@@ -31,6 +31,15 @@ class ShamV2ChatRouteTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "deploy-modelscope-sham-v2.yml").read_text(encoding="utf-8")
         self.assertIn('set_secret SHAM_NATIVE_TOOL_CALLS "1"', workflow)
 
+    def test_deploy_waits_for_the_new_app_context_not_the_previous_container(self):
+        # A redeploy keeps the PREVIOUS container answering until the new one is up. The
+        # pre-2026-10-30 app reports "ready" WITHOUT context_tokens; accepting that made the
+        # deploy pass its own gate and then fail the chat smoke on a context window of 0.
+        for name in ("deploy-modelscope-sham-v2.yml", "deploy-modelscope-sham-v2-overflow.yml"):
+            workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            self.assertIn("context_tokens", workflow, name)
+            self.assertIn('"$ctx" -ge 4096', workflow, name)
+
     def test_computer_calls_use_the_reserved_shared_computer_hub_not_the_video_studio(self):
         source = SMOKE.read_text(encoding="utf-8")
         self.assertIn('os.environ.get("COMPUTER_STUDIO_URL")', source)
