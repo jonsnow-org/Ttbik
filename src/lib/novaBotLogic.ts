@@ -838,16 +838,18 @@ export function shamCardSteps(bot: TelegramBot, chatId: number, card: Card | nul
 /** A Sham card is created only after the selected model reports real work (thinking, queueing a task, or starting a tool). */
 export function shamProgressCardSteps(bot: TelegramBot, chatId: number, request: string, enabled = requiresProgressCard(request)) {
   let card: Card | null = null;
-  let attempted = false;
+  let opening: Promise<Card | null> | null = null;
   let events: Promise<void> = Promise.resolve();
+  const openOnce = (): Promise<Card | null> => {
+    if (card) return Promise.resolve(card);
+    if (!opening && enabled) opening = openMsgCard(bot, chatId, request).then((c) => (card = c)).catch(() => null);
+    return opening || Promise.resolve(null);
+  };
+  // The model can think for a while before its first step event; open the message at once so the chat never looks dead.
+  const open = () => openOnce().then(() => undefined);
   const onStep = (e: ShamStepEvent) => {
     events = events.then(async () => {
-      let fresh = false;
-      if (!card && !attempted && enabled && (e.type === "think" || e.type === "queue" || e.type === "tool_start")) {
-        attempted = true;
-        card = await openMsgCard(bot, chatId, request);
-        fresh = Boolean(card);                                  // the first real event must land on the just-opened card at once, not after the throttle window
-      }
+      const fresh = Boolean(await openOnce());               // the first real event must land on the just-opened card at once, not after the throttle window
       if (!card) return;
       if (e.type === "think") await cardPhase(bot, chatId, card, "think", "جاري التفكير", fresh);
       else if (e.type === "queue") await cardPhase(bot, chatId, card, "queue", e.text, fresh);
@@ -855,7 +857,7 @@ export function shamProgressCardSteps(bot: TelegramBot, chatId: number, request:
       else await cardStepDone(bot, chatId, card, e.ok, fresh);
     }).then(() => undefined).catch(() => undefined);
   };
-  return { onStep, flush: () => events, getCard: () => card };
+  return { open, onStep, flush: () => events, getCard: () => card };
 }
 /** The model's own one-line understanding for the card: Sham's Studio, a tiny text-only call (28 tokens, 3.5 s cap). Skipped while the owner's pressure mode is on (that call would take a slot from real work). */
 export function shamUnderstand(text: string): (() => Promise<string | null>) | undefined {
@@ -1175,6 +1177,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
+  void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";

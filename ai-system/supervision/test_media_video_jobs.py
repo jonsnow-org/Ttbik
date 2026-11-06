@@ -191,7 +191,7 @@ class VideoPassesInFreshProcesses(unittest.TestCase):
         mq = types.ModuleType("media_quality")
         mq.check_mp4 = lambda *a, **k: None
         sys.modules["media_quality"] = mq
-        app.cv_concat_mp4 = lambda clips, target: events.append(("join", len(clips), target)) or b"JOINED"
+        app.cv_concat_mp4 = lambda clips, target, *a: events.append(("join", len(clips), target)) or b"JOINED"
         self.assertEqual(app._make_video("a girl dancing", 10), b"JOINED")
         self.assertEqual(events, ["stop-picture-worker", ("pass", 0, 4.0), ("pass", 1, 4.0), ("pass", 2, 2.0), ("join", 3, 10)])
 

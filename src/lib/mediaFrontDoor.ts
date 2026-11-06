@@ -140,6 +140,7 @@ export async function ensureFrontDoor(): Promise<{ ok: boolean; changed: boolean
       "my_chat_member",
       "chat_member",
       "pre_checkout_query",
+      "stopped_message_generation",   // the live draft's Stop button (sendMessageDraft can_stop): without it the press is never delivered
     ],
   });
   return {

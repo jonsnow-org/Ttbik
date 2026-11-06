@@ -117,8 +117,50 @@ class LongGenerationPlan(unittest.TestCase):
             result = cpu_video.cv_generate_long("/weights", "a moving car", 10, 42)
         self.assertEqual(result, b"joined")
         self.assertEqual([call.args[2] for call in generate.call_args_list], [4.0, 4.0, 2.0])
-        self.assertEqual(join.call_args.args, ([b"part-a", b"part-b", b"part-c"], 10))
+        self.assertEqual(join.call_args.args, ([b"part-a", b"part-b", b"part-c"], 10, [4, 4, 2]))
         self.assertEqual(os.environ.get("CPU_VIDEO_KEEP"), original_keep)
+
+    def test_multi_pass_join_cross_fades_seams_with_a_plain_fallback(self):
+        """The join must cross-fade the seams (not cut) but never break a clip: a failing xfade falls back to a plain concat."""
+        import pathlib
+        import media_quality
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "joined.mp4"
+            out.write_bytes(b"joined-bytes")
+            with (
+                patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b"]),
+                patch("cpu_video._cv_join_xfade", side_effect=RuntimeError("xfade unsupported")) as xfade,
+                patch("cpu_video._cv_join_plain", return_value=(out, ["ffmpeg"])) as plain,
+                patch("cpu_video._cv_ffmpeg_exe", return_value="/usr/bin/ffmpeg"),
+                patch("subprocess.run", return_value=None),
+                patch.object(media_quality, "check_mp4", return_value={}),
+                patch.dict(os.environ, {"CPU_VIDEO_KEEP": "1"}),
+            ):
+                result = cpu_video.cv_generate_long("/weights", "a moving car", 6, 3)
+        self.assertEqual(result, b"joined-bytes")
+        xfade.assert_called_once()
+        plain.assert_called_once()
+
+    def test_multi_pass_join_uses_cross_fade_when_available(self):
+        """With the per-pass lengths known and a working ffmpeg, the smooth cross-fade join is used (the plain cut is not)."""
+        import pathlib
+        import media_quality
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "joined.mp4"
+            out.write_bytes(b"xfade-bytes")
+            with (
+                patch("cpu_video.cv_generate", side_effect=[b"part-a", b"part-b"]),
+                patch("cpu_video._cv_join_xfade", return_value=(out, ["ffmpeg"])) as xfade,
+                patch("cpu_video._cv_join_plain") as plain,
+                patch("cpu_video._cv_ffmpeg_exe", return_value="/usr/bin/ffmpeg"),
+                patch("subprocess.run", return_value=None),
+                patch.object(media_quality, "check_mp4", return_value={}),
+                patch.dict(os.environ, {"CPU_VIDEO_KEEP": "1"}),
+            ):
+                result = cpu_video.cv_generate_long("/weights", "a moving car", 6, 3)
+        self.assertEqual(result, b"xfade-bytes")
+        xfade.assert_called_once()
+        plain.assert_not_called()
 
     def test_two_seconds_is_one_real_pass_without_a_join(self):
         import media_quality
