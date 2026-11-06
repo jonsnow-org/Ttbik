@@ -712,6 +712,11 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
   }, [load, running]);
   // Live stream of the active run: every model's text appears as it is written, on top of the poll.
   const streamRun = d?.tasks.find((k) => k.status === "running" || k.status === "waiting")?.run_id || "";
+  const cursorRef = useRef(0);
+  useEffect(() => {
+    cursorRef.current = lastEventId(d?.tasks || [], streamRun);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamRun]);
   useEffect(() => {
     if (!streamRun || document.visibilityState !== "visible") return;
     let stopped = false;
@@ -720,8 +725,7 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
       while (!stopped) {
         controller = new AbortController();
         try {
-          const after = lastEventId(d?.tasks || [], streamRun);
-          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(streamRun)}&after=${after}`, {
+          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(streamRun)}&after=${cursorRef.current}`, {
             headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store", signal: controller.signal,
           });
           if (!r.ok || !r.body) throw new Error("stream unavailable");
@@ -735,7 +739,10 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
             const { frames, rest } = splitSseFrames(buffer);
             buffer = rest;
             const fresh = frames.map(sseFrameData).filter((e): e is NonNullable<typeof e> => Boolean(e));
-            if (fresh.length) setD((old) => (old ? { ...old, tasks: mergeTaskEvents(old.tasks, streamRun, fresh) } : old));
+            if (fresh.length) {
+              for (const e of fresh) cursorRef.current = Math.max(cursorRef.current, e.id);
+              setD((old) => (old ? { ...old, tasks: mergeTaskEvents(old.tasks, streamRun, fresh) } : old));
+            }
           }
         } catch { /* dropped: the poll above is the fallback; reconnect after a short wait */ }
         if (stopped) return;
@@ -744,7 +751,6 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
     };
     void connect();
     return () => { stopped = true; controller?.abort(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamRun]);
   if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
   if (!d) return <Loading />;
