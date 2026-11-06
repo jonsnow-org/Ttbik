@@ -2071,7 +2071,8 @@ export async function draftThinking(bot: TelegramBot, chatId: number, run: Run):
   const api = bot.api as any;
   if (!liveDraftOn() || run.surface === "app" || run.noDraft || chatId <= 0 || typeof api.sendMessageDraft !== "function") return;
   run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
-  const ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  let ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, "").then(() => true).catch(() => false);   // an API with drafts but no can_stop
   if (ok) { run.draftAt = Date.now(); run.draftText = ""; }
   else draftRefusedAt = Date.now();                                   // refused (old Bot API): no placeholder, real messages only
 }
@@ -2082,7 +2083,8 @@ export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Pr
   if (Date.now() - (run.draftAt || 0) < 18_000) return;
   const api = bot.api as any;
   if (draftStopped(chatId) || typeof api.sendMessageDraft !== "function") return;
-  const ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  let ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, "").then(() => true).catch(() => false);
   if (ok) run.draftAt = Date.now();
 }
 
