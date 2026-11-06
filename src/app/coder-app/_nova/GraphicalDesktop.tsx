@@ -22,6 +22,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  // when the last tap landed: the browser fires a synthetic click right after touchstart, and without this the desktop
+  // would receive two clicks per tap (a double-click opens folders and selects text on a real desktop).
+  const touchAt = useRef(0);
   // when a live-stream event last arrived: keeps the "live" wording across the 20 s stream's reconnect
   const lastStreamAt = useRef(0);
   // The picture may be smaller than the real screen (the live stream asks for scale 0.75), so a click must be mapped
@@ -221,6 +224,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     void perform({ action: "launch", app, ...(app === "browser" ? { url: address } : {}) });
   };
   const clickScreen = (event: React.MouseEvent<HTMLImageElement>, button: "left" | "right" = "left") => {
+    // A tap fires touchstart and then a synthetic click: without this guard every touch would click the desktop twice.
+    if (Date.now() - touchAt.current < 700) return;
     const image = imageRef.current;
     if (!image) return;
     const rect = image.getBoundingClientRect();
@@ -239,6 +244,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     const image = imageRef.current;
     const touch = event.touches[0] || event.changedTouches[0];
     if (!image || !touch) return;
+    touchAt.current = Date.now();
     const rect = image.getBoundingClientRect();
     const point = desktopPoint(rect, { clientX: touch.clientX, clientY: touch.clientY }, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
     if (!point) return;
