@@ -68,7 +68,9 @@ export async function bindAdmenBot() {
     body: JSON.stringify({
       url: `${base}/api/ads/telegram`,
       secret_token: secret,
-      allowed_updates: ["message", "callback_query"],
+      // `stopped_message_generation` must be here: without it Telegram never delivers the press of the live draft's Stop
+      // button (sendMessageDraft can_stop), so the Stop in the chat would do nothing.
+      allowed_updates: ["message", "callback_query", "stopped_message_generation"],
     }),
   });
   const hookData = await hook.json().catch(() => null);

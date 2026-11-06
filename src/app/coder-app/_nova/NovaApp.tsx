@@ -7,6 +7,7 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The previous screens stay reachable: ?ui=native (telegram-ui lists) and ?ui=classic.
 import "./nova.css";
+import { isNearBottom } from "../_tma/scroll";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot, List, Spinner, Switch, Input } from "@telegram-apps/telegram-ui";
@@ -202,7 +203,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false, model = "all" }: { 
     return () => { stopped = true; controller?.abort(); };
   }, [selected, modelQuery]);
   useEffect(() => {
-    if (logsOpen && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    const el = logsRef.current;
+    if (logsOpen && el && isNearBottom(el)) el.scrollTop = el.scrollHeight;   // follow the tail only when the reader is at the bottom
   }, [events, logsOpen]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
   activeRef.current = active;

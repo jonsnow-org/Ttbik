@@ -252,47 +252,110 @@ def cv_generate(root, prompt: str, seconds: float = 4.0, seed: int = 0, env_name
         del pipe
         cv_release()
     return data
-def cv_concat_mp4(clips: list[bytes], expected_seconds: int) -> bytes:
-    """Join already-generated H.264 temporal clips into one MP4 without holding decoded full-size frames in RAM."""
+CV_XFADE_S = 0.2          # seconds of cross-fade between two temporal passes: hides the hard seam where two independent passes meet
+
+
+def _cv_ffmpeg_exe():
     import shutil as _sh
-    import subprocess as _sp
-    import tempfile as _tf
     try:
         import imageio_ffmpeg
-        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:  # noqa: BLE001
-        exe = _sh.which("ffmpeg")
+        return _sh.which("ffmpeg")
+
+
+def _cv_join_plain(exe, root, clips):
+    """The fallback join: stream-copy the passes one after another (a visible cut at every seam)."""
+    entries = []
+    for index, data in enumerate(clips):
+        path = root / f"segment-{index:03d}.mp4"
+        path.write_bytes(data)
+        entries.append(f"file '{path.as_posix()}'")
+    concat_list = root / "segments.txt"
+    concat_list.write_text("\n".join(entries) + "\n", encoding="utf-8")
+    output = root / "joined.mp4"
+    cmd = [
+        exe, "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(concat_list),
+        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
+        str(output),
+    ]
+    return output, cmd
+
+
+def _cv_join_xfade(exe, root, clips, segment_seconds, expected_seconds, fade):
+    """Cross-fade each pass's tail into the next pass's head so the clip is not separate shots cut together, then hold the last
+    frame for the time the dissolves removed, so the joined clip is still exactly `expected_seconds` long."""
+    paths = []
+    for index, data in enumerate(clips):
+        path = root / f"xfade-{index:03d}.mp4"
+        path.write_bytes(data)
+        paths.append(path)
+    filters = []
+    prev = "[0:v]"
+    merged = float(segment_seconds[0])
+    for i in range(1, len(paths)):
+        offset = max(0.0, merged - fade)
+        label = f"[vx{i}]"
+        filters.append(f"{prev}[{i}:v]xfade=transition=fade:duration={fade:.3f}:offset={offset:.3f}{label}")
+        prev = label
+        merged = merged + float(segment_seconds[i]) - fade
+    shortfall = max(0.0, float(expected_seconds) - merged)
+    if shortfall > 0.02:
+        filters.append(f"{prev}tpad=stop_mode=clone:stop_duration={shortfall:.3f}[vout]")
+    else:
+        filters.append(f"{prev}null[vout]")
+    output = root / "joined.mp4"
+    cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"]
+    for path in paths:
+        cmd += ["-i", str(path)]
+    cmd += [
+        "-filter_complex", ";".join(filters), "-map", "[vout]",
+        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-r", "16", "-t", str(int(expected_seconds)),
+        "-movflags", "+faststart", str(output),
+    ]
+    return output, cmd
+
+
+def cv_concat_mp4(clips: list[bytes], expected_seconds: int, segment_seconds: list[int] | None = None) -> bytes:
+    """Join already-generated H.264 temporal clips into one MP4 without holding decoded full-size frames in RAM.
+    When the per-pass lengths are known the seams are cross-faded (smooth) and the tail is held to keep the exact length; any
+    xfade failure falls back to a plain concat, so joining never breaks a clip that would otherwise succeed."""
+    import subprocess as _sp
+    import tempfile as _tf
+    exe = _cv_ffmpeg_exe()
     if not exe:
         raise RuntimeError("native-video-unavailable: ffmpeg is required to join the generated video segments")
     if not clips:
         raise RuntimeError("native-video-unavailable: no temporal segments were generated")
+    from media_quality import check_mp4
     with _tf.TemporaryDirectory(prefix="sham-video-join-") as directory:
         root = __import__("pathlib").Path(directory)
-        entries = []
-        for index, data in enumerate(clips):
-            path = root / f"segment-{index:03d}.mp4"
-            path.write_bytes(data)
-            entries.append(f"file '{path.as_posix()}'")
-        concat_list = root / "segments.txt"
-        concat_list.write_text("\n".join(entries) + "\n", encoding="utf-8")
-        output = root / "joined.mp4"
-        cmd = [
-            exe, "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "concat", "-safe", "0", "-i", str(concat_list),
-            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
-            str(output),
-        ]
-        try:
-            _sp.run(cmd, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=max(180, expected_seconds * 5))
-        except Exception as exc:  # noqa: BLE001
-            detail = getattr(exc, "stderr", b"")
-            if isinstance(detail, bytes):
-                detail = detail.decode("utf-8", "replace")
-            raise RuntimeError("native-video-unavailable: ffmpeg could not join the generated segments: " + str(detail or exc)[-500:]) from exc
-        data = output.read_bytes()
-        from media_quality import check_mp4
-        check_mp4(data, expected_seconds=expected_seconds, min_width=480, min_height=270)
+        segments = [int(x) for x in segment_seconds] if segment_seconds else []
+        fade = float(CV_XFADE_S)
+        data = None
+        if len(clips) > 1 and len(segments) == len(clips) and min(segments) > 2 * fade + 0.2:
+            try:
+                output, cmd = _cv_join_xfade(exe, root, clips, segments, int(expected_seconds), fade)
+                _sp.run(cmd, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=max(180, expected_seconds * 5))
+                candidate = output.read_bytes()
+                check_mp4(candidate, expected_seconds=expected_seconds, min_width=480, min_height=270)
+                data = candidate
+            except Exception:  # noqa: BLE001
+                data = None
+        if data is None:
+            output, cmd = _cv_join_plain(exe, root, clips)
+            try:
+                _sp.run(cmd, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=max(180, expected_seconds * 5))
+            except Exception as exc:  # noqa: BLE001
+                detail = getattr(exc, "stderr", b"")
+                if isinstance(detail, bytes):
+                    detail = detail.decode("utf-8", "replace")
+                raise RuntimeError("native-video-unavailable: ffmpeg could not join the generated segments: " + str(detail or exc)[-500:]) from exc
+            data = output.read_bytes()
+            check_mp4(data, expected_seconds=expected_seconds, min_width=480, min_height=270)
         return data
 
 
@@ -336,7 +399,7 @@ def cv_generate_long(
         from media_quality import check_mp4
         check_mp4(clips[0], expected_seconds=target, min_width=480, min_height=270)
         return clips[0]
-    return cv_concat_mp4(clips, target)
+    return cv_concat_mp4(clips, target, list(chunks))
 
 
 # --- cpu_video END ---

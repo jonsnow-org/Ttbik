@@ -12,6 +12,7 @@ import { AppRoot, Button as TgButton, Cell, Input, Section, Switch } from "@tele
 import { STR, type Lang, type Str } from "./i18n";
 import NativeApp from "./_native/NativeApp";
 import NovaApp from "./_nova/NovaApp";
+import { useStickToBottom } from "./_tma/scroll";
 import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isAndroid, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
 
 type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing" | "panel";
@@ -160,7 +161,7 @@ function PendingCard({ p, t, onDone, cats, lang }: { p: Pending; t: Str; onDone:
 function Timeline({ runId, live, t }: { runId: string; live: boolean; t: Str }) {
   const [evs, setEvs] = useState<Ev[] | null>(null);
   const last = useRef(0);
-  const end = useRef<HTMLDivElement>(null);
+  const end = useStickToBottom([evs?.length, live]);
   useEffect(() => {
     let stop = false;
     last.current = 0;
@@ -181,7 +182,6 @@ function Timeline({ runId, live, t }: { runId: string; live: boolean; t: Str }) 
     const id = live ? setInterval(pull, 1500) : null;
     return () => { stop = true; if (id) clearInterval(id); };
   }, [runId, live]);
-  useEffect(() => { if (live) end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [evs?.length, live]);
   if (!evs) return <div className="space-y-2 py-2"><Skel className="h-4 w-2/3" /><Skel className="h-4 w-1/2" /><Skel className="h-4 w-3/4" /></div>;
   return (
     <ol className="relative space-y-3 border-s-2 border-[var(--c-line)] ps-4" aria-live={live ? "polite" : "off"}>
