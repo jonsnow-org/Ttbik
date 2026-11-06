@@ -203,8 +203,17 @@ jobs:
                   response=$(cat status-result.txt 2>/dev/null || true)
                   echo "status API HTTP $result_code: $(echo "$response" | head -c 1000)"
                   if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"|phase[^,]*ready'; then
-                    echo "Sham v2 Studio model server is ready."
-                    exit 0
+                    # A redeploy keeps the PREVIOUS container answering until the new one is up, and the
+                    # pre-2026-10-30 app reports "ready" WITHOUT context_tokens. Accepting that lets this
+                    # gate pass while the new app is still starting, so the chat smoke then fails on a
+                    # context window of 0. context_tokens is emitted only by the current app (the v2
+                    # wrapper sets SHAM_MAX_SEQ_LEN=4096), so require it before declaring readiness.
+                    ctx=$(echo "$response" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1)
+                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ]; then
+                      echo "Sham v2 Studio model server is ready (context_tokens=$ctx)."
+                      exit 0
+                    fi
+                    echo "status says ready but without a fresh context window (context_tokens=${ctx:-none}); waiting for the new app"
                   fi
                   if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"error"|phase[^,]*error'; then
                     echo "::error::Studio is running but its model server is in error phase"
