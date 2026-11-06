@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import GraphicalDesktop from "./GraphicalDesktop";
+import { useStickToBottom } from "../_tma/scroll";
 import type { Lang } from "../i18n";
 import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
@@ -33,7 +34,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
   const [busy, setBusy] = useState(false);
   const [hist, setHist] = useState<string[]>([]);
   const [hi, setHi] = useState(-1);
-  const endRef = useRef<HTMLDivElement>(null);
+  const endRef = useStickToBottom([lines, busy]);
   const [folder, setFolder] = useState<{ path: string; entries: string[] } | null>(null);
   const [file, setFile] = useState<{ path: string; text: string; dirty: boolean } | null>(null);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -44,7 +45,6 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
 
   const loadStatus = useCallback(async () => { try { setStatus(await box(model, { action: "status" })); } catch (e: any) { setStatus({ ok: false, error: String(e?.message || e) }); } }, [model]);
   useEffect(() => { setLines([]); setCwd("."); setFolder(null); setFile(null); setJobs([]); setActivity([]); activitySeq.current = 0; void loadStatus(); }, [model, loadStatus]);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [lines, busy]);
 
   const run = async (raw: string, background = false) => {
     const command = raw.trim();
