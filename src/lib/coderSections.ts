@@ -1092,7 +1092,9 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
     if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
     await addUsage(chatId, "tasks", 1, db);
     const runId = `sham-${chatId}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
-    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), source: "interactive", title: content.slice(0, 200), botId: botRow.id });
+    // Tag the run with the chat's open thread so the Mini App's Sham chat can stream this run's text live (same `thread` op as Nova).
+    const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, sham.variant === "v2" ? "sham_v2" : "sham", db).catch(() => null);
+    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId });
     await taskEvent(runId, "info", `بدأت المهمة باستخدام ${st.model === "sham_v2" ? "شام v2" : "شام"}.`, db).catch(() => null);
     later(() => import("@/lib/novaBotLogic").then((m) => m.runShamMiniAppTask(bot, chatId, content, botRow.id, runId, sham.variant, sham.mode)).catch(async (e) => {
       await taskEvent(runId, "failed", String((e as Error)?.message || e).slice(0, 300), db).catch(() => null);

@@ -7,7 +7,9 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The previous screens stay reachable: ?ui=native (telegram-ui lists) and ?ui=classic.
 import "./nova.css";
-import { isNearBottom } from "../_tma/scroll";
+import { useStickToBottom } from "../_tma/scroll";
+import { threadBubbles } from "@/lib/chatBubbles";
+import { mergeTaskEvents, lastEventId, splitSseFrames, sseFrameData } from "@/lib/liveEvents";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot, List, Spinner, Switch, Input } from "@telegram-apps/telegram-ui";
@@ -63,297 +65,6 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   return { tab: "home", page: null };
 }
 
-// ---------------------------------------------------------------- private live terminal inside the default Nova UI
-function TerminalScreen({ lang, fixedRunId, compact = false, model = "all" }: { lang: Lang; fixedRunId?: string; compact?: boolean; model?: string }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selected, setSelected] = useState("");
-  const [events, setEvents] = useState<Ev[]>([]);
-  const [pending, setPending] = useState<Pending[]>([]);
-  const [pendingBusy, setPendingBusy] = useState("");
-  const [error, setError] = useState("");
-  const [sendError, setSendError] = useState("");
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(true);
-  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
-  const [loaded, setLoaded] = useState(false);                 // the first answer of the terminal API arrived (REST link is up)
-  const [asking, setAsking] = useState<{ runId: string; question: string } | null>(null);   // the agent waits for the user's answer
-  const userPicked = useRef(false);                            // the user chose a task by hand: do not jump to another one
-  const activeRef = useRef(0);
-  const [notice, setNotice] = useState("");
-  const logsRef = useRef<HTMLDivElement | null>(null);
-  const loadBusy = useRef(false);
-  
-  const sendLock = useRef(false);
-  const cursor = useRef(0);
-  const ar = lang === "ar";
-  const terminalModel = model === "sham_loop" ? "sham" : model;
-  const modelQuery = terminalModel === "all" ? "" : `&model=${encodeURIComponent(terminalModel)}`;
-  const fetchJson = useCallback(async (url: string) => {
-    const r = await fetch(url, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    return d;
-  }, []);
-  const load = useCallback(async () => {
-    if (loadBusy.current) return;
-    loadBusy.current = true;
-    try {
-      const d = await fetchJson(`/api/coder/terminal?limit=40${modelQuery}`);
-      setTasks(d.tasks || []);
-      setPending(d.pending || []);
-      setAsking(d.asking || null);
-      setSelected((old) => {
-        if (fixedRunId) return fixedRunId;
-        const list: Task[] = d.tasks || [];
-        const live = (x: Task) => x.status === "running" || x.status === "waiting" || x.status === "pending";
-        const cur = list.find((x) => x.run_id === old);
-        // a task started from the chat (or the other screen) is followed automatically, unless the user picked one by hand
-        if (cur && (live(cur) || userPicked.current)) return old;
-        const running = list.find(live);
-        return running?.run_id || (cur ? old : list[0]?.run_id || "");
-      });
-      setLoaded(true);
-      setError("");
-    } catch (e: any) { setError(e?.message || "API error"); }
-    finally { loadBusy.current = false; }
-  }, [fetchJson, fixedRunId, modelQuery]);
-  useEffect(() => {
-    // quick while a task runs (status, approvals, questions), relaxed when idle; always one request at a time
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      if (stop) return;
-      if (document.visibilityState === "visible") await load();
-      if (!stop) timer = setTimeout(tick, activeRef.current > 0 ? 3000 : 8000);
-    };
-    void tick();
-    const wake = () => document.visibilityState === "visible" && void load();
-    document.addEventListener("visibilitychange", wake);
-    return () => { stop = true; clearTimeout(timer); document.removeEventListener("visibilitychange", wake); };
-  }, [load]);
-  useEffect(() => {
-    let stopped = false;
-    let controller: AbortController | undefined;
-    let retryMs = 800;
-    let finished = false;                       // a done/failed event was seen: nothing more will come, stop reconnecting
-    cursor.current = 0;
-    setEvents([]);
-    if (!selected) { setStreamState("connected"); return; }
-    setStreamState("connecting");
-    const connect = async () => {
-      while (!stopped) {
-        controller = new AbortController();
-        try {
-          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(selected)}&after=${cursor.current}${modelQuery}`, {
-            headers: { "x-telegram-init-data": rawInitData() },
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            throw new Error(d.error || `HTTP ${r.status}`);
-          }
-          if (!r.body) throw new Error("Live stream is not supported by this browser");
-          retryMs = 800;
-          setStreamState("connected");
-          const reader = r.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          while (!stopped) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            let boundary = buffer.indexOf("\n\n");
-            while (boundary >= 0) {
-              const frame = buffer.slice(0, boundary);
-              buffer = buffer.slice(boundary + 2);
-              const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
-              if (dataLine) {
-                try {
-                  const ev = JSON.parse(dataLine.slice(5).trim()) as Ev;
-                  if (typeof ev.id === "number" && ev.id > cursor.current) {
-                    cursor.current = ev.id;
-                    if (ev.kind === "done" || ev.kind === "failed") finished = true;
-                    setEvents((old) => old.some((x) => x.id === ev.id) ? old : [...old, ev].slice(-400));
-                  }
-                } catch { /* ignore malformed frames and continue the stream */ }
-              }
-              boundary = buffer.indexOf("\n\n");
-            }
-          }
-          if (!stopped) setError("");
-        } catch (e: any) {
-          if (!stopped && e?.name !== "AbortError") {
-            setStreamState("reconnecting");
-            setError(e?.message || "Live stream disconnected; reconnecting…");
-          }
-        } finally {
-          controller = undefined;
-        }
-        if (finished) { setStreamState("connected"); return; }
-        if (!stopped) {
-          setStreamState("connecting");
-          await new Promise((resolve) => setTimeout(resolve, retryMs));
-          retryMs = Math.min(10000, retryMs * 2);
-        }
-      }
-    };
-    void connect();
-    return () => { stopped = true; controller?.abort(); };
-  }, [selected, modelQuery]);
-  useEffect(() => {
-    const el = logsRef.current;
-    if (logsOpen && el && isNearBottom(el)) el.scrollTop = el.scrollHeight;   // follow the tail only when the reader is at the bottom
-  }, [events, logsOpen]);
-  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
-  activeRef.current = active;
-  const selTask = tasks.find((t) => t.run_id === selected);
-  const selLive = !!selTask && (selTask.status === "running" || selTask.status === "waiting");
-  const selDone = !!selTask && !selLive;
-  const link: "connecting" | "reconnecting" | "live" | "online" = !loaded && !error ? "connecting" : error ? "reconnecting" : selLive && streamState === "connected" ? "live" : selLive ? "connecting" : "online";
-  const NOISE = /العامل الخلفي حيّ|جارٍ انتظار أول مخرجات|إرسال الخطوة|استجابة خادم النموذج/;
-  const isNoise = (e: Ev) => e.kind === "info" && NOISE.test(e.text);
-  const lastNoise = [...events].reverse().find(isNoise);
-  const shownEvents = events.filter((e) => !isNoise(e));
-  const askingHere = !!asking && asking.runId === selected;
-  const resolveApproval = async (p: Pending, answer: "yes" | "all" | "no") => {
-    const key = `${p.runId}:${answer}`;
-    setPendingBusy(key);
-    try {
-      const r = await fetch("/api/coder/app", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
-        body: JSON.stringify({ op: "resolve", runId: p.runId, nonce: p.nonce, answer }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) throw new Error(d.error || (ar ? "تعذّر تنفيذ الموافقة" : "Could not resolve approval"));
-      await load();
-    } catch (e: any) {
-      setError(e?.message || (ar ? "تعذّر تنفيذ الموافقة" : "Could not resolve approval"));
-    } finally { setPendingBusy(""); }
-  };
-  const clearHistory = async () => {
-    if (!tasks.some((t) => t.status !== "running" && t.status !== "waiting")) return;
-    if (!window.confirm(ar ? "إخفاء كل المهام المنتهية من السجل؟ لن تتأثر المهام الجارية." : "Archive all finished tasks? Running tasks will not be affected.")) return;
-    try {
-      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "tasks_clear" }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "تعذّر تنظيف السجل");
-      cursor.current = 0; setEvents([]); setSelected("");
-      await load();
-      setNotice(ar ? `تم إخفاء ${d.archived || 0} مهمة منتهية.` : `Archived ${d.archived || 0} finished tasks.`);
-    } catch (e: any) { setError(e?.message || "تعذّر تنظيف السجل"); }
-  };
-  const stopSelected = async () => {
-    const task = tasks.find((t) => t.run_id === selected);
-    if (!task || (task.status !== "running" && task.status !== "waiting")) return;
-    if (!window.confirm(ar ? "إيقاف هذه المهمة الآن؟" : "Stop this task now?")) return;
-    try {
-      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "stop", runId: selected, slot: task.slot }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) throw new Error(d.error || "تعذّر إيقاف المهمة");
-      setNotice(ar ? "أُرسل طلب إيقاف المهمة." : "Stop requested.");
-      await load();
-    } catch (e: any) { setError(e?.message || "تعذّر إيقاف المهمة"); }
-  };
-  const continueTask = async () => {
-    if (!selTask || sending) return;
-    const t = (selTask.title || "").slice(0, 160);
-    await sendCmd(ar ? `تابع المهمة السابقة من حيث توقفت${t ? `: ${t}` : "."}` : `Continue the previous task from where it stopped${t ? `: ${t}` : "."}`);
-  };
-  const deleteSelected = async () => {
-    if (!selTask || !selDone) return;
-    if (!window.confirm(ar ? "حذف هذه المهمة من السجل؟" : "Remove this task from the history?")) return;
-    try {
-      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "task_delete", runId: selTask.run_id }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || (ar ? "تعذّر الحذف" : "Could not remove"));
-      userPicked.current = false; cursor.current = 0; setEvents([]); setSelected("");
-      await load();
-      setNotice(ar ? "حُذفت المهمة من السجل." : "Task removed from the history.");
-    } catch (e: any) { setError(e?.message || "تعذّر الحذف"); }
-  };
-  const sendCmd = async (override?: string) => {
-    const txt = (override ?? input).trim();
-    if (!txt || sendLock.current) return;
-    sendLock.current = true;
-    setSending(true);
-    setSendError("");
-    try {
-      const r = await fetch("/api/coder/app", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
-        body: JSON.stringify({ op: "send", text: txt }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "فشل الإرسال");
-      setInput("");
-      if (d.runId) {
-        userPicked.current = false;                      // follow the task that was just started / answered
-        cursor.current = 0;
-        setEvents([]);
-        setSelected(d.runId);
-      }
-      await load();
-    } catch (e: any) { setSendError(e?.message || "فشل الإرسال"); }
-    finally { sendLock.current = false; setSending(false); }
-  };
-  return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 180 : undefined, border: "2px solid #0e7490" }}>
-    <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
-        <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
-        <div style={{ color: link === "live" ? "#5eead4" : link === "online" ? "#86efac" : link === "reconnecting" ? "#fbbf24" : "#94a3b8", fontSize: 11, whiteSpace: "nowrap", fontWeight: 700 }}>
-          {ar ? (link === "live" ? "● مباشر" : link === "online" ? "● متصل" : link === "reconnecting" ? "↻ إعادة الاتصال…" : "◌ جارٍ الاتصال…") : (link === "live" ? "● Live" : link === "online" ? "● Connected" : link === "reconnecting" ? "↻ Reconnecting…" : "◌ Connecting…")}
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-        {selLive && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "7px 10px", background: "#450a0a", color: "#fecaca", fontSize: 12, fontWeight: 700 }}>⏹ {ar ? "إيقاف" : "Stop"}</button>}
-        {selDone && selTask && selTask.status !== "done" && <button type="button" disabled={sending} onClick={() => void continueTask()} style={{ border: "1px solid #166534", borderRadius: 8, padding: "7px 10px", background: "#052e16", color: "#bbf7d0", fontSize: 12, fontWeight: 700 }}>▶ {ar ? "متابعة" : "Continue"}</button>}
-        {selDone && <button type="button" onClick={() => void deleteSelected()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#fca5a5", fontSize: 12 }}>🗑 {ar ? "حذف" : "Delete"}</button>}
-        {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#a5f3fc", fontSize: 12 }}>🧹 {ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
-        <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "7px 10px", background: "#082f49", color: "#a5f3fc", fontSize: 12 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
-      </div>
-      {tasks.length > 1 && (
-        <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => { userPicked.current = true; setSelected(e.target.value); }} style={{ width: "100%", padding: 8, borderRadius: 8, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 8, fontSize: 13 }}>
-          {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 50)} · {t.status}</option>)}
-        </select>
-      )}
-      {pending.filter((p) => p.runId === selected).map((p) => (
-        <div key={p.runId + p.nonce} style={{ margin: "8px 0", padding: 12, border: "1px solid #f59e0b", borderRadius: 12, background: "#422006", color: "#fef3c7" }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ar ? "يتطلب تأكيدك قبل تنفيذ الأداة" : "Approval required before running a tool"}</div>
-          <div style={{ fontSize: 13, marginBottom: 6 }}>{p.reason} · {p.tool}</div>
-          <div style={{ color: "#fde68a", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{p.summary}</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "yes")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#059669", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:yes` ? "…" : ar ? "موافقة" : "Approve"}</button>
-            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "all")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#0e7490", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:all` ? "…" : ar ? "السماح لبقية المهمة" : "Approve task"}</button>
-            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "no")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#991b1b", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:no` ? "…" : ar ? "رفض" : "Deny"}</button>
-          </div>
-        </div>
-      ))}
-      {notice && <div style={{ color: "#86efac", fontSize: 12, padding: "5px 8px" }}>{notice}</div>}
-      {logsOpen && <div ref={logsRef} aria-live="polite" style={{ minHeight: 110, maxHeight: "32vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere", overscrollBehavior: "contain" }}>
-        <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
-        {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
-        {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
-        {shownEvents.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span dir="auto" style={{ unicodeBidi: "plaintext" }}>{ev.text}</span></div>)}
-        {selLive && lastNoise && <div style={{ color: "#64748b", padding: "4px 0" }}>⏳ {lastNoise.text}</div>}
-        {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
-      </div>}
-      {askingHere && asking && (
-        <div style={{ margin: "10px 0 0", padding: 12, border: "1px solid #38bdf8", borderRadius: 12, background: "#082f49", color: "#e0f2fe" }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>❓ {ar ? "الوكيل ينتظر جوابك" : "The agent is waiting for your answer"}</div>
-          <div dir="auto" style={{ fontSize: 13, whiteSpace: "pre-wrap", overflowWrap: "anywhere", unicodeBidi: "plaintext" }}>{asking.question}</div>
-        </div>
-      )}
-      <div dir="ltr" style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "stretch" }}>
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendCmd(); } }} rows={2} placeholder={askingHere ? (ar ? "اكتب جوابك هنا…" : "Type your answer here…") : (ar ? "اكتب طلبك… Enter للإرسال، Shift+Enter لسطر جديد" : "Write a task… Enter to send, Shift+Enter for a new line")} style={{ flex: 1, padding: "12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, lineHeight: 1.5, outline: "none", minWidth: 0, minHeight: 56, maxHeight: 140, resize: "vertical", fontFamily: "inherit" }} />
-        <button type="button" onClick={() => void sendCmd()} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
-      </div>
-      {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
-    </div>
-  </div>;
-}
 
 // ---------------------------------------------------------------- small pieces
 const Chev = () => (
@@ -865,6 +576,52 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
   );
 }
 
+/** Follows a run's `text` events over the SSE feed and returns the text written so far — the chat's live bubble.
+ *  The interval poll remains the fallback: this only makes the answer appear the moment it is written. */
+function useLiveRunText(runId: string | null | undefined): string {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    setText("");
+    if (!runId || document.visibilityState !== "visible") return;
+    let stopped = false;
+    let controller: AbortController | undefined;
+    let cursor = 0;
+    let acc = "";
+    const connect = async () => {
+      while (!stopped) {
+        controller = new AbortController();
+        try {
+          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(runId)}&after=${cursor}`, {
+            headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store", signal: controller.signal,
+          });
+          if (!r.ok || !r.body) throw new Error("stream unavailable");
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!stopped) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const { frames, rest } = splitSseFrames(buffer);
+            buffer = rest;
+            for (const frame of frames) {
+              const ev = sseFrameData(frame);
+              if (!ev) continue;
+              cursor = Math.max(cursor, ev.id);
+              if (ev.kind === "text") { acc += ev.text; setText(acc); }
+            }
+          }
+        } catch { /* dropped: the poll is the fallback; reconnect after a short wait */ }
+        if (stopped) return;
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+    };
+    void connect();
+    return () => { stopped = true; controller?.abort(); };
+  }, [runId]);
+  return text;
+}
+
 /** A Sham / Sham v2 chat: its full history, continue, rename, pin, archive, delete. */
 function ChatPage({ c, model, id, pinned: p0, archived: a0, onGone }: { c: Ctx; model: string; id: string; pinned: boolean; archived: boolean; onGone: () => void }) {
   const { t, n } = c;
@@ -873,15 +630,38 @@ function ChatPage({ c, model, id, pinned: p0, archived: a0, onGone }: { c: Ctx; 
   const [name, setName] = useState<string | null>(null);
   const [pinned, setPinned] = useState(p0), [archived, setArchived] = useState(a0);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { try { setMsgs((await api<{ messages: { role: "user" | "assistant"; text: string; at?: string }[] }>("chat_messages", { model, id })).messages); setErr(""); } catch (e: any) { setErr(e.message); } }, [model, id]);
-  useEffect(() => { void load(); }, [load]);
+  const [liveRun, setLiveRun] = useState<string | null>(null);
+  const loading = useRef(false);
+  const load = useCallback(async () => {
+    if (loading.current || document.visibilityState !== "visible") return;
+    loading.current = true;
+    try {
+      const d = await api<{ messages: { role: "user" | "assistant"; text: string; at?: string }[]; liveRun?: string | null }>("chat_messages", { model, id });
+      setMsgs(d.messages);
+      setLiveRun(d.liveRun || null);
+      setErr("");
+    }
+    catch (e: any) { setErr(e.message); }
+    finally { loading.current = false; }
+  }, [model, id]);
+  useEffect(() => {
+    void load();
+    // Keep the open chat live: the answer arrives as the model writes, not only on reopen.
+    const iv = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 2500);
+    return () => clearInterval(iv);
+  }, [load]);
+  const liveText = useLiveRunText(liveRun);
+  const endRef = useStickToBottom([msgs?.length, msgs?.[msgs.length - 1]?.text, liveText]);
   if (err && !msgs) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
   if (!msgs) return <Loading />;
   const cont = async () => { setBusy(true); haptic("medium"); try { await api("chat_open", { model, id }); closeApp(); } finally { setBusy(false); } };
   return (
     <div style={{ paddingTop: 8 }}>
-      {!msgs.length && <div className="n-empty">{t.noMessages}</div>}
+      {!msgs.length && !liveText && <div className="n-empty">{t.noMessages}</div>}
       {msgs.map((m, i) => <div key={i} className={`n-bubble ${m.role === "user" ? "n-me" : "n-bot"}`} dir="auto">{m.text.slice(0, 4000)}</div>)}
+      {liveText && <div className="n-bubble n-bot" dir="auto">{liveText.slice(0, 4000)}</div>}
+      {liveRun && <div className="n-meta" aria-live="polite" style={{ padding: "4px 8px" }}>{c.lang === "ar" ? "… يكتب" : "… writing"}</div>}
+      <div ref={endRef} />
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {n.ch_cont}</button>
         <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{n.ch_contHint}</p>
@@ -913,6 +693,9 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
   const [name, setName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const loading = useRef(false);
+  const bubbles = useMemo(() => (d ? threadBubbles(d.tasks) : []), [d]);
+  const running = Boolean(d?.tasks.some((k) => k.status === "running" || k.status === "waiting"));
+  const endRef = useStickToBottom([bubbles.length, bubbles[bubbles.length - 1]?.text]);
   const load = useCallback(async () => {
     if (loading.current || document.visibilityState !== "visible") return;
     loading.current = true;
@@ -922,27 +705,60 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
   }, [id]);
   useEffect(() => {
     void load();
-    const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
+    // Poll fast while a task runs so the live text appears promptly; slowly when the thread is idle. The SSE effect below
+    // pushes each new event as it is written; this poll is the fallback that also picks up a run started after mount.
+    const iv = setInterval(() => { if (document.visibilityState === "visible") void load(); }, running ? 3000 : 6000);
     return () => clearInterval(iv);
-  }, [load]);
+  }, [load, running]);
+  // Live stream of the active run: every model's text appears as it is written, on top of the poll.
+  const streamRun = d?.tasks.find((k) => k.status === "running" || k.status === "waiting")?.run_id || "";
+  useEffect(() => {
+    if (!streamRun || document.visibilityState !== "visible") return;
+    let stopped = false;
+    let controller: AbortController | undefined;
+    const connect = async () => {
+      while (!stopped) {
+        controller = new AbortController();
+        try {
+          const after = lastEventId(d?.tasks || [], streamRun);
+          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(streamRun)}&after=${after}`, {
+            headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store", signal: controller.signal,
+          });
+          if (!r.ok || !r.body) throw new Error("stream unavailable");
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!stopped) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const { frames, rest } = splitSseFrames(buffer);
+            buffer = rest;
+            const fresh = frames.map(sseFrameData).filter((e): e is NonNullable<typeof e> => Boolean(e));
+            if (fresh.length) setD((old) => (old ? { ...old, tasks: mergeTaskEvents(old.tasks, streamRun, fresh) } : old));
+          }
+        } catch { /* dropped: the poll above is the fallback; reconnect after a short wait */ }
+        if (stopped) return;
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+    };
+    void connect();
+    return () => { stopped = true; controller?.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamRun]);
   if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
   if (!d) return <Loading />;
-  const live = (s: string) => s === "running" || s === "waiting";
   const cont = async () => { setBusy(true); haptic("medium"); try { await api("thread_open", { id }); closeApp(); } finally { setBusy(false); } };
   return (
     <div style={{ paddingTop: 8 }}>
-      {!d.tasks.length && <div className="n-empty">{t.noMessages}</div>}
-      {d.tasks.map((k) => (
-        <div key={k.run_id}>
-          {k.events.map((e) => (
-            e.kind === "start" ? <div key={e.id} className="n-bubble n-me" dir="auto">{e.text.slice(0, 4000)}</div>
-              : e.kind === "text" ? <div key={e.id} className="n-bubble n-bot" dir="auto">{e.text.slice(0, 4000)}</div>
-              : <div key={e.id} className="n-meta" dir="auto">{e.kind === "failed" ? "⚠️" : e.kind === "confirm" ? "❓" : "•"} {tx(t, `ev_${e.kind}`)}: {e.text.slice(0, 300)}</div>
-          ))}
-          <div className="n-meta">{ago(k.started_at, t)}{live(k.status) ? ` · ${tx(t, `status_${k.status}`)}` : ""}</div>
-          {live(k.status) && <div className="n-wrap"><button type="button" className="n-btn n-ghost" onClick={async () => { haptic("warning"); await api("stop", { runId: k.run_id, slot: "" }); void load(); }}>⏹ {t.stop}</button></div>}
-        </div>
-      ))}
+      {!bubbles.length && <div className="n-empty">{t.noMessages}</div>}
+      {bubbles.map((b) => b.role === "user"
+        ? <div key={b.id} className="n-bubble n-me" dir="auto">{b.text.slice(0, 4000)}</div>
+        : b.role === "assistant"
+          ? <div key={b.id} className="n-bubble n-bot" dir="auto">{b.text.slice(0, 4000)}</div>
+          : <div key={b.id} className="n-meta" dir="auto">{b.kind === "failed" ? "⚠️" : b.kind === "confirm" ? "❓" : "•"} {tx(t, `ev_${b.kind}`)}: {b.text.slice(0, 300)}</div>)}
+      {running && <div className="n-meta" aria-live="polite" style={{ padding: "4px 8px" }}>{c.lang === "ar" ? "… يكتب" : "… writing"}</div>}
+      <div ref={endRef} />
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</button>
         <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{t.continueHint}</p>
@@ -1293,7 +1109,7 @@ export default function NovaApp() {
           : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
           : tab === "computer" ? (ctx.me.features?.computer
-            ? <FreeComputer lang={lang} defaultModel={ctx.me.settings.model || "coder"} logs={<TerminalScreen lang={lang} model="all" />} />
+            ? <FreeComputer lang={lang} defaultModel={ctx.me.settings.model || "coder"} />
             : <div className="n-page"><Fail t={t} msg={lang === "ar" ? "الحاسوب السحابي غير متاح لهذه الخطة." : "Cloud computer is not available on this plan."} retry={() => go("home")} /></div>)
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}

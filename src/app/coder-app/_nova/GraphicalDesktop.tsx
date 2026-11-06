@@ -5,6 +5,7 @@ import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
 import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
+import { hudLines } from "@/lib/computerHud";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
@@ -233,6 +234,19 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     setTyped("");
     await perform({ action: "type", text: value });
   };
+  // Touch: a tap on the screen is a real left click at the mapped point (the desktop is touchable, not just a picture).
+  const tapScreen = (event: React.TouchEvent<HTMLImageElement>) => {
+    const image = imageRef.current;
+    const touch = event.touches[0] || event.changedTouches[0];
+    if (!image || !touch) return;
+    const rect = image.getBoundingClientRect();
+    const point = desktopPoint(rect, { clientX: touch.clientX, clientY: touch.clientY }, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
+    if (!point) return;
+    void perform({ action: "click", x: point.x, y: point.y, button: "left" });
+  };
+  // The model's own activity, BELOW the screen (owner's order: nothing is drawn over the screen): one readable line per
+  // event, newest last, with the redundant raw fields the activity feed carries dropped.
+  const consoleLines = hudLines(activity, runningJobs, 6);
 
   return (
     <div className="n-card" style={{ padding: 12 }}>
@@ -268,6 +282,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           alt={ar ? "شاشة سطح مكتب Linux" : "Linux desktop screen"}
           onClick={(event) => clickScreen(event)}
           onContextMenu={(event) => { event.preventDefault(); clickScreen(event, "right"); }}
+          onTouchStart={tapScreen}
           onWheel={(event) => {
             event.preventDefault();
             void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
@@ -284,7 +299,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
               void perform({ action: "key", key: mapped.replace(/ /g, "") });
             }
           }}
-          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", transform: `scale(${zoom})`, transformOrigin: "top center", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "pan-y" }}
+          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", transform: `scale(${zoom})`, transformOrigin: "top center", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "manipulation" }}
         />
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>
@@ -303,15 +318,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <button type="button" className="n-btn n-ghost" disabled={zoom >= 1.5} onClick={() => setZoom((v) => Math.min(1.5, Math.round((v + 0.1) * 10) / 10))}>＋</button>
         </div>
       ) : null}
-      {activity.length > 0 || runningJobs.length > 0 ? (
+      {consoleLines.length > 0 ? (
         <div className="n-note" style={{ marginTop: 8, maxHeight: 150, overflow: "auto" }}>
-          <strong>{ar ? "نشاط الحاسوب (طرفية/مهام/ملفات)" : "Computer activity (terminal / jobs / files)"}</strong>
-          {activity.slice(-6).map((item: any, index: number) => {
-            const line = item?.text || item?.message || [item?.action, item?.detail].filter(Boolean).join(" ");
-            const out = typeof item?.output === "string" ? item.output.split("\n").filter(Boolean).slice(-1)[0] : "";
-            return <div key={item?.seq || item?.id || index} style={mono}>{String(line || "").slice(0, 200)}{out ? " → " + String(out).slice(0, 200) : ""}</div>;
-          })}
-          {runningJobs.map((job, index) => <div key={job?.id || index} style={mono}>{String(job?.name || job?.command || "Background job")}: {ar ? "يعمل" : "running"}</div>)}
+          <strong>{ar ? "نشاط الحاسوب" : "Computer activity"}</strong>
+          {consoleLines.map((line, index) => <div key={index} style={mono}>{line}</div>)}
         </div>
       ) : null}
       {running ? (
