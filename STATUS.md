@@ -1,16 +1,15 @@
-# حالة مشروع شام — 2026-11-06 16:48 UTC
+# حالة مشروع شام — 2026-11-06 23:14 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
 ## التنبيهات (ابدأ منها)
 - ❌ دفتر أساسي فشل: مسار ترميز الصوت 3 (audio_tokenizer) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
-- ❌ سير العمل «Sham Merge + Repair + Eval (free CPU runner)» فشل في آخر تشغيلين
 
 ## المراحل
 - ✅ المرحلة الأولى — تدريب النص الأساسي (GPU) — دفتر: complete
 - ✅ مسار ترميز الصورة (VQ-VAE) — دفتر: complete
-- ✅ مسار ترميز الصوت (VQ-VAE) — دفتر: error — تقدم: {'samples_consumed': 313264, 'step': 83987, 'last_run_sources': {'fleurs-ar': 1000}, 'codebook_usage': 2007, 'recon': 0.011325007816776634}
-- ✅ مسار جمع وترميز الفيديو — دفتر: complete — تقدم: {'videos_consumed': 5867}
+- ✅ مسار ترميز الصوت (VQ-VAE) — دفتر: error — تقدم: {'samples_consumed': 328712, 'step': 85918, 'last_run_sources': {'fleurs-ar': 146, 'clartts': 854}, 'codebook_usage': 2009, 'recon': 0.00978110171854496}
+- ✅ مسار جمع وترميز الفيديو — دفتر: complete — تقدم: {'videos_consumed': 5967}
 - ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU) — دفتر: complete
 - ✅ المسار A — التدريب النصي المستمر (CPU) — دفتر: complete
 - ✅ المسار B — البحث الذاتي من الإنترنت (CPU) — دفتر: missing
@@ -36,7 +35,7 @@
 - complete | مسار جمع وترميز الفيديو 1 | الدور: primary | آخر تشغيل 2026-10-01
 - error | مسار ترميز الصوت 3 | الدور: primary | آخر تشغيل 2026-10-11 | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - complete | مسار ترميز الصورة 3 | الدور: primary | آخر تشغيل 2026-10-12
-- complete | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-11-06
+- running | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-11-06
 - complete | المسار A 1 | الدور: primary | آخر تشغيل 2026-10-12
 - complete | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-10
 - complete | المرحلة الثانية 1 | الدور: primary | آخر تشغيل 2026-09-23
@@ -46,60 +45,59 @@
 - (+5 دفتراً غير تابع لشام، +4 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-11-06T16:47 in_progress ، 2026-11-06T06:54 success ، 2026-11-05T23:40 success
-- Sham v2 live capability smoke test: 2026-11-06T15:54 success ، 2026-11-06T00:34 success ، 2026-11-06T00:19 skipped
+- Sham Status (supervision snapshot): 2026-11-06T23:13 in_progress ، 2026-11-06T16:47 success
+- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-11-06T23:06 success ، 2026-11-06T22:16 success ، 2026-11-06T17:22 success ، 2026-11-06T17:02 success
+- Sham Merge + Repair + Eval (free CPU runner): 2026-11-06T22:26 in_progress ، 2026-11-06T13:15 failure
+- Sham decoder refine (image / audio tokenizer decoder only): 2026-11-06T21:02 in_progress ، 2026-11-06T11:27 success
+- Sham Vault (checkpoint backup to ModelScope): 2026-11-06T21:01 success ، 2026-11-06T11:25 success
+- Sham Token Shards (free CPU runner): 2026-11-06T19:43 success ، 2026-11-06T07:26 success
+- Sham Kaggle Inspect (read-only): 2026-11-06T19:39 success ، 2026-11-06T11:26 success
+- Sham Collector (free CPU runner): 2026-11-06T19:20 in_progress
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-11-06T19:15 in_progress
+- Sham v2 live capability smoke test: 2026-11-06T15:54 success
 - Sham v2 signed runtime code sync: 2026-11-06T15:21 success
-- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-11-06T14:37 success ، 2026-11-06T14:12 success ، 2026-11-06T13:37 success ، 2026-11-06T12:04 success
-- Sham Merge + Repair + Eval (free CPU runner): 2026-11-06T13:15 failure ، 2026-11-06T03:43 failure
-- Sham decoder refine (image / audio tokenizer decoder only): 2026-11-06T11:27 success
-- Sham Kaggle Inspect (read-only): 2026-11-06T11:26 success ، 2026-11-06T01:46 success
-- Sham Vault (checkpoint backup to ModelScope): 2026-11-06T11:25 success
-- Sham Token Shards (free CPU runner): 2026-11-06T07:26 success
-- Sham Collector (free CPU runner): 2026-11-06T06:35 success
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-11-06T06:22 success
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - 2026-11-06T13:15 «Sham Merge + Repair + Eval (free CPU runner)» — الخطوة: غير معروفة — https://github.com/jonsnow-org/Ttbik/actions/runs/42224092548
-- 2026-11-06T03:43 «Sham Merge + Repair + Eval (free CPU runner)» — الخطوة: غير معروفة — https://github.com/jonsnow-org/Ttbik/actions/runs/42158238801
 
 ## المجموعات (ما كُتب أم لا، ومن يكتبها)
 | المجموعة | الحجم | آخر تحديث | الكاتب المعلن | الدور |
 |---|---|---|---|---|
 | sham-checkpoint | 2421824578 | 2026-11-05 | stage1_text | نقطة حفظ النص الأساسي (المرحلة الأولى) + مُرمِّز النص العام |
 | nova-small-checkpoint | 2444237366 | 2026-09-19 | — | الاسم القديم لـ sham-checkpoint — يُقرأ احتياطاً فقط |
-| sham-image-tokenizer-checkpoint | 145618439 | 2026-11-06 | image_tokenizer | مُرمِّز الصورة VQ-VAE |
-| sham-audio-tokenizer-checkpoint | 35846976 | 2026-11-06 | audio_tokenizer | مُرمِّز الصوت VQ-VAE |
-| sham-video-corpus | 24517313 | 2026-11-06 | video_tokenizer | فيديو مُجمَّع ومُرمَّز |
+| sham-image-tokenizer-checkpoint | 145649096 | 2026-11-06 | image_tokenizer | مُرمِّز الصورة VQ-VAE |
+| sham-audio-tokenizer-checkpoint | 35856680 | 2026-11-06 | audio_tokenizer | مُرمِّز الصوت VQ-VAE |
+| sham-video-corpus | 24958550 | 2026-11-06 | video_tokenizer | فيديو مُجمَّع ومُرمَّز |
 | sham-multimodal-checkpoint | 582049080 | 2026-11-05 | stage2_multimodal | نقطة حفظ المرحلة الثانية (نص + صورة + صوت) |
-| sham-chat-checkpoint | 581208090 | 2026-11-06 | chat_stage | نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج) |
+| sham-chat-checkpoint | 581148166 | 2026-11-06 | chat_stage | نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج) |
 | sham-cpu-track-checkpoint | 175 | 2026-09-20 | — | قديم (v1) — لا يُكتب |
 | sham-cpu-track-checkpoint-v2 | 0 | 2026-11-06 | track_a | المسار A: تدريب نصي مستمر على CPU |
 | sham-research-track-checkpoint-v2 | 0 | 2026-11-06 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
-| sham-crawl-checkpoint | 794816492 | 2026-11-06 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
+| sham-crawl-checkpoint | 794202948 | 2026-11-06 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
 | sham-crawl-corpus | 584555 | 2026-11-06 | live_trainer | نصوص المدرّب الحي على Kaggle |
 | sham-crawl-legacy | — | غير موجودة | repair | ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح) |
 | sham-chat-checkpoint-incoming | — | غير موجودة | repair | ما نُشر فوق مجموعة المحادثة من دفتر آخر (يُنقل بالإصلاح) |
-| sham-crawl-gh | 718789004 | 2026-11-06 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
+| sham-crawl-gh | 0 | 2026-11-06 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
 | sham-crawl-gh-corpus | 535418 | 2026-11-06 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
-| sham-crawl-gh-collect-corpus | 684759111 | 2026-11-06 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
+| sham-crawl-gh-collect-corpus | 666049086 | 2026-11-06 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
 | sham-merged-checkpoint | 717702033 | 2026-11-06 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
-| sham-reports | 14074 | 2026-11-06 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
+| sham-reports | 14456 | 2026-11-06 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
 | sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | — | مُرمِّز صوت (VQ) تجربة قديمة — مرشّح صوتي، تُدمج أوزانه بحسب نوعها (صوت) حين تتوافق البنية، وإلا يبقى مرشّحاً |
 | sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | — | مُرمِّز صوت (VQ) النسخة الثانية للتجربة — مرشّح صوتي (صوت) |
 | sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | — | مُرمِّزا صورة وصوت من مسار الفيديو — مرشّحان لمساري الصورة والصوت بحسب نوع كل ملف |
 | sham-orchestrator-state | 277 | 2026-09-27 | — | حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
-| sham-keeper-state | 777 | 2026-11-06 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
+| sham-keeper-state | 781 | 2026-11-06 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
 | sham-crawl-selflearn | — | غير موجودة | selflearn | نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*) |
 | sham-crawl-selflearn-corpus | — | غير موجودة | selflearn | نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً) |
-| sham-text-shards | 519390573 | 2026-11-06 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
+| sham-text-shards | 501313109 | 2026-11-06 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
 | sham-crawl-modal | — | غير موجودة | modal_gpu | نموذج جلسات GPU على Modal (مرشّح لبوابة الدمج) |
 | sham-grown-checkpoint | 718122048 | 2026-10-11 | model_grow | أفضل نقطة حفظ بالقياس بعد التكبير (طبقات أكثر وسياق أطول، الدالة محفوظة) — يفضّلها الدمج والمدرّب الحي عند التعادل |
 | sham-image-tokenizer-v2-checkpoint | 144015040 | 2026-10-15 | lightning_probe | مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning) |
 | sham-audio-tokenizer-v2-checkpoint | 34972869 | 2026-10-15 | lightning_probe | مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning) |
 | sham-chat-arabic-sft-checkpoint | 579344243 | 2026-10-27 | arabic_sft | نقطة دفتر SFT العربي المنفصل (تدخل الدمج كمصدر عادي عبر قاعدة sham*) |
-| sham-repair-remerge-checkpoint | 4171501327 | 2026-11-06 | repair_remerge | ناتج أداة الاسترجاع والإصلاح وإعادة الدمج (تدخل الدمج كمصدر عادي عبر قاعدة sham*) |
+| sham-repair-remerge-checkpoint | 4171499205 | 2026-11-06 | repair_remerge | ناتج أداة الاسترجاع والإصلاح وإعادة الدمج (تدخل الدمج كمصدر عادي عبر قاعدة sham*) |
 | sham-runtime-creds | 493 | 2026-10-16 | any | مجموعة خاصة بملف اعتماد كاكل للنسخ المدفوعة بالواجهة (أسرار — لا تُرفق إلا بدفاتر خاصة؛ لا أوزان فيها) |
 | sham-media-refined | 144023228 | 2026-10-18 | decoder_refine | مفكّ الصورة والصوت المصقول وحده (الترميز والقاموس كما هما بالضبط) — يُعتمد في الاستوديو فقط إذا طابق ترميز النموذج المدموج |
 | sham-crawl-lightning | 791545617 | 2026-10-15 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
@@ -240,6 +238,33 @@
 - sham-media-image-202610110605: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 
 ## آخر تقارير الجلسات (الأحدث أولاً)
+### 2026-11-06 18:40 UTC — 📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 85,831
+```
+📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 85,831
+خسارة الإجابة (أقل أفضل): 3.539 (-0.018) على 120 سؤالاً لم يُدرَّب عليها
+تكرار الكلمة نفسها (أقل أفضل): 0.00 (+0.00)
+تنوّع العبارات (أعلى أفضل): 0.78 (+0.31)
+👤 ما هي عاصمة سوريا؟
+🤖 عاصمة سوريا هي: النور
+ومعظم مناطق في مدينة دمشق كانت عاصمةً لها هي: نابلس
+👤 اكتب جملة عن فوائد القراءة.
+🤖 البدائل هي طريقة مثيرة للاهتمام.
+👤 من أنت؟
+🤖 عجبك منك.
+🧬 التطوير الذاتي هذه الجلسة:
+  • الإصلاح قبل الدمج: final_multimodal.pt (خطوة 84,755): ✅ سليم — لم يحتج إصلاحاً
+  • الإصلاح قبل الدمج: final_chat.pt (خطوة 85,436): ✅ سليم — لم يحتج إصلاحاً
+  • الإصلاح قبل الدمج: step_63336.pt (خطوة 63,336): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: step_71594.pt (خطوة 71,594): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 71,184): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 62,689): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 42,893): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 62,621): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 62,201): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 51,425): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final_chat.pt (خطوة 76,171): ✅ سليم — لم يحتج إصلاحاً
+  • الإصلاح قبل الدمج: final_grown.pt (خطوة 61,
+```
 ### 2026-11-06 15:06 UTC — 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
 ```
 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
@@ -299,14 +324,4 @@
   • الإصلاح قبل الدمج: final.pt (خطوة 51,425): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final_chat.pt (خطوة 76,171): ✅ سليم — لم يحتج إصلاحاً
   • الإصلاح قبل الدمج: final_grown.pt (خطوة 61,555): 81 مصفوفة غير معروف
-```
-### 2026-11-06 05:10 UTC — 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
-```
-🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
-عدد الدورات: 43
-مستندات جديدة مقبولة: 43
-مستبعد (مكرر/شبه مكرر: 212، أسرار وكلمات مرور: 0)
-خطوات تدريب حقيقية هذه الجلسة: 71 (الخطوة النهائية: 71,184)
-آخر خسارة مسجّلة: 3.8906
-نُشر إلى: jonsnowjonsnow/sham-research-track-checkpoint-v2
 ```

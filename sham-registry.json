@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-06 16:55 UTC",
+  "generated_at": "2026-11-06 23:19 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -158,7 +158,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-11-06",
       "gpu": false,
@@ -236,29 +236,30 @@
       "size_mb": 145.6,
       "last_updated": "2026-11-06",
       "progress": {
-        "samples_consumed": 297668,
-        "step": 58677,
+        "samples_consumed": 305804,
+        "step": 60711,
         "last_run_sources": {
           "coco-karpathy": 1000
         },
-        "codebook_usage": 3587,
-        "recon": 0.03239096375182271
+        "codebook_usage": 3074,
+        "recon": 0.047485084985108936
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
-      "size_mb": 35.8,
+      "size_mb": 35.9,
       "last_updated": "2026-11-06",
       "progress": {
-        "samples_consumed": 313264,
-        "step": 83987,
+        "samples_consumed": 328712,
+        "step": 85918,
         "last_run_sources": {
-          "fleurs-ar": 1000
+          "fleurs-ar": 146,
+          "clartts": 854
         },
-        "codebook_usage": 2007,
-        "recon": 0.011325007816776634
+        "codebook_usage": 2009,
+        "recon": 0.00978110171854496
       },
       "has_key_files": true
     },
@@ -273,7 +274,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 718.8,
+      "size_mb": 0.0,
       "last_updated": "2026-11-06",
       "progress": {},
       "has_key_files": true
@@ -289,7 +290,7 @@
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 581.2,
+      "size_mb": 581.1,
       "last_updated": "2026-11-06",
       "progress": {},
       "has_key_files": true
@@ -305,7 +306,7 @@
     {
       "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
-      "size_mb": 794.8,
+      "size_mb": 794.2,
       "last_updated": "2026-11-06",
       "progress": {},
       "has_key_files": true
@@ -313,10 +314,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 24.5,
+      "size_mb": 25.0,
       "last_updated": "2026-11-06",
       "progress": {
-        "videos_consumed": 5867
+        "videos_consumed": 5967
       },
       "has_key_files": true
     },
@@ -389,13 +390,14 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 313264,
-          "step": 83987,
+          "samples_consumed": 328712,
+          "step": 85918,
           "last_run_sources": {
-            "fleurs-ar": 1000
+            "fleurs-ar": 146,
+            "clartts": 854
           },
-          "codebook_usage": 2007,
-          "recon": 0.011325007816776634
+          "codebook_usage": 2009,
+          "recon": 0.00978110171854496
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -404,7 +406,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 5867
+          "videos_consumed": 5967
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
