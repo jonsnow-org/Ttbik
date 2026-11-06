@@ -208,7 +208,9 @@ jobs:
                     # gate pass while the new app is still starting, so the chat smoke then fails on a
                     # context window of 0. context_tokens is emitted only by the current app (the v2
                     # wrapper sets SHAM_MAX_SEQ_LEN=4096), so require it before declaring readiness.
-                    ctx=$(echo "$response" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1)
+                    # `|| true`: under this step's `bash -e`, a failing grep in the assignment would
+                    # otherwise abort the whole deploy with no message.
+                    ctx=$(echo "$response" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
                     if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ]; then
                       echo "Sham v2 Studio model server is ready (context_tokens=$ctx)."
                       exit 0
