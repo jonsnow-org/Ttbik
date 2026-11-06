@@ -5,7 +5,7 @@
 // can apply each `text` event the moment it is written and keep polling only as the fallback for a dropped stream.
 
 export type LiveEvent = { id: number; run_id?: string; kind: string; text: string; created_at?: string };
-export type TaskLike = { run_id: string; events: LiveEvent[]; [k: string]: unknown };
+export type TaskLike = { run_id: string; events?: LiveEvent[]; [k: string]: unknown };
 
 /** Append `incoming` to the task whose run_id matches, skipping ids already shown. Returns the SAME array when nothing changed
  *  so React can bail out of a re-render, and never mutates the input. */
@@ -14,11 +14,12 @@ export function mergeTaskEvents<T extends TaskLike>(tasks: T[], runId: string, i
   const index = tasks.findIndex((t) => t.run_id === runId);
   if (index < 0) return tasks;
   const task = tasks[index];
-  const seen = new Set(task.events.map((e) => e.id));
+  const held = task.events || [];
+  const seen = new Set(held.map((e) => e.id));
   const fresh = incoming.filter((e) => e && typeof e.id === "number" && !seen.has(e.id));
   if (!fresh.length) return tasks;
   const next = tasks.slice();
-  next[index] = { ...task, events: [...task.events, ...fresh].sort((a, b) => a.id - b.id) };
+  next[index] = { ...task, events: [...held, ...fresh].sort((a, b) => a.id - b.id) };
   return next;
 }
 
@@ -26,7 +27,7 @@ export function mergeTaskEvents<T extends TaskLike>(tasks: T[], runId: string, i
 export function lastEventId(tasks: TaskLike[], runId: string): number {
   const task = tasks.find((t) => t.run_id === runId);
   if (!task) return 0;
-  return task.events.reduce((max, e) => (e.id > max ? e.id : max), 0);
+  return (task.events || []).reduce((max, e) => (e.id > max ? e.id : max), 0);
 }
 
 /** Splits a text/event-stream buffer into complete frames, returning the frames and the unconsumed remainder. */

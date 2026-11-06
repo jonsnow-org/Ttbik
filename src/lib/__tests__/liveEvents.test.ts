@@ -18,6 +18,14 @@ describe("live SSE task events", () => {
     expect(mergeTaskEvents(tasks, "missing", [{ id: 2, kind: "text", text: "y" }])).toBe(tasks);
   });
 
+  it("starts a run whose row carries no events yet (the poll row and the stream race on first paint)", () => {
+    // listTasks returns rows WITHOUT events; the stream can arrive before the thread op has paired them.
+    const rows = [{ run_id: "a" } as unknown as TaskLike];
+    const next = mergeTaskEvents(rows, "a", [{ id: 1, kind: "text", text: "first" }]);
+    expect(next[0].events).toEqual([{ id: 1, kind: "text", text: "first" }]);
+    expect(lastEventId(rows, "a")).toBe(0);
+  });
+
   it("sorts out-of-order replayed events by id", () => {
     const tasks = [run("a", [{ id: 3, kind: "text", text: "c" }])];
     const next = mergeTaskEvents(tasks, "a", [{ id: 4, kind: "text", text: "d" }, { id: 2, kind: "text", text: "b" }]);
