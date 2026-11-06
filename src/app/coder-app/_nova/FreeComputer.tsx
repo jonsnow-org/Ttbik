@@ -108,7 +108,7 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
         </div>
         <div className="n-meta" style={{ ...mono, fontSize: 12 }}>
           {status == null ? "…" : okStatus
-            ? `${ar ? "حاسوب" : "computer"} · ${status.tools ? Object.entries(status.tools).filter(([, v]) => v).map(([k]) => k).join(" ") : ""} · ${status.your_disk_mb ?? 0} MB`
+            ? `${ar ? "الحاسوب متصل" : "computer online"} · ${status.your_disk_mb ?? 0} MB`
             : `⚠ ${String(status.error || (ar ? "الحاسوب غير متاح الآن (الاستوديو يعمل أو يعيد التشغيل)" : "computer unavailable now"))}`}
         </div>
       </div>
