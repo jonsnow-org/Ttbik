@@ -1,4 +1,4 @@
-# حالة مشروع شام — 2026-11-05 23:41 UTC
+# حالة مشروع شام — 2026-11-06 06:55 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
@@ -8,8 +8,8 @@
 ## المراحل
 - ✅ المرحلة الأولى — تدريب النص الأساسي (GPU) — دفتر: complete
 - ✅ مسار ترميز الصورة (VQ-VAE) — دفتر: complete
-- ✅ مسار ترميز الصوت (VQ-VAE) — دفتر: error — تقدم: {'samples_consumed': 284848, 'step': 80435, 'last_run_sources': {'cv17-ar': 319, 'fleurs-ar': 681}, 'codebook_usage': 2004, 'recon': 0.01154940837295726}
-- ✅ مسار جمع وترميز الفيديو — دفتر: complete — تقدم: {'videos_consumed': 5667}
+- ✅ مسار ترميز الصوت (VQ-VAE) — دفتر: error — تقدم: {'samples_consumed': 300144, 'step': 82347, 'last_run_sources': {'fleurs-ar': 1000}, 'codebook_usage': 2012, 'recon': 0.011029677155117193}
+- ✅ مسار جمع وترميز الفيديو — دفتر: complete — تقدم: {'videos_consumed': 5767}
 - ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU) — دفتر: complete
 - ✅ المسار A — التدريب النصي المستمر (CPU) — دفتر: complete
 - ✅ المسار B — البحث الذاتي من الإنترنت (CPU) — دفتر: missing
@@ -27,15 +27,15 @@
 - error | مسار ترميز الصوت 2 | الدور: duplicate | آخر تشغيل 2026-09-23 | الخطأ: ---> 58             raise ConnectionError(      60         except HTTPError as e: ConnectionError: Connection error trying to communicate with service. قبل الفشل: 0.00s - to python to disable frozen m
 - error | المرحلة الأولى 3 | الدور: duplicate | آخر تشغيل 2026-10-29
 - error | المرحلة الثالثة 5 | الدور: duplicate | آخر تشغيل 2026-10-27
-- running | الدفتر الشامل 1 | الدور: primary | آخر تشغيل 2026-11-05
+- running | الدفتر الشامل 1 | الدور: primary | آخر تشغيل 2026-11-06
 - complete | المرحلة الثالثة 1 | الدور: duplicate | آخر تشغيل 2026-09-28
-- running | دفتر المحادثة والمرمزات 1 | الدور: primary | آخر تشغيل 2026-11-05
+- running | دفتر المحادثة والمرمزات 1 | الدور: primary | آخر تشغيل 2026-11-06
 - cancelAcknowledged | تجربة بوت شام 1 | الدور: tool | آخر تشغيل 2026-10-09
 - cancelAcknowledged | المرحلة الثانية 2 | الدور: duplicate | آخر تشغيل 2026-10-10 | GPU
 - complete | مسار جمع وترميز الفيديو 1 | الدور: primary | آخر تشغيل 2026-10-01
 - error | مسار ترميز الصوت 3 | الدور: primary | آخر تشغيل 2026-10-11 | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - complete | مسار ترميز الصورة 3 | الدور: primary | آخر تشغيل 2026-10-12
-- running | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-11-05
+- running | دفتر المسارين A وB 1 | الدور: primary | آخر تشغيل 2026-11-06
 - complete | المسار A 1 | الدور: primary | آخر تشغيل 2026-10-12
 - complete | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-10
 - complete | المرحلة الثانية 1 | الدور: primary | آخر تشغيل 2026-09-23
@@ -45,50 +45,50 @@
 - (+5 دفتراً غير تابع لشام، +4 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-11-05T23:40 in_progress ، 2026-11-05T17:27 success
-- Sham Merge + Repair + Eval (free CPU runner): 2026-11-05T22:55 in_progress
-- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-11-05T22:23 success ، 2026-11-05T19:27 success ، 2026-11-05T16:42 success
-- Sham decoder refine (image / audio tokenizer decoder only): 2026-11-05T21:33 in_progress
-- Sham v2 live capability smoke test: 2026-11-05T21:32 skipped ، 2026-11-05T20:50 success
+- Sham Status (supervision snapshot): 2026-11-06T06:54 in_progress ، 2026-11-05T23:40 success
+- Sham Collector (free CPU runner): 2026-11-06T06:35 in_progress ، 2026-11-05T19:53 success
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-11-06T06:22 in_progress ، 2026-11-05T19:51 success
+- Sham Restarter (keeps the Kaggle notebooks in a continuous cycle): 2026-11-06T05:21 success ، 2026-11-06T02:44 success ، 2026-11-05T22:23 success ، 2026-11-05T19:27 success
+- Sham Merge + Repair + Eval (free CPU runner): 2026-11-06T03:43 failure ، 2026-11-05T22:55 success
+- Sham Kaggle Inspect (read-only): 2026-11-06T01:46 success ، 2026-11-05T20:14 success
+- Sham v2 live capability smoke test: 2026-11-06T00:34 success ، 2026-11-06T00:19 skipped ، 2026-11-05T21:32 skipped ، 2026-11-05T20:50 success
+- Sham decoder refine (image / audio tokenizer decoder only): 2026-11-05T21:33 success
 - Sham Vault (checkpoint backup to ModelScope): 2026-11-05T21:32 success
 - Sham v2 signed runtime code sync: 2026-11-05T21:18 success ، 2026-11-05T20:40 success
 - Sham Token Shards (free CPU runner): 2026-11-05T20:19 success
-- Sham Kaggle Inspect (read-only): 2026-11-05T20:14 success
-- Sham Collector (free CPU runner): 2026-11-05T19:53 in_progress
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-11-05T19:51 in_progress
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
-- لا أخطاء حديثة ✅
+- 2026-11-06T03:43 «Sham Merge + Repair + Eval (free CPU runner)» — الخطوة: غير معروفة — https://github.com/jonsnow-org/Ttbik/actions/runs/42158238801
 
 ## المجموعات (ما كُتب أم لا، ومن يكتبها)
 | المجموعة | الحجم | آخر تحديث | الكاتب المعلن | الدور |
 |---|---|---|---|---|
 | sham-checkpoint | 2421824578 | 2026-11-05 | stage1_text | نقطة حفظ النص الأساسي (المرحلة الأولى) + مُرمِّز النص العام |
 | nova-small-checkpoint | 2444237366 | 2026-09-19 | — | الاسم القديم لـ sham-checkpoint — يُقرأ احتياطاً فقط |
-| sham-image-tokenizer-checkpoint | 145571431 | 2026-11-05 | image_tokenizer | مُرمِّز الصورة VQ-VAE |
-| sham-audio-tokenizer-checkpoint | 35827287 | 2026-11-05 | audio_tokenizer | مُرمِّز الصوت VQ-VAE |
-| sham-video-corpus | 23651090 | 2026-11-05 | video_tokenizer | فيديو مُجمَّع ومُرمَّز |
+| sham-image-tokenizer-checkpoint | 145597627 | 2026-11-06 | image_tokenizer | مُرمِّز الصورة VQ-VAE |
+| sham-audio-tokenizer-checkpoint | 35836732 | 2026-11-06 | audio_tokenizer | مُرمِّز الصوت VQ-VAE |
+| sham-video-corpus | 24087725 | 2026-11-06 | video_tokenizer | فيديو مُجمَّع ومُرمَّز |
 | sham-multimodal-checkpoint | 582049080 | 2026-11-05 | stage2_multimodal | نقطة حفظ المرحلة الثانية (نص + صورة + صوت) |
-| sham-chat-checkpoint | 581308230 | 2026-11-05 | chat_stage | نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج) |
+| sham-chat-checkpoint | 581280895 | 2026-11-06 | chat_stage | نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج) |
 | sham-cpu-track-checkpoint | 175 | 2026-09-20 | — | قديم (v1) — لا يُكتب |
-| sham-cpu-track-checkpoint-v2 | 0 | 2026-11-05 | track_a | المسار A: تدريب نصي مستمر على CPU |
-| sham-research-track-checkpoint-v2 | 4188686004 | 2026-11-05 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
-| sham-crawl-checkpoint | 794266830 | 2026-11-04 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
+| sham-cpu-track-checkpoint-v2 | 0 | 2026-11-06 | track_a | المسار A: تدريب نصي مستمر على CPU |
+| sham-research-track-checkpoint-v2 | 4185595567 | 2026-11-06 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
+| sham-crawl-checkpoint | 0 | 2026-11-06 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
 | sham-crawl-corpus | 781500 | 2026-11-04 | live_trainer | نصوص المدرّب الحي على Kaggle |
 | sham-crawl-legacy | — | غير موجودة | repair | ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح) |
 | sham-chat-checkpoint-incoming | — | غير موجودة | repair | ما نُشر فوق مجموعة المحادثة من دفتر آخر (يُنقل بالإصلاح) |
-| sham-crawl-gh | 791663160 | 2026-11-05 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
-| sham-crawl-gh-corpus | 520191 | 2026-11-05 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
-| sham-crawl-gh-collect-corpus | 665275107 | 2026-11-05 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
-| sham-merged-checkpoint | 717702025 | 2026-11-05 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
-| sham-reports | 14393 | 2026-11-05 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
+| sham-crawl-gh | 791680077 | 2026-11-06 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
+| sham-crawl-gh-corpus | 555976 | 2026-11-06 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
+| sham-crawl-gh-collect-corpus | 685368034 | 2026-11-06 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
+| sham-merged-checkpoint | 717702034 | 2026-11-06 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
+| sham-reports | 14454 | 2026-11-06 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
 | sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | — | مُرمِّز صوت (VQ) تجربة قديمة — مرشّح صوتي، تُدمج أوزانه بحسب نوعها (صوت) حين تتوافق البنية، وإلا يبقى مرشّحاً |
 | sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | — | مُرمِّز صوت (VQ) النسخة الثانية للتجربة — مرشّح صوتي (صوت) |
 | sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | — | مُرمِّزا صورة وصوت من مسار الفيديو — مرشّحان لمساري الصورة والصوت بحسب نوع كل ملف |
 | sham-orchestrator-state | 277 | 2026-09-27 | — | حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
-| sham-keeper-state | 779 | 2026-11-05 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
+| sham-keeper-state | 763 | 2026-11-06 | — | حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
 | sham-crawl-selflearn | — | غير موجودة | selflearn | نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*) |
 | sham-crawl-selflearn-corpus | — | غير موجودة | selflearn | نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً) |
 | sham-text-shards | 473270500 | 2026-11-05 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
@@ -113,23 +113,25 @@
 | sham-crawl-xlive-corpus | 251624 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-media-image-202610111618 | 129662473 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111557 | 129561512 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-audio-202610110650 | 379823987 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110813 | 404805261 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-audio-202610110606 | 377530614 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-audio-202610110940 | 393669296 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-audio-202610110958 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-audio-202610110610 | 377640881 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610111056 | 128764385 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-audio-202610110650 | 379823987 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110630 | 374725918 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110733 | 134444553 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110919 | 394928871 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110712 | 134810216 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111052 | 128920140 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110711 | 379620779 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-audio-202610110606 | 377530614 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110732 | 378321201 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-audio-202610110940 | 393669296 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111201 | 129398149 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110752 | 398679047 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111536 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111136 | 129026168 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110900 | 134992165 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-audio-202610110958 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111034 | 128313062 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111048 | 128940003 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111209 | 129393589 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
@@ -137,18 +139,12 @@
 | sham-media-image-202610110754 | 136288905 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110834 | 402363586 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110836 | 136602207 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610111041 | 127975318 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111527 | 129560681 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610111041 | 127975318 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111501 | 129810937 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-audio-202610110604 | 377708247 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111148 | 128708430 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-audio-202610110610 | 377640881 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110631 | 134794961 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610111547 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610111510 | 129788524 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610111154 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610110608 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610110605 | 148376346 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111130 | 129692253 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111453 | 129736346 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111029 | 127678650 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
@@ -156,13 +152,15 @@
 | sham-media-image-202610111142 | 128936589 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111002 | 135942947 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110602 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610111547 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111519 | 128976330 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610111510 | 129788524 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111215 | 128791138 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610111154 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111123 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111117 | 128929395 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111106 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111100 | 129039677 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
-| sham-media-image-202610111056 | 128764385 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111044 | 129023022 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111037 | 129250366 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610111021 | 131035980 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
@@ -170,6 +168,8 @@
 | sham-media-image-202610110921 | 136080898 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110815 | 135504427 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 | sham-media-image-202610110652 | 133484773 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610110608 | 0 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
+| sham-media-image-202610110605 | 148376346 | 2026-10-11 | يُصنَّف تلقائياً | (تُدمج بحسب نوع ملفاتها) |
 
 ## ما في المجموعات غير الموثّقة (بحسب نوع الملفات — تُدمج وفق نظامنا بحسب نوعها)
 - sham-media-image-202610111606: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
@@ -179,23 +179,25 @@
 - sham-media-audio-202610111018: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610111618: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111557: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-audio-202610110650: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-audio-202610110813: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
+- sham-media-audio-202610110606: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
+- sham-media-audio-202610110940: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
+- sham-media-audio-202610110958: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
+- sham-media-audio-202610110610: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
+- sham-media-image-202610111056: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-audio-202610110650: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-audio-202610110630: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610110733: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-audio-202610110919: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610110712: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111052: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-audio-202610110711: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
-- sham-media-audio-202610110606: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-audio-202610110732: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
-- sham-media-audio-202610110940: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610111201: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-audio-202610110752: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610111536: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111136: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610110900: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-audio-202610110958: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610111034: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111048: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111209: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
@@ -203,18 +205,12 @@
 - sham-media-image-202610110754: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-audio-202610110834: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610110836: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610111041: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111527: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610111041: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111501: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-audio-202610110604: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610111148: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-audio-202610110610: 200 ملف (audio 200) — مثال: audio/000000.wav | audio/000001.wav | audio/000002.wav
 - sham-media-image-202610110631: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610111547: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610111510: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610111154: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610110608: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610110605: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111130: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111453: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111029: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
@@ -222,13 +218,15 @@
 - sham-media-image-202610111142: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111002: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610110602: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610111547: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111519: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610111510: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111215: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610111154: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111123: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111117: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111106: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111100: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
-- sham-media-image-202610111056: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111044: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111037: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610111021: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
@@ -236,82 +234,85 @@
 - sham-media-image-202610110921: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610110815: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 - sham-media-image-202610110652: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610110608: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
+- sham-media-image-202610110605: 200 ملف (image 200) — مثال: images/000000.jpg | images/000001.jpg | images/000002.jpg
 
 ## آخر تقارير الجلسات (الأحدث أولاً)
-### 2026-11-05 18:03 UTC — 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
+### 2026-11-06 05:10 UTC — 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
 ```
 🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)
 عدد الدورات: 43
-مستندات جديدة مقبولة: 65
-مستبعد (مكرر/شبه مكرر: 141، أسرار وكلمات مرور: 0)
-خطوات تدريب حقيقية هذه الجلسة: 79 (الخطوة النهائية: 70,939)
-آخر خسارة مسجّلة: 3.5788
+مستندات جديدة مقبولة: 43
+مستبعد (مكرر/شبه مكرر: 212، أسرار وكلمات مرور: 0)
+خطوات تدريب حقيقية هذه الجلسة: 71 (الخطوة النهائية: 71,184)
+آخر خسارة مسجّلة: 3.8906
 نُشر إلى: jonsnowjonsnow/sham-research-track-checkpoint-v2
 ```
-### 2026-11-05 16:01 UTC — 🧠 تقرير جلسة شام — التدريب المستمر على المعالج المركزي (Track A)
+### 2026-11-06 03:14 UTC — 🧠 تقرير جلسة شام — التدريب المستمر على المعالج المركزي (Track A)
 ```
 🧠 تقرير جلسة شام — التدريب المستمر على المعالج المركزي (Track A)
-خطوات تدريب حقيقية هذه الجلسة: 253 (الخطوة النهائية: 71,113)
-متوسط الخسارة أول 10 خطوات: 3.2877
-متوسط الخسارة آخر 10 خطوات: 3.7763
+خطوات تدريب حقيقية هذه الجلسة: 257 (الخطوة النهائية: 71,370)
+متوسط الخسارة أول 10 خطوات: 3.2559
+متوسط الخسارة آخر 10 خطوات: 3.8932
 (كل رقم منهما دفعة واحدة، يتأرجح بنحو ±1.5 وحده — الحَكَم هو القياس على نص لم يُدرَّب عليه أدناه)
-📏 على نص لم يُدرَّب عليه: قبل 3.117 → بعد 3.032 (-0.085)
-🛡 الحارس: نهاية الجلسة كانت أسوأ على النص غير المرئي (3.236) فاستُعيدت أفضل أوزان وُجدت (بعد 100 دفعة، 3.032) ولم تُنشر الأوزان الأسوأ.
-خسارة التدريب في آخر 50 خطوة: 3.641
+📏 على نص لم يُدرَّب عليه: قبل 2.584 → بعد 2.520 (-0.063)
+🛡 الحارس: نهاية الجلسة كانت أسوأ على النص غير المرئي (2.711) فاستُعيدت أفضل أوزان وُجدت (بعد 100 دفعة، 2.520) ولم تُنشر الأوزان الأسوأ.
+خسارة التدريب في آخر 50 خطوة: 3.830
 نُشر إلى: jonsnowjonsnow/sham-cpu-track-checkpoint-v2
 ```
-### 2026-11-05 15:48 UTC — 🧩 الدمج والتقييم على CPU (GitHub)
+### 2026-11-06 01:06 UTC — 🕸 الزاحف العام (GitHub): 92,284 وثيقة، 116.8 مليون حرف في 5.2 ساعة | crossref:59
+```
+🕸 الزاحف العام (GitHub): 92,284 وثيقة، 116.8 مليون حرف في 5.2 ساعة | crossref:59914 hackernews:31387 github:566 arxiv:208 ia_books:92 gutenberg:86 stackexchange:31 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus
+```
+### 2026-11-06 00:59 UTC — 🧩 الدمج والتقييم على CPU (GitHub)
 ```
 🧩 الدمج والتقييم على CPU (GitHub)
 الأساس: sham-merged-checkpoint (يكمل من ناتجه السابق) (خطوة 61,555)
 قبل: text=4.604, chat=2.028, media=7.233
 بعد: text=4.604, chat=2.028, media=7.233
-📏 sham-multimodal-checkpoint (خطوة 84,755) وحده على الميزان: text=4.721, chat=4.628, media=8.922 | الأساس: text=4.604, chat=2.028, media=7.233
-📏 sham-chat-checkpoint (خطوة 84,559) وحده على الميزان: text=4.636, chat=3.795, media=8.531 | الأساس: text=4.604, chat=2.028, media=7.233
+⏭ sham-multimodal-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 9fae7074)
+📏 sham-chat-checkpoint (خطوة 84,757) وحده على الميزان: text=4.753, chat=3.885, media=8.487 | الأساس: text=4.604, chat=2.028, media=7.233
 ⏭ sham-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 963e6c65)
-📏 sham-cpu-track-checkpoint-v2 (خطوة 70,860) وحده على الميزان: text=4.255, chat=4.142, media=9.271 | الأساس: text=4.604, chat=2.028, media=7.233
+📏 sham-cpu-track-checkpoint-v2 (خطوة 71,113) وحده على الميزان: text=4.272, chat=4.165, media=9.449 | الأساس: text=4.604, chat=2.028, media=7.233
+📏 sham-research-track-checkpoint-v2 (خطوة 70,939) وحده على الميزان: text=4.338, chat=4.222, media=9.294 | الأساس: text=4.604, chat=2.028, media=7.233
 قبل الدمج: text=4.604, chat=2.028, media=7.233
-❌ sham-multimodal-checkpoint (خطوة 84,755): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.603 (-0.0%), chat 2.028→2.110 (+4.0%), media 7.233→7.245 (+0.2%)
-❌ sham-chat-checkpoint (خطوة 84,559): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.598 (-0.1%), chat 2.028→2.098 (+3.4%), media 7.233→7.251 (+0.2%)
-❌ sham-cpu-track-checkpoint-v2 (خطوة 70,860): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.562 (-0.9%), chat 2.028→2.107 (+3.9%), media 7.233→7.299 (+0.9%)
-📏 sham-research-track-checkpoint-v2 (خطوة 70,744) وحده على الميزان: text=4.601, chat=4.393, media=9.256 | الأساس: text=4.604, chat=2.028, media=7.233
+❌ sham-chat-checkpoint (خطوة 84,757): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.601 (-0.1%), chat 2.028→2.098 (+3.4%), media 7.233→7.251 (+0.2%)
+❌ sham-cpu-track-checkpoint-v2 (خطوة 71,113): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.564 (-0.9%), chat 2.028→2.107 (+3.9%), media 7.233→7.299 (+0.9%)
+❌ sham-research-track-checkpoint-v2 (خطوة 70,939): لم يُدمج (لم يحسّن كل المهارات معاً) — أقرب محاولة (نسبة 0.05): text 4.604→4.565 (-0.9%), chat 2.028→2.111 (+4.1%), media 7.233→7.303 (+1.0%)
 ⏭ sham-crawl-checkpoint: النقطة نفسها جُرّبت سابقاً (البصمة 6e862cc6)
 ⏭ sham-crawl-agent: النقطة نفسها جُرّبت سابقاً (البصمة ba84359a)
-📏 sham-crawl-gh (خطوة 62,642) وحده على الميزان: text=4.171, chat=3.861, media=9.399 | الأساس: text=4.604, chat=2.028, media=7.233
+📏 sham-crawl-gh (خطوة 62,030) وحده على الميزان: text=4.132, chat=4.000, media=9.578 | الأساس: text=4.604, chat=2.028, media=7.233
 ⏭ sham-crawl-lightning: النقطة نفسها جُرّبت سابقاً (البصمة 180d5ec9)
-⏭ sham-crawl-xlive: النقطة نفسها جُرّبت سا
+⏭ sham-crawl-xlive: النقطة نفسها جُرّبت سابقاً (البصمة ef90815f)
+⏭ sham-chat-arabic-sft-checkpoint: الن
 ```
-### 2026-11-05 14:56 UTC — 📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 84,757
+### 2026-11-06 00:55 UTC — 📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 85,160
 ```
-📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 84,757
-خسارة الإجابة (أقل أفضل): 3.619 (-0.045) على 120 سؤالاً لم يُدرَّب عليها
+📏 المقياس الثابت — مرحلة التجميع والمحادثة — الخطوة 85,160
+خسارة الإجابة (أقل أفضل): 3.578 (-0.041) على 120 سؤالاً لم يُدرَّب عليها
 تكرار الكلمة نفسها (أقل أفضل): 0.00 (+0.00)
-تنوّع العبارات (أعلى أفضل): 0.69 (+0.00)
+تنوّع العبارات (أعلى أفضل): 1.00 (+0.31)
 👤 ما هي عاصمة سوريا؟
-🤖 عاصمة سوريا هي رودبرج.
+🤖 عاصمة سوريا هي موريشيا.
 👤 اكتب جملة عن فوائد القراءة.
-🤖 اللغة العربية هي لغة أجنبية.
+🤖 اللغة العربية هي مجموعة من القراء.
 👤 من أنت؟
-🤖 نعم، نعم، نعتني.
+🤖 لا، لست متعباً.
 🧬 التطوير الذاتي هذه الجلسة:
-  • الإصلاح قبل الدمج: final_multimodal.pt (خطوة 84,393): ✅ سليم — لم يحتج إصلاحاً
-  • الإصلاح قبل الدمج: final_chat.pt (خطوة 84,559): ✅ سليم — لم يحتج إصلاحاً
+  • الإصلاح قبل الدمج: final_multimodal.pt (خطوة 84,755): ✅ سليم — لم يحتج إصلاحاً
+  • الإصلاح قبل الدمج: final_chat.pt (خطوة 84,757): ✅ سليم — لم يحتج إصلاحاً
   • الإصلاح قبل الدمج: step_63336.pt (خطوة 63,336): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: step_70860.pt (خطوة 70,860): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
-  • الإصلاح قبل الدمج: final.pt (خطوة 70,744): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: step_71113.pt (خطوة 71,113): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
+  • الإصلاح قبل الدمج: final.pt (خطوة 70,939): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final.pt (خطوة 63,014): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final.pt (خطوة 42,893): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final.pt (خطوة 62,642): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final.pt (خطوة 62,201): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final.pt (خطوة 51,425): أداة تقسيم نص مختلفة: 6,003 صف مشترك نُقل كما هو، و25,997 صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة) — ✅ أُصلح وأصبح صالحاً لبوابة الدمج
   • الإصلاح قبل الدمج: final_chat.pt (خطوة 76,171): ✅ سليم — لم يحتج إصلاحاً
-  • الإصلاح قبل الدمج: final_grown.pt (خطوة 61,555): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح وأصبح
+  • الإصلاح قبل الدمج: final_grown.pt (خطوة 61,555): 81 مصفوفة غير معروفة حُذفت — ✅ أُصلح
 ```
-### 2026-11-05 11:51 UTC — 🕸 الزاحف العام (GitHub): 90,018 وثيقة، 114.2 مليون حرف في 5.2 ساعة | crossref:58
+### 2026-11-06 00:51 UTC — 🤖 مدرّب CPU على GitHub: 1,058 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: 
 ```
-🕸 الزاحف العام (GitHub): 90,018 وثيقة، 114.2 مليون حرف في 5.2 ساعة | crossref:58531 hackernews:30425 github:578 arxiv:342 ia_books:103 stackexchange:31 gutenberg:8 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus
-```
-### 2026-11-05 11:30 UTC — 🤖 مدرّب CPU على GitHub: 1,087 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: 
-```
-🤖 مدرّب CPU على GitHub: 1,087 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.815
+🤖 مدرّب CPU على GitHub: 1,058 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.811
 ```
