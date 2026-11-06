@@ -959,13 +959,16 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
 
   // 4) poll the clip job until it is done, asking again after a cut (the clip keeps running on the Studio). Out of leg time -> hand off.
   if (m.phase === "poll") {
-    const { novaVideoJob } = await import("@/lib/novaMedia");
+    const { novaVideoJob, videoJobCapMs } = await import("@/lib/novaMedia");
     const { ownMediaBase } = await import("@/lib/modelMedia");
     const base = ownMediaBase(modelId) || undefined;
     m.started ||= Date.now();
+    // The ceiling follows the clip's length: a 60/120 s clip needs ~210 s per 4 s pass plus start-up, so a fixed 40 min aborted long clips
+    // that were still generating (the Studio's own budget is the same formula, capped at 2 h). The +10 min covers polling and delivery.
+    const maxMs = videoJobCapMs(m.seconds ?? 10);
     for (;;) {
       if (left() < 9000) { await save(); await handOff(botRow, chatId, run.chain, slot); return; }
-      if (Date.now() - m.started > 40 * 60000) { await fail(`تجاوز إنشاء ${MEDIA_KIND_AR(kind)} الحد الأقصى للمدة (40 دقيقة). لم يُرسل شيء ولم يُحسب من حصتك.`); return; }
+      if (Date.now() - m.started > maxMs) { await fail(`تجاوز إنشاء ${MEDIA_KIND_AR(kind)} الحد الأقصى للمدة. لم يُرسل شيء ولم يُحسب من حصتك.`); return; }
       const r = await novaVideoJob(m.job!, { base, waitS: 5, bypassContentHeuristics: rawTest });
       if (r.type === "video" && r.b64) { await deliver(String(r.b64)); return; }
       if (r.type === "error") {

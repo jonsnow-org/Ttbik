@@ -109,6 +109,7 @@ export function collectNotes(result: Result): string[] {
     if (!au.includes("message")) notes.push("allowed_updates لا يتضمن message — الرسائل العادية قد لا تصل.");
     if (!au.includes("callback_query")) notes.push("allowed_updates لا يتضمن callback_query — أزرار الإنلاين قد لا تعمل.");
     if (!au.includes("pre_checkout_query")) notes.push("allowed_updates لا يتضمن pre_checkout_query — الدفع بنجوم تيليجرام لن يعمل.");
+    if (!au.includes("stopped_message_generation")) notes.push("allowed_updates لا يتضمن stopped_message_generation — زر «إيقاف» في الرد الحي (sendMessageDraft) لن يعمل.");
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   const scopedCount = (b?.commandsPrivate?.length ?? 0) + (b?.commandsGroups?.length ?? 0) + (b?.commandsAdmins?.length ?? 0);

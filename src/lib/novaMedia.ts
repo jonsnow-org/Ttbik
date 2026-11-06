@@ -66,6 +66,10 @@ export async function readMediaSse(response: Response): Promise<MediaReply | nul
  *  Live 2026-11-04: a 6 s clip (two passes) was given 300 s and timed out while the Studio was still working. */
 export const videoDeadlineMs = (seconds: number): number => 120000 + Math.ceil(seconds / 4) * 210000;
 
+/** The bot's own ceiling for polling a clip job: it follows the clip's length (videoDeadlineMs) with 10 min of slack, never below
+ *  40 min, never above 2 h. A fixed 40 min aborted a 60 s clip (~55 min of passes) that was still generating. */
+export const videoJobCapMs = (seconds: number): number => Math.min(2 * 3600_000, Math.max(40 * 60000, videoDeadlineMs(seconds) + 10 * 60000));
+
 /** kind image | audio | video. A video is ONE prompt (+ seconds) given to the Studio's text-to-video model; `scenes` / `narration` are accepted for old callers but never become stills.
  *  Every picture / sound / clip that comes back is vetted (src/lib/mediaQuality.ts): a blank or empty result is returned as a typed error, never as media. */
 export async function novaMakeMedia(
