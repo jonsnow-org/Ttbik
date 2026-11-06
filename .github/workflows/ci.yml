@@ -61,11 +61,15 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://example.com
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2                        # content-shrink-check compares HEAD with HEAD~1
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
+      - name: Guard content modules against placeholder / shell-artifact clobbering
+        run: node scripts/content-shrink-check.mjs HEAD~1
       - run: npm ci
       - name: Run project source regression tests
         run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tests/*.test.mjs

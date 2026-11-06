@@ -4,6 +4,9 @@
 //   node scripts/content-shrink-check.mjs            # compares the working tree with HEAD
 //   node scripts/content-shrink-check.mjs origin/claude/free-services-marketplace-h6rwk2
 // Background: on 2026-10-21 commit 8d111d08 emptied these 4 files and the production build failed.
+// On 2026-11-06 the daily-news automation wrote the literal shell text `$(cat /tmp/..._updated.ts)` into
+// newsItems.ts and enDesk.ts (unquoted heredoc), which breaks the build while keeping ~1 line, so a size
+// check alone does not catch it: a file that is not a module (no `export`) is also rejected below.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -15,6 +18,9 @@ const FILES = [
   "src/lib/enDesk.ts",
 ];
 const lines = (t) => (t ? t.split("\n").length : 0);
+/** A .ts content module must export something; a shell-expansion artifact (`$(cat …)`) or any other
+ *  non-module stub leaves the file syntactically empty and the build fails. */
+const isModule = (t) => /\bexport\b/.test(t);
 let bad = 0;
 for (const f of FILES) {
   let before = "";
@@ -28,14 +34,16 @@ for (const f of FILES) {
   const a = lines(after);
   const shrunk = b > 20 && a < b * 0.5;
   const placeholder = /^\s*PLACEHOLDER/i.test(after);
-  if (!after.trim() || shrunk || placeholder) {
+  const shellArtifact = /^\s*\$\(/.test(after) || !isModule(after);
+  if (!after.trim() || shrunk || placeholder || shellArtifact) {
     bad++;
-    console.error(`✗ ${f}: ${b} → ${a} lines${placeholder ? " (placeholder text)" : ""}`);
+    const why = placeholder ? " (placeholder text)" : shellArtifact ? " (not a module: shell expansion / no export)" : "";
+    console.error(`✗ ${f}: ${b} → ${a} lines${why}`);
   } else {
     console.log(`✓ ${f}: ${b} → ${a} lines`);
   }
 }
 if (bad) {
-  console.error(`\n${bad} content file(s) emptied or shrunk by more than 50%.`);
+  console.error(`\n${bad} content file(s) emptied, shrunk by more than 50%, or not a module.`);
   process.exit(1);
 }
