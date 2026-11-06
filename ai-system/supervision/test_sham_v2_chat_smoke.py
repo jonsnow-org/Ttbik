@@ -39,6 +39,9 @@ class ShamV2ChatRouteTests(unittest.TestCase):
             workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
             self.assertIn("context_tokens", workflow, name)
             self.assertIn('"$ctx" -ge 4096', workflow, name)
+            # The steps run under `bash -e`, so a failing grep in the assignment must be
+            # tolerated (`|| true`) or the deploy aborts with no message.
+            self.assertIn("head -1 || true)", workflow, name)
 
     def test_computer_calls_use_the_reserved_shared_computer_hub_not_the_video_studio(self):
         source = SMOKE.read_text(encoding="utf-8")

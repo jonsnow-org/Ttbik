@@ -151,7 +151,7 @@ jobs:
                 for j in $(seq 1 20); do
                   ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
                   [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
-                  echo "$out" | grep -q 'phase[^,]*ready' && { ctx=$(echo "$out" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1); [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && exit 0; echo "status says ready without a fresh context window (context_tokens=${ctx:-none}); waiting for the new app"; }
+                  echo "$out" | grep -q 'phase[^,]*ready' && { ctx=$(echo "$out" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true); [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && exit 0; echo "status says ready without a fresh context window (context_tokens=${ctx:-none}); waiting for the new app"; }
                   if echo "$out" | grep -q 'phase[^,]*error'; then
                     echo "::error::the Studio is running but the model server is in the error phase"
                     curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
