@@ -118,6 +118,47 @@ export const MEDIA_ERR = {
 
 type CallOut = { reply: MediaReply | null } | { error: MediaReply; status?: number };
 
+/** The auth headers of the media Studio (shared by the one-shot call and the background clip job). */
+function mediaHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
+  if (tok) headers.Authorization = `Bearer ${tok}`;
+  return headers;
+}
+
+/** Starts one clip as the Studio's OWN background job (video_start) and returns its id, so the caller can poll it across short
+ *  serverless legs instead of holding one request open for minutes. This is what lets a clip FINISH in the bot (owner 2026-11-05). */
+export async function novaVideoStart(
+  prompt: string, seconds: number,
+  opts: { base?: string; fetchImpl?: typeof fetch; seed?: number } = {},
+): Promise<{ job: string } | MediaReply> {
+  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();
+  if (!base) return { type: "error", reason: "studio_off", text: MEDIA_ERR.unreachable };
+  const f = opts.fetchImpl || fetch;
+  const seed = Number.isInteger(opts.seed) ? Number(opts.seed) : Math.floor(Math.random() * 2000000000);
+  const start = await gradioCall(base, "video_start", { prompt: String(prompt || "").slice(0, 800), seconds, seed }, mediaHeaders(), f, Date.now() + 120000, 30000, 30000);
+  if ("error" in start) return start.status === 404 ? { type: "error", reason: "no_job_api", text: MEDIA_ERR.unreachable } : start.error;
+  const s = start.reply as (MediaReply & { job?: string }) | null;
+  if (s && s.type === "job" && s.job) return { job: s.job };
+  return s || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+}
+
+/** One poll of a clip job: running/busy/loading = ask again; anything else is the final (vetted) reply. */
+export async function novaVideoJob(
+  job: string, opts: { base?: string; fetchImpl?: typeof fetch; waitS?: number; bypassContentHeuristics?: boolean } = {},
+): Promise<MediaReply> {
+  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();
+  const f = opts.fetchImpl || fetch;
+  const wait = Math.max(0, Math.min(5, opts.waitS ?? 5));
+  const poll = await gradioCall(base, "job", { job, wait }, mediaHeaders(), f, Date.now() + 40000, 30000, (wait + 20) * 1000);
+  if ("error" in poll) return poll.error;
+  const r = poll.reply;
+  if (!r) return { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+  if (r.type === "running" || r.type === "busy" || r.type === "loading") return r;
+  if (r.type === "error" && r.reason === "job_lost") return { type: "error", reason: "studio_job_lost", text: MEDIA_ERR.unreadable };
+  return ((await vetMedia(r, { bypassContentHeuristics: opts.bypassContentHeuristics })) as MediaReply | null) || { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
+}
+
 /** One call of a hidden Gradio API on the Studio: submit (asked again on 429 / 502-504: no job exists yet), then read the one SSE answer. */
 async function gradioCall(base: string, api: string, payload: unknown, headers: Record<string, string>, f: typeof fetch, deadline: number, timeoutMs: number, readMs?: number): Promise<CallOut> {
   // a refused submit (the ModelScope gateway answers 429 to a burst, 502-504 while a Studio restarts) created no job yet, so asking again is safe (live 2026-11-04: Nova audio lost to one 429)

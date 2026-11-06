@@ -449,7 +449,13 @@ export function shamConfirmText(call: CoderToolCall): string {
 }
 
 // ---------------------------------------------------------------- a long task between legs (the shared background runner: coderRuntime later() + the signed continue route)
-export type ShamRun = { chatId: number; botId: string; runId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown>; card?: { msgId?: number; startedAt?: number; ack?: string; steps?: unknown[]; lines?: string[]; at?: number } };
+export type ShamRun = { chatId: number; botId: string; runId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown>; card?: { msgId?: number; startedAt?: number; ack?: string; steps?: unknown[]; lines?: string[]; at?: number }; media?: ShamMediaJob };
+/** A durable Sham media request (owner 2026-11-05: a clip never finished in the bot while the Studio passed the tests). Like a long answer, it is carried across
+ *  the signed continuation legs: the webhook only detects the request, the first leg writes the English prompt, and each leg polls the Studio's own clip job and delivers the file. */
+export type ShamMediaJob = {
+  kind: "image" | "video"; request: string; subject: string; model: "v1" | "v2"; rawTest: boolean;
+  prompt?: string; aspect?: "wide" | "tall" | "square"; seconds?: number; phase: "translate" | "generate" | "poll"; job?: string; started?: number; retried?: boolean;
+};
 let runsReady = false;
 async function runsTable(db: Db): Promise<void> {
   if (db === prismaDb && runsReady) return;

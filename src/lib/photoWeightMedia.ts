@@ -190,10 +190,15 @@ export async function makePhotoMedia(
   const fetchImpl = opts.fetchImpl || fetch;
   const timeoutMs = Math.max(30000, Math.min(900000, Number(opts.timeoutMs) || 360000));
   const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: "Bearer " + token };
+  const startedAt = Date.now();
 
   try {
-    const statusSse = await submitAndRead(base, "status", { data: [] }, headers, Math.min(timeoutMs, 15000), fetchImpl);
-    const status = findStatus(dataValues(statusSse));
+    // a Studio that is warming up answers phase=loading; wait for it inside the deadline instead of losing the picture to a cold start
+    let status = findStatus(dataValues(await submitAndRead(base, "status", { data: [] }, headers, Math.min(timeoutMs, 15000), fetchImpl)));
+    for (let i = 0; status && status.phase === "loading" && Date.now() < startedAt + timeoutMs - 20000 && i < 12; i++) {
+      await new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : 5000));
+      status = findStatus(dataValues(await submitAndRead(base, "status", { data: [] }, headers, Math.min(timeoutMs, 15000), fetchImpl)));
+    }
     if (!status || status.phase !== "ready") {
       const phase = String(status?.phase || "unreadable");
       return { type: "error", reason: "studio_not_ready", text: profile.displayName + "'s own image Studio is " + phase + ". No other model or Studio was used." };

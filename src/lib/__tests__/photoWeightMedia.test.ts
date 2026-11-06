@@ -95,6 +95,32 @@ describe("per-model photo weight routing", () => {
     ]);
   });
 
+  it("waits for a warming Studio (phase=loading) instead of losing the picture to a cold start", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "test-token";
+    const profile = photoWeightProfile("gemma4-e4b")!;
+    const checksum = profile.expectedCheckpointSha256 || "a".repeat(64);
+    let statusCalls = 0;
+    const bytes = Buffer.alloc(4096, 127);
+    const fakeFetch = (async (url: string, init?: { method?: string }) => {
+      if (init?.method === "POST") return { ok: true, json: async () => ({ event_id: url.includes("status") ? `status-${++statusCalls}` : "image-1" }) };
+      if (url.includes("/status/")) {
+        const sse = statusCalls < 3
+          ? 'event: complete\ndata: [{"phase":"loading"}]\n\n'
+          : 'event: complete\ndata: [{"phase":"ready","model_repo":"' + profile.modelRepo + '","checkpoint_sha256":"' + checksum + '"}]\n\n';
+        return { ok: true, text: async () => sse };
+      }
+      if (url.includes("/image/")) {
+        const sse = 'event: complete\ndata: [{"path":"tmp/rv6-test.png"},{"result":"image_generated","model_repo":"' + profile.modelRepo + '","checkpoint_sha256":"' + checksum + '"}]\n\n';
+        return { ok: true, text: async () => sse };
+      }
+      if (url.includes("/gradio_api/file=")) return { ok: true, headers: { get: () => "image/png" }, arrayBuffer: async () => bytes };
+      throw new Error("Unexpected URL " + url);
+    }) as unknown as typeof fetch;
+    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { fetchImpl: fakeFetch });
+    expect(result.type).toBe("image");
+    expect(statusCalls).toBeGreaterThanOrEqual(3);       // it asked again while the Studio was still loading
+  });
+
   it("rejects a wrong private model repo and hash without calling the image endpoint", async () => {
     process.env.MODELSCOPE_API_TOKEN = "test-token";
     const urls: string[] = [];
