@@ -212,6 +212,23 @@ export async function shamVideoByJob(base: string, videoBody: string, timeoutMs:
   return JSON.stringify({ type: "error", reason: "studio_timeout", text: "لم ينتهِ استوديو الفيديو في الوقت المتاح" });
 }
 
+/** Start a clip as the Studio's OWN background job so it can be polled across short legs (the webhook leg is 60 s; a real CPU clip is minutes).
+ *  {job} = running; {reply} = the Studio answered at once (busy / error / an older app with no job API); null = unreadable. */
+export async function shamVideoStart(base: string, videoBody: string, timeoutMs = 30000): Promise<{ job: string } | { reply: string } | null> {
+  const started = await shamCallAt(base, "generate_video_start", { body: videoBody }, timeoutMs);
+  if (!started) return null;
+  const s = parseShamReply(started) as unknown as { type?: string; job?: string } | null;
+  return s?.type === "job" && s.job ? { job: s.job } : { reply: started };
+}
+
+/** ONE poll of a running clip job: {running} while it works, {reply} when it finished / errored, null when the Studio was unreadable this time. */
+export async function shamVideoJob(base: string, job: string, waitS = 5, timeoutMs = 30000): Promise<{ running: true } | { reply: string } | null> {
+  const polled = await shamCallAt(base, "job", { body: JSON.stringify({ job, wait: waitS }) }, timeoutMs);
+  if (!polled) return null;
+  const r = parseShamReply(polled) as unknown as { type?: string } | null;
+  return r?.type === "running" ? { running: true } : { reply: polled };
+}
+
 /** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
 export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
 

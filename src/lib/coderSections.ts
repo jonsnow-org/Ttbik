@@ -43,7 +43,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
-  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -57,12 +57,17 @@ export type Run = {
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
   mediaSent?: number;                                                 // media files really delivered to the chat in this run (make_media)
   mediaTried?: number;                                                // make_media calls in this run (delivered or not)
+  // A plain "make me a picture / clip / speech" request is a DURABLE job, not work inside the 60 s webhook leg (owner 2026-11-05: media always failed in the bot
+  // while the same Studio passed the tests): the prompt router (~65 s worst case) plus a video clip (minutes) never fitted one leg. The job is stored on the run,
+  // each leg polls the Studio's own background job id, and the run hands itself to the next leg until the file is delivered. `phase`: route -> prompt -> submit -> poll -> send.
+  media?: { kind: "image" | "video" | "audio"; request: string; phase: "route" | "prompt" | "submit" | "poll"; model?: string; subject?: string; prompt?: string; aspect?: "wide" | "tall" | "square"; seconds?: number; job?: string; jobStarted?: number; retried?: boolean; reserved?: boolean; attempts?: number; started?: number };
 };
 export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
 export type { Db };
 export { coderChatKey };
 
 const BUDGET_MS = 30000;                                              // Telegram webhook leg stays short under its 60s route ceiling
+const MEDIA_LEG_MS = 240000;                                            // a media leg needs minutes (one Studio call); it runs in /api/coder/continue (300 s route), never the webhook
 const APP_BUDGET_MS = 240000;                                           // Mini App terminal leg: 4 minutes, with 60s headroom under Vercel 300s
 const LEASE_STALE_MS = 120000;
 const pollMs = () => Math.max(800, Number(process.env.CODER_POLL_MS || 1200));
@@ -233,6 +238,7 @@ export function appUrl(): string {
 /** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
 export { later } from "@/lib/coderRuntime";
 import { later } from "@/lib/coderRuntime";
+import { clearStopped, draftStopped } from "@/lib/liveReply";
 
 // ---------------------------------------------------------------- texts and keyboards
 // The /start welcome (owner's note 2026-10-21: warmer, shorter, nothing internal). {name} = the user's first name.
@@ -695,6 +701,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     await addUsage(chatId, "tasks", 1, db);
   }
   const freshRun = !st.run;
+  if (freshRun) clearStopped(chatId);                       // a new request clears the previous live-draft Stop
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
@@ -703,6 +710,8 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (freshRun && st.run && requiresProgressCard(content)) await openCard(bot, chatId, st.run, content, db);
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
+  // the "Thinking…" placeholder while the model's first token is still coming (only when no progress card is open: the card is the live message then)
+  if (freshRun && st.run && !st.run.progress?.msgId) await draftThinking(bot, chatId, st.run);
   await saveState(chatId, st, db);
   await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
@@ -733,8 +742,8 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   const context = { previousUser: lastOf("user"), previousAssistant: lastOf("assistant") };
   if (!mf.mediaRouteNeeded(content, context)) return false;
   // the selected model itself decides (one short call on its own Studio, thinking off) and writes the generator prompt in the same call
-  const routed = mf.reconcileRoute(await routeMediaByModel(chatId, content, context), content, context);
-  let intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" } | null = null;
+  let routed = await routeMediaByModel(chatId, content, context);
+  if (routed) routed = mf.reconcileRoute(routed, content, context);
   if (routed?.kind === "chat") return false;
   if (mf.sexualMinorRequest(content) || (routed && "prompt" in routed && mf.sexualMinorRequest(routed.prompt))) {
     const why = "لا أنشئ محتوى جنسيًا يخص القاصرين.";
@@ -743,51 +752,61 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
     await send(bot, chatId, why);
     return true;
   }
-  if (routed) intent = { kind: routed.kind, subject: content, prompt: routed.prompt, ...(routed.kind !== "audio" && routed.aspect ? { aspect: routed.aspect } : {}), ...(routed.kind === "video" ? { seconds: routed.seconds } : {}) };
-  else {
-    // the model did not answer in time: only an explicit "make a picture / video of X" still goes straight to the generator (its prompt is then written by the same model)
-    const d = mf.detectMediaIntent(content, context);
-    if (!d) return false;
-    intent = d;
-  }
+  // the model did not answer in time: only an explicit "make a picture / video of X" still goes ahead (the same model writes its prompt in the job)
+  const detected = mf.detectMediaIntent(content, context);
+  if (!routed && !detected) return false;
+  const kind: "image" | "video" | "audio" = routed ? routed.kind : detected!.kind;
+  const prompt = routed && "prompt" in routed ? routed.prompt : undefined;
+  const aspect = routed && routed.kind !== "audio" ? routed.aspect : undefined;
+  const seconds = kind === "video" ? (routed && routed.kind === "video" ? routed.seconds : detected?.seconds ?? 10) : undefined;
+  const subject = detected?.subject || content;
   // every model makes all three kinds on ITS OWN Studios (src/lib/modelMedia.ts); a model without its own generator says so: nothing is made elsewhere
   const mm = await import("@/lib/modelMedia");
-  if (!mm.modelMediaConfigured(selectedModel, intent.kind)) {
-    const why = "لم يتم تجهيز مولّد " + (intent.kind === "image" ? "صور" : intent.kind === "audio" ? "صوت" : "فيديو") + " مستقل لنموذج " + mm.mediaModelName(selectedModel) + " بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
+  if (!mm.modelMediaConfigured(selectedModel, kind)) {
+    const why = "لم يتم تجهيز مولّد " + (kind === "image" ? "صور" : kind === "audio" ? "صوت" : "فيديو") + " مستقل لنموذج " + mm.mediaModelName(selectedModel) + " بعد. لم أستخدم مولّد نموذج آخر ولم أنشئ بديلاً.";
     st.messages.push({ role: "user", content }, { role: "assistant", content: why });
     await saveState(chatId, st, db);
     await send(bot, chatId, why);
     return true;
   }
+  // The request is answered in the history right away (replaced by the real result when it ends): a message sent while the picture is still being made
+  // must not see an unanswered picture request and "answer" it with "here is the picture" (owner's live test 2026-11-04: «مرحبا» got the media failure note).
+  // The generation itself is a DURABLE job on the run (mediaJobStep): the router + a real clip never fitted the 60 s webhook, so it now runs across
+  // continuation legs exactly like a long answer (owner 2026-11-05: media always failed in the bot while the same Studio passed the tests).
   const runId = randomUUID().slice(0, 12);
-  // the request is answered in the history right away (replaced by the real result when it ends): a message sent while the picture is still being made
-  // must not see an unanswered picture request and "answer" it with "here is the picture" (owner's live test 2026-11-04: «مرحبا» got the media failure note)
-  st.messages.push({ role: "user", content }, { role: "assistant", content: mediaPendingNote(intent.kind) });
-  await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
+  st.messages.push({ role: "user", content }, { role: "assistant", content: mediaPendingNote(kind) });
+  const init: Partial<Run> = {
+    id: runId, source: "interactive", surface: "telegram", title: content.slice(0, 200),
+    media: { kind, request: content, phase: "prompt", model: selectedModel, subject, prompt, aspect, seconds, reserved: false },
+  };
+  await startChain(botRow, chatId, st, init, db);
   await saveState(chatId, st, db);
-  const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
-  later(() => withEngineModel(selectedModel, () => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
-    await cardSay(realBot(bot) as never, chatId, card, "تعذّر إنشاء الوسائط هذه المرة. لم يتم استخدام مولّد آخر.").catch(() => false);
-    await taskStatus(runId, "failed", 0, db);
-    await taskEvent(runId, "failed", "media fast lane: " + String((e as Error)?.message || e).slice(0, 200), db);
-  })));
+  if (requiresProgressCard(content)) await openCard(bot, chatId, st.run!, content, db);
+  await saveState(chatId, st, db);
+  await typing(bot, chatId);
+  const engine = selectedModel === "lfm25" ? "lfm25" : "coder";
+  const legMs = Number(process.env.CODER_MEDIA_LEG_MS || 0) || MEDIA_LEG_MS;   // CODER_MEDIA_LEG_MS: how long one media leg may run before handing off (tests, tuning)
+  later(() => withEngineModel(engine, () => drive(bot, botRow, chatId, st.run!.chain, db, legMs)));
   return true;
 }
 
 
 /** Asks the selected model (its own Studio pool, thinking off, one short line) whether the message asks for media now, and for the generator prompt.
- *  null = no answer in time / unreadable (the caller then decides conservatively). */
-async function routeMediaByModel(chatId: number, content: string, context: { previousUser?: string; previousAssistant?: string }): Promise<import("@/lib/coderMediaFast").RoutedMedia | null> {
+ *  null = no answer in time / unreadable (the caller then decides conservatively).
+ *  A HARD deadline (default 28 s) keeps this inside the 60 s Telegram webhook: the old worst case (35 s wait + 12 × 2.5 s poll ≈ 65 s) could be killed
+ *  mid-flight on a busy Studio, which is exactly why a media request sometimes never started its job (owner 2026-11-05). */
+async function routeMediaByModel(chatId: number, content: string, context: { previousUser?: string; previousAssistant?: string }, budgetMs = 28000): Promise<import("@/lib/coderMediaFast").RoutedMedia | null> {
   const mf = await import("@/lib/coderMediaFast");
   const messages: CoderMessage[] = [
     { role: "system", content: mf.MEDIA_ROUTER_SYSTEM },
     { role: "user", content: mf.mediaRouterInput(content, context) },
   ];
+  const deadline = Date.now() + budgetMs;
   try {
-    const o = await coderChat(messages, { maxTokens: 110, think: false, temperature: 0, waitS: 20, timeoutMs: 35000, tag: "media-route", affinity: coderChatKey(chatId), priority: await queuePriority(chatId) });
+    const o = await coderChat(messages, { maxTokens: 110, think: false, temperature: 0, waitS: 20, timeoutMs: Math.min(35000, budgetMs), tag: "media-route", affinity: coderChatKey(chatId), priority: await queuePriority(chatId) });
     let r: CoderReply | null | undefined = o?.reply;
-    for (let i = 0; r?.type === "pending" && r.job && i < 12; i++) {
-      await new Promise((res) => setTimeout(res, 2500));
+    for (let i = 0; r?.type === "pending" && r.job && i < 12 && Date.now() < deadline; i++) {
+      await new Promise((res) => setTimeout(res, Math.min(2500, Math.max(0, deadline - Date.now()))));
       r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply;
     }
     if (r?.type === "pending" && r.job) await coderCancel(r.job).catch(() => null);
@@ -819,87 +838,149 @@ async function englishMediaPrompt(subject: string, original: string, modelId = "
 }
 
 
-async function fastMedia(
-  bot: TelegramBot,
-  chatId: number,
-  runId: string,
-  intent: { kind: "image" | "video" | "audio"; subject: string; seconds?: number; prompt?: string; aspect?: "wide" | "tall" | "square" },
-  content: string,
-  modelId: string,
-  db: Db,
-  card?: MsgCard | null,
-): Promise<void> {
-  const { kind } = intent;
+const MEDIA_KIND_AR = (kind: "image" | "video" | "audio"): string => (kind === "image" ? "الصورة" : kind === "audio" ? "الصوت" : "المقطع");
+/** The user-visible line when a media job did not produce a file (never a model excuse; the Studio's own reason is in the parentheses). */
+const mediaErrorText = (kind: "image" | "video" | "audio", media: { text?: string; reason?: string; type?: string } | null | undefined): string =>
+  `تعذّر إنشاء ${MEDIA_KIND_AR(kind)} هذه المرة (${String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180)}). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.`;
+
+/** The history's pending media line becomes the real outcome (the picture / clip / sound is the reply). */
+function mediaFinishHistory(st: ChatState, kind: "image" | "video" | "audio", final: string): void {
+  const pending = mediaPendingNote(kind);
+  let at = -1;
+  for (let i = st.messages.length - 1; i >= 0 && at < 0; i--) if (st.messages[i].role === "assistant" && st.messages[i].content === pending) at = i;
+  if (at >= 0) st.messages[at] = { role: "assistant", content: final };
+  else st.messages.push({ role: "assistant", content: final });
+}
+
+/** The job's ONE message ends as a notice (a failure, the daily quota) instead of the file. false = no card to write into. */
+async function mediaCardSay(bot: TelegramBot, chatId: number, run: Run, text: string): Promise<boolean> {
+  const mid = run.progress?.msgId;
+  if (!mid) return false;
+  run.progress = undefined;
+  return ((bot.api as any).editMessageText?.(chatId, mid, text.slice(0, 4096)) as Promise<unknown> | undefined)?.then(() => true).catch(() => false) ?? Promise.resolve(false);
+}
+/** The file is the reply: the job's message goes (like the model's own media tool does). */
+async function mediaCardDrop(bot: TelegramBot, chatId: number, run: Run): Promise<void> {
+  const mid = run.progress?.msgId;
+  if (!mid) return;
+  run.progress = undefined;
+  await (bot.api as any).deleteMessage?.(chatId, mid)?.catch?.(() => null);
+}
+
+/**
+ * One leg of a durable media job (run.media). The whole reason it exists: the prompt router (up to ~65 s) plus a real clip (minutes) never fitted the
+ * 60 s Telegram webhook, so "make me a picture" always failed in the bot while the same Studio passed the tests (owner 2026-11-05). The job is stored on
+ * the run and each leg does as much as its time allows (route -> prompt -> submit -> poll), then hands itself to /api/coder/continue until the file is sent.
+ */
+async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, run: Run, db: Db, budgetMs: number, t0: number): Promise<void> {
+  const m = run.media!;
+  const kind = m.kind;
+  const modelId = m.model || st.model || "coder";
   const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
-  const rb = realBot(bot);
-  const beat = setInterval(() => void taskTouch(runId, db), 20000);
+  const slot = run.slot || "";
+  const left = () => budgetMs - (Date.now() - t0);
+  const save = () => saveState(chatId, st, db, slot);
   const mq = await import("@/lib/coderMedia");
-  let reserved = false;
-  let delivered = false;
-  let say = "";
-  let result = "";
-  try {
-    const slot = await mq.reserveMedia(chatId, kind, db);
-    if (!slot.ok) { say = mq.mediaQuotaMessage(slot); result = "quota"; }
-    else {
-      reserved = true;
-      await (rb.api as any).sendChatAction(chatId, kind === "video" ? "upload_video" : kind === "audio" ? "upload_voice" : "upload_photo").catch(() => null);
-      const rbm = realBot(bot) as never;
-      // the prompt was written by the selected model in the routing call; only when that call did not answer does the same model write it now (silently: the card never talks about prompts or translation)
-      const written = intent.prompt
-        ? { prompt: intent.prompt, aspect: intent.aspect }
-        : kind === "audio" ? { prompt: intent.subject, aspect: undefined }
-        : (await import("@/lib/coderMediaFast")).splitAspect(await englishMediaPrompt(intent.subject, content, modelId, rawTest));
-      const { prompt, aspect } = written;
-      if (!prompt) {
-        say = "لم أفهم وصف " + (kind === "video" ? "المقطع" : "الصورة") + " بما يكفي لإنشائه. صِف ما تريد أن يظهر بكلمات أوضح؛ لم يُحسب شيء من حصتك.";
-        result = "no prompt";
-      } else {
-        await taskEvent(runId, "info", "🖼️ " + kind + ": " + prompt, db);
-        const { vetMedia } = await import("@/lib/mediaQuality");
-        await cardTool(rbm, chatId, card, stepLabel("make_media", { kind }));
-        // the selected model's OWN generator for every kind (never another model's Studio)
-        const raw: any = await (await import("@/lib/modelMedia")).makeModelMedia(modelId, kind, prompt, { seconds: intent.seconds ?? 10, aspect, raw: rawTest });
-        const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
-        await cardStepDone(rbm, chatId, card, Boolean(media?.b64));
-        if (media?.b64 && (media.type === "image" || media.type === "video" || media.type === "audio")) await cardPhase(rbm, chatId, card, "send", "جاري الإرسال");
-        if (media?.b64 && media.type === "image" && kind === "image") {
-          await (rb.api as any).sendPhoto(chatId, new InputFile(Buffer.from(media.b64, "base64"), modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04); it is in the task log for the owner
-          delivered = true;
-        } else if (media?.b64 && media.type === "video" && kind === "video") {
-          await (rb.api as any).sendVideo(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova-video.mp4"));
-          delivered = true;
-        } else if (media?.b64 && media.type === "audio" && kind === "audio") {
-          await (rb.api as any).sendAudio(chatId, new InputFile(Buffer.from(media.b64, "base64"), "nova.wav"));
-          delivered = true;
-        }
-        if (delivered) await cardDrop(realBot(bot) as never, chatId, card);
-        if (delivered) result = kind === "image" ? "🖼️ أُرسلت الصورة." : kind === "audio" ? "🎙️ أُرسل الصوت." : "🎬 أُرسل المقطع.";
-        else {
-          say = "تعذّر إنشاء " + (kind === "image" ? "الصورة" : kind === "audio" ? "الصوت" : "المقطع") + " هذه المرة (" + String(media?.text || media?.reason || media?.type || "لا رد من الاستوديو").slice(0, 180) + "). لم يُرسل شيء ولم يُحسب من حصتك. لم أستخدم مولّد نموذج آخر.";
-          result = "failed";
-        }
-      }
+  const rb = realBot(bot);
+
+  const fail = async (say: string, status: TaskStatus = "failed"): Promise<void> => {
+    if (m.reserved) { m.reserved = false; await mq.releaseMedia(chatId, kind, db).catch(() => null); }
+    if (!(await mediaCardSay(rb, chatId, run, say))) await send(bot, chatId, say);
+    mediaFinishHistory(st, kind, say);
+    await endRun(st, status, db, say, modelSessionChatKey(chatId));
+    await save();
+  };
+
+  const deliver = async (b64: string): Promise<void> => {
+    const buf = Buffer.from(b64, "base64");
+    if (kind === "image") await (rb.api as any).sendPhoto(chatId, new InputFile(buf, modelId.replace(/[^a-z0-9_-]/gi, "") + ".png"));   // no caption: the generator prompt is never shown (owner 2026-11-04)
+    else if (kind === "video") await (rb.api as any).sendVideo(chatId, new InputFile(buf, "nova-video.mp4"));
+    else await (rb.api as any).sendAudio(chatId, new InputFile(buf, "nova.wav"));
+    const result = kind === "image" ? "🖼️ أُرسلت الصورة." : kind === "audio" ? "🎙️ أُرسل الصوت." : "🎬 أُرسل المقطع.";
+    await mediaCardDrop(rb, chatId, run);
+    mediaFinishHistory(st, kind, result);
+    await endRun(st, "done", db, result, modelSessionChatKey(chatId));
+    await save();
+  };
+
+  // 1) the daily quota is taken once, before any Studio call (owner is exempt; nothing is counted unless a file is delivered)
+  if (!m.reserved) {
+    const slotRes = await mq.reserveMedia(chatId, kind, db);
+    if (!slotRes.ok) { await fail(mq.mediaQuotaMessage(slotRes)); return; }
+    m.reserved = true;
+    await save();
+  }
+
+  // 2) the prompt: written by the selected model in the routing call; if that call did not answer, the SAME model writes it now
+  if (m.phase === "prompt") {
+    await refreshCard(bot, chatId, run, "prompt", `أكتب وصف ${MEDIA_KIND_AR(kind)}`);
+    if (!m.prompt) {
+      const mf = await import("@/lib/coderMediaFast");
+      const written = kind === "audio"
+        ? { prompt: m.subject || m.request, aspect: undefined as "wide" | "tall" | "square" | undefined }
+        : mf.splitAspect(await englishMediaPrompt(m.subject || m.request, m.request, modelId, rawTest));
+      if (!written.prompt) { await fail(`لم أفهم وصف ${kind === "video" ? "المقطع" : "الصورة"} بما يكفي لإنشائه. صِف ما تريد أن يظهر بكلمات أوضح؛ لم يُحسب شيء من حصتك.`); return; }
+      m.prompt = written.prompt;
+      if (written.aspect) m.aspect = written.aspect;
     }
-    if (say && !(await cardSay(realBot(bot) as never, chatId, card, say))) await send(bot, chatId, say);
-  } finally {
-    clearInterval(beat);
-    if (reserved && !delivered) await mq.releaseMedia(chatId, kind, db).catch(() => null);
-    await taskStatus(runId, delivered ? "done" : "failed", 1, db);
-    await taskEvent(runId, delivered ? "done" : "failed", delivered ? result : say || result, db);
-    const cur = await loadState(chatId, db).catch(() => null);
-    if (cur) {
-      const final = delivered ? result : say || result;
-      const pending = mediaPendingNote(kind);
-      let at = -1;
-      for (let i = cur.messages.length - 1; i >= 0 && at < 0; i--) if (cur.messages[i].role === "assistant" && cur.messages[i].content === pending) at = i;
-      if (at >= 0) cur.messages[at] = { role: "assistant", content: final };
-      else cur.messages.push({ role: "assistant", content: final });
-      await saveState(chatId, cur, db);
-      if (cur.threadId) await (await import("@/lib/coderThreads")).syncThread(modelSessionChatKey(chatId), cur.threadId, cur, db, novaMemory(cur).remember).catch(() => null);
+    m.phase = "submit";
+    await save();
+    await taskEvent(run.id, "info", "🖼️ " + kind + ": " + m.prompt, db);
+  }
+
+  // 3) submit: a clip starts the Studio's OWN background job (so it can be polled across short legs); image / speech finish in one call
+  if (m.phase === "submit") {
+    await refreshCard(bot, chatId, run, "make_media", stepLabel("make_media", { kind }));
+    if (kind === "video") {
+      const { novaVideoStart } = await import("@/lib/novaMedia");
+      const { ownMediaBase } = await import("@/lib/modelMedia");
+      const started = await novaVideoStart(m.prompt!, m.seconds ?? 10, { base: ownMediaBase(modelId) || undefined });
+      if ("job" in started) { m.job = started.job; m.jobStarted = Date.now(); m.phase = "poll"; m.started ||= Date.now(); await save(); }
+      else if (started.reason === "no_job_api") {
+        // the Studio predates the background-job API: the old single call is the only way to make the clip (it cannot be resumed, so it is run once inside this leg)
+        if (left() < 45000) { await save(); await handOff(botRow, chatId, run.chain, slot); return; }
+        const raw: any = await (await import("@/lib/modelMedia")).makeModelMedia(modelId, kind, m.prompt!, { seconds: m.seconds ?? 10, raw: rawTest, timeoutMs: Math.max(30000, left() - 5000) });
+        const { vetMedia } = await import("@/lib/mediaQuality");
+        const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
+        if (media?.b64 && media.type === kind) { await deliver(String(media.b64)); return; }
+        await fail(mediaErrorText(kind, media));
+        return;
+      } else { await fail(mediaErrorText(kind, started)); return; }
+    } else {
+      if (left() < 45000) { await save(); await handOff(botRow, chatId, run.chain, slot); return; }
+      const raw: any = await (await import("@/lib/modelMedia")).makeModelMedia(modelId, kind, m.prompt!, { seconds: m.seconds ?? 10, aspect: m.aspect, raw: rawTest, timeoutMs: Math.max(30000, left() - 5000) });
+      const { vetMedia } = await import("@/lib/mediaQuality");
+      const media = (await vetMedia(raw, { bypassContentHeuristics: rawTest })) as any;
+      if (media?.b64 && media.type === kind) { await deliver(String(media.b64)); return; }
+      await fail(mediaErrorText(kind, media));
+      return;
+    }
+  }
+
+  // 4) poll the clip job until it is done, asking again after a cut (the clip keeps running on the Studio). Out of leg time -> hand off.
+  if (m.phase === "poll") {
+    const { novaVideoJob } = await import("@/lib/novaMedia");
+    const { ownMediaBase } = await import("@/lib/modelMedia");
+    const base = ownMediaBase(modelId) || undefined;
+    m.started ||= Date.now();
+    for (;;) {
+      if (left() < 9000) { await save(); await handOff(botRow, chatId, run.chain, slot); return; }
+      if (Date.now() - m.started > 40 * 60000) { await fail(`تجاوز إنشاء ${MEDIA_KIND_AR(kind)} الحد الأقصى للمدة (40 دقيقة). لم يُرسل شيء ولم يُحسب من حصتك.`); return; }
+      const r = await novaVideoJob(m.job!, { base, waitS: 5, bypassContentHeuristics: rawTest });
+      if (r.type === "video" && r.b64) { await deliver(String(r.b64)); return; }
+      if (r.type === "error") {
+        // the Studio restarted and lost the job: start it once more (the clip is minutes long, so one retry is worth it)
+        if (r.reason === "studio_job_lost" && !m.retried) { m.retried = true; m.phase = "submit"; m.job = undefined; await save(); return; }
+        await fail(mediaErrorText(kind, r));
+        return;
+      }
+      await taskTouch(run.id, db);
+      await save();                                     // keep the job id durable: a leg that dies must not lose the clip
+      await new Promise((res) => setTimeout(res, 4000));
     }
   }
 }
+
 
 
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db, modelId = "coder"): Promise<void> {
@@ -1888,7 +1969,6 @@ const EDIT_EVERY_MS = 2000;
 const TG_MAX = 4096;
 
 export { understoodLine } from "@/lib/singleMessage";
-import { understoodLine, openCard as openMsgCard, cardNote, cardSay, cardDrop, cardTool, cardStepDone, cardPhase, type Card as MsgCard } from "@/lib/singleMessage";
 
 /** The model's own one-line understanding of the request: a tiny call on an idle Studio (40 tokens, thinking off, ~3 s cap). null = skip (one Studio only, tests, switched off). */
 function understandAsk(content: string): (() => Promise<string | null>) | null {
@@ -2062,6 +2142,28 @@ async function commitMessages(bot: TelegramBot, chatId: number, text: string, ru
   }
 }
 
+/** First paint: an empty draft shows Telegram's "Thinking…" placeholder while the model's first token is still coming. */
+export async function draftThinking(bot: TelegramBot, chatId: number, run: Run): Promise<void> {
+  const api = bot.api as any;
+  if (!liveDraftOn() || run.surface === "app" || run.noDraft || chatId <= 0 || typeof api.sendMessageDraft !== "function") return;
+  run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
+  let ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, "").then(() => true).catch(() => false);   // an API with drafts but no can_stop
+  if (ok) { run.draftAt = Date.now(); run.draftText = ""; }
+  else draftRefusedAt = Date.now();                                   // refused (old Bot API): no placeholder, real messages only
+}
+
+/** Keeps the "Thinking…" placeholder from expiring (Telegram drops a draft after ~30 s) while no text has streamed yet. */
+export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Promise<void> {
+  if (!run.draftId || run.draftText) return;                           // text is already streaming: deliverToChat refreshes it
+  if (Date.now() - (run.draftAt || 0) < 18_000) return;
+  const api = bot.api as any;
+  if (draftStopped(chatId) || typeof api.sendMessageDraft !== "function") return;
+  let ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, "").then(() => true).catch(() => false);
+  if (ok) run.draftAt = Date.now();
+}
+
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
   if (await deliverSingle(bot, chatId, text, run, final)) return;
@@ -2085,7 +2187,10 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
       run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
       const { markdownToTelegramHtml } = await import("@/lib/telegramMarkdown");
       const html = markdownToTelegramHtml(tail);
-      let ok = html.length <= 4096 && await api.sendMessageDraft(chatId, run.draftId, html, { parse_mode: "HTML" }).then(() => true).catch(() => false);
+      // can_stop/keep_on_stop show the Stop button (the press arrives as a stopped_message_generation update) and keep the partial
+      // text on screen for a moment after it; the plain call is the fallback for a Bot API that predates those parameters.
+      let ok = html.length <= 4096 && await api.sendMessageDraft(chatId, run.draftId, html, { parse_mode: "HTML", can_stop: true, keep_on_stop: true }).then(() => true).catch(() => false);
+      if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, tail.slice(0, 4096), { can_stop: true, keep_on_stop: true }).then(() => true).catch(() => false);
       if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, tail.slice(0, 4096)).then(() => true).catch(() => false);
       if (ok) { run.draftAt = Date.now(); run.draftText = tail; }
       else { run.noDraft = true; draftRefusedAt = Date.now(); }         // refused (not supported here): batches from now on
@@ -2181,6 +2286,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const run = st.run;
     if (!run || run.chain !== chain || run.pending || run.asking) return;
+    // the live-draft Stop button (sendMessageDraft can_stop): the press arrives in its own update, this loop ends the task the same way /stop does
+    if (run.surface !== "app" && draftStopped(chatId)) {
+      await endRun(st, "stopped", db, "stopped from the live reply", modelSessionChatKey(chatId));
+      st.inbox = [];
+      await saveState(chatId, st, db, slot);
+      return;
+    }
     const ioBot = surfaceBot(bot, run.surface, run.origin);
     run.stall = run.stall || newStallState();
     run.lease = Date.now();
@@ -2189,6 +2301,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       await handOff(botRow, chatId, chain, slot);
       return;
     }
+    // a plain media request is its own durable job (route -> prompt -> submit -> poll), not a model chat step: it is carried across legs exactly like a long answer
+    if (run.media) { await mediaJobStep(bot, botRow, chatId, st, run, db, budgetMs, t0); return; }
     const ctx = await toolCtx(chatId, st, db, run, botRow.id);
     const github = Boolean(ctx.gh);
 
@@ -2213,6 +2327,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
       }
       await typing(ioBot, chatId);
+      await draftPulse(ioBot, chatId, run);
       await new Promise((res) => setTimeout(res, Math.max(200, Math.min(pollMs() * 2, 3000, left() - 7000))));
       continue;
     }
@@ -2495,6 +2610,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       await typing(ioBot, chatId);
+      await draftPulse(ioBot, chatId, run);
       await new Promise((res) => setTimeout(res, ms));
       continue;
     }
@@ -2646,6 +2762,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
         await typing(ioBot, chatId);
+        await draftPulse(ioBot, chatId, run);
         // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
         await new Promise((res) => setTimeout(res, r.total ? pollMs() : Math.max(pollMs(), Number(process.env.CODER_PREFILL_POLL_MS ?? (process.env.NODE_ENV === "test" ? 0 : 4000)))));
         continue;
@@ -3065,7 +3182,9 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
     const surface = st.run.surface;
     st.run.lease = Date.now();
     await saveState(chatId, st, db, slot);
-    await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+    // a media leg needs minutes (one Studio call), so it keeps its long budget across continuations; a normal leg stays short
+    const budget = surface === "app" ? APP_BUDGET_MS : st.run.media ? MEDIA_LEG_MS : BUDGET_MS;
+    await drive(bot, botRow, chatId, chain, db, budget, slot);
   });
 }
 
