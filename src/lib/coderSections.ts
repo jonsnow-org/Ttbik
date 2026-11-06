@@ -233,6 +233,7 @@ export function appUrl(): string {
 /** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
 export { later } from "@/lib/coderRuntime";
 import { later } from "@/lib/coderRuntime";
+import { clearStopped, draftStopped } from "@/lib/liveReply";
 
 // ---------------------------------------------------------------- texts and keyboards
 // The /start welcome (owner's note 2026-10-21: warmer, shorter, nothing internal). {name} = the user's first name.
@@ -695,6 +696,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     await addUsage(chatId, "tasks", 1, db);
   }
   const freshRun = !st.run;
+  if (freshRun) clearStopped(chatId);                       // a new request clears the previous live-draft Stop
   if (st.run) st.inbox.push(content);
   else st.messages.push(images.length ? { role: "user", content, images } : { role: "user", content });
   await startChain(botRow, chatId, st, { surface: "app", origin: "chat" }, db);
@@ -703,6 +705,8 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (freshRun && st.run && requiresProgressCard(content)) await openCard(bot, chatId, st.run, content, db);
   // no canned "request received" message (owner 2026-10-25): the first thing in the chat is the model's own reply (frontAck) and then its work
   if (st.run) await taskEvent(st.run.id, "info", "بدأ مسار المعالجة الخلفية.", db);
+  // the "Thinking…" placeholder while the model's first token is still coming (only when no progress card is open: the card is the live message then)
+  if (freshRun && st.run && !st.run.progress?.msgId) await draftThinking(bot, chatId, st.run);
   await saveState(chatId, st, db);
   await typing(bot, chatId);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
@@ -2062,6 +2066,26 @@ async function commitMessages(bot: TelegramBot, chatId: number, text: string, ru
   }
 }
 
+/** First paint: an empty draft shows Telegram's "Thinking…" placeholder while the model's first token is still coming. */
+export async function draftThinking(bot: TelegramBot, chatId: number, run: Run): Promise<void> {
+  const api = bot.api as any;
+  if (!liveDraftOn() || run.surface === "app" || run.noDraft || chatId <= 0 || typeof api.sendMessageDraft !== "function") return;
+  run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
+  const ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (ok) { run.draftAt = Date.now(); run.draftText = ""; }
+  else draftRefusedAt = Date.now();                                   // refused (old Bot API): no placeholder, real messages only
+}
+
+/** Keeps the "Thinking…" placeholder from expiring (Telegram drops a draft after ~30 s) while no text has streamed yet. */
+export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Promise<void> {
+  if (!run.draftId || run.draftText) return;                           // text is already streaming: deliverToChat refreshes it
+  if (Date.now() - (run.draftAt || 0) < 18_000) return;
+  const api = bot.api as any;
+  if (draftStopped(chatId) || typeof api.sendMessageDraft !== "function") return;
+  const ok = await api.sendMessageDraft(chatId, run.draftId, "", { can_stop: true }).then(() => true).catch(() => false);
+  if (ok) run.draftAt = Date.now();
+}
+
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
   if (await deliverSingle(bot, chatId, text, run, final)) return;
@@ -2085,7 +2109,10 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
       run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
       const { markdownToTelegramHtml } = await import("@/lib/telegramMarkdown");
       const html = markdownToTelegramHtml(tail);
-      let ok = html.length <= 4096 && await api.sendMessageDraft(chatId, run.draftId, html, { parse_mode: "HTML" }).then(() => true).catch(() => false);
+      // can_stop/keep_on_stop show the Stop button (the press arrives as a stopped_message_generation update) and keep the partial
+      // text on screen for a moment after it; the plain call is the fallback for a Bot API that predates those parameters.
+      let ok = html.length <= 4096 && await api.sendMessageDraft(chatId, run.draftId, html, { parse_mode: "HTML", can_stop: true, keep_on_stop: true }).then(() => true).catch(() => false);
+      if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, tail.slice(0, 4096), { can_stop: true, keep_on_stop: true }).then(() => true).catch(() => false);
       if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, tail.slice(0, 4096)).then(() => true).catch(() => false);
       if (ok) { run.draftAt = Date.now(); run.draftText = tail; }
       else { run.noDraft = true; draftRefusedAt = Date.now(); }         // refused (not supported here): batches from now on
@@ -2181,6 +2208,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     }
     const run = st.run;
     if (!run || run.chain !== chain || run.pending || run.asking) return;
+    // the live-draft Stop button (sendMessageDraft can_stop): the press arrives in its own update, this loop ends the task the same way /stop does
+    if (run.surface !== "app" && draftStopped(chatId)) {
+      await endRun(st, "stopped", db, "stopped from the live reply", modelSessionChatKey(chatId));
+      st.inbox = [];
+      await saveState(chatId, st, db, slot);
+      return;
+    }
     const ioBot = surfaceBot(bot, run.surface, run.origin);
     run.stall = run.stall || newStallState();
     run.lease = Date.now();
@@ -2213,6 +2247,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
       }
       await typing(ioBot, chatId);
+      await draftPulse(ioBot, chatId, run);
       await new Promise((res) => setTimeout(res, Math.max(200, Math.min(pollMs() * 2, 3000, left() - 7000))));
       continue;
     }
@@ -2495,6 +2530,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       await typing(ioBot, chatId);
+      await draftPulse(ioBot, chatId, run);
       await new Promise((res) => setTimeout(res, ms));
       continue;
     }
@@ -2646,6 +2682,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
         await typing(ioBot, chatId);
+        await draftPulse(ioBot, chatId, run);
         // while the Studio is still reading the prompt nothing new can arrive for a long while: poll slowly (the ModelScope gateway answers 429 to a fast poller)
         await new Promise((res) => setTimeout(res, r.total ? pollMs() : Math.max(pollMs(), Number(process.env.CODER_PREFILL_POLL_MS ?? (process.env.NODE_ENV === "test" ? 0 : 4000)))));
         continue;

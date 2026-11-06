@@ -119,6 +119,18 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
+      // The Stop button on a live draft (Bot API sendMessageDraft, can_stop). It arrives as its own update, before any
+      // message, and must be recorded where the answering loop can see it. Nothing else about this update needs handling.
+      if (body.stopped_message_generation) {
+        const stopChat = Number(body.stopped_message_generation.chat?.id);
+        if (Number.isFinite(stopChat)) {
+          const { markStopped } = await import("@/lib/liveReply");
+          markStopped(stopChat);
+          const { stopRun } = await import("@/lib/coderSections");
+          void stopRun(stopChat).catch(() => null);
+        }
+        return NextResponse.json({ status: "ok" });
+      }
       // These bots only work in private chats. Messages from groups, supergroups
       // and channels (the bot is often added to them as an admin) used to run
       // the normal handlers, which then failed with errors such as "phone number

@@ -428,6 +428,45 @@ describe("tiers in the loop", () => {
   });
 });
 
+describe("the live reply's Stop button and Thinking placeholder", () => {
+  const mkApi = () => {
+    const sent: string[] = [];
+    const drafts: { id: number; text: string; opts?: any }[] = [];
+    const api: any = {
+      sendMessage: jest.fn(async (_c: number, t: string) => { sent.push(t); return { message_id: 1 }; }),
+      sendMessageDraft: jest.fn(async (_c: number, id: number, t: string, opts?: any) => { drafts.push({ id, text: t, opts }); return true; }),
+    };
+    return { bot: { api } as any, sent, drafts };
+  };
+  it("the live draft asks Telegram for the Stop button (can_stop + keep_on_stop)", async () => {
+    const { deliverToChat } = await import("@/lib/coderSections");
+    const { bot, drafts } = mkApi();
+    const run: any = { id: "r", surface: "app" };
+    await deliverToChat(bot, 7, "مرحباً، هذه إجابة", run, false);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].opts).toMatchObject({ can_stop: true, keep_on_stop: true });
+  });
+  it("a fresh request clears the previous Stop; the flag is per chat", async () => {
+    const { markStopped, draftStopped, clearStopped, _resetLiveReply } = await import("@/lib/liveReply");
+    _resetLiveReply();
+    markStopped(11);
+    expect(draftStopped(11)).toBe(true);
+    expect(draftStopped(22)).toBe(false);            // another chat's Stop does not leak
+    clearStopped(11);
+    expect(draftStopped(11)).toBe(false);
+  });
+  it("the Thinking placeholder is an empty draft that keeps the Stop button while no text has streamed", async () => {
+    const { draftThinking } = await import("@/lib/coderSections");
+    const { bot, drafts } = mkApi();
+    const run: any = { id: "r", surface: "telegram" };
+    await draftThinking(bot, 7, run);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].text).toBe("");
+    expect(drafts[0].opts).toMatchObject({ can_stop: true });
+    expect(run.draftId).toBeTruthy();
+  });
+});
+
 describe("delivery to the chat by what is happening", () => {
   const mk = (draft: "ok" | "refuse" | "none") => {
     const sent: string[] = [];
