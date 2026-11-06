@@ -115,6 +115,19 @@ CATALOG = [
     ("لخّص ما قرأناه سابقاً من README في هذا التحقيق.", "recall", {"query": "README overview", "count": 3}, "previously read: README states project purpose and main commands", "استرجعت المعلومة من القراءات السابقة في هذه المهمة."),
     ("أرسل التقرير الذي أنشأته في الجهاز الافتراضي إلى المستخدم.", "send_file", {"path": "/work/report.md", "caption": "تقرير تحليل المستودع"}, "file sent: /work/report.md", "أرسلت الملف الذي أنشأته الأداة، بعد التحقق من وجوده."),
     ("احذف المهمة المجدولة ذات المعرّف s1 التي طلبت حذفها.", "schedule_delete", {"id": "s1"}, "deleted schedule s1", "حذفت المهمة المجدولة ذات المعرّف الذي طلبته."),
+    # the persistent computer hub and this model's own browser/desktop
+    ("شغّل الأمر ls -la في جهازي.", "computer_run", {"command": "ls -la"}, "total 12\ndrwxr-xr-x 1 user user 4096 .\n-rw-r--r-- 1 user user   20 notes.md", "نفّذت الأمر؛ المجلد فيه notes.md."),
+    ("اكتب ملفاً اسمه notes.md فيه «مرحباً».", "computer_write", {"path": "notes.md", "content": "مرحباً"}, "wrote notes.md (8 bytes)", "كتبتُ الملف notes.md في جهازك."),
+    ("اقرأ لي ملف notes.md من جهازي.", "computer_read", {"path": "notes.md"}, "مرحباً", "محتوى notes.md هو: مرحباً."),
+    ("شغّل تدريباً طويلاً في الخلفية على جهازي.", "computer_job", {"action": "start", "command": "python train.py", "name": "تدريب"}, "job j7 started (name=تدريب)", "بدأت المهمة j7 في الخلفية؛ سأراقب سجلها حتى تنتهي."),
+    ("غيّر كلمة «قديم» إلى «جديد» في الملف config.py على جهازي.", "computer_edit", {"path": "config.py", "old": "قديم", "new": "جديد"}, "replaced 1 occurrence in config.py", "استبدلت الكلمة في config.py."),
+    ("انسخ مستودع ttbik إلى جهازي.", "computer_repo", {"url": "https://github.com/owner/ttbik"}, "cloned into repos/owner-ttbik", "نسخت المستودع إلى مجلد repos/owner-ttbik في جهازك."),
+    ("ابحث عن كلمة TODO في جهازي.", "computer_search", {"pattern": "TODO", "path": "."}, "src/app.ts:12: // TODO fix", "وجدت TODO في src/app.ts السطر 12."),
+    ("انشر تعديلاتك من مستودع ttbik في فرع fix-tests.", "computer_publish", {"repo": "owner/ttbik", "branch": "fix-tests", "message": "إصلاح الاختبارات"}, "requires user confirmation; awaiting approval", "طلب النشر ينتظر موافقتك؛ لن يُرسل شيء قبل تأكيدك."),
+    ("افتح صفحة example.com في متصفحك وانظر إليها.", "browser", {"action": "open", "url": "https://example.com"}, "opened https://example.com; 3 elements", "فتحت الصفحة؛ فيها 3 عناصر قابلة للنقر."),
+    ("اضغط العنصر رقم 2 في المتصفح.", "browser", {"action": "click", "id": 2}, "clicked element 2; page changed", "ضغطت العنصر رقم 2 وتغيّرت الصفحة."),
+    ("أظهر لي شاشة سطح المكتب الخاص بك.", "desktop", {"action": "frame"}, "screenshot: 1344x840", "هذه صورة شاشتك الحالية؛ سأصف ما فيها."),
+    ("شغّل المتصفح على سطح مكتبك وافتح ttbik.vercel.app.", "desktop", {"action": "launch", "app": "browser", "url": "https://ttbik.vercel.app"}, "browser launched on the desktop", "شغّلت المتصفح على سطح المكتب وفتحت الموقع."),
 ]
 # the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
 FLOW_REQUESTS = [
@@ -276,11 +289,13 @@ def any_spec(rng: random.Random) -> tuple[str, list, str]:
 
 
 # ---- the SAME conversation layout Nova's engine shows Sham (src/lib/shamTools.ts: shamToolBlock + shamToolConversation), for a donor body that chats in the Qwen3 layout ----
-FORMAT_LINE = ('لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة. '
-               'إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. '
-               'إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. '
-               'طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة. '
-               'وإذا كتبت كوداً فجرّبه في الجهاز الافتراضي (sandbox_write_file ثم sandbox_exec) وأصلح ما يفشل قبل أن تجيب.')
+# Kept byte-identical to the three live constants by the self-test at the bottom of this file. The
+# live FORMAT_CODE was updated to the persistent computer (computer_write/computer_edit/computer_run/
+# computer_job) while this copy still pointed at the temporary sandbox tools, so a Sham trained on the
+# old text was taught a workflow its own engine no longer offers.
+FORMAT_LINE = ('لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.'
+               ' إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة.'
+               ' وإذا كتبت كوداً أو عدّلت مشروعاً فاعمل في حاسوبك الدائم: اكتب الملف بـ computer_write أو computer_edit، ثم شغّله فعلياً بـ computer_run. للأوامر التي تتجاوز 90 ثانية استخدم computer_job وانتظر نتيجته. لا تستخدم مساحة sandbox المؤقتة للعمل العادي.')
 # name -> (arguments, "?" = optional ; first words of the description as the engine shows them)
 TOOL_SPECS: dict[str, tuple[str, str]] = {
     "github_read_file": ("repo, path, ref?", "Read one file from a GitHub repository"),
@@ -317,6 +332,20 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "schedule_create": ("title, prompt, kind?, recurrence?, repo?", "Schedule a task that runs later"),
     "schedule_list": ("", "List scheduled tasks"),
     "ask_user": ("question, options?", "Ask the user one short question when a required detail is missing"),
+    # The persistent computer hub and the browser/desktop of this model's own computer session.
+    # These were live in src/lib/shamExec.ts but missing here, so Sham was never trained on the
+    # very tools it is offered — the exact "components not connected to their correct paths"
+    # defect. Kept in lockstep with shamExec.ts by the self-test at the bottom of this file.
+    "computer_run": ("command, cwd?, timeout?", "Run a bash command in this model's private persistent computer"),
+    "computer_write": ("path, content", "Write a text file into this model's private computer"),
+    "computer_read": ("path?", "Read a file or list a folder on this model's private computer"),
+    "computer_job": ("action, command?, name?, id?, tail?", "Start, log, stop or list a background job on this model's computer"),
+    "computer_edit": ("path, old?, new?, replace_all?, edits?", "Replace exact text in a file on this model's private computer"),
+    "computer_repo": ("url, ref?", "Clone a public GitHub repository into this model's persistent computer"),
+    "computer_search": ("pattern, path?, glob?", "Search files on this model's private computer with ripgrep"),
+    "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
+    "browser": ("action, url?, id?, x?, y?, text?, enter?, key?, dy?, seconds?", "Drive this model's own headless browser: open, look, click, type, press, scroll, back, wait, aria"),
+    "desktop": ("action, app?, url?, x?, y?, button?, text?, key?, direction?, amount?", "Operate the graphical desktop of this model's own computer session (start, frame, launch, click, type, key, scroll, stop)"),
 }
 
 
@@ -332,30 +361,43 @@ def qwen3_prompt(system: str, user_text: str) -> str:
 
 def qwen3_tool_examples(tokenizer, rng: random.Random, n: int, system: str, max_len: int = 1100, max_result_chars: int = 700) -> list[tuple[list[int], list[int]]]:
     """n examples in the layout the engine really sends: ONE user turn = the loaded-tools block + the conversation so far (user line, earlier calls and results), ending «شام:»;
-    the learned reply is the NEXT call (or the final answer). One example per decision point of a case. Loss only on the reply."""
+    the learned reply is the NEXT call (or the final answer). One example per decision point of a case. Loss only on the reply.
+
+    Bounded on purpose: the old `while len(out) < n` loop had no progress guard, so a context too
+    small for a case spun forever (found by running this file's own self-test). A case now tries the
+    live shape (a few extra tools), then shrinks toward only the tools it uses, and the whole loop
+    gives up after a bounded number of attempts instead of hanging a training run."""
     out: list[tuple[list[int], list[int]]] = []
     end = tokenizer.encode("<|im_end|>")[-1]
-    while len(out) < n:
+    attempts = 0
+    max_attempts = max(200, n * 40)
+    while len(out) < n and attempts < max_attempts:
+        attempts += 1
         user, steps, ans = any_spec(rng)
         used = [st[0] for st in steps]
         others = [t for t in TOOL_SPECS if t not in used]
         rng.shuffle(others)
-        names = list(dict.fromkeys(used + others[: rng.randint(2, 6)]))
-        rng.shuffle(names)
         lines = [f"المستخدم: {user}"]
-        for i in range(len(steps) + 1):
-            if i < len(steps):
-                name, args, res = steps[i]
-                target = tool_call_text(name, args)
-            else:
-                target = ans
-            prompt = qwen3_prompt(system, f"{tool_block(names)}\n\n" + "\n".join(lines) + "\nشام:")
-            p_ids, t_ids = tokenizer.encode(prompt), tokenizer.encode(target) + [end]
-            if len(p_ids) + len(t_ids) <= max_len:
-                out.append((p_ids + t_ids, [IGNORE] * len(p_ids) + t_ids))
-            if i < len(steps):
-                lines.append(f"شام: {tool_call_text(name, args)}")
-                lines.append(f"نتيجة الأداة {name}:\n{str(res)[:max_result_chars]}")
+        for extra_n in (rng.randint(2, 6), 1, 0):       # live shape first; shrink only when the window is tight
+            names = list(dict.fromkeys(used + others[:extra_n]))
+            rng.shuffle(names)
+            made = False
+            for i in range(len(steps) + 1):
+                if i < len(steps):
+                    name, args, res = steps[i]
+                    target = tool_call_text(name, args)
+                else:
+                    target = ans
+                prompt = qwen3_prompt(system, f"{tool_block(names)}\n\n" + "\n".join(lines) + "\nشام:")
+                p_ids, t_ids = tokenizer.encode(prompt), tokenizer.encode(target) + [end]
+                if len(p_ids) + len(t_ids) <= max_len:
+                    out.append((p_ids + t_ids, [IGNORE] * len(p_ids) + t_ids))
+                    made = True
+                if i < len(steps):
+                    lines.append(f"شام: {tool_call_text(name, args)}")
+                    lines.append(f"نتيجة الأداة {name}:\n{str(res)[:max_result_chars]}")
+            if made:
+                break
     return out[:n]
 
 
@@ -403,7 +445,10 @@ if __name__ == "__main__":
     class _T:                                                                 # the Qwen3-layout builder: the prompt is masked, the reply (and <|im_end|>) learned
         def encode(self, t):
             return [9999] if t == "<|im_end|>" else fake(t)
-    qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS")
+    # The fake tokenizer is one id per character, while the real one is ~3 chars per id, so a real
+    # 1100-token window is a ~3300-character window here. Passing the token budget straight through
+    # made every case too big to fit and the builder produced nothing.
+    qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS", max_len=4000)
     assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
     assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
     ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # keep training and live tool instructions byte-identical

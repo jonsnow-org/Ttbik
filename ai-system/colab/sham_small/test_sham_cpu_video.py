@@ -104,6 +104,48 @@ class RequestedDuration(unittest.TestCase):
             cpu_video.cv_requested_frames(4, {"fps": 8, "max_frames": 16})
 
 
+class JoinKeepsRealMotion(unittest.TestCase):
+    def test_the_join_re_times_instead_of_freezing_the_tail(self):
+        """`tpad stop_mode=clone` held the last frame for the time the cross-fade removed, so every multi-pass clip
+        ended with a stretch of identical frames — the "stitched frames" look the owner rejected. The join must
+        re-time the real frames to the exact length with `setpts` (and must never clone a tail frame)."""
+        text = (HERE / "cpu_video.py").read_text(encoding="utf-8")
+        self.assertNotIn("tpad=stop_mode=clone", text)
+        self.assertIn("setpts=PTS*", text)
+
+    def test_a_real_join_has_no_frozen_tail(self):
+        """End-to-end through the real `cv_concat_mp4`: three 2 s passes joined to 6 s must keep moving at the end."""
+        import pathlib
+        import subprocess
+        exe = cpu_video._cv_ffmpeg_exe()
+        if not exe:
+            self.skipTest("needs ffmpeg")
+        try:
+            import numpy as np
+            from PIL import Image
+        except ModuleNotFoundError as e:                       # CPU CI without the image stack
+            self.skipTest(f"needs numpy/Pillow ({e})")
+        with tempfile.TemporaryDirectory() as d:
+            src = pathlib.Path(d)
+            clips = []
+            for i, pattern in enumerate(("testsrc2", "smptebars", "testsrc")):
+                clip = src / f"{i}.mp4"
+                subprocess.run([exe, "-y", "-v", "error", "-f", "lavfi", "-i", f"{pattern}=size=512x512:rate=8:duration=2",
+                                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart", str(clip)], check=True)
+                clips.append(clip.read_bytes())
+            joined = cpu_video.cv_concat_mp4(clips, expected_seconds=6, segment_seconds=[2, 2, 2])
+            (src / "joined.mp4").write_bytes(joined)
+            frames_dir = src / "fr"
+            frames_dir.mkdir()
+            subprocess.run([exe, "-y", "-v", "error", "-i", str(src / "joined.mp4"), "-vf", "scale=64:64", str(frames_dir / "f%03d.png")], check=True)
+            frames = sorted(frames_dir.glob("*.png"))
+            arr = [np.asarray(Image.open(p).convert("RGB"), dtype=np.int16) for p in frames]
+            diffs = [float(np.abs(arr[i + 1] - arr[i]).mean()) for i in range(len(arr) - 1)]
+            tail = diffs[-6:]                                       # the last ~0.4 s: a frozen tail would be all zeros
+        self.assertGreater(max(tail), 0.0, "the last frames are identical — the tail is frozen")
+        self.assertGreaterEqual(len(frames), 90)                    # 6 s at 16 fps (a duplicate pair per real frame is fine)
+
+
 class LongGenerationPlan(unittest.TestCase):
     def test_ten_seconds_uses_three_real_temporal_passes_and_one_join(self):
         import media_quality
