@@ -52,5 +52,25 @@ Two stacked bugs killed every model's video: (1) a 4 s/32-frame pass OOM-killed 
 - Sham v1 self-tests: run ONE process at a time (parallel torch self-tests OOM the box). Full python CI suite: `PYTHONPATH=ai-system/colab/sham_small python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py'` (73 tests, 1 skipped).
 - **Self-supervision automation** (owner's standing instruction): OpenHands automation `11ca278a-5923-4e82-91b5-a8135e43f47a` runs daily 06:00 UTC (max timeout 1800 s) — runs the Sham suite + `sham_ci_check.py`, continues the next pending Sham step, keeps notebooks synced. Create automations via `POST {OPENHANDS_HOST}/api/automation/v1/preset/prompt` with `OPENHANDS_API_KEY`.
 
+## Sham v2 token streaming (2026-11-06, `812102c1`)
+Sham v2 chat is now token-by-token live, like every other model. Path: `generate.py::generate_tokens_iter` (shared
+step loop; `generate_tokens` unchanged) → `sham_studio_chat.py::qwen3_chat_stream`/`studio_generate_stream` →
+`modelscope-sham/app.py::v2/generate_chat_stream` (+ `_chat_params`) → `src/lib/shamStudio.ts::readShamSseDeltas`/
+`shamGenerateChatStream` → `shamAgent.ts::onDelta` → `novaBotLogic.ts::taskEvent(runId,"text",…)`.
+- Stream pieces must be passed through **verbatim** (no `.trim()`): trimming each delta joins two words.
+- A Studio without the endpoint answers 404/405 → fall back to one-shot `shamGenerateChat` delivered as ONE piece.
+- Never stream a typed `busy`/`error` reply as text.
+- Test trap: `shamGenerateChatStream` runs through `shamVariant`/pool, whose background overflow `/status` check eats a
+  mocked `fetch`. Set `SHAM_V2_OVERFLOW_URL=off` in the test.
+
+## ⛔ Pushing/merging from this sandbox is BLOCKED (2026-11-06)
+The injected `$GITHUB_TOKEN` is a **read-only GitHub App token** (`jonsnowx1r-lab`): the API reports
+`permissions.push=true` but EVERY write is refused `403 "Resource not accessible by integration"` — git push
+(`https://TOKEN@` and `x-access-token:TOKEN@`), `POST/PATCH /git/refs`, `POST /pulls`, and the `create_pr` tool.
+Empty `x-oauth-scopes`; no SSH binary, no `~/.ssh`. The clone's original embedded token (`ghu_vKf9Q…`) is expired (401).
+Reads are fine. So commits can be made locally but **cannot be pushed**; the owner must supply a token with
+Contents:write (+ Pull requests:write) before any merge lands. Verify with
+`curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" .../git/refs -d '{"ref":"refs/heads/t","sha":"<HEAD>"}'` — a 403 means write is off.
+
 ## Sham v2 chat deploy readiness (fixed 2026-11-06, live) — NOT flaky
 `Deploy the Sham v2 Studio` failed DETERMINISTICALLY: a redeploy leaves the PREVIOUS container answering `/status`, and the pre-2026-10-30 app reports `phase=ready` WITHOUT `context_tokens`. Gate on `context_tokens>=4096` (in `deploy-modelscope-sham-v2.yml` + `-overflow.yml`), never just `phase==ready`; ModelScope may print `no change` and not rebuild. Second trap: steps run under `bash -e`, so a failing grep inside `ctx=$(... | head -1)` aborted a deploy silently — append `|| true`. Regression test: `test_sham_v2_chat_smoke.py::test_deploy_waits_for_the_new_app_context_not_the_previous_container`.
