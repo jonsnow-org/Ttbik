@@ -45,10 +45,13 @@ def _active_params(model: ShamSmall, memory_layers: list[int], topk_slots: int =
 
 # ---------------------------------------------------------------- A) capacity
 
+MEM_LR_MULT = 5.0
+
+
 def experiment_a(n_facts: int = 40000, steps: int = 3000, seed: int = 0) -> None:
     torch.manual_seed(seed)
     rnd = random.Random(seed)
-    V1, V2 = 300, 500
+    V1, V2 = max(300, int((n_facts * 3) ** 0.5) + 1), 500       # enough distinct (a, b) keys for n_facts
     vocab = V1 + V2 + 2
     SEP = V1 + V2
     pairs = rnd.sample([(a, b) for a in range(V1) for b in range(V1)], n_facts)
@@ -71,8 +74,11 @@ def experiment_a(n_facts: int = 40000, steps: int = 3000, seed: int = 0) -> None
             replace_mlp_with_memory(m, mem, n_keys=nk, topk=4, heads=2, key_dim=32)
         non_emb = sum(p.numel() for n, p in m.named_parameters() if "token_embedding" not in n and "lm_head" not in n)
         act = _active_params(m, mem, topk_slots=2 * 4)
-        opt = torch.optim.AdamW(m.parameters(), lr=3e-3, weight_decay=0.0)
-        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps, pct_start=0.05)
+        mem_params = [p for n, p in m.named_parameters() if ".mlp.values" in n or ".mlp.keys" in n]
+        rest = [p for n, p in m.named_parameters() if not (".mlp.values" in n or ".mlp.keys" in n)]
+        groups = [{"params": rest, "lr": 3e-3}] + ([{"params": mem_params, "lr": 3e-3 * MEM_LR_MULT}] if mem_params else [])
+        opt = torch.optim.AdamW(groups, lr=3e-3, weight_decay=0.0)      # memory values get a higher rate (they are updated rarely, each slot only when read)
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[g["lr"] for g in groups], total_steps=steps, pct_start=0.05)
         t0 = time.time()
         for s in range(steps):
             sel = torch.randint(0, n_facts, (512,))
