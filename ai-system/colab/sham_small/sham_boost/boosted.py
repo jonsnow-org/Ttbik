@@ -54,7 +54,7 @@ class BoostedSham(nn.Module):
         super().__init__()
         self.base, self.bcfg = base, bcfg
         cfg = base.cfg
-        hd = cfg.d_model // cfg.n_heads
+        hd = cfg.hd
         self.qk = nn.ModuleList(GatedQKNorm(hd) for _ in range(cfg.n_layers)) if bcfg.qk_norm else None
         self.embed = (GatedEmbedAdapter(cfg.vocab_size, cfg.d_model, bcfg.embed_adapter_ids, bcfg.embed_rank)
                       if bcfg.embed_adapter_ids else None)

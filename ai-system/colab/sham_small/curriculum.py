@@ -45,6 +45,12 @@ class CurriculumPhase:
     lr: float = 3e-4
     log_every: int = 10
     checkpoint_every: int | None = None
+    # Enlarge the effective batch (and, with quant_bits, train on the compressed
+    # model from the first step) — carried through to each phase's
+    # StreamTrainConfig so the owner's compressed-data-training order holds for
+    # the progressive-context run too, not only for a flat train_from_stream call.
+    grad_accum_steps: int = 1
+    quant_bits: int = 0
 
 
 @dataclass
@@ -98,6 +104,8 @@ def train_with_progressive_context(
             checkpoint_dir=str(checkpoint_dir),
             mixed_precision=mixed_precision,
             compile_model=compile_model,
+            grad_accum_steps=phase.grad_accum_steps,
+            quant_bits=phase.quant_bits,
         )
         phase_losses = train_from_stream(model, text_stream_factory(), tokenizer, cfg, device=device)
         result.phase_losses.append(phase_losses)

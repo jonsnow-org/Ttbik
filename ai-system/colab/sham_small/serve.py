@@ -32,7 +32,9 @@ COPY (held-out check, then the usual publish + merge gate): the served weights
 never change. /ask/audio (sham_media_ask.py) is the sound counterpart.
 """
 
+import base64
 import io
+import json
 import os
 import subprocess
 import tempfile
@@ -45,8 +47,6 @@ from fastapi.responses import Response
 from PIL import Image
 from pydantic import BaseModel
 
-import imageio_ffmpeg
-
 from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
 from checkpoint import load_checkpoint
 from generate import (
@@ -57,16 +57,14 @@ from generate import (
     generate_audio,
     generate_image,
     generate_tokens,
-    generate_video,
 )
 from image_tokenizer import ImageTokenizer, ImageTokenizerConfig
 from mel_spectrogram import mel_spectrogram_to_waveform
-from model import AUDIO_VOCAB_SIZE, IMAGE_VOCAB_SIZE, ShamSmall, SpecialTokens
+from model import AUDIO_VOCAB_SIZE, IMAGE_VOCAB_SIZE, MOTION_VOCAB_SIZE, ShamSmall, SpecialTokens
+from motion_tokenizer import MotionTokenizer, MotionTokenizerConfig
 from multimodal_media_analysis import extract_video_frames
 from text_tokenizer import ShamTextTokenizer, train_text_tokenizer
-from video_tokenizer import decode_video
 
-_FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 _SAMPLE_RATE = 16000
 
 app = FastAPI(title="Sham — serving backend")
@@ -94,6 +92,25 @@ def _trained_media_tokenizer(kind: str, checkpoint_path: str):
     return picked[0].to("cpu").eval() if picked else None
 
 
+def _trained_motion_tokenizer(checkpoint_path: str):
+    """The motion tokenizer (motion_tokenizer.py) the served model was trained
+    with: SHAM_MOTION_TOKENIZER_PATH, else motion_tokenizer.pt next to the
+    checkpoint. Returns None when the checkpoint never trained one — the caller
+    then serves NO_VIDEO instead of a fabricated clip."""
+    explicit = os.environ.get("SHAM_MOTION_TOKENIZER_PATH")
+    root = Path(explicit).parent if explicit else Path(checkpoint_path).parent
+    for cand in ([Path(explicit)] if explicit else []) + sorted(root.glob("motion_tokenizer*.pt")):
+        if cand.is_file():
+            from motion_tokenizer import load_motion_tokenizer
+
+            try:
+                return load_motion_tokenizer(cand).to("cpu").eval()
+            except Exception as exc:  # noqa: BLE001
+                print(f"motion tokenizer at {cand} did not load ({type(exc).__name__}: {exc}) — native video will be reported unavailable")
+                return None
+    return None
+
+
 def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = None) -> None:
     """Serves ONLY a real trained Sham: the checkpoint, the text tokenizer saved
     with it, and the image/audio tokenizers it was trained with. Owner directive
@@ -112,10 +129,10 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
         _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
         print(f"loaded the trained checkpoint {checkpoint_path} (step {step})")
     else:
-        from model import ShamSmallConfig
+        from model import TOTAL_VOCAB_SIZE, ShamSmallConfig
 
         cfg = ShamSmallConfig(
-            vocab_size=42256, d_model=64, n_layers=4, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=512
+            vocab_size=TOTAL_VOCAB_SIZE, d_model=64, n_layers=4, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=512
         )
         model = ShamSmall(cfg)
         _state["source"] = "تشخيص فقط: نموذج غير مدرّب (SHAM_DIAGNOSTIC_UNTRAINED=1)"
@@ -143,6 +160,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
 
     image_tokenizer = _trained_media_tokenizer("image", checkpoint_path) if real else None
     audio_tokenizer = _trained_media_tokenizer("audio", checkpoint_path) if real else None
+    motion_tokenizer = _trained_motion_tokenizer(checkpoint_path) if real else None
     if (image_tokenizer is None or audio_tokenizer is None) and not diagnostic:
         missing = [k for k, t in (("image", image_tokenizer), ("audio", audio_tokenizer)) if t is None]
         raise RuntimeError(f"أداة ترميز {'/'.join(missing)} المدرّبة غير موجودة بجانب النقطة — الخادم يعمل بأدوات شام المدرّبة فقط.")
@@ -154,11 +172,18 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
         audio_tokenizer = AudioTokenizer(AudioTokenizerConfig(
             n_mels=16, segment_frames=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32,
             num_codes=AUDIO_VOCAB_SIZE)).eval()
+    if motion_tokenizer is None and diagnostic:
+        # Plumbing diagnostic only: the native video path needs SOME motion
+        # tokenizer to run. A real service refuses rather than fabricate one —
+        # see the /generate/video handler, which returns NO_VIDEO when it is
+        # absent instead of shipping a slideshow.
+        motion_tokenizer = MotionTokenizer(MotionTokenizerConfig(num_codes=MOTION_VOCAB_SIZE)).eval()
 
     _state["model"] = model
     _state["text_tokenizer"] = text_tokenizer
     _state["image_tokenizer"] = image_tokenizer
     _state["audio_tokenizer"] = audio_tokenizer
+    _state["motion_tokenizer"] = motion_tokenizer
     _state["checkpoint_path"] = checkpoint_path
     _state["tokenizer_path"] = tokenizer_path
     _state["train_step"] = step if real else 0
@@ -291,33 +316,26 @@ def generate_audio_endpoint(req: MediaRequest) -> Response:
 
 @app.post("/generate/video")
 def generate_video_endpoint(req: VideoRequest) -> Response:
+    """The model's OWN video, through the motion path (motion_tokenizer.py):
+    one keyframe image span plus a motion span, decoded frame by frame so the
+    clip really moves. Long clips use sliding-window passes. When the served
+    checkpoint has no motion tokenizer this returns 503 with an honest message
+    rather than a slideshow."""
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
+    motion_tokenizer = _state.get("motion_tokenizer")
+    if motion_tokenizer is None:
+        return Response(
+            content=json.dumps({"detail": "native-video-unavailable: no motion tokenizer beside the served checkpoint"}),
+            status_code=503, media_type="application/json")
 
-    prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
-    tokens_per_image = image_tokenizer.cfg.tokens_per_image
-    sequence = generate_video(model, prompt_ids, num_frames=req.num_frames, tokens_per_image=tokens_per_image, top_k=40)
-
-    video_span = sequence[:, prompt_ids.shape[1]:]
+    from sham_decoding import media_prompts
+    from sham_studio_media import _video_result
+    cond, uncond = media_prompts("image", tokenizer.encode(req.prompt)[:200], tokenizer, chat=True)
     with torch.no_grad():
-        frames = decode_video(image_tokenizer, video_span, num_frames=req.num_frames)[0]  # (num_frames, 3, H, W)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        for i, frame in enumerate(frames):
-            pixels = ((frame.clamp(-1, 1) + 1) * 127.5).byte().permute(1, 2, 0).numpy()
-            Image.fromarray(pixels, mode="RGB").save(tmp / f"frame_{i:04d}.png")
-
-        output_path = tmp / "out.mp4"
-        subprocess.run(
-            [_FFMPEG, "-y", "-framerate", "2", "-i", str(tmp / "frame_%04d.png"),
-             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(output_path)],
-            check=True, capture_output=True,
-        )
-        video_bytes = output_path.read_bytes()
-
-    return Response(content=video_bytes, media_type="video/mp4")
+        result = _video_result(model, image_tokenizer, motion_tokenizer, cond, uncond, req.num_frames)
+    return Response(content=base64.b64decode(result["b64"]), media_type="video/mp4")
 
 
 @app.post("/generate/medical/image")
@@ -454,6 +472,9 @@ from ask_web_api import register_ask_web
 register_ask_web(app, _state)
 
 if __name__ == "__main__":
+    # sham-ci: entrypoint — this starts the real HTTP service (needs uvicorn, a
+    # Studio-only dependency), it is not a self-test. The PR checker skips it;
+    # verify_serve.py is the real end-to-end check.
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -62,21 +62,24 @@ sentence, it is the exact same autoregressive mechanism, which is the
 whole point: the actual creative/generative intelligence for every
 modality lives here, once, not once per modality.
 
-Vocabulary layout (total 42,256 entries; see the constants below):
+Vocabulary layout (total 43,284 entries; see the constants below):
   [0, TEXT_VOCAB_SIZE)                                              -> real text tokens
   [TEXT_VOCAB_SIZE, TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE)                -> image_tokenizer.py's codebook ids, offset
   [TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE, ...+AUDIO_VOCAB_SIZE)           -> audio_tokenizer.py's codebook ids, offset
   [..., + NUM_SPECIAL_TOKENS)                                        -> control tokens (see SpecialTokens below)
-Video has no vocabulary range of its own: per owner spec, it reuses
-the image codebook per-frame (a video is just a sequence of
-<IMAGE_START>...<IMAGE_END> blocks wrapped in one outer
-<VIDEO_START>...<VIDEO_END>, exactly what video_tokenizer.py builds) —
-see that file's own docstring.
+  [..., + MOTION_VOCAB_SIZE)                                         -> motion_tokenizer.py's flow-codebook ids, offset (video's own motion space)
+Video still reuses the image codebook for its KEYFRAME (a frame IS a still
+image, so spending a second codebook on it would be waste), but no longer
+per frame: video_tokenizer.py now writes one keyframe image span plus a
+motion span of motion_tokenizer.py's flow tokens for the delta frames —
+real temporal content (each frame is decoded from the previous one through a
+flow warp + learned residual), not a slideshow of independent stills. See
+video_tokenizer.py and motion_tokenizer.py's own docstrings.
 
 Expanding the vocabulary (32000 text-only -> 40208 with images ->
-42256 with audio) is the "قليلاً" (slight) size increase the owner
-explicitly approved each step, in service of correctness: 514.2M
-parameters total now, up from 501.1M text-only — see this file's own
+42256 with audio -> 43284 with video motion) is the "قليلاً" (slight) size
+increase the owner explicitly approved each step, in service of correctness:
+the parameter count below reflects the current build — see this file's own
 __main__ block, verify_architecture.py, and
 verify_multimodal_integration.py for the re-verified counts and a real
 end-to-end proof across every modality.
@@ -88,6 +91,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
+import os
 
 # Owner spec, 2026-09-14: the shared vocabulary contract between this
 # model and image_tokenizer.py (and, later, audio_tokenizer.py) — see
@@ -95,11 +99,24 @@ import torch.utils.checkpoint
 # source of truth rather than each file guessing compatible offsets
 # independently, which is exactly the kind of mismatch that would
 # silently corrupt every generated image without ever raising an error.
-TEXT_VOCAB_SIZE = 32000
+# 32000 is the vocabulary of every Sham checkpoint trained so far. SHAM_TEXT_VOCAB=<n> (set BEFORE any Sham module is imported) makes the text range n ids wide, and the image / audio /
+# special ranges above it move with it, so a model that starts from a published open model's body can keep that model's own tokenizer (Qwen3: 151936) together with Sham's media ranges.
+# One process works with one text vocabulary: a checkpoint of the other size will not load into it.
+TEXT_VOCAB_SIZE = int(os.environ.get("SHAM_TEXT_VOCAB") or 32000)
 IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
 AUDIO_VOCAB_SIZE = 2048  # must equal audio_tokenizer.AudioTokenizerConfig.num_codes
-NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities (e.g. per-frame video markers)
-TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
+NUM_SPECIAL_TOKENS = 20  # named control tokens below, plus the 2 chat turn markers sham_decoding.py defines (_base+13/+14) and headroom for later modalities
+# Motion codebook (motion_tokenizer.py): the video modality's OWN discrete
+# space. Deliberately APPENDED at the very end, after the special tokens,
+# rather than inserted between audio and the specials: that keeps every
+# existing range (text, image, audio) and every special-token id at the
+# exact index it already had, so a checkpoint trained before motion existed
+# still loads and still means the same thing for text/images/audio — the
+# new rows are simply fresh embeddings at the end. A model built with an
+# explicit older vocab_size (many small self-tests do) just has no motion
+# range, which is fine because those tests never generate motion.
+MOTION_VOCAB_SIZE = 1024  # must equal motion_tokenizer.MotionTokenizerConfig.num_codes
+TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS + MOTION_VOCAB_SIZE
 
 
 class SpecialTokens:
@@ -133,16 +150,28 @@ class SpecialTokens:
     # way IMAGE_START/IMAGE_END already separate modalities without a
     # separate vocabulary range (a real, published pattern — this is
     # the mechanism behind tool-use/ReAct-style LLMs). See tool_use.py
-    # for the actual interception loop this makes possible; 3 of
-    # NUM_SPECIAL_TOKENS's 16 reserved ids remain free after these.
+    # for the actual interception loop this makes possible; the ids after
+    # these (_base+13 onward) stay free for sham_decoding.py's turn
+    # markers and motion_tokenizer.py's motion delimiters.
     SEARCH_START = _base + 9
     SEARCH_END = _base + 10
     RESULT_START = _base + 11
     RESULT_END = _base + 12
+    # Video's motion span (motion_tokenizer.py): wraps the flow tokens of one
+    # clip's delta frames, which sit after the keyframe's image span inside
+    # <VIDEO_START>...<VIDEO_END>:
+    #   <VIDEO_START> <IMAGE_START>[keyframe]<IMAGE_END>
+    #                 <MOTION_START>[flow tokens]<MOTION_END> <VIDEO_END>
+    # Placed at +15/+16: +13/+14 are sham_decoding.py's USER_TURN/SHAM_TURN.
+    MOTION_START = _base + 15
+    MOTION_END = _base + 16
 
 
 IMAGE_VOCAB_BASE = TEXT_VOCAB_SIZE
 AUDIO_VOCAB_BASE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE
+# Motion sits after the special tokens (see the MOTION_VOCAB_SIZE comment
+# above), so this base is the full pre-motion vocabulary size.
+MOTION_VOCAB_BASE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
 
 
 def _offset_to_vocab_id(token_id: int | torch.Tensor, base: int) -> int | torch.Tensor:
@@ -209,6 +238,20 @@ def vocab_id_to_audio_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tens
     return _vocab_id_to_offset_token_id(vocab_id, AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE, "audio")
 
 
+def motion_token_id_to_vocab_id(motion_token_id: int | torch.Tensor) -> int | torch.Tensor:
+    """Converts a motion_tokenizer.py codebook id (in [0, MOTION_VOCAB_SIZE))
+    to this model's shared vocabulary id — the video modality's counterpart
+    to the image/audio offset helpers above."""
+    return _offset_to_vocab_id(motion_token_id, MOTION_VOCAB_BASE)
+
+
+def vocab_id_to_motion_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tensor:
+    """The inverse of motion_token_id_to_vocab_id — used when reading this
+    model's own generated motion tokens back out to hand to
+    motion_tokenizer.decode_flow()/decode_frame()."""
+    return _vocab_id_to_offset_token_id(vocab_id, MOTION_VOCAB_BASE, MOTION_VOCAB_SIZE, "motion")
+
+
 @dataclass
 class ShamSmallConfig:
     """Every field here is a free hyperparameter, not a hardcoded
@@ -249,9 +292,23 @@ class ShamSmallConfig:
     # such key saved, so from_dict() below fills in this exact default
     # for them automatically -- loading an old checkpoint is unaffected.
     output_mult: float = 1.0
+    # Optional attention shapes, all off by default (every existing checkpoint keeps its exact meaning). They exist so that the body of a published
+    # open model can be loaded into Sham's own class: its heads may be wider than d_model / n_heads (head_dim), its q/k/v may carry a bias
+    # (qkv_bias), and it may normalise q and k per head before the rotary step (qk_norm). Nothing else about Sham changes.
+    head_dim: int = 0               # 0 = d_model // n_heads
+    qkv_bias: bool = False
+    qk_norm: bool = False
+    chat_format: str = ""           # "" = Sham's own dialogue layout; "qwen3" = the donor's chat template (<|im_start|> ... <|im_end|>), see sham_studio_chat.py
+    adapter_rank: int = 0              # 0 preserves legacy checkpoints; positive enables low-rank adapters
+    adapter_alpha: float = 16.0
+
+    @property
+    def hd(self) -> int:
+        """The width of one attention head."""
+        return self.head_dim or self.d_model // self.n_heads
 
     def __post_init__(self):
-        if self.d_model % self.n_heads != 0:
+        if not self.head_dim and self.d_model % self.n_heads != 0:
             raise ValueError(f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})")
         if self.n_heads % self.n_kv_heads != 0:
             raise ValueError(f"n_heads ({self.n_heads}) must be divisible by n_kv_heads ({self.n_kv_heads})")
@@ -309,18 +366,43 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return out
 
 
+class AdapterLinear(nn.Module):
+    """Frozen donor projection plus a small trainable low-rank residual."""
+    def __init__(self, base: nn.Linear, rank: int, alpha: float = 16.0):
+        super().__init__()
+        self.base = base
+        self.rank = max(1, int(rank))
+        self.adapter_down = nn.Parameter(torch.empty(self.rank, base.in_features, device=base.weight.device, dtype=base.weight.dtype))
+        self.adapter_up = nn.Parameter(torch.zeros(base.out_features, self.rank, device=base.weight.device, dtype=base.weight.dtype))
+        self.scale = float(alpha) / self.rank
+        nn.init.kaiming_uniform_(self.adapter_down, a=5 ** 0.5)
+
+    @property
+    def weight(self):
+        return self.base.weight
+
+    @property
+    def bias(self):
+        return self.base.bias
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.base(x) + F.linear(F.linear(x, self.adapter_down), self.adapter_up) * self.scale
+
+
 class Attention(nn.Module):
     def __init__(self, cfg: ShamSmallConfig):
         super().__init__()
         self.n_heads = cfg.n_heads
         self.n_kv_heads = cfg.n_kv_heads
-        self.head_dim = cfg.d_model // cfg.n_heads
+        self.head_dim = cfg.hd
         self.n_rep = cfg.n_heads // cfg.n_kv_heads  # query heads sharing each KV head
 
-        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
+        self.q_proj = nn.Linear(cfg.d_model, cfg.n_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.k_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
+        self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=cfg.qkv_bias)
         self.o_proj = nn.Linear(cfg.n_heads * self.head_dim, cfg.d_model, bias=False)
+        self.q_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
+        self.k_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps) if cfg.qk_norm else None
 
     def forward(
         self,
@@ -342,6 +424,8 @@ class Attention(nn.Module):
         # keys left off, not restart at 0 (that would rotate the new
         # token as if it were position 0 again, corrupting every
         # attention score against the real earlier positions).
+        if self.q_norm is not None:
+            q, k = self.q_norm(q), self.k_norm(k)
         offset = past_kv[0].shape[2] if past_kv is not None else 0
         cos_pos = cos[offset : offset + seq_len]
         sin_pos = sin[offset : offset + seq_len]
@@ -438,6 +522,8 @@ class ShamSmall(nn.Module):
         self.cfg = cfg
         self.token_embedding = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.layers = nn.ModuleList(TransformerBlock(cfg) for _ in range(cfg.n_layers))
+        if cfg.adapter_rank > 0:
+            self.enable_adapters(cfg.adapter_rank, cfg.adapter_alpha)
         self.final_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         if cfg.tie_embeddings:
@@ -448,12 +534,37 @@ class ShamSmall(nn.Module):
             # same weight matrix, used in two different directions.
             self.lm_head.weight = self.token_embedding.weight
 
-        head_dim = cfg.d_model // cfg.n_heads
+        head_dim = cfg.hd
         cos, sin = precompute_rope(head_dim, cfg.max_seq_len, cfg.rope_theta)
         self.register_buffer("rope_cos", cos, persistent=False)
         self.register_buffer("rope_sin", sin, persistent=False)
 
         self.apply(self._init_weights)
+
+    def enable_adapters(self, rank: int = 8, alpha: float = 16.0) -> int:
+        """Wrap attention and MLP projections; never re-wrap an adapter checkpoint."""
+        rank = int(rank)
+        if rank <= 0:
+            return 0
+        existing = [module for module in self.modules() if isinstance(module, AdapterLinear)]
+        if existing:
+            ranks = {module.rank for module in existing}
+            if len(ranks) != 1:
+                raise ValueError("checkpoint contains inconsistent adapter ranks")
+            self.cfg.adapter_rank = ranks.pop()
+            self.cfg.adapter_alpha = float(existing[0].scale * existing[0].rank)
+            return 0
+        count = 0
+        for layer in self.layers:
+            for parent in (layer.attention, layer.mlp):
+                for name in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"):
+                    base = getattr(parent, name, None)
+                    if isinstance(base, nn.Linear):
+                        setattr(parent, name, AdapterLinear(base, rank, alpha))
+                        count += 1
+        self.cfg.adapter_rank = rank
+        self.cfg.adapter_alpha = float(alpha)
+        return count
 
     def _init_weights(self, module: nn.Module) -> None:
         # Standard GPT-style initialization (normal, std=0.02) — the
@@ -545,7 +656,7 @@ class ShamSmall(nn.Module):
         immediate, exactly the kind of "grows with more resources
         later" property the owner asked this architecture to have."""
         self.cfg.max_seq_len = new_max_seq_len
-        head_dim = self.cfg.d_model // self.cfg.n_heads
+        head_dim = self.cfg.hd
         cos, sin = precompute_rope(head_dim, new_max_seq_len, self.cfg.rope_theta)
         device = self.rope_cos.device
         self.register_buffer("rope_cos", cos.to(device), persistent=False)
@@ -568,7 +679,7 @@ def build_default_model() -> ShamSmall:
     """The owner's actual ~500M target configuration, now including the
     shared text+image+audio (video reuses the image codebook per-frame)
     vocabulary — see this module's own docstring for how these exact
-    numbers were reached (514.2M parameters with the expanded
+    numbers were reached (515.5M parameters with the expanded
     vocabulary, verified both here with real torch below and
     independently in sham_small/verify_architecture.py without needing
     torch/GPU)."""

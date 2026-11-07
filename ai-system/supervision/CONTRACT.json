@@ -22,6 +22,10 @@
       "role": "فيديو مُجمَّع ومُرمَّز",
       "writer": "video_tokenizer"
     },
+    "sham-motion-tokenizer-checkpoint": {
+      "role": "مُرمِّز الحركة الأصلي (MotionTokenizer) لمسار الفيديو — يرمّز الفرق بين الإطارات كرموز حركة، فلا يصبح الفيديو عرض شرائح",
+      "writer": "video_tokenizer"
+    },
     "sham-multimodal-checkpoint": {
       "role": "نقطة حفظ المرحلة الثانية (نص + صورة + صوت)",
       "writer": "stage2_multimodal"
@@ -145,6 +149,10 @@
     "sham-runtime-creds": {
       "role": "مجموعة خاصة بملف اعتماد كاكل للنسخ المدفوعة بالواجهة (أسرار — لا تُرفق إلا بدفاتر خاصة؛ لا أوزان فيها)",
       "writer": "any"
+    },
+    "sham-v2-checkpoint": {
+      "role": "نقطة حفظ سلالة شام v2 (جسم المانح المنقول + صفوف الوسائط المدرَّبة)؛ سلالة منفصلة بمُرمِّز المانح فلا تُدمج مع السلالة القديمة",
+      "writer": "sham_v2_train"
     },
     "sham-media-refined": {
       "role": "مفكّ الصورة والصوت المصقول وحده (الترميز والقاموس كما هما بالضبط) — يُعتمد في الاستوديو فقط إذا طابق ترميز النموذج المدموج",
@@ -280,7 +288,8 @@
         "sham-video-corpus"
       ],
       "writes": [
-        "sham-video-corpus"
+        "sham-video-corpus",
+        "sham-motion-tokenizer-checkpoint"
       ]
     },
     "control_center": {
@@ -639,6 +648,28 @@
       "reads": [],
       "writes": []
     },
+    "sham_v2_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2/sham_v2_train.ipynb",
+      "title": "شام v2: دفتر منفصل يدرّب صفوف الوسائط فوق جسم المانح المنقول + أمثلة الأدوات والكود (GPU أولاً ثم CPU)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-checkpoint",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-checkpoint"
+      ]
+    },
+    "sham_v2_push": {
+      "file": ".github/workflows/sham-v2-push.yml",
+      "title": "دفع دفتر شام v2 إلى كاكل (مرة واحدة، ثم يتولاه المراقب)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "kaggle_inspect": {
       "file": ".github/workflows/sham-kaggle-inspect.yml",
       "title": "فحص كاكل للقراءة فقط: حالة الدفاتر وآخر سطور سجلها",
@@ -667,6 +698,118 @@
       "writes": [
         "sham-media-refined"
       ]
+    },
+    "sham_v2_ask": {
+      "file": ".github/workflows/sham-v2-ask.yml",
+      "title": "سؤال شام v2 على استوديوه للقراءة فقط: الحالة والإجابات",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_media_check": {
+      "file": ".github/workflows/sham-v2-media-check.yml",
+      "title": "فحص وسائط شام v2 الحقيقية على استوديوه للقراءة فقط (صورة/كلام/فيديو)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "nova_fastlane_live": {
+      "file": ".github/workflows/nova-fastlane-live.yml",
+      "title": "فحص حي لمسار الوسائط السريع في نوفا على الاستوديوهات الحقيقية (لا شيء يُرسل إلى تيليجرام)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "deploy_sham_v2_overflow": {
+      "file": ".github/workflows/deploy-modelscope-sham-v2-overflow.yml",
+      "title": "نشر شام v2 على استوديو الفائض (مستودع nova-inference-server المعاد توظيفه، CPU فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (ModelScope 16 GB)",
+      "reads": [],
+      "writes": []
+    },
+    "studio_logs": {
+      "file": ".github/workflows/studio-logs.yml",
+      "title": "قراءة حالة وسجل تشغيل أي استوديو للقراءة فقط (تشخيص)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "deploy_sham_v2_video": {
+      "file": ".github/workflows/deploy-modelscope-sham-v2-video.yml",
+      "title": "نشر استوديو فيديو شام v2 الخاص (AnimateDiff على CPU) واختباره بمقطع حقيقي",
+      "kind": "workflow",
+      "accelerator": "CPU (ModelScope Studio)",
+      "reads": [],
+      "writes": []
+    },
+    "media_studio_probe": {
+      "file": ".github/workflows/media-studio-probe.yml",
+      "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_media_weights": {
+      "file": ".github/workflows/sham-v2-media-weights.yml",
+      "title": "نسخ أوزان الوسائط الجاهزة (صور وصوت) إلى مستودع أوزان شام v2",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_chat_smoke": {
+      "file": ".github/workflows/sham-v2-chat-smoke.yml",
+      "title": "اختبار حي لقدرة Sham v2 على الإجابة الواقعية عبر استوديوه المنفصل (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_host_image": {
+      "file": ".github/workflows/sham-v2-host-image.yml",
+      "title": "فحص بناء حاوية Sham v2 للمعالج (نسخة ثانية مجانية؛ بلا دفع ولا أسرار)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "computer_hub_bench": {
+      "file": ".github/workflows/computer-hub-bench.yml",
+      "title": "قياس سرعة عمليات الحاسوب الشائعة (جلسة مؤقتة؛ لا أوزان)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "hf_account_inventory": {
+      "file": ".github/workflows/hf-account-inventory.yml",
+      "title": "جرد حساب HF (قراءة فقط: الخطة والمساحات الموجودة) لقرار مضيف شام v2 المجاني",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "studio_run_logs": {
+      "file": ".github/workflows/studio-run-logs.yml",
+      "title": "سجل تشغيل أحد استوديوهات الوسائط أو الحاسوب (قراءة فقط) لتشخيص 502 ونفاد الذاكرة",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "modelscope_weights_audit": {
+      "file": ".github/workflows/modelscope-weights-audit.yml",
+      "title": "تدقيق قراءة فقط لمستودع أوزان خاص على ModelScope (الملفات والإيداعات والحالة)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [

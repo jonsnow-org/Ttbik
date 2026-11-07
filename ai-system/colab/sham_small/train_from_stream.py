@@ -67,6 +67,17 @@ class StreamTrainConfig:
     # usual T4/P100 don't) and why FlashAttention needs no separate flag.
     mixed_precision: bool = False
     compile_model: bool = False
+    # Real effective-batch enlargement without more memory: sum gradients over
+    # this many micro-batches before one optimizer step. train.py already had
+    # this; the streaming/base-pretraining path did not.
+    grad_accum_steps: int = 1
+    # Quantization-aware training (owner's request, 2026-11-06): the owner wants
+    # the model trained FROM THE START on compressed data so it stays small AND
+    # fast to train, instead of being compressed after training and losing
+    # quality. train.py's TrainConfig already carries this; the streaming
+    # (base-pretraining) path is where the bulk of the knowledge is learned, so
+    # it must carry it too. 0 = off (every existing run is byte-identical).
+    quant_bits: int = 0
 
 
 class StreamingTokenBatcher:
@@ -124,6 +135,14 @@ def train_from_stream(
     touches disk. Returns the real per-step loss history."""
     model.to(device)
     model.train()
+    if cfg.quant_bits and cfg.quant_bits < 32:
+        # QAT on the streaming path: wrap the weights so every forward rounds them
+        # to quant_bits levels (straight-through), teaching the base model to
+        # survive the compression it ships with. Wrappers share the original
+        # Parameters, so the optimizer and the saved state_dict are unchanged.
+        import sham_qat
+        wrapped = sham_qat.quantize_(model, bits=cfg.quant_bits)
+        print(f"quantization-aware training ON (streaming): {wrapped} modules wrapped to {cfg.quant_bits}-bit weights")
     optimizer = build_optimizer(model, cfg.lr, cfg.weight_decay)
     scheduler = build_lr_scheduler(optimizer, cfg.warmup_steps, cfg.total_steps, cfg.min_lr_ratio)
     batcher = StreamingTokenBatcher(text_stream, tokenizer, cfg.seq_len, cfg.batch_size)
@@ -138,33 +157,43 @@ def train_from_stream(
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
 
     loss_history = []
-    for step, batch in enumerate(batcher):
-        if step >= cfg.total_steps:
+    accum = max(1, cfg.grad_accum_steps)
+    micro = 0
+    opt_step = 0
+    optimizer.zero_grad()
+    for batch in batcher:
+        if opt_step >= cfg.total_steps:
             break
         batch = batch.to(device)
         with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
             _, loss = model(batch, labels=batch)
-        optimizer.zero_grad()
         if use_scaler:
-            scaler.scale(loss).backward()
+            scaler.scale(loss / accum).backward()
+        else:
+            (loss / accum).backward()
+        micro += 1
+        if micro % accum != 0:
+            continue
+        if use_scaler:
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
             scaler.step(optimizer)
             scaler.update()
         else:
-            loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
             optimizer.step()
         scheduler.step()
+        optimizer.zero_grad()
+        opt_step += 1
         loss_history.append(loss.item())
 
-        if (step + 1) % cfg.log_every == 0:
-            print(f"  step {step + 1}/{cfg.total_steps}: loss={loss.item():.4f}, lr={scheduler.get_last_lr()[0]:.2e} "
+        if opt_step % cfg.log_every == 0:
+            print(f"  step {opt_step}/{cfg.total_steps}: loss={loss.item():.4f}, lr={scheduler.get_last_lr()[0]:.2e} "
                   f"(streamed directly, nothing written to disk)")
 
-        if cfg.checkpoint_every and (step + 1) % cfg.checkpoint_every == 0:
-            ckpt_path = Path(cfg.checkpoint_dir) / f"stream_step_{step + 1}.pt"
-            save_checkpoint(ckpt_path, raw_model, step + 1, optimizer=optimizer)
+        if cfg.checkpoint_every and opt_step % cfg.checkpoint_every == 0:
+            ckpt_path = Path(cfg.checkpoint_dir) / f"stream_step_{opt_step}.pt"
+            save_checkpoint(ckpt_path, raw_model, opt_step, optimizer=optimizer)
             print(f"  saved checkpoint: {ckpt_path}")
 
     return loss_history
@@ -251,3 +280,30 @@ if __name__ == "__main__":
     assert all(torch.isfinite(torch.tensor(l)) for l in amp_loss_history), "non-finite loss with amp/compile flags set on CPU"
     print("mixed_precision/compile_model gating OK on the streaming trainer too: both flags set to True on "
           "a CPU device ran identically to the default, no crash, finite loss throughout.")
+
+    # --- QAT on the streaming path (owner's order): the base model must be able
+    # to learn THROUGH the compression, not be compressed afterwards. Two real
+    # claims are checked: the run still produces real steps, and the weights are
+    # genuinely wrapped (their Linear/Embedding modules became quant wrappers).
+    from sham_qat import QuantEmbedding, QuantLinear
+
+    qat_model = ShamSmall(model_cfg)
+    qat_stream_cfg = StreamTrainConfig(**{**stream_cfg.__dict__, "quant_bits": 4})
+    qat_loss = train_from_stream(qat_model, mock_text_stream(), tokenizer, qat_stream_cfg)
+    assert len(qat_loss) == stream_cfg.total_steps, "quant_bits changed the step count"
+    assert all(torch.isfinite(torch.tensor(l)) for l in qat_loss), "non-finite loss with quant_bits set"
+    wrapped = sum(1 for m in qat_model.modules() if isinstance(m, (QuantLinear, QuantEmbedding)))
+    assert wrapped > 0, "quant_bits=4 did not wrap any module — QAT is not wired into the streaming path"
+    assert qat_model.lm_head.weight is qat_model.token_embedding.weight, "QAT broke weight tying on the streaming path"
+    print(f"QAT wired into the streaming path: {wrapped} modules wrapped at 4-bit, weight tying preserved, "
+          f"real training steps and finite loss throughout.")
+
+    # grad_accum_steps must not change the number of OPTIMIZER steps, only how many
+    # micro-batches feed each one (the effective batch is larger, total_steps unchanged).
+    accum_model = ShamSmall(model_cfg)
+    accum_cfg = StreamTrainConfig(**{**stream_cfg.__dict__, "grad_accum_steps": 3})
+    accum_loss = train_from_stream(accum_model, mock_text_stream(), tokenizer, accum_cfg)
+    assert len(accum_loss) == stream_cfg.total_steps, (
+        f"grad_accum_steps=3 changed the optimizer-step count ({len(accum_loss)} != {stream_cfg.total_steps})"
+    )
+    print("grad_accum_steps enlarges the effective batch without changing the optimizer-step count, as intended.")

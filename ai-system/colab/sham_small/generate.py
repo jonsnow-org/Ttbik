@@ -99,6 +99,7 @@ def generate_tokens(
     allowed_ranges: list[tuple[int, int] | None] | None = None,
     stop_ids: set[int] | None = None,
     repetition_penalty: float = 1.0,
+    allowed_fn=None,
 ) -> torch.Tensor:
     """The one real generation loop everything else in this file is
     built on. prompt_ids: (batch, prompt_len). Returns (batch,
@@ -113,8 +114,36 @@ def generate_tokens(
     <VIDEO_END> token is emitted below — deterministic, not left to
     chance). allowed_ranges[i] restricts step i's sampling to that
     (lo, hi) id range when forced_ids[i] is None (how an image/audio
-    span's tokens are kept inside their own codebook's range)."""
+    span's tokens are kept inside their own codebook's range).
+
+    allowed_fn (batch 1 only): callable(new_ids: list[int]) -> set[int] | None, called before every sampled step with the tokens generated so far;
+    a set restricts that step to exactly those ids (a one-id set forces it). How a tool call is held to a valid shape (sham_toolcall.py)."""
     model.eval()
+    generated = prompt_ids
+    for next_token in _generate_steps(
+        model, prompt_ids, max_new_tokens, temperature, top_k, top_p, eos_id, forced_ids, allowed_ranges, stop_ids, repetition_penalty, allowed_fn
+    ):
+        generated = torch.cat([generated, next_token], dim=1)
+    return generated
+
+
+def _generate_steps(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    max_new_tokens: int,
+    temperature: float,
+    top_k: int | None,
+    top_p: float | None,
+    eos_id: int | None,
+    forced_ids: list[int | None] | None,
+    allowed_ranges: list[tuple[int, int] | None] | None,
+    stop_ids: set[int] | None,
+    repetition_penalty: float,
+    allowed_fn,
+):
+    """Yield one new token (batch, 1) per step — the shared body of generate_tokens and of the streaming
+    generate_tokens_iter. The caller must run this under torch.no_grad() (a decorator on a generator does not
+    hold its context open during iteration), which both callers do."""
     batch = prompt_ids.shape[0]
     device = prompt_ids.device
 
@@ -140,6 +169,14 @@ def generate_tokens(
             next_token = torch.full((batch, 1), forced, dtype=torch.long, device=device)
         else:
             allowed_range = allowed_ranges[step] if allowed_ranges is not None else None
+            if allowed_fn is not None:
+                ok = allowed_fn(generated[0, prompt_ids.shape[1]:].tolist())
+                if ok:
+                    keep = torch.full_like(last_logits, float("-inf"))
+                    idx = torch.tensor(sorted(i for i in ok if i < last_logits.shape[-1]), dtype=torch.long, device=device)
+                    keep[:, idx] = 0.0
+                    last_logits = last_logits + keep
+                    allowed_range = None
             next_token = _sample_from_logits(
                 last_logits, temperature=temperature, top_k=top_k, top_p=top_p, allowed_range=allowed_range
             )
@@ -163,11 +200,34 @@ def generate_tokens(
 
         generated = torch.cat([generated, next_token], dim=1)
         next_input = next_token
+        yield next_token
 
         if (eos_id is not None or stop_ids) and bool(finished.all()):
             break
 
-    return generated
+
+@torch.no_grad()
+def generate_tokens_iter(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    eos_id: int | None = None,
+    allowed_ranges: list[tuple[int, int] | None] | None = None,
+    stop_ids: set[int] | None = None,
+    repetition_penalty: float = 1.0,
+    allowed_fn=None,
+):
+    """Same generation as generate_tokens, but yields each new token id (int, batch row 0) as it is sampled,
+    so a server can stream a reply token by token. forced_ids is not offered here: a forced-id span (an image
+    or audio codebook) is not text to stream. Use generate_tokens for spans; use this for a text answer."""
+    model.eval()
+    for next_token in _generate_steps(
+        model, prompt_ids, max_new_tokens, temperature, top_k, top_p, eos_id, None, allowed_ranges, stop_ids, repetition_penalty, allowed_fn
+    ):
+        yield int(next_token[0, 0].item())
 
 
 @torch.no_grad()

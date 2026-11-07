@@ -37,8 +37,10 @@ sys.path.insert(0, str(HERE))
 REPO = os.environ.get("GITHUB_REPOSITORY", "jonsnow-org/Ttbik")
 FACTORY = {"Sham Collector (free CPU runner)": 6, "Sham CPU Trainer (free CPU runner, slow and continuous)": 6,
            "Sham Merge + Repair + Eval (free CPU runner)": 8}   # workflow name → expected hours between runs
-MAIN_LINE = ["sham-checkpoint", "sham-multimodal-checkpoint", "sham-chat-checkpoint"]
+MAIN_LINE = ["sham-checkpoint", "sham-multimodal-checkpoint", "sham-chat-checkpoint",
+             "sham-image-tokenizer-checkpoint", "sham-audio-tokenizer-checkpoint"]   # the two tokenizers too: an old notebook error is only ignored while these keep advancing
 STALE_HOURS = 24 * 5
+STALE_ERROR_DAYS = 7
 
 
 def _now() -> dt.datetime:
@@ -246,7 +248,13 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
             alerts.append(f"❌ {k['alias']}: Kaggle لم يستطع تركيب «{ds}» كمدخل (قبل تشغيل أي كود) — أزيلي هذه المجموعة من مدخلات الدفتر "
                           "(يجد الدفتر ما يلزمه بنفسه عبر API) ثم أعيدي التشغيل")
         elif k["status"] == "error" and k["role"] == "primary":
-            alerts.append(f"❌ دفتر أساسي فشل: {k['alias']} ({k['track']}) — {k['failure'][:160]}".replace("\n", " "))
+            # An error from long ago is not today's failure: another notebook can carry the same track (the all-in-one trains the audio tokenizer
+            # too, so its dataset keeps advancing). A real stoppage is caught by the dataset-freshness alerts below, so an old error is only an info line.
+            t_run = _parse(str(k.get("last_run") or "") + " 00:00:00") if k.get("last_run") else None
+            if t_run and (now - t_run).total_seconds() / 86400 > STALE_ERROR_DAYS:
+                alerts.append(f"ℹ دفتر أساسي بخطأ قديم (آخر تشغيل {k['last_run']}): {k['alias']} ({k['track']}) — لا يُعدّ عطلاً اليوم؛ تنبّه مجموعات الخط الرئيسي إن توقف التقدم")
+            else:
+                alerts.append(f"❌ دفتر أساسي فشل: {k['alias']} ({k['track']}) — {k['failure'][:160]}".replace("\n", " "))
     for name, runs in data.get("workflows", {}).items():
         done = [r for r in runs if r["status"] == "completed"]
         if len(done) >= 2 and all(r["conclusion"] == "failure" for r in done[:2]):
@@ -548,6 +556,13 @@ if __name__ == "__main__":
         runs2 = github_runs(lambda url: dict(runs, workflow_runs=[dict(r, id=7 + i, html_url=f"https://x/{i}") for i, r in enumerate(runs["workflow_runs"])]))
         fails = recent_failures(runs2, lambda url: jobs)
         assert fails and fails[0]["failed_steps"] == ["merge ← Repair, merge"] and fails[0]["url"].startswith("https://x/"), fails
+        # an OLD primary-notebook error is an info line, a fresh one is still a red alert
+        now_t = dt.datetime(2026, 11, 7, tzinfo=dt.timezone.utc)
+        mk = lambda last: {"kernels": [{"alias": "n1", "track": "t", "role": "primary", "status": "error", "failure": "boom", "last_run": last}]}
+        old_a = build_alerts(mk("2026-10-11"), contract, now_t)
+        new_a = build_alerts(mk("2026-11-06"), contract, now_t)
+        assert any(a.startswith("ℹ دفتر أساسي بخطأ قديم") for a in old_a) and not any(a.startswith("❌ دفتر أساسي") for a in old_a), old_a
+        assert any(a.startswith("❌ دفتر أساسي فشل") for a in new_a), new_a
         # alert issue: create → unchanged → update → close, against a fake GitHub
         class R:
             def __init__(self, code, js): self.status_code, self._j = code, js
