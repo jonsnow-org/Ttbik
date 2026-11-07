@@ -62,21 +62,24 @@ sentence, it is the exact same autoregressive mechanism, which is the
 whole point: the actual creative/generative intelligence for every
 modality lives here, once, not once per modality.
 
-Vocabulary layout (total 42,256 entries; see the constants below):
+Vocabulary layout (total 43,284 entries; see the constants below):
   [0, TEXT_VOCAB_SIZE)                                              -> real text tokens
   [TEXT_VOCAB_SIZE, TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE)                -> image_tokenizer.py's codebook ids, offset
   [TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE, ...+AUDIO_VOCAB_SIZE)           -> audio_tokenizer.py's codebook ids, offset
   [..., + NUM_SPECIAL_TOKENS)                                        -> control tokens (see SpecialTokens below)
-Video has no vocabulary range of its own: per owner spec, it reuses
-the image codebook per-frame (a video is just a sequence of
-<IMAGE_START>...<IMAGE_END> blocks wrapped in one outer
-<VIDEO_START>...<VIDEO_END>, exactly what video_tokenizer.py builds) —
-see that file's own docstring.
+  [..., + MOTION_VOCAB_SIZE)                                         -> motion_tokenizer.py's flow-codebook ids, offset (video's own motion space)
+Video still reuses the image codebook for its KEYFRAME (a frame IS a still
+image, so spending a second codebook on it would be waste), but no longer
+per frame: video_tokenizer.py now writes one keyframe image span plus a
+motion span of motion_tokenizer.py's flow tokens for the delta frames —
+real temporal content (each frame is decoded from the previous one through a
+flow warp + learned residual), not a slideshow of independent stills. See
+video_tokenizer.py and motion_tokenizer.py's own docstrings.
 
 Expanding the vocabulary (32000 text-only -> 40208 with images ->
-42256 with audio) is the "قليلاً" (slight) size increase the owner
-explicitly approved each step, in service of correctness: 514.2M
-parameters total now, up from 501.1M text-only — see this file's own
+42256 with audio -> 43284 with video motion) is the "قليلاً" (slight) size
+increase the owner explicitly approved each step, in service of correctness:
+the parameter count below reflects the current build — see this file's own
 __main__ block, verify_architecture.py, and
 verify_multimodal_integration.py for the re-verified counts and a real
 end-to-end proof across every modality.
@@ -102,8 +105,18 @@ import os
 TEXT_VOCAB_SIZE = int(os.environ.get("SHAM_TEXT_VOCAB") or 32000)
 IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
 AUDIO_VOCAB_SIZE = 2048  # must equal audio_tokenizer.AudioTokenizerConfig.num_codes
-NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities (e.g. per-frame video markers)
-TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
+NUM_SPECIAL_TOKENS = 20  # named control tokens below, plus the 2 chat turn markers sham_decoding.py defines (_base+13/+14) and headroom for later modalities
+# Motion codebook (motion_tokenizer.py): the video modality's OWN discrete
+# space. Deliberately APPENDED at the very end, after the special tokens,
+# rather than inserted between audio and the specials: that keeps every
+# existing range (text, image, audio) and every special-token id at the
+# exact index it already had, so a checkpoint trained before motion existed
+# still loads and still means the same thing for text/images/audio — the
+# new rows are simply fresh embeddings at the end. A model built with an
+# explicit older vocab_size (many small self-tests do) just has no motion
+# range, which is fine because those tests never generate motion.
+MOTION_VOCAB_SIZE = 1024  # must equal motion_tokenizer.MotionTokenizerConfig.num_codes
+TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS + MOTION_VOCAB_SIZE
 
 
 class SpecialTokens:
@@ -137,16 +150,28 @@ class SpecialTokens:
     # way IMAGE_START/IMAGE_END already separate modalities without a
     # separate vocabulary range (a real, published pattern — this is
     # the mechanism behind tool-use/ReAct-style LLMs). See tool_use.py
-    # for the actual interception loop this makes possible; 3 of
-    # NUM_SPECIAL_TOKENS's 16 reserved ids remain free after these.
+    # for the actual interception loop this makes possible; the ids after
+    # these (_base+13 onward) stay free for sham_decoding.py's turn
+    # markers and motion_tokenizer.py's motion delimiters.
     SEARCH_START = _base + 9
     SEARCH_END = _base + 10
     RESULT_START = _base + 11
     RESULT_END = _base + 12
+    # Video's motion span (motion_tokenizer.py): wraps the flow tokens of one
+    # clip's delta frames, which sit after the keyframe's image span inside
+    # <VIDEO_START>...<VIDEO_END>:
+    #   <VIDEO_START> <IMAGE_START>[keyframe]<IMAGE_END>
+    #                 <MOTION_START>[flow tokens]<MOTION_END> <VIDEO_END>
+    # Placed at +15/+16: +13/+14 are sham_decoding.py's USER_TURN/SHAM_TURN.
+    MOTION_START = _base + 15
+    MOTION_END = _base + 16
 
 
 IMAGE_VOCAB_BASE = TEXT_VOCAB_SIZE
 AUDIO_VOCAB_BASE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE
+# Motion sits after the special tokens (see the MOTION_VOCAB_SIZE comment
+# above), so this base is the full pre-motion vocabulary size.
+MOTION_VOCAB_BASE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
 
 
 def _offset_to_vocab_id(token_id: int | torch.Tensor, base: int) -> int | torch.Tensor:
@@ -211,6 +236,20 @@ def vocab_id_to_audio_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tens
     this model's own generated output back out to hand to
     audio_tokenizer.decode()."""
     return _vocab_id_to_offset_token_id(vocab_id, AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE, "audio")
+
+
+def motion_token_id_to_vocab_id(motion_token_id: int | torch.Tensor) -> int | torch.Tensor:
+    """Converts a motion_tokenizer.py codebook id (in [0, MOTION_VOCAB_SIZE))
+    to this model's shared vocabulary id — the video modality's counterpart
+    to the image/audio offset helpers above."""
+    return _offset_to_vocab_id(motion_token_id, MOTION_VOCAB_BASE)
+
+
+def vocab_id_to_motion_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tensor:
+    """The inverse of motion_token_id_to_vocab_id — used when reading this
+    model's own generated motion tokens back out to hand to
+    motion_tokenizer.decode_flow()/decode_frame()."""
+    return _vocab_id_to_offset_token_id(vocab_id, MOTION_VOCAB_BASE, MOTION_VOCAB_SIZE, "motion")
 
 
 @dataclass
@@ -640,7 +679,7 @@ def build_default_model() -> ShamSmall:
     """The owner's actual ~500M target configuration, now including the
     shared text+image+audio (video reuses the image codebook per-frame)
     vocabulary — see this module's own docstring for how these exact
-    numbers were reached (514.2M parameters with the expanded
+    numbers were reached (515.5M parameters with the expanded
     vocabulary, verified both here with real torch below and
     independently in sham_small/verify_architecture.py without needing
     torch/GPU)."""

@@ -40,8 +40,10 @@ from model import (
     SpecialTokens,
     audio_token_id_to_vocab_id,
     image_token_id_to_vocab_id,
+    motion_token_id_to_vocab_id,
     vocab_id_to_audio_token_id,
     vocab_id_to_image_token_id,
+    vocab_id_to_motion_token_id,
 )
 
 
@@ -152,6 +154,79 @@ def decode_video_with_audio(image_tokenizer: ImageTokenizer, video_sequence: tor
     return frames, mels.view(batch, num_audio_segments, *mels.shape[1:])
 
 
+def encode_clip(image_tokenizer: ImageTokenizer, motion_tokenizer, frames: torch.Tensor, block: int = 8) -> torch.Tensor:
+    """Native video encoding with real temporal content (motion_tokenizer.py).
+
+    frames: (batch, num_frames, 3, H, W) in [-1, 1]. Returns a flat sequence of
+    shared-vocabulary ids:
+      <VIDEO_START>
+        <IMAGE_START> [keyframe image tokens] <IMAGE_END>
+        <MOTION_START> [motion tokens: num_frames-1 blocks of flow ids] <MOTION_END>
+      <VIDEO_END>
+    The keyframe is the first frame, encoded through the (already trained)
+    image codebook. Each following frame contributes ONE block of flow ids
+    from motion_tokenizer.py — the *change* since the frame before it — which
+    is what makes a long clip cheap and genuinely temporal instead of a row of
+    independent stills. A single-frame "clip" degenerates to just the keyframe
+    span (no motion block), exactly like the old encode_video().
+    """
+    batch, num_frames = frames.shape[0], frames.shape[1]
+    if num_frames < 1:
+        raise ValueError("a clip needs at least one frame")
+    key = image_tokenizer.encode(frames[:, 0])  # (batch, grid, grid)
+    key_tokens = image_token_id_to_vocab_id(key.view(batch, -1))
+    img_start = torch.full((batch, 1), SpecialTokens.IMAGE_START, dtype=key_tokens.dtype)
+    img_end = torch.full((batch, 1), SpecialTokens.IMAGE_END, dtype=key_tokens.dtype)
+    head = torch.cat([torch.full((batch, 1), SpecialTokens.VIDEO_START, dtype=key_tokens.dtype),
+                      img_start, key_tokens, img_end], dim=1)
+    if num_frames == 1:
+        tail = torch.full((batch, 1), SpecialTokens.VIDEO_END, dtype=key_tokens.dtype)
+        return torch.cat([head, tail], dim=1)
+    flows = []
+    for t in range(num_frames - 1):
+        flows.append(motion_tokenizer.encode_pair(frames[:, t], frames[:, t + 1], block))
+    motion = torch.stack(flows, dim=1)  # (batch, num_frames-1, vectors_per_frame)
+    motion = motion_token_id_to_vocab_id(motion).reshape(batch, -1)
+    motion_block = torch.cat([
+        torch.full((batch, 1), SpecialTokens.MOTION_START, dtype=motion.dtype),
+        motion,
+        torch.full((batch, 1), SpecialTokens.MOTION_END, dtype=motion.dtype),
+    ], dim=1)
+    tail = torch.full((batch, 1), SpecialTokens.VIDEO_END, dtype=motion.dtype)
+    return torch.cat([head, motion_block, tail], dim=1)
+
+
+def decode_clip(image_tokenizer: ImageTokenizer, motion_tokenizer, sequence: torch.Tensor,
+                num_frames: int, block: int = 8) -> torch.Tensor:
+    """Inverse of encode_clip(). Returns (batch, num_frames, 3, H, W) real
+    frames — the keyframe plus every delta frame decoded from the previous one
+    through its motion tokens."""
+    batch = sequence.shape[0]
+    # Accept either the bare clip or a full generated sequence: start from the
+    # LAST <VIDEO_START> (same convention as generate.extract_*_tokens), so a
+    # caller can pass the model's whole output without slicing it by hand.
+    starts = (sequence[0] == SpecialTokens.VIDEO_START).nonzero(as_tuple=True)[0]
+    if len(starts) == 0:
+        raise ValueError("no VIDEO_START found in the sequence")
+    sequence = sequence[:, starts[-1].item():]
+    tokens_per_frame = image_tokenizer.cfg.tokens_per_image
+    key_span_len = 2 + tokens_per_frame
+    expected = 1 + key_span_len + (0 if num_frames == 1 else 2 + (num_frames - 1) * motion_tokenizer.cfg.vectors_per_frame) + 1
+    if sequence.shape[1] != expected:
+        raise ValueError(f"clip sequence has {sequence.shape[1]} tokens, expected {expected} for {num_frames} frames")
+    key_tokens = sequence[:, 2:2 + tokens_per_frame]
+    key = image_tokenizer.decode(vocab_id_to_image_token_id(key_tokens).view(batch, image_tokenizer.cfg.latent_grid_size, -1))
+    if num_frames == 1:
+        return key.unsqueeze(1)
+    n_motion = (num_frames - 1) * motion_tokenizer.cfg.vectors_per_frame
+    motion = sequence[:, 1 + key_span_len + 1:1 + key_span_len + 1 + n_motion]
+    motion = vocab_id_to_motion_token_id(motion).view(batch, num_frames - 1, -1)
+    frames = [key]
+    for t in range(num_frames - 1):
+        frames.append(motion_tokenizer.decode_frame(frames[-1], motion[:, t]))
+    return torch.stack(frames, dim=1)
+
+
 if __name__ == "__main__":
     from image_tokenizer import build_default_tokenizer
 
@@ -213,3 +288,32 @@ if __name__ == "__main__":
     print(f"video+audio OK: {num_segments} audio segments inside the video span, exact round trip; silent clips unchanged.")
 
     print("\nAll video handling checks passed — video reuses the image codebook per-frame with correct framing.")
+
+    # --- Native motion video (motion_tokenizer.py): a real, moving clip ----
+    from motion_tokenizer import MotionTokenizer, MotionTokenizerConfig
+    from image_tokenizer import ImageTokenizer, ImageTokenizerConfig
+    from train_image_tokenizer import make_synthetic_image_dataset
+
+    motion = MotionTokenizer(MotionTokenizerConfig(grid=4, num_codes=256))
+    small_img_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32)
+    img = ImageTokenizer(small_img_cfg).eval()
+    base = make_synthetic_image_dataset(1, 1, 32)
+    moving = torch.stack([torch.roll(base, shifts=t, dims=3) for t in range(5)], dim=1)  # a real horizontal pan
+    clip = encode_clip(img, motion, moving, block=8)
+    tpf = img.cfg.tokens_per_image
+    expected_clip = 1 + (2 + tpf) + 2 + 4 * motion.cfg.vectors_per_frame + 1
+    assert clip.shape == (1, expected_clip), (clip.shape, expected_clip)
+    assert (clip[:, 0] == SpecialTokens.VIDEO_START).all()
+    assert (clip[:, 1] == SpecialTokens.IMAGE_START).all() and (clip[:, 2 + tpf] == SpecialTokens.IMAGE_END).all()
+    assert (clip[:, 3 + tpf] == SpecialTokens.MOTION_START).all()
+    assert (clip[:, -2] == SpecialTokens.MOTION_END).all() and (clip[:, -1] == SpecialTokens.VIDEO_END).all()
+    decoded = decode_clip(img, motion, clip, num_frames=5, block=8)
+    assert decoded.shape == (1, 5, 3, 32, 32), decoded.shape
+    assert torch.isfinite(decoded).all()
+    # Frames must genuinely differ (a still repeated 5 times is a slideshow).
+    assert (decoded[:, 0] - decoded[:, -1]).abs().mean().item() > 1e-4, "native clip frames are identical — that is a still, not motion"
+    single = encode_clip(img, motion, moving[:, :1], block=8)
+    assert single.shape == (1, 3 + tpf + 1), single.shape
+    print(f"native motion video OK: 5-frame clip = {expected_clip} tokens "
+          f"(1 keyframe of {tpf} + 4 motion frames of {motion.cfg.vectors_per_frame}), frames really move.")
+    print("\nAll native-video checks passed — a clip is a keyframe plus real motion tokens, decoded into genuinely different frames.")

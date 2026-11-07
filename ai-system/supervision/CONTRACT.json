@@ -22,6 +22,10 @@
       "role": "فيديو مُجمَّع ومُرمَّز",
       "writer": "video_tokenizer"
     },
+    "sham-motion-tokenizer-checkpoint": {
+      "role": "مُرمِّز الحركة الأصلي (MotionTokenizer) لمسار الفيديو — يرمّز الفرق بين الإطارات كرموز حركة، فلا يصبح الفيديو عرض شرائح",
+      "writer": "video_tokenizer"
+    },
     "sham-multimodal-checkpoint": {
       "role": "نقطة حفظ المرحلة الثانية (نص + صورة + صوت)",
       "writer": "stage2_multimodal"
@@ -284,7 +288,8 @@
         "sham-video-corpus"
       ],
       "writes": [
-        "sham-video-corpus"
+        "sham-video-corpus",
+        "sham-motion-tokenizer-checkpoint"
       ]
     },
     "control_center": {

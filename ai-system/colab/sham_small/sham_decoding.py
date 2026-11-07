@@ -51,11 +51,11 @@ import torch
 import generate as _generate
 from model import AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE, IMAGE_VOCAB_BASE, IMAGE_VOCAB_SIZE, SpecialTokens, TEXT_VOCAB_SIZE
 
-# Two of the reserved control ids model.py leaves free ("3 of
-# NUM_SPECIAL_TOKENS's 16 reserved ids remain free"): turn markers for
-# Sham's own dialogue format. Defined here (not in model.py) so the
-# engineer's file stays untouched; the assert below fails loudly if model.py
-# ever assigns these ids to something else.
+# Two of the reserved control ids model.py leaves free (the ones after the
+# named tokens; motion_tokenizer.py's MOTION_START/END take _base+15/+16):
+# turn markers for Sham's own dialogue format. Defined here (not in model.py)
+# so the engineer's file stays untouched; the assert below fails loudly if
+# model.py ever assigns these ids to something else.
 USER_TURN = SpecialTokens._base + 13
 SHAM_TURN = SpecialTokens._base + 14
 _taken = {v for k, v in vars(SpecialTokens).items() if k.isupper() and isinstance(v, int)}

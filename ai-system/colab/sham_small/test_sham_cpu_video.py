@@ -27,18 +27,33 @@ class CopiesAndHonesty(unittest.TestCase):
         self.assertEqual(_block(AI / "modelscope-media" / "app.py"), _block(HERE / "cpu_video.py"))
 
     def test_no_slideshow_wan_or_gpu_left(self):
-        for path in (HERE / "cpu_video.py", HERE / "sham_media_ready.py", HERE / "sham_studio_media.py", AI / "modelscope-media" / "app.py"):
+        # The real guarantee is unchanged: no external GPU video pipeline (Wan),
+        # no stitched-image slideshow. The model now has its OWN motion path
+        # (motion_tokenizer.py), which is why `_mp4`/`_video_result` are no
+        # longer banned here — they encode frames decoded through real motion,
+        # not repeated stills (see test_sham_vq_and_video.py, which checks the
+        # frames actually move).
+        for path in (HERE / "cpu_video.py", HERE / "sham_media_ready.py", AI / "modelscope-media" / "app.py"):
             text = path.read_text(encoding="utf-8")
-            for bad in ("WanPipeline", "Wan-AI", "export_to_video", "def _mp4(", "def _video_result", 'cuda"', ".cuda(", "device_map"):
+            for bad in ("WanPipeline", "Wan-AI", "export_to_video", 'cuda"', ".cuda(", "device_map"):
                 self.assertFalse(bad in text, f"{bad!r} found in {path.name}")
+        # sham_studio_media.py may only reach for the GPU-free motion path.
+        studio = (HERE / "sham_studio_media.py").read_text(encoding="utf-8")
+        for bad in ("WanPipeline", "Wan-AI", "export_to_video", 'cuda"', ".cuda(", "device_map"):
+            self.assertFalse(bad in studio, f"{bad!r} found in sham_studio_media.py")
 
-    def test_internal_video_is_a_notice_never_a_clip(self):
+    def test_internal_video_is_native_motion_or_an_honest_notice(self):
         try:
             import sham_studio_media as m
         except ModuleNotFoundError as e:                       # CPU CI without torch: the module needs it to import
             self.skipTest(f"needs torch ({e})")
+        # Without a motion tokenizer the video path stays an honest notice —
+        # never a fabricated clip, never a slideshow.
         self.assertEqual(m.NO_VIDEO["type"], "notice")
-        self.assertFalse(hasattr(m, "_mp4"))
+        # With one, the model writes its own motion tokens and the clip is
+        # decoded frame by frame; that is the native path this module exposes.
+        self.assertTrue(hasattr(m, "_video_result"))
+        self.assertTrue(hasattr(m, "_mp4"))
 
 
 class Profile(unittest.TestCase):

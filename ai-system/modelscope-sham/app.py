@@ -325,7 +325,8 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         return _busy()
     try:
         res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                                serve._state["audio_tokenizer"], prompt, n)
+                                                serve._state["audio_tokenizer"], prompt, n,
+                                                motion_tokenizer=serve._state.get("motion_tokenizer"))
         return json.dumps(_vet(res), ensure_ascii=False)
     except Exception as exc:
         print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
