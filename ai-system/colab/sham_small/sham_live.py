@@ -604,8 +604,27 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
     model.train()
+    # Quantization-aware training in the LIVE trainer (owner's order, 2026-11-06): the checkpoint this
+    # session publishes must be trained THROUGH the compression it ships with, so the small model keeps
+    # its quality instead of losing it when compressed afterwards. quantize_ shares the Parameters, so
+    # the guard, the EMA and the saved state_dict are all unchanged. SHAM_QAT_BITS=0 turns it off.
+    _qat_bits = int(os.environ.get("SHAM_QAT_BITS", "4") or 0)
+    if _qat_bits and _qat_bits < 32:
+        import sham_qat
+        _wrapped = sham_qat.quantize_(model, bits=_qat_bits)
+        print(f"🔢 تدريب واعٍ بالتكميم (QAT): {_wrapped} طبقة بأوزان {_qat_bits}-بت من أول خطوة")
+    # Tool-call training in the LIVE trainer: its engine offers ~44 tools, but the live mix trained on
+    # none of them, so the served model could not emit a single call — the "components not connected to
+    # their correct paths" defect. SHAM_TOOLS_MIX (0..1, default 0.08) is the share; 0 turns it off.
+    _tools_share = 0.0
+    try:
+        _tools_share = min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.08"))))
+    except ValueError:
+        _tools_share = 0.08
+    if _tools_share > 0:
+        print(f"🛠️ أمثلة استدعاء الأدوات مدمجة في الخلطة بنسبة {_tools_share:.2f}")
     start_step, pending, losses = step, [], []
-    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general"]}
+    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general", "tools"]}
     last_log = last_save = last_pub = time.time()
     t_train = time.time()
 
@@ -670,6 +689,17 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             for _ in range(n_gen):
                 pool.append(general["example"](general["wins"][rng.randrange(general["n"])]))
                 kinds.append("general")
+        if _tools_share > 0:                                         # tool / code / ask calls in Sham's own layout (SHAM_TOOLS_MIX)
+            try:
+                import sham_tools_data as _tools
+                _tb = _tools.tool_batches(tokenizer.encode, rng, max(2, int(len(pending) * _tools_share / max(1e-6, 1 - _tools_share))), 4)
+            except Exception as exc:                                 # never let one data source stop the live session
+                print(f"⚠ تعذّر بناء أمثلة الأدوات هذه الدورة ({type(exc).__name__}: {exc})")
+                _tb = []
+            for _ids, _labels in _tb:
+                pool.append((_ids.tolist() if hasattr(_ids, "tolist") else list(_ids),
+                             _labels.tolist() if hasattr(_labels, "tolist") else list(_labels)))
+                kinds.append("tools")
         pending = []
         for k in kinds:
             trained_kind[k] += 1
