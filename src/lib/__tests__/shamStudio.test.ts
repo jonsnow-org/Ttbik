@@ -1,4 +1,4 @@
-import { parseShamReply, parseShamSse, readShamSse, shamBases, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable, shamVariant } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, readShamSse, readShamSseDeltas, shamBases, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateChatStream, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkPatient, shamThinkUnavailable, shamVariant } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("refuses inference without an explicit selected variant instead of choosing a default model", async () => {
@@ -74,6 +74,76 @@ describe("shamStudio", () => {
     expect(v?.route).toBe("video");
     delete process.env.MODELSCOPE_API_TOKEN;
     expect(await shamChatAuto("مرحبا")).toBeNull();
+  });
+});
+
+describe("shamStudio streamed chat", () => {
+  const encoder = new TextEncoder();
+  const sseBody = (pieces: string[]) => new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode("event: generating\n"));
+      for (const piece of pieces) controller.enqueue(encoder.encode(`data: [${JSON.stringify(piece)}]\n`));
+      controller.enqueue(encoder.encode("event: complete\ndata: null\n"));
+      controller.close();
+    },
+  });
+
+  it("hands each piece to onDelta as it arrives and keeps the spaces between words", async () => {
+    const response = { body: sseBody(["مرح", "با ", "بالعالم"]), text: async () => { throw new Error("must not wait for EOF"); } } as unknown as Response;
+    const seen: string[] = [];
+    await expect(readShamSseDeltas(response, (p) => seen.push(p))).resolves.toBe("مرحبا بالعالم");
+    expect(seen).toEqual(["مرح", "با ", "بالعالم"]);
+  });
+
+  it("falls back to one piece when the body cannot be streamed", async () => {
+    const response = { body: null, text: async () => 'event: complete\ndata: ["جواب كامل"]\n' } as unknown as Response;
+    const seen: string[] = [];
+    await expect(readShamSseDeltas(response, (p) => seen.push(p))).resolves.toBe("جواب كامل");
+    expect(seen).toEqual(["جواب كامل"]);
+  });
+
+  it("streams a v2 chat through generate_chat_stream", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    const stream = sseBody(["أهلاً ", "بك"]);
+    global.fetch = (async (url: string) => {
+      if (String(url).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      return { ok: true, status: 200, body: stream, text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: string[] = [];
+      const reply = await shamVariant.run("v2", () => shamGenerateChatStream([{ role: "user", content: "مرحبا" }], 64, 5000, (p) => seen.push(p)));
+      expect(reply).toMatchObject({ type: "text", text: "أهلاً بك" });
+      expect(seen).toEqual(["أهلاً ", "بك"]);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+  });
+
+  it("never streams a typed busy reply as text", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(encoder.encode('event: complete\ndata: [{"type":"busy","text":"مشغول"}]\n')); controller.close(); },
+    });
+    global.fetch = (async (url: string) => {
+      if (String(url).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      return { ok: true, status: 200, body: stream, text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: string[] = [];
+      const busy = await shamVariant.run("v2", () => shamGenerateChatStream([{ role: "user", content: "مرحبا" }], 64, 5000, (p) => seen.push(p)));
+      expect(busy?.type).toBe("busy");
+      expect(seen).toEqual([]);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
   });
 });
 

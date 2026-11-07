@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -62,6 +62,7 @@ export async function shamAgentRun(opts: {
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
   onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
+  onDelta?: (text: string) => void;         // each streamed piece of the direct-chat answer as the model writes it (live view)
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
@@ -149,7 +150,9 @@ export async function shamAgentRun(opts: {
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
     const directAsk = () => opts.ask
       ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+      : shamModeCtx.run(effMode, () => opts.onDelta
+        ? shamGenerateChatStream(chatMessages, maxNew, timeout, opts.onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
+        : shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
