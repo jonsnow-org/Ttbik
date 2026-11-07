@@ -148,10 +148,12 @@ export async function shamAgentRun(opts: {
       .slice(-12)
       .map((message) => ({ role: message.role, content: message.content }));
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
+    // Streaming is v2-only (its Studio has the endpoint); v1 has no stream, so it must still take the one-shot chat.
+    const stream = variant === "v2" ? opts.onDelta : undefined;
     const directAsk = () => opts.ask
       ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => opts.onDelta
-        ? shamGenerateChatStream(chatMessages, maxNew, timeout, opts.onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
+      : shamModeCtx.run(effMode, () => stream
+        ? shamGenerateChatStream(chatMessages, maxNew, timeout, stream, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
         : shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();

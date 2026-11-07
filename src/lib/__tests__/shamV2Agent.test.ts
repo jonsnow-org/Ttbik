@@ -110,6 +110,48 @@ describe("Sham v2 agent loop recovers from a tool error", () => {
   });
 });
 
+describe("streaming is v2-only: v1 chat still answers when onDelta is given", () => {
+  it("v1 never asks the v2-only stream endpoint; v2 does", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    const encoder = new TextEncoder();
+    const calls: string[] = [];
+    // The real endpoint yields decoded text pieces (the Gradio wrapper sends each as `data: ["piece"]`).
+    const stream = () => new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: generating\ndata: ["مرحبا"]\n'));
+        controller.enqueue(encoder.encode('data: [" بك"]\n'));
+        controller.enqueue(encoder.encode("event: complete\ndata: null\n"));
+        controller.close();
+      },
+    });
+    global.fetch = (async (url: string) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      return { ok: true, status: 200, body: stream(), text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: Record<string, string[]> = { v1: [], v2: [] };
+      for (const v of ["v1", "v2"] as const) {
+        calls.length = 0;
+        await shamVariant.run(v, () => shamAgentRun({
+          text: "مرحبا", ctx, tools, budgetMs: 30000, maxSteps: 1, onDelta: (t) => seen[v].push(t),
+        }));
+        expect(calls.some((u) => u.includes("generate_chat_stream"))).toBe(v === "v2");
+      }
+      // Only the streamed path hands pieces over as the model writes them.
+      expect(seen.v2.length).toBeGreaterThan(0);
+      expect(seen.v1).toEqual([]);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+  });
+});
+
 describe("the Sham v2 Studio exposes native chat and structured agent APIs", () => {
   const src = readFileSync(join(__dirname, "../../../scripts/transplant/stage_sham_v2_studio.py"), "utf8");
   const app = readFileSync(join(__dirname, "../../../ai-system/modelscope-sham/app.py"), "utf8");
