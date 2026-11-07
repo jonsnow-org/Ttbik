@@ -154,7 +154,7 @@ def decode_video_with_audio(image_tokenizer: ImageTokenizer, video_sequence: tor
     return frames, mels.view(batch, num_audio_segments, *mels.shape[1:])
 
 
-def encode_clip(image_tokenizer: ImageTokenizer, motion_tokenizer, frames: torch.Tensor, block: int = 8) -> torch.Tensor:
+def encode_clip(image_tokenizer: ImageTokenizer, motion_tokenizer, frames: torch.Tensor, block: int | None = None) -> torch.Tensor:
     """Native video encoding with real temporal content (motion_tokenizer.py).
 
     frames: (batch, num_frames, 3, H, W) in [-1, 1]. Returns a flat sequence of

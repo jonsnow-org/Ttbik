@@ -244,10 +244,34 @@ class MotionTokenizer(nn.Module):
         self.quantizer = FlowVectorQuantizer(cfg)
         self.synth = FrameSynthesis(channels=3, width=32)
 
+    def block_for(self, size: int) -> int:
+        """The block size whose block-matching grid is exactly cfg.grid at this
+        frame size. The flow grid and the codebook MUST agree: estimate_flow
+        returns (size // block)^2 vectors per frame, while the codebook and every
+        downstream .view(batch, grid, grid) use cfg.grid^2. At the real 256px
+        frames with cfg.grid=8 that is block=32; the old hard-coded block=8
+        produced 32x32=1024 vectors against a 64-vector codebook, so encode_clip
+        (3334 tokens) and decode_clip (454) disagreed and no motion tokenizer
+        could be trained or decoded — which is why video fell back to stitched
+        frames."""
+        return max(1, size // self.cfg.grid)
+
+    def flow_block(self, size: int, block: int | None) -> int:
+        """A block that matches cfg.grid at this frame size, correcting a
+        mismatching one instead of silently building a grid the codebook cannot
+        hold (the bug block_for documents)."""
+        want = self.block_for(size)
+        if block is None or size // block != self.cfg.grid:
+            if block is not None and block != want:
+                print(f"motion: block {block} gives a {size // block}x{size // block} flow grid but the "
+                      f"codebook is {self.cfg.grid}x{self.cfg.grid}; using block {want}")
+            return want
+        return block
+
     @torch.no_grad()
-    def encode_pair(self, prev: torch.Tensor, nxt: torch.Tensor, block: int) -> torch.Tensor:
+    def encode_pair(self, prev: torch.Tensor, nxt: torch.Tensor, block: int | None = None) -> torch.Tensor:
         """Real flow between two frames -> (batch, vectors_per_frame) codebook ids."""
-        flow = estimate_flow(prev, nxt, block)
+        flow = estimate_flow(prev, nxt, self.flow_block(prev.shape[-1], block))
         _, ids, _ = self.quantizer(flow)
         return ids.reshape(flow.shape[0], -1)
 
@@ -268,14 +292,14 @@ class MotionTokenizer(nn.Module):
         Returns the real next frame from the model's own motion tokens."""
         return self._warp_and_refine(prev, self.decode_flow(flow_ids))
 
-    def training_step(self, prev: torch.Tensor, nxt: torch.Tensor, block: int) -> torch.Tensor:
+    def training_step(self, prev: torch.Tensor, nxt: torch.Tensor, block: int | None = None) -> torch.Tensor:
         """One differentiable motion-VQ step: real flow -> quantise -> warp+refine
         -> reconstruction loss against the true next frame, plus the codebook's
         own VQ loss. This is what turns the motion codebook and the frame
         synthesiser into a professional generator (used by train_motion_tokenizer.py
         and the video track notebook), and it is the same shape of loss every
         real learned video codec trains on."""
-        flow = estimate_flow(prev, nxt, block)
+        flow = estimate_flow(prev, nxt, self.flow_block(prev.shape[-1], block))
         quantized, _, vq_loss = self.quantizer(flow)
         recon = self._warp_and_refine(prev, quantized)
         recon_loss = F.l1_loss(recon, nxt) + F.mse_loss(recon, nxt)

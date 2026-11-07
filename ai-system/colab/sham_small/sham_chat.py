@@ -144,6 +144,34 @@ def build_video_chat_examples(
     ]
 
 
+def build_motion_video_chat_examples(
+    text_ids_fn, caption: str, frame_ids: list[int], motion_ids: list[int], rng: random.Random,
+) -> list[tuple[list[int], list[int]]]:
+    """Video with REAL temporal content, in the exact layout sham_studio_media._video_result
+    generates and video_tokenizer.decode_clip expects:
+        <VIDEO_START> <IMAGE_START> [keyframe image tokens] <IMAGE_END>
+                      <MOTION_START> [flow tokens: (num_frames-1) x vectors_per_frame] <MOTION_END>
+        <VIDEO_END>
+    build_video_chat_examples above trains N independent keyframes and no motion at all, so a
+    checkpoint trained only on it can never answer the Studio's motion layout (the served video
+    came back as the honest NO_VIDEO notice, or as stitched stills). This builder is the missing
+    half: the keyframe and the motion tokens come from the SAME clip, so the model learns the
+    frame-to-frame motion the decoder actually plays back. The caption is read as the video's
+    description; the reverse direction asks for the video by its caption, exactly like the other
+    media builders, so the model learns to WRITE motion tokens on request."""
+    span = [SpecialTokens.VIDEO_START,
+            SpecialTokens.IMAGE_START, *frame_ids, SpecialTokens.IMAGE_END,
+            SpecialTokens.MOTION_START, *motion_ids, SpecialTokens.MOTION_END,
+            SpecialTokens.VIDEO_END]
+    cap = text_ids_fn(caption)
+    u_prefix = [SpecialTokens.BOS, USER_TURN] + span + text_ids_fn(rng.choice(DESCRIBE_VIDEO)) + [SHAM_TURN]
+    c_prefix = [SpecialTokens.BOS, USER_TURN] + text_ids_fn(rng.choice(MAKE_VIDEO).format(caption)) + [SHAM_TURN]
+    return [
+        (u_prefix + cap + [SpecialTokens.EOS], [IGNORE] * len(u_prefix) + cap + [SpecialTokens.EOS]),
+        (c_prefix + span + [SpecialTokens.EOS], [IGNORE] * len(c_prefix) + span + [SpecialTokens.EOS]),
+    ]
+
+
 def build_search_example(
     text_ids_fn, title: str, article: str, rng: random.Random, max_result_tokens: int = 160, max_answer_tokens: int = 96,
     date_line: str | None = None,

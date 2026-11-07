@@ -87,7 +87,7 @@ def train_motion_tokenizer(
     nxt: torch.Tensor,
     num_epochs: int,
     batch_size: int,
-    block: int,
+    block: int | None = None,
     lr: float = 2e-3,
     device: str | None = None,
     log_every: int = 10,
@@ -102,6 +102,10 @@ def train_motion_tokenizer(
         device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer.to(device)
     prev, nxt = prev.to(device), nxt.to(device)
+    # Keep the block-matching grid equal to the codebook grid (see
+    # MotionTokenizer.block_for): a mismatch silently trains the codebook on a
+    # different grid than decode_clip reads back.
+    block = tokenizer.flow_block(prev.shape[-1], block)
     optimizer = torch.optim.AdamW(tokenizer.parameters(), lr=lr)
 
     num_samples = prev.shape[0]
