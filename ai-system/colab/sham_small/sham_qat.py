@@ -28,8 +28,10 @@ otherwise the whole idea is not worth the owner's GPU hours and this file
 says so instead of pretending.
 
 Scope, stated honestly: this file proves the mechanism and measures it on a
-tiny CPU model. Wiring it into the real from-scratch pretraining run (a flag
-on train.py) is the next step; the module itself is complete and tested.
+tiny CPU model. It IS wired into the real from-scratch training: `TrainConfig.quant_bits`
+(train.py) wraps the model through `quantize_` before the run, and every training
+notebook sets `quant_bits=int(os.environ.get("SHAM_QAT_BITS", "4"))` (SHAM_QAT_BITS=0
+turns it off), so the shipped model is trained 4-bit-aware from the start.
 """
 
 from __future__ import annotations
@@ -256,6 +258,7 @@ if __name__ == "__main__":
 
     # 4) The real claim, measured on held-out data at both widths: QAT beats
     #    post-training quantization, and the compressed weights really are smaller.
+    qat4 = None
     for bits in (4, 8):
         cmp = compare_ptq_vs_qat(bits=bits, steps=200)
         gain = (cmp.ptq_loss - cmp.qat_loss) / cmp.ptq_loss * 100
@@ -264,8 +267,10 @@ if __name__ == "__main__":
         assert cmp.qat_helps, (
             f"QAT ({cmp.qat_loss:.4f}) did not beat PTQ ({cmp.ptq_loss:.4f}) at {bits}-bit — training on compressed "
             f"data would not be worth the GPU hours, and this file refuses to claim it is")
+        if bits == 4:
+            qat4 = cmp
 
-    cmp = compare_ptq_vs_qat(bits=4, steps=200)
+    cmp = qat4                                                                      # reuse the 4-bit run for the memory report (~2.5 min saved)
     print(f"\ncompressed weight memory: {cmp.fp32_bytes / 1024:.0f} KiB fp32 -> {cmp.int8_bytes / 1024:.0f} KiB "
           f"4-bit ({cmp.fp32_bytes / max(1, cmp.int8_bytes):.1f}x smaller)")
     assert cmp.int8_bytes < cmp.fp32_bytes

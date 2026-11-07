@@ -8,7 +8,7 @@ use them through Nova's engine (src/lib/shamTools.ts). Same idea and masking as 
 No new special tokens (the live model's vocabulary is fixed): the call is plain text, written exactly as shamTools.ts reads it. Two sources:
   examples_from_lessons(): the owner's Nova lessons (coder_lessons export, JSON Lines) of ANY kind — real tool use by a bigger model, secrets already dropped there;
   synthetic_examples():    short, correct calls for each tool family (so every tool is seen even before enough lessons exist).
-Share of these in a training mix: SHAM_TOOLS_MIX (0..1, default 0 = off until the owner turns it on). Nothing here runs at inference as an answer rule.
+Share of these in a training mix: SHAM_TOOLS_MIX (0..1, default 0.08 = a small share, ON). Until 2026-11-06 the default was 0 and this whole path was wired into v2 only, so v1's chat stage trained on no call at all while its engine offered ~40 tools — the owner's "components not connected to their correct paths" defect. SHAM_TOOLS_MIX=0 turns it off. Nothing here runs at inference as an answer rule.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ IGNORE = -100
 
 def mix_share() -> float:
     try:
-        return min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0"))))
+        return min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.08"))))
     except ValueError:
         return 0.0
 
@@ -90,8 +90,8 @@ CATALOG = [
     ("أعطني نظرة سريعة على المستودع {repo}.", "github_repo_scan", {"repo": "{repo}"}, "default branch main\nfolders: src, docs\nroot files: package.json, README.md", "المستودع فرعه الرئيسي main، وفيه مجلدا src وdocs وملف package.json."),
     ("ما الملفات الموجودة في {repo}؟", "github_list_files", {"repo": "{repo}"}, "12 files\nREADME.md\nsrc/app.ts", "فيه 12 ملفاً، منها README.md وsrc/app.ts."),
     ("ابحث في {repo} عن الدالة login.", "github_search_code", {"repo": "{repo}", "query": "login"}, "src/auth.ts\nsrc/routes.ts", "وجدت login في src/auth.ts وsrc/routes.ts."),
-    ("شغّل الاختبارات في المستودع {repo}.", "sandbox_clone", {"repo": "{repo}"}, "cloned to /work/repo", None),
-    ("اعرض محتوى المجلد الحالي في الجهاز.", "sandbox_exec", {"command": "ls"}, "app.py\nREADME.md\ntests", "في المجلد app.py وREADME.md ومجلد tests."),
+    ("شغّل الاختبارات في المستودع {repo}.", "computer_repo", {"url": "https://github.com/{repo}"}, "cloned into repos/{repo}", None),
+    ("اعرض محتوى المجلد الحالي في الجهاز.", "computer_run", {"command": "ls"}, "app.py\nREADME.md\ntests", "في المجلد app.py وREADME.md ومجلد tests."),
     ("ابحث عن آخر إصدار من Python.", "web_search", {"query": "latest Python release"}, "Python 3.14 released ...", "آخر إصدار وجدته هو Python 3.14."),
     ("اقرأ هذه الصفحة: {url}", "fetch_page", {"url": "{url}"}, "Example Domain. This domain is for use in examples.", "الصفحة مخصصة لأمثلة التوثيق."),
     ("تذكّر أنني أفضّل الردود القصيرة.", "memory_save", {"text": "المستخدم يفضّل الردود القصيرة"}, "saved", "حفظتُ ذلك، سأجعل ردودي قصيرة."),
@@ -129,7 +129,10 @@ CATALOG = [
     ("أظهر لي شاشة سطح المكتب الخاص بك.", "desktop", {"action": "frame"}, "screenshot: 1344x840", "هذه صورة شاشتك الحالية؛ سأصف ما فيها."),
     ("شغّل المتصفح على سطح مكتبك وافتح ttbik.vercel.app.", "desktop", {"action": "launch", "app": "browser", "url": "https://ttbik.vercel.app"}, "browser launched on the desktop", "شغّلت المتصفح على سطح المكتب وفتحت الموقع."),
 ]
-# the whole fix flow, as Nova does it: copy the project to the computer, run its tests, edit, test again, SEND the changes back (sandbox_push: what is edited in the computer exists only there), then the pull request INTO the branch the user named
+# the whole fix flow, as Nova does it: clone the repository into the PERSISTENT computer (computer_repo), run its tests,
+# edit in place (computer_edit), test again, PUBLISH the commit from that checkout (computer_publish — nothing is sent
+# until the user confirms), then the pull request INTO the branch the user named. The temporary sandbox_* tools are NOT
+# the normal path (their own descriptions say so), so training a fix flow on them taught a workflow the engine rejects.
 FLOW_REQUESTS = [
     "اذهب إلى المستودع {repo} على الفرع {base}، شغّل الاختبارات وأصلح الأخطاء وافتح طلب دمج إلى {base}.",
     "أصلح الأخطاء في {repo} (الفرع {base}) وادفع الإصلاح في فرع جديد ثم افتح PR إلى {base}.",
@@ -140,15 +143,16 @@ BRANCHES = ["dev", "test/mini", "staging"]
 def fix_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     repo, base = rng.choice(REPOS), rng.choice(BRANCHES)
     fix = rng.choice(["fix/cart-bugs", "fix/tests", "fix/errors"])
+    d = f"repos/{repo.replace('/', '-')}"
     steps = [
-        ("sandbox_clone", {"repo": repo, "branch": base}, "cloned into /work/repo"),
-        ("sandbox_exec", {"command": "cd repo && python3 -m pytest -q"}, "exit code 1\nFAILED test_cart.py::test_discount - assert 190.0 == 180"),
-        ("sandbox_edit_file", {"path": "repo/cart.py", "old": "percent / 10", "new": "percent / 100"}, "edited /work/repo/cart.py (1 replacement)"),
-        ("sandbox_exec", {"command": "cd repo && python3 -m pytest -q"}, "exit code 0\n5 passed"),
-        ("sandbox_push", {"repo": repo, "branch": fix, "message": "fix the discount"}, f"commit abc fix the discount\n cart.py | 2 +-\nPUSHED to {repo} branch {fix}"),
+        ("computer_repo", {"url": f"https://github.com/{repo}", "ref": base}, f"cloned {repo}@{base} into {d}"),
+        ("computer_run", {"command": "python3 -m pytest -q", "cwd": d}, "exit code 1\nFAILED test_cart.py::test_discount - assert 190.0 == 180"),
+        ("computer_edit", {"path": f"{d}/cart.py", "old": "percent / 10", "new": "percent / 100"}, f"edited {d}/cart.py (1 replacement)"),
+        ("computer_run", {"command": "python3 -m pytest -q", "cwd": d}, "exit code 0\n5 passed"),
+        ("computer_publish", {"repo": repo, "branch": fix, "message": "fix the discount", "dir": d}, f"commit abc fix the discount\n cart.py | 2 +-\nPUSHED to {repo} branch {fix}"),
         ("github_create_pr", {"repo": repo, "head": fix, "base": base, "title": "Fix the discount"}, f"PR #7 https://github.com/{repo}/pull/7 ({fix} → {base}; 1 files changed, +1 -1)"),
     ]
-    ans = f"أصلحت الخطأ في الحاسوب ونجحت الاختبارات الخمسة، ثم دفعت التعديل إلى الفرع {fix} وفتحت الطلب #7 من {fix} إلى {base}."
+    ans = f"أصلحت الخطأ في الحاسوب ونجحت الاختبارات الخمسة، ثم نشرتُ التعديل من الحاسوب إلى الفرع {fix} وفتحت الطلب #7 من {fix} إلى {base}."
     return rng.choice(FLOW_REQUESTS).format(repo=repo, base=base), steps, ans
 
 
@@ -193,10 +197,10 @@ def code_run_spec(rng: random.Random) -> tuple[str, list, str]:
     mod = path[:-3]
     run = f"python3 -c \"from {mod} import *; {check}\""
     steps = [
-        ("sandbox_write_file", {"path": path, "content": bad}, f"wrote {path}"),
-        ("sandbox_exec", {"command": run}, "exit code 1\nAssertionError"),
-        ("sandbox_edit_file", {"path": path, "old": old, "new": new}, f"edited {path} (1 replacement)"),
-        ("sandbox_exec", {"command": run}, "exit code 0"),
+        ("computer_write", {"path": path, "content": bad}, f"wrote {path}"),
+        ("computer_run", {"command": run}, "exit code 1\nAssertionError"),
+        ("computer_edit", {"path": path, "old": old, "new": new}, f"edited {path} (1 replacement)"),
+        ("computer_run", {"command": run}, "exit code 0"),
     ]
     return req, steps, ans
 
@@ -242,12 +246,36 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
         fill = lambda v: fill_template(v, sub)                                      # noqa: E731
         args = {k: fill(v) for k, v in args.items()}
         if ans is None:                                                       # a two-step example: clone, then run
-            steps = [(name, args, res), ("sandbox_exec", {"command": "npm test"}, "Tests: 12 passed")]
+            steps = [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")]
             ans = "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
         else:
             steps = [(name, args, res)]
         out.append(build_tool_example(text_ids_fn, fill(req), steps, ans, **kw))
     return out
+
+
+def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_len: int = 1100) -> list:
+    """Padded (ids, labels) batches of tool / code / ask examples in Sham's OWN dialogue layout.
+
+    Owner's order (2026-11-06): Sham v1's engine offers ~40 tools, but its chat stage trained on
+    no call at all — this module's `mix_share` and the Qwen3 builder were wired only into v2, so the
+    "components not connected to their correct paths" defect applied to v1 too. This is the v1 entry
+    point: SHAM_TOOLS_MIX (0..1, default 0 = off) decides the share; lessons from the owner's Nova
+    runs (SHAM_LESSONS_PATH) are used first when present, then synthetic cases. Returns [] when off,
+    so a notebook that calls it unconditionally changes nothing until the share is set."""
+    from sham_chat import batch_examples
+    share = mix_share()
+    if share <= 0 or n <= 0:
+        return []
+    lessons: list = []
+    path = os.environ.get("SHAM_LESSONS_PATH")
+    if path:
+        lessons = examples_from_lessons(path, text_ids_fn, limit=max(1, n // 4))
+    synth = synthetic_examples(text_ids_fn, rng, max(1, n - len(lessons)))
+    ex = lessons + synth
+    if max_len:
+        ex = [e for e in ex if len(e[0]) <= max_len] or ex[:batch_size]
+    return batch_examples(ex[:n], batch_size)
 
 
 def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
@@ -256,7 +284,7 @@ def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
     fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
     args = {k: fill(v) for k, v in args.items()}
     if ans is None:
-        return fill(req), [(name, args, res), ("sandbox_exec", {"command": "npm test"}, "Tests: 12 passed")], "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
+        return fill(req), [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")], "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
     return fill(req), [(name, args, res)], ans
 
 
@@ -424,7 +452,7 @@ if __name__ == "__main__":
         ids2, lab2 = mk(fake, random.Random(3))
         assert len(ids2) == len(lab2) and any(l != IGNORE for l in lab2) and ids2[-1] == SpecialTokens.EOS
     assert any(l != IGNORE for l in flow[1]) and len(flow[0]) == len(flow[1])
-    assert any(fake(tool_call_text("sandbox_push", {"repo": r, "branch": b, "message": "fix the discount"}))[0] for r in REPOS for b in ["fix/tests"])
+    assert any(fake(tool_call_text("computer_publish", {"repo": r, "branch": b, "message": "fix the discount"}))[0] for r in REPOS for b in ["fix/tests"])
     for ids, labels in ex:
         assert len(ids) == len(labels) and ids[-1] == SpecialTokens.EOS and labels[-1] == SpecialTokens.EOS
         assert labels[0] == IGNORE and any(l != IGNORE for l in labels)
@@ -448,6 +476,17 @@ if __name__ == "__main__":
     # The fake tokenizer is one id per character, while the real one is ~3 chars per id, so a real
     # 1100-token window is a ~3300-character window here. Passing the token budget straight through
     # made every case too big to fit and the builder produced nothing.
+    # v1 entry point (owner's order 2026-11-06): ON by default (a small share) and returns real masked
+    # batches in Sham's own dialogue layout so the chat stage can train tools; SHAM_TOOLS_MIX=0 turns it off.
+    os.environ.pop("SHAM_TOOLS_MIX", None)
+    tb = tool_batches(fake, random.Random(7), 8, 4)
+    assert tb and all(a.shape == b.shape and (b != IGNORE).any() for a, b in tb), tb
+    assert 1 <= sum(a.shape[0] for a, b in tb) <= 8
+    os.environ["SHAM_TOOLS_MIX"] = "0"
+    try:
+        assert tool_batches(fake, random.Random(7), 8, 4) == [], "SHAM_TOOLS_MIX=0 must turn tool training off"
+    finally:
+        os.environ.pop("SHAM_TOOLS_MIX", None)
     qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS", max_len=4000)
     assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
     assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
