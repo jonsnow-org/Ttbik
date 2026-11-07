@@ -94,7 +94,7 @@ def experiment_a(n_facts: int = 40000, steps: int = 3000, seed: int = 0) -> None
 def experiment_b(n_train: int = 3000, n_test: int = 1000, steps: int = 4000, seed: int = 0) -> None:
     torch.manual_seed(seed)
     rnd = random.Random(seed)
-    NAMES, VALS = 60, 1000
+    NAMES, VALS = 80, 1000
     A0, V0 = NAMES * 2, NAMES * 2 + 4                 # attribute tags, then value ids
     SEP, QM, DOC = V0 + VALS, V0 + VALS + 1, V0 + VALS + 2
     vocab = DOC + 2
