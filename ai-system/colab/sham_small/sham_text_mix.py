@@ -3,6 +3,12 @@ Sham's general text mixture ("مزيج النص العام") — one text source
 is NOT specialised in anything: many languages, code, mathematics, science and
 school-level explanations, all streamed free from open sets (no sign-in).
 
+Multimodal and multi-direction on purpose (owner's order 2026-11-06: "code and every
+language, not one direction"): 20+ human languages, Python AND a broad multi-language
+code sample (`bigcode/the-stack-smol-xl`, 80+ languages, permissively licensed) plus
+instruction-style code, mathematics (web + textbook grade) and school science. The
+language and code weights are shares of documents, so no single direction dominates.
+
 Why it replaces "20,000 Arabic Wikipedia articles per session":
   • Arabic Wikipedia is ~0.6B tokens in total and its articles shrink with position,
     so later sessions re-read the same few thousand short articles dozens of times;
@@ -60,9 +66,28 @@ SOURCES = [
     ("id", "HuggingFaceFW/fineweb-2", "ind_Latn", "text", 2, 6000),
     ("ko", "HuggingFaceFW/fineweb-2", "kor_Hang", "text", 2, 3000),
     ("sw", "HuggingFaceFW/fineweb-2", "swh_Latn", "text", 1, 6000),
+    # 2026-11-06 (owner: every language, not one direction): ten more widely-spoken languages from the
+    # same ODC-BY fineweb-2 sample, so the vocabulary and the model see more than the twenty above.
+    ("it", "HuggingFaceFW/fineweb-2", "ita_Latn", "text", 2, 6000),
+    ("nl", "HuggingFaceFW/fineweb-2", "nld_Latn", "text", 2, 6000),
+    ("pl", "HuggingFaceFW/fineweb-2", "pol_Latn", "text", 2, 6000),
+    ("vi", "HuggingFaceFW/fineweb-2", "vie_Latn", "text", 2, 6000),
+    ("uk", "HuggingFaceFW/fineweb-2", "ukr_Cyrl", "text", 1, 6000),
+    ("cs", "HuggingFaceFW/fineweb-2", "ces_Latn", "text", 1, 6000),
+    ("sv", "HuggingFaceFW/fineweb-2", "swe_Latn", "text", 1, 6000),
+    ("he", "HuggingFaceFW/fineweb-2", "heb_Hebr", "text", 1, 4000),
+    ("el", "HuggingFaceFW/fineweb-2", "ell_Grek", "text", 1, 6000),
+    ("th", "HuggingFaceFW/fineweb-2", "tha_Thai", "text", 1, 4000),
     ("math-web", "open-web-math/open-web-math", None, "text", 6, 8000),
     ("math-edu", "HuggingFaceTB/finemath", "finemath-3plus", "text", 4, 8000),
     ("code", "codeparrot/codeparrot-clean", None, "content", 8, 8000),
+    # 2026-11-06 (owner: code and every language, not one direction): the Python-only "code"
+    # source above made the vocabulary pay a token tax on every other language. the-stack-smol-xl
+    # is BigCode's permissively-licensed, 80+ language sample (one directory per language,
+    # `content` field) and Magicoder is multi-language instruction-style code. Both verified
+    # reachable and gated:false/auto on the Hub 2026-11-06.
+    ("code-multi", "bigcode/the-stack-smol-xl", None, "content", 6, 8000),
+    ("code-instruct", "ise-uiuc/Magicoder-OSS-Instruct-75K", None, "solution", 3, 8000),
     ("school-science", "HuggingFaceTB/cosmopedia", "khanacademy", "text", 3, 6000),
     ("school-math", "HuggingFaceTB/cosmopedia", "auto_math_text", "text", 3, 6000),
     # 2026-10-12 (owner: code and all human knowledge, not one language): programming questions and answers, practical how-to knowledge
@@ -73,7 +98,10 @@ SOURCES = [
 # The merge gate's text yardstick is a fixed sample of THIS list (sham_ci_merge / sham_reasoning_probe pass it explicitly): sources added
 # for training below never move the yardstick again. (2026-10-14 finding: the 2026-10-12 additions above changed the gate sample, so
 # the published model's "text" loss jumped 3.29 → 4.08 at the SAME step 61,555 — the measure moved, not the model.)
-GATE_SOURCES = list(SOURCES)
+# 2026-11-06: frozen BEFORE the multi-language code + extra-language sources were added, so adding
+# breadth does not move the yardstick either. Anything added below is excluded from the gate sample.
+_ADDED_2026_11_06 = {"code-multi", "code-instruct", "it", "nl", "pl", "vi", "uk", "cs", "sv", "he", "el", "th"}
+GATE_SOURCES = [s for s in SOURCES if s[0] not in _ADDED_2026_11_06]
 
 # 2026-10-14 — more Arabic for training (owner: as much of the Arabic internet as possible), streamed like the rest, never downloaded
 # whole, and only sources no notebook, registry or crawler used before (Wikipedia, Wikisource/Wikinews via sham_spider, news, Aya are

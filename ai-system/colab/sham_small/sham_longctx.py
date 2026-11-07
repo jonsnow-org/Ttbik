@@ -40,7 +40,7 @@ def extend_context_ntk(model, new_len: int) -> float:
     old_len = model.cfg.max_seq_len
     if new_len <= old_len:
         return model.cfg.rope_theta
-    head_dim = model.cfg.d_model // model.cfg.n_heads
+    head_dim = model.cfg.hd
     scale = new_len / old_len
     model.cfg.rope_theta = model.cfg.rope_theta * scale ** (head_dim / (head_dim - 2))
     model.resize_max_seq_len(new_len)

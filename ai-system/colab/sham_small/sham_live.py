@@ -71,6 +71,7 @@ LR, MIN_LR_RATIO, WARMUP = 5e-5, 0.1, 200
 EMA_DECAY = 0.999
 SAVE_EVERY_GPU, SAVE_EVERY_CPU = 20 * 60, 60 * 60   # a check = two held-out evaluations: rarer on a slow CPU
 VIDEO_KEYFRAMES = 2
+VIDEO_MOTION_FRAMES = 8   # frames per clip when the motion tokenizer is present: 1 keyframe + 7 motion blocks = 710 tokens, inside max_len
 SAMPLE_RATE = 16000
 
 
@@ -248,8 +249,9 @@ def video_frames(data: bytes, k: int):
 class Encoder:
     """Item → list of (ids, labels) in the exact layouts the other stages use."""
 
-    def __init__(self, tokenizer, image_tok, audio_tok, max_len: int, device: str):
+    def __init__(self, tokenizer, image_tok, audio_tok, max_len: int, device: str, motion_tok=None):
         self.tok, self.img, self.aud = tokenizer, image_tok, audio_tok
+        self.motion = motion_tok
         self.max_len, self.device = max_len, device
         self.lock = threading.Lock()  # tokenizers run on one device; keep their calls serial
 
@@ -304,8 +306,15 @@ class Encoder:
             if len(lines) >= 2 and len(lines[0]) <= 100 and not lines[0].rstrip().endswith((".", "؟", "!", "…", ":")) \
                     and r2.random() < float(sham_auto_config.get("search_share", 0.08)):
                 day = datetime.date(2024, 1, 1) + datetime.timedelta(days=r2.randrange(0, 365 * 5))
-                ex = build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2,
-                                          date_line=date_context_line(day) if r2.random() < 0.5 else None)
+                dl = date_context_line(day) if r2.random() < 0.5 else None
+                ex = None
+                try:      # what Nova's runs taught (sham_agent_data): short topic queries, honest "not found", a second try — a share of the same examples
+                    import sham_agent_data
+                    if r2.random() < sham_agent_data.mix_share():
+                        ex = sham_agent_data.build_agent_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2, date_line=dl)
+                except Exception:
+                    ex = None
+                ex = ex or build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2, date_line=dl)
                 if ex:
                     out.append(ex)
             if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
@@ -332,12 +341,14 @@ class Encoder:
                 rec = json.loads(item.data)
                 from PIL import Image
                 frames = [Image.open(io.BytesIO(bytes.fromhex(f))) for f in rec["frames"]]
-                idx = [round(i * (len(frames) - 1) / max(VIDEO_KEYFRAMES - 1, 1)) for i in range(VIDEO_KEYFRAMES)]
+                k = VIDEO_MOTION_FRAMES if self.motion is not None else VIDEO_KEYFRAMES
+                idx = [round(i * (len(frames) - 1) / max(k - 1, 1)) for i in range(k)]
                 frames = [frames[i] for i in idx]
                 sound = decode_audio(bytes.fromhex(rec["wav"]), 3.0) if rec.get("wav") else None
             else:
-                frames, sound = video_frames(item.data, VIDEO_KEYFRAMES)
-            if len(frames) < VIDEO_KEYFRAMES:
+                k = VIDEO_MOTION_FRAMES if self.motion is not None else VIDEO_KEYFRAMES
+                frames, sound = video_frames(item.data, k)
+            if len(frames) < 2:
                 return []
             size = self.img.cfg.image_size
             buf = []
@@ -345,8 +356,23 @@ class Encoder:
                 b = io.BytesIO()
                 fr.convert("RGB").save(b, format="PNG")
                 buf.append(_image_tensor(b.getvalue(), size))
-            frame_ids = self._img_ids(torch.stack(buf))
+            stack = torch.stack(buf)
+            # Motion layout (what the Studio's _video_result generates and decode_clip plays back):
+            # keyframe image tokens + the real flow tokens between consecutive frames. Without the
+            # motion tokenizer, keep the older independent-keyframe layout so nothing else changes.
+            if self.motion is not None:
+                from model import motion_token_id_to_vocab_id, image_token_id_to_vocab_id
+                with self.lock, torch.no_grad():
+                    key = self.img.encode(stack[:1].to(self.device)).cpu()
+                    flow = self.motion.encode_pair(stack[:-1].to(self.device), stack[1:].to(self.device), None).cpu()
+                key_ids = image_token_id_to_vocab_id(key.view(-1)).tolist()
+                motion_ids = motion_token_id_to_vocab_id(flow.view(-1)).tolist()
+                from sham_chat import build_motion_video_chat_examples
+                return [ex for ex in build_motion_video_chat_examples(self.tok.encode, caption, key_ids, motion_ids, rng)
+                        if len(ex[0]) <= self.max_len]
+            frame_ids = self._img_ids(stack)
             audio_ids = self._aud_ids(sound) if sound is not None else None
+            from sham_chat import build_video_chat_examples
             return [ex for ex in build_video_chat_examples(self.tok.encode, caption, frame_ids, audio_ids, rng)
                     if len(ex[0]) <= self.max_len]
         return []
@@ -452,6 +478,25 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     save_img(out / "image_tokenizer.pt", img_tok.cpu(), step=img_step)
     save_aud(out / "audio_tokenizer.pt", aud_tok.cpu(), step=aud_step)
     img_tok, aud_tok = img_tok.to(device), aud_tok.to(device)
+    # Motion tokenizer for real temporal video (video_tokenizer.encode_clip). The served Studio
+    # already loads it from next to the checkpoint; the trainer needs the SAME one so the motion
+    # rows it learns match the decoder that plays them back. Carried through the checkpoint like
+    # the image/audio tokenizers; absent → video keeps training in the old 2-keyframe layout.
+    motion_tok = None
+    try:
+        from sham_inputs import rglob_inputs
+        from motion_tokenizer import load_motion_tokenizer
+        _cands = sorted(rglob_inputs("motion_tokenizer.pt")) or sorted(ckpt_dir.rglob("motion_tokenizer.pt"))
+        if _cands:
+            motion_tok = load_motion_tokenizer(_cands[-1]).to(device).eval()
+            from motion_tokenizer import save_motion_tokenizer
+            save_motion_tokenizer(out / "motion_tokenizer.pt", motion_tok.cpu())
+            motion_tok = motion_tok.to(device)
+            print(f"🎞️ مُرمِّز الحركة مُحمَّل من {_cands[-1].name} — فيديو زمني حقيقي")
+        else:
+            print("ℹ لا يوجد motion_tokenizer.pt — يبقى الفيديو بمخطط الإطارين (شغّل مسار مُرمِّز الفيديو لنشره)")
+    except Exception as exc:
+        print(f"⚠ تعذّر تحميل مُرمِّز الحركة ({type(exc).__name__}: {str(exc)[:100]}) — يبقى الفيديو بمخطط الإطارين")
 
     seen_path = next(iter(ckpt_dir.rglob("crawl_seen.json")), None)
     seen = Seen.load(seen_path) if seen_path else Seen()
@@ -475,7 +520,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     spider = Spider(_sources,
                     seen, raw_q, TARGETS if video else {k: v for k, v in TARGETS.items() if k != "video"},
                     workers=workers, seed=step).start()
-    encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device)
+    encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device, motion_tok)
     stop = threading.Event()
     counts = {"encoded": 0, "failed": 0}
     corpus_dir = WORK / "crawl_corpus" / "text"
@@ -597,8 +642,29 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
     model.train()
+    # Quantization-aware training in the LIVE trainer (owner's order, 2026-11-06): the checkpoint this
+    # session publishes must be trained THROUGH the compression it ships with, so the small model keeps
+    # its quality instead of losing it when compressed afterwards. quantize_ shares the Parameters, so
+    # the guard, the EMA and the saved state_dict are all unchanged. SHAM_QAT_BITS=4 turns it ON.
+    # DEFAULT OFF since 2026-11-07: measured on a real small trained model (sham_quant_recipes.py --lab) 4-bit costs +8..12% loss even with the best
+    # post-training recipe, QAT from the first step was never measured at full scale, and nothing serves 4-bit yet. Serve int8 (near-lossless) instead.
+    _qat_bits = int(os.environ.get("SHAM_QAT_BITS", "0") or 0)
+    if _qat_bits and _qat_bits < 32:
+        import sham_qat
+        _wrapped = sham_qat.quantize_(model, bits=_qat_bits)
+        print(f"🔢 تدريب واعٍ بالتكميم (QAT): {_wrapped} طبقة بأوزان {_qat_bits}-بت من أول خطوة")
+    # Tool-call training in the LIVE trainer: its engine offers ~44 tools, but the live mix trained on
+    # none of them, so the served model could not emit a single call — the "components not connected to
+    # their correct paths" defect. SHAM_TOOLS_MIX (0..1, default 0.08) is the share; 0 turns it off.
+    _tools_share = 0.0
+    try:
+        _tools_share = min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.08"))))
+    except ValueError:
+        _tools_share = 0.08
+    if _tools_share > 0:
+        print(f"🛠️ أمثلة استدعاء الأدوات مدمجة في الخلطة بنسبة {_tools_share:.2f}")
     start_step, pending, losses = step, [], []
-    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general"]}
+    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general", "tools"]}
     last_log = last_save = last_pub = time.time()
     t_train = time.time()
 
@@ -628,6 +694,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         shutil.rmtree(snap, ignore_errors=True)
         snap.mkdir(parents=True)
         for f in ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt",
+                  "motion_tokenizer.pt",
                   "crawl_progress.json", "crawl_seen.json", "crawl_urls.json", "rehearsal_cache.json"):
             if (out / f).exists():
                 shutil.copy2(out / f, snap / f)
@@ -663,6 +730,17 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             for _ in range(n_gen):
                 pool.append(general["example"](general["wins"][rng.randrange(general["n"])]))
                 kinds.append("general")
+        if _tools_share > 0:                                         # tool / code / ask calls in Sham's own layout (SHAM_TOOLS_MIX)
+            try:
+                import sham_tools_data as _tools
+                _tb = _tools.tool_batches(tokenizer.encode, rng, max(2, int(len(pending) * _tools_share / max(1e-6, 1 - _tools_share))), 4)
+            except Exception as exc:                                 # never let one data source stop the live session
+                print(f"⚠ تعذّر بناء أمثلة الأدوات هذه الدورة ({type(exc).__name__}: {exc})")
+                _tb = []
+            for _ids, _labels in _tb:
+                pool.append((_ids.tolist() if hasattr(_ids, "tolist") else list(_ids),
+                             _labels.tolist() if hasattr(_labels, "tolist") else list(_labels)))
+                kinds.append("tools")
         pending = []
         for k in kinds:
             trained_kind[k] += 1

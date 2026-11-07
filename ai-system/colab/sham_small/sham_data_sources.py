@@ -480,7 +480,7 @@ def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledg
             tmp.flush()
             from imageio_ffmpeg import get_ffmpeg_exe
             subprocess.run([get_ffmpeg_exe(), "-y", "-i", tmp.name, "-vf", f"fps=2,scale={image_size}:{image_size}",
-                            "-vsync", "vfr", "-frames:v", str(num_frames), str(frame_dir / "f%02d.jpg")],
+                            "-fps_mode", "vfr", "-frames:v", str(num_frames), str(frame_dir / "f%02d.jpg")],
                            capture_output=True, timeout=60, check=True)
             # The clip's own sound over exactly the span the frames cover (fps=2 ->
             # num_frames/2 s), so Sham learns video with its audio, not silent frames.

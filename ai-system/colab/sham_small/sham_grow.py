@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def layer_params(cfg) -> int:
-    hd = cfg.d_model // cfg.n_heads
+    hd = cfg.hd
     attn = cfg.d_model * (cfg.n_heads * hd) * 2 + cfg.d_model * (cfg.n_kv_heads * hd) * 2
     return attn + 3 * cfg.d_model * cfg.mlp_hidden + 2 * cfg.d_model
 
