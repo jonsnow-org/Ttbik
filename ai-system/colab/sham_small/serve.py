@@ -472,6 +472,9 @@ from ask_web_api import register_ask_web
 register_ask_web(app, _state)
 
 if __name__ == "__main__":
+    # sham-ci: entrypoint — this starts the real HTTP service (needs uvicorn, a
+    # Studio-only dependency), it is not a self-test. The PR checker skips it;
+    # verify_serve.py is the real end-to-end check.
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

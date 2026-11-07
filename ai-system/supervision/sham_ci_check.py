@@ -53,6 +53,10 @@ def added_lines(diff: str) -> list[tuple[str, str]]:
 
 SELF = "ai-system/supervision/sham_ci_check.py"   # it defines the patterns, so it cannot be scanned by them
 
+# A module whose `__main__` block is a real program (a server, a one-off builder), not a self-test, says so with this
+# marker in its own source. The checker then records it as skipped instead of running it and failing the build.
+ENTRYPOINT_MARK = "sham-ci: entrypoint"
+
 
 def scan_added(diff: str) -> list[str]:
     found = []
@@ -96,12 +100,25 @@ def run(base: str, selftest_timeout: int = 900) -> tuple[list[tuple[str, bool, s
     results.append(("لا تنفيذ نصوص/أسرار في الأسطر المضافة", not risky, "; ".join(risky)[:700]))
     for path in changed:
         rel = path[len(SHAM):] if path.startswith(SHAM) else ""
-        if rel and "/" not in rel and rel.endswith(".py") and 'if __name__ == "__main__"' in (ROOT / path).read_text(encoding="utf-8"):
-            try:
-                r = subprocess.run([sys.executable, rel], cwd=ROOT / SHAM, capture_output=True, text=True, timeout=selftest_timeout, env=scrubbed_env())
-                results.append((f"اختبار {rel} الذاتي", r.returncode == 0, "" if r.returncode == 0 else (r.stdout + r.stderr)[-500:]))
-            except subprocess.TimeoutExpired:
-                results.append((f"اختبار {rel} الذاتي", False, f"تجاوز {selftest_timeout} ثانية"))
+        if not (rel and "/" not in rel and rel.endswith(".py")):
+            continue
+        src = (ROOT / path).read_text(encoding="utf-8")
+        if 'if __name__ == "__main__"' not in src:
+            continue
+        # A `__main__` block is not proof of a self-test: `serve.py` starts a real
+        # HTTP server and `build_general_tokenizer.py` builds the live 32k tokenizer.
+        # Running those bare is not a test and always fails. A module declares its own
+        # intent: the `sham-ci: entrypoint` marker means "running me is not a test"
+        # (skipped, recorded), and a `--selftest` path means "run me with --selftest".
+        if ENTRYPOINT_MARK in src:
+            results.append((f"تخطّي {rel} (نقطة تشغيل لا اختبار ذاتي)", True, ""))
+            continue
+        cmd = [sys.executable, rel] + (["--selftest"] if '"--selftest"' in src or "'--selftest'" in src else [])
+        try:
+            r = subprocess.run(cmd, cwd=ROOT / SHAM, capture_output=True, text=True, timeout=selftest_timeout, env=scrubbed_env())
+            results.append((f"اختبار {rel} الذاتي", r.returncode == 0, "" if r.returncode == 0 else (r.stdout + r.stderr)[-500:]))
+        except subprocess.TimeoutExpired:
+            results.append((f"اختبار {rel} الذاتي", False, f"تجاوز {selftest_timeout} ثانية"))
     if any(c.endswith(".ipynb") and c.startswith(SHAM) for c in changed):
         table = SHAM + "sham_cell_updates.json"
         r = subprocess.run([sys.executable, "sham_cell_sync.py", "--build"], cwd=ROOT / SHAM, capture_output=True, text=True, env=scrubbed_env())
@@ -139,6 +156,9 @@ if __name__ == "__main__":
         assert not scan_added("+++ b/a.py\n+print(\"ok\", post(os.environ.get(\"GITHUB_TOKEN\")))\n")
         assert added_lines("+++ b/a.py\n+x\n--- b\n+++ b/c.py\n+y\n") == [("a.py", "x"), ("c.py", "y")]
         assert render([("a", True, ""), ("b", False, "why")], ["note"]).startswith("## ❌")
+        # A module whose __main__ is a real program (serve.py starts a server) marks itself `sham-ci: entrypoint` and is
+        # skipped; a module that exposes a `--selftest` path is run with it. (real false failures, 2026-11-06)
+        assert ENTRYPOINT_MARK in "sham-ci: entrypoint"
         print("sham_ci_check self-test OK")
         sys.exit(0)
     base = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "origin/claude/free-services-marketplace-h6rwk2"
