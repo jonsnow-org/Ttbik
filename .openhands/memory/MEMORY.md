@@ -63,14 +63,19 @@ step loop; `generate_tokens` unchanged) → `sham_studio_chat.py::qwen3_chat_str
 - Test trap: `shamGenerateChatStream` runs through `shamVariant`/pool, whose background overflow `/status` check eats a
   mocked `fetch`. Set `SHAM_V2_OVERFLOW_URL=off` in the test.
 
-## ⛔ Pushing/merging from this sandbox is BLOCKED (2026-11-06)
-The injected `$GITHUB_TOKEN` is a **read-only GitHub App token** (`jonsnowx1r-lab`): the API reports
-`permissions.push=true` but EVERY write is refused `403 "Resource not accessible by integration"` — git push
-(`https://TOKEN@` and `x-access-token:TOKEN@`), `POST/PATCH /git/refs`, `POST /pulls`, and the `create_pr` tool.
-Empty `x-oauth-scopes`; no SSH binary, no `~/.ssh`. The clone's original embedded token (the value in the clone's git config) is expired (401).
-Reads are fine. So commits can be made locally but **cannot be pushed**; the owner must supply a token with
-Contents:write (+ Pull requests:write) before any merge lands. Verify with
-`curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" .../git/refs -d '{"ref":"refs/heads/t","sha":"<HEAD>"}'` — a 403 means write is off.
+## Pushing from this sandbox (updated 2026-11-06)
+The injected `$GITHUB_TOKEN` is a **read-only GitHub App token** (`jonsnowx1r-lab`): `403 "Resource not accessible by
+integration"` on every write. Reads are fine. To push, the owner supplies a fine-grained PAT (`github_pat_...`); it
+authenticates as `jonsnow-org/Ttbik` with `permissions.push=true` and a plain
+`git push "https://${PAT}@github.com/jonsnow-org/Ttbik.git" HEAD:refs/heads/<branch>` works (verified 2026-11-06,
+`511f1c7c..58b3d6a0`). The production/default branch is `claude/free-services-marketplace-h6rwk2`, NOT `main` —
+merging into `main` alone is only a Vercel preview; users see a change only once it is on that default branch.
+**Push protection trap:** a push fails `GH013` if ANY commit in the pushed range contains a secret, even one already
+removed from `HEAD`. `.openhands/memory/*.md` is tracked and has carried an expired `ghu_` OAuth token before; redact
+it from the offending commits (git filter-branch tree-filter over the range) rather than only fixing HEAD.
+ModelScope: neither a `sk-...` key nor a 64-hex string authenticates — `/v1/models` is public (200 even with a
+garbage token) and `/v1/chat/completions` and the private Studios all answer 401 for both, so neither is a valid
+ModelScope token. The real ModelScope token that drives the Studios is `MODELSCOPE_API_TOKEN` in the deployment env.
 
 ## Sham v2 chat deploy readiness (fixed 2026-11-06, live) — NOT flaky
 `Deploy the Sham v2 Studio` failed DETERMINISTICALLY: a redeploy leaves the PREVIOUS container answering `/status`, and the pre-2026-10-30 app reports `phase=ready` WITHOUT `context_tokens`. Gate on `context_tokens>=4096` (in `deploy-modelscope-sham-v2.yml` + `-overflow.yml`), never just `phase==ready`; ModelScope may print `no change` and not rebuild. Second trap: steps run under `bash -e`, so a failing grep inside `ctx=$(... | head -1)` aborted a deploy silently — append `|| true`. Regression test: `test_sham_v2_chat_smoke.py::test_deploy_waits_for_the_new_app_context_not_the_previous_container`.
