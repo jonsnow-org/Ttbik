@@ -137,6 +137,36 @@ def unwrap_after_repair(model: nn.Module) -> None:
                 setattr(parent, child_name, child.lin)
 
 
+class W8Linear(nn.Module):
+    """int8 WEIGHT-ONLY linear (one scale per output channel) on PyTorch's native CPU kernel. Measured 2026-11-07 on a real trained small model:
+    loss +0.4% (the dynamic-activation int8 of checkpoint.quantize_int8 cost +52% on the same model), half the weight memory of bf16, and NO speed gain
+    on a 2-core CPU (12.6 vs 11.8 tokens/s) — use it to fit memory, not to go faster. Feed it bf16 activations (fp32 activations are ~3x slower)."""
+
+    def __init__(self, lin: nn.Linear):
+        super().__init__()
+        w = lin.weight.data.float()
+        scale = (w.abs().amax(1) / 127).clamp_min(1e-8)
+        self.register_buffer("w8", torch.round(w / scale[:, None]).clamp(-128, 127).to(torch.int8))
+        self.register_buffer("scale", scale)
+        self.bias = lin.bias
+
+    def forward(self, x):
+        s = x.shape
+        y = torch._weight_int8pack_mm(x.reshape(-1, s[-1]), self.w8, self.scale.to(x.dtype)).reshape(*s[:-1], -1)
+        return y if self.bias is None else y + self.bias
+
+
+def convert_w8(model: nn.Module, skip: tuple[str, ...] = ("lm_head",)) -> int:
+    """Replace every nn.Linear (except the named ones, default the tied output head) by W8Linear. Returns how many."""
+    count = 0
+    for parent in list(model.modules()):
+        for name, child in list(parent.named_children()):
+            if isinstance(child, nn.Linear) and name not in skip:
+                setattr(parent, name, W8Linear(child))
+                count += 1
+    return count
+
+
 def self_distill_repair(student: nn.Module, teacher: nn.Module, batches, steps: int = 60, lr: float = 2e-5, temperature: float = 1.0,
                         logits_of=lambda out: out.logits) -> list[float]:
     """The short repair run: loss = KL(teacher || student) on the training data. `batches` yields LongTensor (B, T)."""
@@ -267,6 +297,12 @@ def _selftest() -> None:
     assert len(hist) == 3
     unwrap_after_repair(m)
     assert isinstance(m[1], nn.Linear)
+    lin = nn.Linear(64, 32, bias=False)
+    xb = torch.randn(5, 64)
+    err = float((W8Linear(lin)(xb) - lin(xb)).abs().max())
+    assert err < 0.05, err
+    seq = nn.Sequential(nn.Linear(16, 16), nn.Linear(16, 16))
+    assert convert_w8(seq) == 2 and isinstance(seq[0], W8Linear)
     print("sham_quant_recipes self-test OK")
 
 
