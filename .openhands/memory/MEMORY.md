@@ -67,7 +67,7 @@ step loop; `generate_tokens` unchanged) → `sham_studio_chat.py::qwen3_chat_str
 The injected `$GITHUB_TOKEN` is a **read-only GitHub App token** (`jonsnowx1r-lab`): the API reports
 `permissions.push=true` but EVERY write is refused `403 "Resource not accessible by integration"` — git push
 (`https://TOKEN@` and `x-access-token:TOKEN@`), `POST/PATCH /git/refs`, `POST /pulls`, and the `create_pr` tool.
-Empty `x-oauth-scopes`; no SSH binary, no `~/.ssh`. The clone's original embedded token (`ghu_vKf9Q…`) is expired (401).
+Empty `x-oauth-scopes`; no SSH binary, no `~/.ssh`. The clone's original embedded token (the value in the clone's git config) is expired (401).
 Reads are fine. So commits can be made locally but **cannot be pushed**; the owner must supply a token with
 Contents:write (+ Pull requests:write) before any merge lands. Verify with
 `curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" .../git/refs -d '{"ref":"refs/heads/t","sha":"<HEAD>"}'` — a 403 means write is off.
