@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: sham-main
+          ref: claude/free-services-marketplace-h6rwk2
       - name: Free disk
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true

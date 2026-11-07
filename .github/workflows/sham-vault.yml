@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: sham-main
+          ref: claude/free-services-marketplace-h6rwk2
 
       - name: Free disk (checkpoints are GBs)
         run: |

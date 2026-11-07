@@ -22,7 +22,7 @@ import urllib.request
 
 REPO = os.environ.get("SHAM_RESTARTER_REPO", "jonsnow-org/Ttbik")
 WORKFLOW = "sham-restarter.yml"
-REF = "sham-main"
+REF = "claude/free-services-marketplace-h6rwk2"
 DEFAULT_DELAY = 240
 _STATE = {"installed": False, "fired": False}
 
@@ -113,7 +113,7 @@ def _self_test() -> None:
         os.environ.pop(k, None)
     assert trigger(opener=opener) is False and not sent            # no token -> silent no-op
     assert trigger(5, opener=opener, token="secret") is True
-    assert sent == [{"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}}]
+    assert sent == [{"ref": "claude/free-services-marketplace-h6rwk2", "inputs": {"live": "1", "delay": "5"}}]
     assert trigger(opener=opener, token="secret") is False          # once per process
     _STATE["fired"] = False
     def bad(*a, **k): raise OSError("net")

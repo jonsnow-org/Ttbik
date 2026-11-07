@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: sham-main
+          ref: claude/free-services-marketplace-h6rwk2
 
       - uses: actions/setup-python@v7
         with:

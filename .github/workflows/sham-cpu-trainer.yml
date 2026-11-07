@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: sham-main   # كود شام من فرعه الخاص؛ الفرع الرئيسي للمستودع (جلسة أثر) لا يُدمج فيه كود النموذج
+          ref: claude/free-services-marketplace-h6rwk2   # كود شام من فرعه الخاص؛ الفرع الرئيسي للمستودع (جلسة أثر) لا يُدمج فيه كود النموذج
 
       - name: Free disk and prepare the working folder
         run: |
