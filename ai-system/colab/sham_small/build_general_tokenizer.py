@@ -1,6 +1,7 @@
 """Builds sham_general_tokenizer.json: Sham's own 32k byte-level BPE trained on the
 general mixture (many languages + code + math), so no language pays a 3x token tax.
 Run once: python build_general_tokenizer.py   (needs internet; ~10 min)."""
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,11 @@ from text_tokenizer import train_text_tokenizer
 OUT = Path(__file__).with_name("sham_general_tokenizer.json")
 
 if __name__ == "__main__":
+    # Rule 1 of docs/SHAM_GATE.md: the tokenizer is never changed. Every checkpoint depends on it, so an existing file is only rebuilt on purpose
+    # (the self-test sweep once overwrote it just by running this script).
+    if OUT.exists() and os.environ.get("SHAM_ALLOW_TOKENIZER_REBUILD") != "1":
+        print(f"refusing to overwrite {OUT.name}: it already exists (set SHAM_ALLOW_TOKENIZER_REBUILD=1 to rebuild on purpose)")
+        raise SystemExit(0)
     docs = int(sys.argv[1]) if len(sys.argv) > 1 else 60_000
     files = sham_text_mix.stream_mix("/tmp/sham_tok_corpus", max_documents=docs, seed=12345)
     tok = train_text_tokenizer(files, vocab_size=32000)
