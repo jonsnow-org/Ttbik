@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-06 23:19 UTC",
+  "generated_at": "2026-11-07 06:12 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -86,10 +86,10 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
-      "last_run": "2026-11-06",
-      "gpu": false,
+      "last_run": "2026-11-07",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -158,7 +158,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-11-06",
       "gpu": false,
@@ -225,25 +225,17 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 4171.5,
+      "size_mb": 4171.3,
       "last_updated": "2026-11-06",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 2",
-      "track": "image_tokenizer",
-      "size_mb": 145.6,
-      "last_updated": "2026-11-06",
-      "progress": {
-        "samples_consumed": 305804,
-        "step": 60711,
-        "last_run_sources": {
-          "coco-karpathy": 1000
-        },
-        "codebook_usage": 3074,
-        "recon": 0.047485084985108936
-      },
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 791.6,
+      "last_updated": "2026-11-07",
+      "progress": {},
       "has_key_files": true
     },
     {
@@ -264,18 +256,34 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج مسار ترميز الصورة 2",
+      "track": "image_tokenizer",
+      "size_mb": 145.6,
+      "last_updated": "2026-11-06",
+      "progress": {
+        "samples_consumed": 305804,
+        "step": 60711,
+        "last_run_sources": {
+          "coco-karpathy": 1000
+        },
+        "codebook_usage": 3074,
+        "recon": 0.047485084985108936
+      },
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
       "size_mb": 717.7,
-      "last_updated": "2026-11-06",
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
-      "size_mb": 0.0,
-      "last_updated": "2026-11-06",
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 4185.3,
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
@@ -283,7 +291,7 @@
       "alias": "نتائج المسار B 1",
       "track": "research_track",
       "size_mb": 0.0,
-      "last_updated": "2026-11-06",
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
@@ -291,23 +299,7 @@
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
       "size_mb": 581.1,
-      "last_updated": "2026-11-06",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 0.0,
-      "last_updated": "2026-11-06",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 794.2,
-      "last_updated": "2026-11-06",
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
@@ -322,10 +314,10 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الأولى 1",
-      "track": "text_stage1",
-      "size_mb": 2421.8,
-      "last_updated": "2026-11-05",
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 794.3,
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
@@ -334,6 +326,14 @@
       "track": "stage2_multimodal",
       "size_mb": 582.0,
       "last_updated": "2026-11-05",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 4246.9,
+      "last_updated": "2026-11-07",
       "progress": {},
       "has_key_files": true
     },
