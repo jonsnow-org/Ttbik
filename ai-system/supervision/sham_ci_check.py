@@ -30,8 +30,8 @@ sys.path.insert(0, str(HERE))
 import sham_contract  # noqa: E402
 
 BAD_ADDED = [
-    (re.compile(r"\bexec\s*\("), "exec( — تنفيذ نص مرفوض في مشروعنا"),
-    (re.compile(r"\beval\s*\("), "eval( — تنفيذ نص مرفوض"),
+    (re.compile(r"(?<![\w.])exec\s*\("), "exec( — تنفيذ نص مرفوض في مشروعنا"),
+    (re.compile(r"(?<![\w.])eval\s*\("), "eval( — تنفيذ نص مرفوض"),
     (re.compile(r"os\.system\s*\("), "os.system"),
     (re.compile(r"shell\s*=\s*True"), "shell=True"),
     (re.compile(r"print\(\s*(os\.environ|os\.getenv|[A-Za-z_]*(TOKEN|SECRET|API_KEY|KAGGLE_KEY|PASSWORD)\w*\s*[,)])", re.I), "طباعة قيمة سرّ"),
@@ -131,6 +131,9 @@ if __name__ == "__main__":
              "+++ b/docs/a.md\n+eval(this is prose)\n+++ b/ai-system/colab/sham_small/y.py\n-removed = eval(1)\n+fine = 2\n")
         got = scan_added(d)
         assert len(got) == 2 and "eval(" in got[0] and "سرّ" in got[1], got
+        # torch's `module.eval()` (evaluation mode) is NOT the builtin — must not be flagged (real false positive, 2026-11-06).
+        assert not scan_added("+++ b/ai-system/colab/sham_small/x.py\n+tokenizer = Tokenizer().to(device).eval()\n")
+        assert not scan_added("+++ b/ai-system/colab/sham_small/x.py\n+m = model.eval()\n")
         assert scan_added("+++ b/a.py\n+token = 'ghp_" + "a" * 20 + "'\n")
         assert scan_added("+++ b/a.py\n+print(f\"key {my_TOKEN}\")\n") and scan_added("+++ b/a.py\n+print(GITHUB_TOKEN)\n")
         assert not scan_added("+++ b/a.py\n+print(\"ok\", post(os.environ.get(\"GITHUB_TOKEN\")))\n")
