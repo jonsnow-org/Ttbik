@@ -823,9 +823,8 @@ _TURBO_STEPS = 4
 
 def _generate_one_image(prompt: str):
     """Returns a raw PIL.Image — the actual model call, factored out of
-    generate_image() below so generate_video()'s keyframe slideshow (see
-    its own docstring) can reuse the exact same call instead of
-    duplicating the turbo/non-turbo branching logic.
+    generate_image() below so the image path has one place that decides
+    the turbo/non-turbo branching.
 
     Owner directive, 2026-09-09 ("ابتكر طريقة لتطبيق اسلوب مشابه للذي
     ابتكرته بالنسبة للفديو"): the video fix's actual pattern wasn't
@@ -833,11 +832,9 @@ def _generate_one_image(prompt: str):
     rest to cheap classical code". The same pattern applies directly to
     images: a diffusion UNet's per-step cost scales with the number of
     latent-space positions it processes, which scales with height*width.
-    Image.LANCZOS upscale + a light UnsharpMask afterwards is the
-    classical counterpart to Ken Burns/crossfade for video: zero-AI,
-    zero new dependency (PIL only), recovering a normal-looking delivery
-    size and countering the softness a straight resize would leave
-    behind."""
+    Image.LANCZOS upscale + a light UnsharpMask afterwards recovers a
+    normal-looking delivery size and counters the softness a straight
+    resize would leave behind — zero-AI, zero new dependency (PIL only)."""
     from PIL import Image as _PILImage, ImageFilter as _PILImageFilter
 
     pipe = _get_image_pipe()
@@ -1027,258 +1024,13 @@ def _generate_video_cogvideox_gpu_only(prompt: str, num_frames: float = 49) -> s
         return ""
 
 
-# Owner directive, 2026-09-08 ("هدفنا امتلاك وتطوير نسختنا الخاصة من
-# الذكاء... تطوير ادوات تعمل على نسختنا المصغرة باحترافية اكبر...
-# استنساخ اداة او ابتكار اداة بطريقة ما... عبر الاكواد"): real,
-# CPU-only, fully owned "video" — not a diffusion model at all, since
-# no CPU-viable one exists (see the measured evidence above). Instead:
-# generate a handful of real AI keyframe images with the ALREADY-fast
-# owned image pipeline above (sd-turbo, seconds per frame, not
-# minutes), then assemble them into an actual .mp4 using classical,
-# zero-AI, zero-extra-dependency image processing — Ken Burns pan/zoom
-# on each frame, crossfade transitions between them. This is honestly a
-# different, lighter capability than true generative video (no learned
-# motion, no temporal coherence beyond blending) — but it is real,
-# fully ours, runs entirely on this same CPU-only box, and turns what
-# used to be a guaranteed failure/hang into an actual delivered video
-# in a few minutes. The frame-assembly logic itself (_ken_burns_frames,
-# _crossfade_frames, _build_slideshow_frames) was verified with real
-# pixel-level assertions before being wired in here — see this
-# project's own test script referenced in the PR/commit for this
-# change if it needs re-verifying later.
-_SLIDESHOW_KEYFRAME_SUFFIXES = [
-    ", opening moment, wide establishing shot",
-    ", early moment, medium shot, slightly different angle",
-    ", middle moment, close-up on the main subject",
-    ", later moment, different camera angle",
-    ", near-closing moment, dynamic action pose",
-    ", closing moment, final close-up",
-]
-
-
-def _ken_burns_frames(image, num_frames: int, zoom_start: float = 1.0, zoom_end: float = 1.15) -> list:
-    """Classical pan/zoom over ONE still image — zero AI cost, pure PIL
-    crop+resize. Gives the illusion of camera movement over a static
-    frame instead of a frozen slide."""
-    if num_frames <= 0:
-        return []
-    from PIL import Image as _PILImage
-
-    w, h = image.size
-    frames = []
-    for i in range(num_frames):
-        t = i / max(num_frames - 1, 1)
-        zoom = zoom_start + (zoom_end - zoom_start) * t
-        crop_w, crop_h = max(1, int(w / zoom)), max(1, int(h / zoom))
-        left, top = (w - crop_w) // 2, (h - crop_h) // 2
-        cropped = image.crop((left, top, left + crop_w, top + crop_h))
-        frames.append(cropped.resize((w, h), _PILImage.LANCZOS))
-    return frames
-
-
-def _crossfade_frames(img_a, img_b, num_frames: int) -> list:
-    """Linear alpha blend between two keyframes — classical crossfade,
-    zero AI cost."""
-    if num_frames <= 0:
-        return []
-    from PIL import Image as _PILImage
-
-    if img_a.size != img_b.size:
-        img_b = img_b.resize(img_a.size, _PILImage.LANCZOS)
-    frames = []
-    for i in range(num_frames):
-        t = i / max(num_frames - 1, 1)
-        frames.append(_PILImage.blend(img_a.convert("RGB"), img_b.convert("RGB"), t))
-    return frames
-
-
-def _build_slideshow_frames(keyframes: list, total_frames: int) -> list:
-    """Assembles the full frame sequence: pan/zoom on each keyframe,
-    crossfade into the next, sized to exactly total_frames (matching
-    the requested video duration at _VIDEO_FPS). Caller (generate_video)
-    always passes at least 2 keyframes; still guarded here (rather than
-    a broken `keyframes[0]` fallback on an empty list) so this stays
-    safe to call with fewer, without crashing the whole request."""
-    if not keyframes:
-        return []
-    n_transitions = max(len(keyframes) - 1, 1)
-    frames_per_transition = max(total_frames // n_transitions, 2)
-    all_frames = []
-    for i in range(len(keyframes) - 1):
-        half = frames_per_transition // 2
-        all_frames.extend(_ken_burns_frames(keyframes[i], half))
-        all_frames.extend(_crossfade_frames(keyframes[i], keyframes[i + 1], frames_per_transition - half))
-    remaining = total_frames - len(all_frames)
-    if remaining > 0:
-        all_frames.extend(_ken_burns_frames(keyframes[-1], remaining))
-    return all_frames[:total_frames] if all_frames else all_frames
-
-
-_NARRATION_MAX_CHARS = 200
-
-
-def _add_narration_audio(video_path: str, prompt: str) -> str:
-    """Owner report, 2026-09-12 (real complaint, Telegram): every
-    generated video has no audio at all. Real attempt, not guessed to
-    work: gTTS (a thin wrapper around Google Translate's free
-    text-to-speech endpoint — no API key/account needed) speaks a short
-    caption built from the same English prompt already used for the
-    keyframes, muxed under the silent slideshow via ffmpeg. ffmpeg
-    itself comes from imageio-ffmpeg's bundled static binary — pip-only,
-    no apt/system package needed, so this installs the same way
-    everything else on this Studio does (no Dockerfile control here to
-    apt-get a system ffmpeg).
-
-    Honest, unverified part: whether this Studio's runtime network can
-    actually reach Google's TTS endpoint is UNCONFIRMED — this project
-    already found (real evidence, not guessed) that ModelScope's own
-    network cannot reach huggingface.co or github.com, so a similar
-    restriction on Google's endpoint is a real possibility, not a
-    stretch. If the request fails, or the ffmpeg mux step fails for any
-    other reason, this returns the original silent video_path
-    unchanged — a silent video is still strictly better than failing
-    the whole request over a missing narration track.
-
-    Owner report, 2026-09-12 (real evidence — a real video request
-    never arrived at all, long past the few-minutes this normally
-    takes): confirmed the real gap — gTTS's own network call has no
-    timeout of its own, so if this network path is silently blocked
-    (packets dropped, not actively refused) rather than cleanly
-    rejected, the call can hang far longer than any reasonable
-    request should wait, blocking the entire video behind an optional
-    narration step. Run in a background thread with a real, short hard
-    deadline below — same pattern as council.py's _with_hard_deadline,
-    inlined here since this module has no shared import path to it."""
-    try:
-        import concurrent.futures
-
-        import imageio_ffmpeg
-        from gtts import gTTS
-
-        caption = prompt.strip()[:_NARRATION_MAX_CHARS] or "Nova AI generated video."
-        audio_path = video_path.replace(".mp4", "_narration.mp3")
-
-        def _fetch_narration() -> None:
-            gTTS(text=caption, lang="en").save(audio_path)
-
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        try:
-            pool.submit(_fetch_narration).result(timeout=20)
-        finally:
-            pool.shutdown(wait=False)
-
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        muxed_path = video_path.replace(".mp4", "_with_audio.mp4")
-        # -stream_loop -1 on the (short) narration + -shortest cuts the
-        # final file to the (longer) silent video's own length, so the
-        # narration never abruptly cuts the video short if it's shorter
-        # than the requested duration.
-        subprocess.run(
-            [
-                ffmpeg_exe, "-y",
-                "-i", video_path,
-                "-stream_loop", "-1", "-i", audio_path,
-                "-map", "0:v", "-map", "1:a",
-                "-c:v", "copy", "-c:a", "aac",
-                "-shortest",
-                muxed_path,
-            ],
-            check=True,
-            capture_output=True,
-            timeout=120,
-        )
-        return muxed_path
-    except Exception:
-        traceback.print_exc()
-        return video_path
-
-
-def _add_video_ownership_metadata(video_path: str) -> str:
-    """Owner spec, 2026-09-12 ("بيانات وصفية حقيقية... ID3 للصوت"): this
-    project's real audio-bearing output is an MP4 container (AAC audio
-    track from _add_narration_audio above), not a standalone MP3 — ID3
-    is specifically an MP3/ID3v2 tag format and doesn't apply to MP4 at
-    all. The honest, real equivalent for MP4 is its own metadata atoms,
-    set here via ffmpeg's -metadata flag (author/copyright/comment),
-    not a silent no-op just because the literal tag format named
-    doesn't fit this container.
-
-    -c copy: a fast remux (re-muxes the container only, no
-    re-encoding, no quality loss) — runs LAST, after narration muxing,
-    so ownership metadata is set unconditionally regardless of whether
-    that step succeeded (narration depends on live network
-    reachability that's still unconfirmed; metadata tagging here is
-    local-only and should not share that risk). Falls back to the
-    input path unchanged on any failure, same defensive pattern as
-    every other post-processing step in this module."""
-    try:
-        import imageio_ffmpeg
-
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        tagged_path = video_path.replace(".mp4", "_tagged.mp4")
-        subprocess.run(
-            [
-                ffmpeg_exe, "-y",
-                "-i", video_path,
-                "-c", "copy",
-                "-metadata", "author=Nova AI",
-                "-metadata", "copyright=Generated by Nova AI",
-                "-metadata", "comment=Generated by Nova AI",
-                tagged_path,
-            ],
-            check=True,
-            capture_output=True,
-            timeout=60,
-        )
-        return tagged_path
-    except Exception:
-        traceback.print_exc()
-        return video_path
-
-
 def generate_video(prompt: str, num_frames: float = 49, num_keyframes: float = 3) -> str:
-    """Returns a base64-encoded MP4 string directly, same shape as
-    generate_image's base64 PNG above — but built from real AI
-    keyframes + classical animation, NOT CogVideoX (see this module's
-    directive comment above for the measured, not guessed, reason: a
-    real T4 GPU did this exact model in 157 seconds; this CPU-only box
-    either hung indefinitely or hit the hard deadline and failed
-    outright — a 100-1000x hardware gap no amount of tuning closes).
-    num_frames comes from council.py's _seconds_to_cogvideox_frames
-    (still reused as-is — any frame count works for a plain image
-    sequence, no need to change that shared plumbing). num_keyframes
-    now comes from council.py too, scaled with the requested duration
-    (owner report, 2026-09-12: a fixed 3 regardless of length reads as
-    "the same few pictures stretched out" on anything longer than a
-    few seconds) — the gr.Number default of 3 here only applies to a
-    direct call from this Studio's own UI, not the real Telegram path."""
-    try:
-        from diffusers.utils import export_to_video
-
-        keyframes = []
-        for i in range(max(int(num_keyframes), 2)):
-            suffix = _SLIDESHOW_KEYFRAME_SUFFIXES[i % len(_SLIDESHOW_KEYFRAME_SUFFIXES)]
-            keyframes.append(_generate_one_image(prompt + suffix))
-
-        frames = _build_slideshow_frames(keyframes, int(num_frames))
-        # Watermarked here, on the final assembled frames — NOT on the
-        # keyframes above, before Ken Burns pan/zoom crops and
-        # crossfade-blends them. Watermarking a keyframe first would
-        # have the zoom crop it unpredictably out of frame, and
-        # crossfading two independently-watermarked keyframes would
-        # smear a double watermark during every transition. This way
-        # the mark stays fixed in the same corner of every single
-        # output frame.
-        frames = [_add_watermark(frame) for frame in frames]
-        path = "/tmp/nova_generated_video.mp4"
-        export_to_video(frames, path, fps=_VIDEO_FPS)
-        path = _add_narration_audio(path, prompt)
-        path = _add_video_ownership_metadata(path)
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode("ascii")
-    except Exception:
-        traceback.print_exc()
-        return ""
+    """Removed 2026-11-06 (owner: "لا أوافق على وجود مولد وسائط صور مجمعة على شكل فيديو").
+    This used to build an .mp4 by animating AI keyframes (Ken Burns pan/zoom + crossfade) —
+    still images presented as video. Real text-to-video is Nova's own AnimateDiff Studio
+    (ai-system/modelscope-media), reached through nova_media_studio; this Gradio endpoint now
+    returns empty on purpose instead of a slideshow, and the video tab is gone from the UI."""
+    return ""
 
 
 _text_interface = gr.Interface(
@@ -1310,14 +1062,17 @@ _video_interface = gr.Interface(
         gr.Number(label="num_keyframes", value=3),
     ],
     outputs=gr.Textbox(label="video_base64"),
-    title="توليد فيديو",
+    title="توليد فيديو (معطّل: لا عرض شرائح)",
     api_name="generate_video",
 )
 
+# The "توليد فيديو" tab is deliberately NOT mounted: the only thing this Studio
+# could offer was a keyframe slideshow, which the owner rejects (2026-11-06).
+# Real video is served by Nova's own AnimateDiff Studio (modelscope-media).
 demo = gr.TabbedInterface(
-    [_text_interface, _image_interface, _video_interface],
-    ["نص ورؤية", "توليد صور", "توليد فيديو"],
-    title="Nova AI — self-hosted (نص + رؤية + صور + فيديو)",
+    [_text_interface, _image_interface],
+    ["نص ورؤية", "توليد صور"],
+    title="Nova AI — self-hosted (نص + رؤية + صور)",
 )
 
 if __name__ == "__main__":

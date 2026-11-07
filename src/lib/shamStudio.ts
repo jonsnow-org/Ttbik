@@ -306,6 +306,121 @@ export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens
   return reply;
 }
 
+/**
+ * Read a Gradio SSE response and hand each streamed piece to `onDelta` as it arrives: a generator endpoint
+ * (generate_chat_stream) yields one data line per piece, so the caller can append deltas and grow the answer in place.
+ * A non-generator endpoint sends a single data line, so this also reads an older Studio and never loses the answer.
+ */
+export async function readShamSseDeltas(response: Response, onDelta: (piece: string) => void): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const whole = parseShamSse(await response.text());
+    if (whole) onDelta(whole);
+    return whole || "";
+  }
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let full = "";
+  const consume = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    let data: unknown;
+    try { data = JSON.parse(line.slice(5).trim()); } catch { return; }
+    if (!Array.isArray(data) || !data.length) return;
+    // The piece is kept verbatim (never trimmed): a leading/trailing space is part of the answer, and trimming
+    // each delta would join two words together.
+    const piece = typeof data[0] === "string" ? data[0] : JSON.stringify(data[0]);
+    full += piece;
+    onDelta(piece);
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffered += decoder.decode(value, { stream: !done });
+      let newline = buffered.indexOf("\n");
+      while (newline !== -1) {
+        consume(buffered.slice(0, newline).replace(/\r$/, ""));
+        buffered = buffered.slice(newline + 1);
+        newline = buffered.indexOf("\n");
+      }
+      if (done) break;
+    }
+    if (buffered) consume(buffered);
+  } finally {
+    try { reader.releaseLock(); } catch { /* already closed */ }
+  }
+  return full;
+}
+
+/** A typed Studio reply ({type:"busy"|"error"|...}) is not streamed text: it is one JSON object, never a written answer. */
+function looksTypedReply(piece: string): boolean {
+  const t = piece.trim();
+  if (!t.startsWith("{")) return false;
+  try {
+    const o = JSON.parse(t) as { type?: unknown };
+    return Boolean(o && typeof o === "object" && typeof o.type === "string");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Token-by-token native chat (Sham v2): each decoded piece is handed to `onDelta` as the Studio writes it, and the
+ * full answer is returned. A typed reply (busy / error / a Studio without the streaming endpoint) is never streamed as
+ * text — it is returned as-is, so the caller's normal handling applies.
+ */
+export async function shamGenerateChatStream(
+  messages: ShamChatMessage[],
+  maxNewTokens = 768,
+  timeoutMs = 90000,
+  onDelta?: (piece: string) => void,
+  opts: { bypassContentHeuristics?: boolean } = {},
+): Promise<ShamReply | null> {
+  if (shamVariant.getStore() !== "v2") {
+    setFailure("generate_chat_stream refused outside the Sham v2 variant");
+    return null;
+  }
+  const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
+  if (!valid.length || valid[valid.length - 1].role !== "user") {
+    setFailure("generate_chat_stream requires a final user turn");
+    return null;
+  }
+  if (!shamStudioEnabled()) { setFailure("generate_chat_stream: MODELSCOPE_API_TOKEN is empty in this environment"); return null; }
+  const base = shamBases()[0];
+  if (!base) { setFailure("generate_chat_stream: no dedicated Studio endpoint for the selected variant"); return null; }
+  const knobs = shamKnobs(shamModeCtx.getStore(), "v2");
+  const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
+  const payload = { messages_json: JSON.stringify(valid.slice(-12)), max_new_tokens: maxNewTokens, temperature: knobs.temperature, think_tokens: knobs.thinkTokens };
+  const deadline = Date.now() + timeoutMs;
+  let seen = 0;
+  const emit = (piece: string) => {
+    seen++;
+    if (seen === 1 && looksTypedReply(piece)) return;      // a busy / error reply, not a written answer
+    if (piece) onDelta?.(piece);
+  };
+  try {
+    const sub = await fetch(`${base}/gradio_api/call/v2/generate_chat_stream`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+    if (sub.status === 404 || sub.status === 405) {
+      // An older Studio has no streaming endpoint: answer with the one-shot chat and hand it over as a single piece.
+      const one = await shamGenerateChat(valid, maxNewTokens, timeoutMs, opts);
+      if (one?.type === "text" && one.text && onDelta) onDelta(String(one.text));
+      return one;
+    }
+    if (!sub.ok) { setFailure(`generate_chat_stream: HTTP ${sub.status} on submit`); return null; }
+    const { event_id } = (await sub.json()) as { event_id?: string };
+    if (!event_id) { setFailure("generate_chat_stream: no event id"); return null; }
+    const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+    if (!res.ok) { setFailure(`generate_chat_stream: HTTP ${res.status} on result`); return null; }
+    const full = await readShamSseDeltas(res, emit);
+    if (!full.trim()) { setFailure("generate_chat_stream: empty answer"); return null; }
+    const reply = await vetShamReply(parseShamReply(full) ?? ({ type: "text", text: full.trim() } as ShamReply), opts);
+    if (!reply) setFailure(`generate_chat_stream: unreadable answer (${full.slice(0, 120).replace(/\s+/g, " ")})`);
+    return reply;
+  } catch (e) {
+    setFailure(`generate_chat_stream: ${(e as { name?: string })?.name || "error"}: ${String((e as Error)?.message || "").slice(0, 80)}`);
+    return null;
+  }
+}
+
 /** Ask Sham v2's dedicated Studio for one structured agent step. The Studio turns the model's
  * constrained call into a typed {type:"tool_calls", tool_calls:[...]} response; the app executor
  * still validates every argument and permission. This never routes to Sham v1 or Nova. */

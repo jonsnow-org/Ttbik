@@ -203,6 +203,46 @@ class VectorQuantizer(nn.Module):
         token_ids = token_ids.view(batch, mel_bins, time_steps)
         return quantized, token_ids, vq_loss
 
+    @torch.no_grad()
+    def initialize_from_data(self, z: torch.Tensor, iters: int = 25, seed: int = 0) -> None:
+        """Seed the codebook from real encoder outputs (k-means). Same fix as
+        image_tokenizer.VectorQuantizer.initialize_from_data: the uniform init
+        places every code near the origin while real encoder outputs do not, so
+        the codebook collapses to a handful of codes; seeding from the encoder's
+        own output distribution removes the mismatch."""
+        flat = z.detach().permute(0, 2, 3, 1).reshape(-1, self.code_dim).float()
+        n = flat.shape[0]
+        generator = torch.Generator().manual_seed(seed)
+        if n >= self.num_codes:
+            idx = torch.randperm(n, generator=generator)[: self.num_codes]
+        else:
+            idx = torch.randint(0, n, (self.num_codes,), generator=generator)
+        centers = flat[idx].clone()
+        for _ in range(iters):
+            labels = (
+                flat.pow(2).sum(dim=1, keepdim=True)
+                - 2 * flat @ centers.t()
+                + centers.pow(2).sum(dim=1)
+            ).argmin(dim=1)
+            for code in range(self.num_codes):
+                mask = labels == code
+                if mask.any():
+                    centers[code] = flat[mask].mean(dim=0)
+        self.codebook.weight.copy_(centers.to(self.codebook.weight.dtype))
+
+    @torch.no_grad()
+    def revive_dead_codes(self, usage: torch.Tensor, z: torch.Tensor, threshold: float = 0.5) -> int:
+        """Re-seed codes that have fallen out of use with current encoder
+        outputs — the same standard VQ-VAE revival step as the image tokenizer."""
+        dead = (usage < threshold).nonzero(as_tuple=True)[0]
+        if dead.numel() == 0:
+            return 0
+        flat = z.detach().permute(0, 2, 3, 1).reshape(-1, self.code_dim).float()
+        picked = flat[torch.randint(0, flat.shape[0], (dead.numel(),), device=flat.device)]
+        self.codebook.weight[dead] = (picked + 0.01 * flat.std() * torch.randn_like(picked)).to(self.codebook.weight.dtype)
+        usage[dead] = threshold * 4
+        return int(dead.numel())
+
 
 class AudioTokenizer(nn.Module):
     def __init__(self, cfg: AudioTokenizerConfig):

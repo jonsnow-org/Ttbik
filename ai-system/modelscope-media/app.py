@@ -604,8 +604,10 @@ CV_SUPPORTED_DURATIONS = (2, 4, 6, 10, 15, 30, 60, 120)
 
 
 def cv_chunk_plan(seconds: int | float) -> list[int]:
-    """Split a requested clip into temporal diffusion passes of 2-4 s, keeping the final duration exact.
-    `CPU_VIDEO_MAX_PASS_S` lowers the cap (2 on an 8 GB Studio: 16 frames is the proven-safe pass size)."""
+    """Split a requested clip into temporal diffusion passes of `cap` seconds, keeping the final duration exact.
+    `CPU_VIDEO_MAX_PASS_S` lowers the cap (2 on an 8 GB Studio: 16 frames is the proven-safe pass size). No pass is
+    ever 1 s: a 1 s pass cannot hold a scene, so the model emits a random ghost shot instead of a continuation. The
+    remainder of the split therefore joins the LAST pass (2 + 1 = 3 s), never a separate 1 s one."""
     import math
     import os as _os
     if isinstance(seconds, bool):
@@ -618,18 +620,14 @@ def cv_chunk_plan(seconds: int | float) -> list[int]:
         raise ValueError("native-video-duration-limit: choose 2, 4, 6, 10, 15, 30, 60 or 120 seconds")
     cap = max(2, min(4, int(_os.environ.get("CPU_VIDEO_MAX_PASS_S", "") or 4)))
     remaining = int(requested)
-    chunks = []
-    while remaining > cap:
-        chunks.append(cap)
-        remaining -= cap
-    if remaining == 1:
-        # An odd tail (15 s with a 2 s cap): make the previous pass 3 s instead of leaving an impossible 1 s pass.
-        if chunks:
-            chunks.pop()
-            remaining += cap
-        chunks.append(remaining)
-    elif remaining:
-        chunks.append(remaining)
+    chunks = [cap] * (remaining // cap)
+    tail = remaining % cap
+    if tail == 1 and chunks:
+        chunks[-1] += 1
+    elif tail:
+        chunks.append(tail)
+    if not chunks:
+        chunks = [remaining]
     if any(part < 2 or part > max(cap, 3) for part in chunks) or sum(chunks) != int(seconds):
         raise ValueError("native-video-duration-limit: this duration cannot be split into supported 2-4 second temporal passes")
     return chunks
@@ -734,8 +732,12 @@ def _cv_join_xfade(exe, root, clips, segment_seconds, expected_seconds, fade):
         prev = label
         merged = merged + float(segment_seconds[i]) - fade
     shortfall = max(0.0, float(expected_seconds) - merged)
-    if shortfall > 0.02:
-        filters.append(f"{prev}tpad=stop_mode=clone:stop_duration={shortfall:.3f}[vout]")
+    if shortfall > 0.02 and merged > 0:
+        # Re-time the joined frames to the exact requested length. `tpad stop_mode=clone` used to hold the last frame
+        # instead, which froze the final `fade` seconds of every multi-pass clip (measured 2026-11-06: a 3-pass 6 s
+        # clip ended with ~0.4 s of identical frames) — the "stitched frames" look the owner rejected. `setpts`
+        # stretches the same real diffusion frames, so the motion stays continuous to the last frame.
+        filters.append(f"{prev}setpts=PTS*{float(expected_seconds):.6f}/{merged:.6f}[vout]")
     else:
         filters.append(f"{prev}null[vout]")
     output = root / "joined.mp4"

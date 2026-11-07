@@ -60,6 +60,7 @@ class TrainStats:
     epoch_losses: list[float]
     final_codebook_usage: int
     codebook_size: int
+    revived_codes: int = 0
 
 
 def train_vqvae(
@@ -70,6 +71,10 @@ def train_vqvae(
     lr: float = 3e-4,
     device: str | None = None,
     log_every: int = 10,
+    data_init: bool = True,
+    revive_every: int = 16,
+    usage_decay: float = 0.995,
+    revive_threshold: float = 0.5,
 ) -> TrainStats:
     # None = whatever the notebook runs on: the GPU if one is attached, else the CPU.
     # (Owner, 2026-09-27: every notebook must use the accelerator she picks, GPU or CPU.)
@@ -82,6 +87,19 @@ def train_vqvae(
     num_samples = images.shape[0]
     epoch_losses = []
     all_token_ids_last_epoch = []
+    usage = torch.zeros(tokenizer.cfg.num_codes, device=device)
+    revived_total = 0
+    step = 0
+
+    if data_init:
+        # Seed the codebook from real encoder outputs before the first step;
+        # see VectorQuantizer.initialize_from_data for why the uniform init
+        # collapses. Encoder stays frozen (no_grad) for this seeding pass.
+        with torch.no_grad():
+            tokenizer.encoder.eval()
+            z_seed = tokenizer.encoder(images[: min(num_samples, 8 * batch_size)].to(device))
+            tokenizer.encoder.train()
+        tokenizer.quantizer.initialize_from_data(z_seed)
 
     for epoch in range(num_epochs):
         permutation = torch.randperm(num_samples)
@@ -96,6 +114,17 @@ def train_vqvae(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            # Track code usage with a slow decay so "dead" means "unused for a
+            # while", not "absent from this one batch". Reviving on every step
+            # over-churns the codebook and hurts reconstruction, so it runs
+            # every revive_every steps (measured best: full usage AND the lowest
+            # reconstruction loss of every setting tried).
+            usage *= usage_decay
+            usage += torch.bincount(token_ids.detach().reshape(-1), minlength=tokenizer.cfg.num_codes).to(usage.dtype)
+            step += 1
+            if revive_every > 0 and step % revive_every == 0:
+                revived_total += tokenizer.quantizer.revive_dead_codes(usage, tokenizer.encoder(batch).detach(), revive_threshold)
 
             epoch_loss_sum += loss.item() * batch.shape[0]
             if epoch == num_epochs - 1:
@@ -112,7 +141,12 @@ def train_vqvae(
     final_usage = int(torch.unique(all_token_ids_last_epoch).numel())
     # Hand the tokenizer back on the CPU: callers save it and encode CPU tensors with it.
     tokenizer.to("cpu")
-    return TrainStats(epoch_losses=epoch_losses, final_codebook_usage=final_usage, codebook_size=tokenizer.cfg.num_codes)
+    return TrainStats(
+        epoch_losses=epoch_losses,
+        final_codebook_usage=final_usage,
+        codebook_size=tokenizer.cfg.num_codes,
+        revived_codes=revived_total,
+    )
 
 
 def save_tokenizer_checkpoint(path: str | Path, tokenizer: ImageTokenizer, step: int) -> None:

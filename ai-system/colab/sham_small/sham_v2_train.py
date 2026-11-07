@@ -84,11 +84,11 @@ def identity_grounding_pairs() -> list[tuple[str, str]]:
     ]
 
 
-def tool_batches(tokenizer, n: int, batch_size: int, seed: int, system: str | None = None):
+def tool_batches(tokenizer, n: int, batch_size: int, seed: int, system: str | None = None, max_len: int = 1100):
     """Padded (ids, labels) batches of tool / code / ask examples in the engine's own layout."""
     from sham_chat import batch_examples
     from sham_tools_data import qwen3_tool_examples
-    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, system or "")
+    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, system or "", max_len=max_len)
     return batch_examples(ex, batch_size)
 
 
@@ -121,6 +121,7 @@ def _parse_call(text: str):
 def measure_tools(model, tokenizer, n_cases: int = 24, seed: int = 4242, max_new: int = 90) -> dict:
     """A fixed set of tool cases (own seed, never trained on: training uses other seeds), answered through the Studio's guarded generation.
     valid = a well-formed call; right = the first call has the expected tool and every expected argument name."""
+    from sham_studio_chat import qwen3_chat
     from sham_tools_data import any_spec, tool_block, TOOL_SPECS
     rng = random.Random(seed)
     model.train(False)
@@ -172,7 +173,10 @@ if __name__ == "__main__":
             return "".join(chr(0x0621 + (i % 40)) for i in ids)
 
     tv = 300
-    cfg = ShamSmallConfig(vocab_size=tv + 8192 + 2048 + 16, d_model=32, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=64, max_seq_len=1300)
+    # max_seq_len matches the real Sham v2 context (sham_transplant.py: 2048), not an arbitrary
+    # toy value: a real 5-tool prompt is ~1200 chars, so a smaller window made measure_tools
+    # raise "prompt + thinking + answer exceeds model context" and the self-test never reached it.
+    cfg = ShamSmallConfig(vocab_size=tv + 8192 + 2048 + 16, d_model=32, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=64, max_seq_len=2048)
     model = ShamSmall(cfg)
     model.enable_adapters(4)
     n = freeze_for_media(model, tv)
@@ -184,7 +188,11 @@ if __name__ == "__main__":
     end_id = Tok().encode("<|im_end|>")[-1]
     media_id = tv + 1
     media_batch = batch_examples([([3, media_id, end_id], [-100, media_id, end_id])], 1)
-    batches = media_batch + tool_batches(Tok(), 12, 2, seed=1)
+    # This toy tokenizer is one id per character, while the real one is ~3 chars per id. qwen3_tool_examples'
+    # max_len is a real-token budget, so the toy cases need a char-scale window (~1100 * 3). Passing the
+    # default straight through produced zero tool batches here and the loss assertions below failed; 1600
+    # keeps the padded toy sequences under the 2048 context too.
+    batches = media_batch + tool_batches(Tok(), 12, 2, seed=1, max_len=1600)
     assert len(identity_grounding_pairs()) >= 6 and all(q and a for q, a in identity_grounding_pairs())
     assert batches and all(isinstance(b, tuple) and len(b) == 2 for b in batches)
     with tempfile.TemporaryDirectory() as d:

@@ -327,7 +327,8 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         return _busy()
     try:
         res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                                serve._state["audio_tokenizer"], prompt, n)
+                                                serve._state["audio_tokenizer"], prompt, n,
+                                                motion_tokenizer=serve._state.get("motion_tokenizer"))
         return json.dumps(_vet(res), ensure_ascii=False)
     except Exception as exc:
         print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
@@ -335,6 +336,29 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     finally:
         _LOCK.release()
 
+
+
+def _chat_params(messages_json: str, max_new_tokens: float, temperature: float, think_tokens: float):
+    """Validate one native role-chat request and clamp it to the loaded body's limits.
+    Returns (clean_messages, n, temperature, think_tokens); raises ValueError on a malformed request."""
+    messages = json.loads(messages_json or "[]")
+    if not isinstance(messages, list) or not messages or len(messages) > 24:
+        raise ValueError("messages_json must be a non-empty list of at most 24 turns")
+    clean = []
+    for item in messages:
+        if not isinstance(item, dict) or item.get("role") not in ("user", "assistant") or not isinstance(item.get("content"), str):
+            raise ValueError("each message must contain role=user|assistant and string content")
+        clean.append({"role": item["role"], "content": item["content"]})
+    if clean[-1]["role"] != "user":
+        raise ValueError("the final message must be a user turn")
+    try:
+        token_cap = max(32, int(os.environ.get("SHAM_GENERATE_CHAT_MAX_TOKENS", "1024")))
+    except (TypeError, ValueError):
+        token_cap = 1024
+    n = int(max(1, min(MAX_NEW_TOKENS, token_cap, max_new_tokens)))
+    temp = min(1.5, max(0.0, float(temperature)))
+    thought = int(max(0, min(2048, float(think_tokens))))
+    return clean, n, temp, thought
 
 
 def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
@@ -345,23 +369,7 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
     try:
-        messages = json.loads(messages_json or "[]")
-        if not isinstance(messages, list) or not messages or len(messages) > 24:
-            raise ValueError("messages_json must be a non-empty list of at most 24 turns")
-        clean = []
-        for item in messages:
-            if not isinstance(item, dict) or item.get("role") not in ("user", "assistant") or not isinstance(item.get("content"), str):
-                raise ValueError("each message must contain role=user|assistant and string content")
-            clean.append({"role": item["role"], "content": item["content"]})
-        if clean[-1]["role"] != "user":
-            raise ValueError("the final message must be a user turn")
-        try:
-            token_cap = max(32, int(os.environ.get("SHAM_GENERATE_CHAT_MAX_TOKENS", "1024")))
-        except (TypeError, ValueError):
-            token_cap = 1024
-        n = int(max(1, min(MAX_NEW_TOKENS, token_cap, max_new_tokens)))
-        temp = min(1.5, max(0.0, float(temperature)))
-        thought = int(max(0, min(2048, float(think_tokens))))
+        clean, n, temp, thought = _chat_params(messages_json, max_new_tokens, temperature, think_tokens)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         return json.dumps({"type": "error", "text": str(exc)[:240]}, ensure_ascii=False)
     if not _LOCK.acquire(timeout=_busy_wait()):
@@ -374,6 +382,36 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
     except Exception as exc:
         print(f"generate_chat failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return json.dumps({"type": "error", "text": "Sham v2 chat generation failed: " + str(exc)[:180]}, ensure_ascii=False)
+    finally:
+        _LOCK.release()
+
+
+def generate_chat_stream(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0):
+    """Token-by-token sibling of generate_chat for the Mini App's live view: yields decoded text pieces as the model
+    writes them. A non-v2 body or a malformed request yields a single piece (the one-shot answer / a typed error)."""
+    if not _V2:
+        yield generate_chat(messages_json, max_new_tokens, temperature, think_tokens)
+        return
+    if STATE["phase"] != "ready":
+        yield _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+        return
+    import serve
+    try:
+        clean, n, temp, _thought = _chat_params(messages_json, max_new_tokens, temperature, think_tokens)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        yield json.dumps({"type": "error", "text": str(exc)[:240]}, ensure_ascii=False)
+        return
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        yield _busy()
+        return
+    try:
+        from sham_studio_chat import qwen3_chat_stream
+        for piece in qwen3_chat_stream(serve._state["model"], serve._state["text_tokenizer"], clean, n, temperature=temp):
+            if piece:
+                yield piece
+    except Exception as exc:
+        print(f"generate_chat_stream failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        yield json.dumps({"type": "error", "text": "Sham v2 streamed chat failed: " + str(exc)[:180]}, ensure_ascii=False)
     finally:
         _LOCK.release()
 
@@ -505,7 +543,8 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
             result = _studio_modules()[1].make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
-                kind.strip().lower(), prompt
+                kind.strip().lower(), prompt,
+                motion_tokenizer=serve._state.get("motion_tokenizer"),
             )
         result = _vet(result, raw_test=raw_test)
         if isinstance(result, dict):
@@ -690,6 +729,13 @@ def build_ui():
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
+        chat_stream = gr.Interface(
+            generate_chat_stream,
+            [gr.Textbox(label="messages_json"), gr.Number(label="max_new_tokens", value=512),
+             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0)],
+            gr.Textbox(label="native Qwen3 streamed chat"), api_name="generate_chat_stream", flagging_mode="never")
+        interfaces.insert(2, chat_stream)
+        labels.insert(2, "محادثة Qwen3 مباشرة")
     # Only the dedicated Sham v2 wrapper exposes this API; v1 keeps its existing Studio interface.
     if _V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1":
         agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Textbox(label="active tool schemas JSON", value="[]"),

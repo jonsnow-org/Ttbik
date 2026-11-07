@@ -21,11 +21,10 @@ function joinPath(cwd: string, arg: string): string {
   return out.join("/") || ".";
 }
 
-export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang; defaultModel: string; logs?: React.ReactNode }) {
+export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defaultModel: string }) {
   const ar = lang === "ar";
   const [model, setModel] = useState(MODELS.some((m) => m.id === defaultModel) ? defaultModel : "coder");
   const [tab, setTab] = useState<"desktop" | "desk" | "term" | "files" | "jobs">("desktop");
-  const [logOpen, setLogOpen] = useState(false);
   const [status, setStatus] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [cmd, setCmd] = useState("");
@@ -109,7 +108,7 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
         </div>
         <div className="n-meta" style={{ ...mono, fontSize: 12 }}>
           {status == null ? "…" : okStatus
-            ? `${ar ? "حاسوب" : "computer"} · ${status.tools ? Object.entries(status.tools).filter(([, v]) => v).map(([k]) => k).join(" ") : ""} · ${status.your_disk_mb ?? 0} MB`
+            ? `${ar ? "الحاسوب متصل" : "computer online"} · ${status.your_disk_mb ?? 0} MB`
             : `⚠ ${String(status.error || (ar ? "الحاسوب غير متاح الآن (الاستوديو يعمل أو يعيد التشغيل)" : "computer unavailable now"))}`}
         </div>
       </div>
@@ -216,16 +215,6 @@ export default function FreeComputer({ lang, defaultModel, logs }: { lang: Lang;
           {jobLog && <pre style={{ ...mono, whiteSpace: "pre-wrap", marginTop: 10, background: "#0b1220", color: "#e2e8f0", padding: 10, borderRadius: 8, maxHeight: 260, overflow: "auto" }}>{jobLog.text}</pre>}
         </div>
       )}
-
-      {/* Logs live OUTSIDE and BELOW the computer screen (owner's order): a collapsible panel, off by default, never over the screen. */}
-      {logs ? (
-        <div className="n-card" style={{ padding: 10, marginTop: 10 }}>
-          <button type="button" onClick={() => setLogOpen((v) => !v)} style={{ ...chip(logOpen), width: "100%" }}>
-            {logOpen ? (ar ? "▲ إخفاء سجل المهام" : "▲ Hide task log") : (ar ? "▼ إظهار سجل المهام" : "▼ Show task log")}
-          </button>
-          {logOpen ? <div style={{ marginTop: 8 }}>{logs}</div> : null}
-        </div>
-      ) : null}
     </div>
   );
 }

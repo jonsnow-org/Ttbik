@@ -206,6 +206,45 @@ def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: 
     return repair_call(answer) if use else answer
 
 
+def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: int, temperature: float = 0.0):
+    """Yield decoded text pieces of a native role chat as the model writes them, so a server can stream the answer
+    token by token (the Mini App live view). Same prompt and sampling as qwen3_chat_messages; no tool-call guard and
+    no thinking span (a streamed reply is a plain answer)."""
+    from generate import generate_tokens_iter
+    context = int(getattr(getattr(model, "cfg", None), "max_seq_len", MAX_PROMPT_TOKENS))
+    n = max(1, min(int(max_new_tokens), context - 16))
+    prompt_ids = _qwen3_messages_prompt_ids(tokenizer, messages, max(1, context - n - 8))
+    prompt_ids.extend(tokenizer.encode(" thinking\n\n</think>\n\n"))
+    ids = torch.tensor([prompt_ids], dtype=torch.long)
+    end = tokenizer.encode("<|im_end|>")[-1]
+    sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
+    held: list[int] = []
+    prev = ""
+    for token in generate_tokens_iter(model, ids, max_new_tokens=n, eos_id=end, repetition_penalty=1.05,
+                                      allowed_ranges=[(0, tokenizer.vocab_size)] * n, **sample):
+        if token == end or token >= tokenizer.vocab_size:
+            break
+        held.append(token)
+        # Hold back the last token (a byte-level token can be the start of a multi-byte character) and yield only the
+        # NEW text since the previous piece, so the caller appends deltas and never repeats the answer.
+        text = tokenizer.decode(held[:-1])
+        if len(text) > len(prev):
+            yield text[len(prev):]
+            prev = text
+
+
+def studio_generate_stream(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default"):
+    """The token-by-token sibling of studio_generate: yields decoded text pieces for the Mini App's live view.
+    Only the model's own chat path is streamed; a `#` diagnostic or the legacy dialogue layout is answered in one
+    piece (their search pause / retry is not a token stream), so callers get a uniform iterator either way."""
+    prompt, modes = split_modes(prompt)
+    if not prompt.strip().startswith("#") and _uses_qwen3_chat(model):
+        yield from qwen3_chat_stream(model, tokenizer, [{"role": "user", "content": prompt}], max_new_tokens,
+                                     temperature=modes.get("temp", 0.0))
+        return
+    yield studio_generate(model, tokenizer, prompt, max_new_tokens, today, search_fn)
+
+
 def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
     """Backward-compatible single-user-turn entry. Tool prompts retain their own call guard."""
     return qwen3_chat_messages(model, tokenizer, [{"role": "user", "content": prompt}], max_new_tokens,
@@ -318,4 +357,12 @@ if __name__ == "__main__":
     _g.generate_tokens = _real
     assert calls == [6, 10, 10], calls
     assert isinstance(a1, str) and isinstance(a0, str)
+    # token streaming (the Mini App's live view): the streamed pieces reassemble to a prefix of the one-shot answer
+    cfgq3 = ShamSmallConfig(vocab_size=402, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=1024, chat_format="qwen3")
+    mq3 = ShamSmall(cfgq3).train(False)
+    pieces = list(studio_generate_stream(mq3, Tok2(), "سؤال", 10))
+    joined = "".join(pieces)
+    full = qwen3_chat(mq3, Tok2(), "سؤال", 10, temperature=0.0, think_tokens=0)
+    assert pieces and all(isinstance(p, str) for p in pieces), pieces
+    assert joined and full.startswith(joined), (joined, full)
     print("sham_studio_chat self-test OK")

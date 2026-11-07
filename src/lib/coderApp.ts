@@ -7,7 +7,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { terminalAllowed } from "@/lib/coderPlans";
 import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
-import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
+import { archiveFinishedTasks, listTasks, taskEvents, type TaskModelFilter } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { normalizePref, normalizeThinkPolicy } from "@/lib/modes";
@@ -380,7 +380,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       }
       const messages = await C.chatMessages(chatId, model, id, db);
       if (!messages) throw new AppError(404, "not found");
-      return { model, id, messages };
+      // The live run of THIS conversation, so the app can stream its text as it is written (Nova tags its run with the thread; Sham now does too).
+      const liveTask = (await listTasks(chatId, { active: true, limit: 20, model: model as TaskModelFilter }, db))
+        .find((x) => (x as { thread_id?: string | null }).thread_id === id);
+      return { model, id, messages, liveRun: liveTask?.run_id || null, liveAfter: 0 };
     }
     case "send": {
       const text = String(body.text || "").trim();

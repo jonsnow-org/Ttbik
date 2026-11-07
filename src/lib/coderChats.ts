@@ -15,6 +15,13 @@ export type ChatItem = { id: string; title: string; pinned: boolean; archived: b
 type Sdb = Parameters<typeof S.listThreads>[3];
 
 const sdb = (db: Db): Sdb => db as unknown as Sdb;
+
+/** The Sham chat (thread) this user currently has open for `model`, or null. Used to tag a run so the Mini App can stream it live.
+ *  Lives here, not in coderSections: this module is the one allowed meeting point of the Nova and Sham sides. */
+export async function shamOpenThreadId(chatId: number, model: ChatModelId, db: Db): Promise<string | null> {
+  if (model !== "sham" && model !== "sham_v2") return null;
+  return S.currentThreadId(chatId, variantOf(model), sdb(db));
+}
 const clip = (s: string, n: number) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 
 /**

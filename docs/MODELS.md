@@ -13,7 +13,7 @@ Code: `src/lib/coderModels.ts` (registry), `src/lib/openCoderStudio.ts` (engine 
 | `gemma4-e4b` | Gemma 4 E4B candidate | owner only (locked) | `sham-donor-gemma4-e4b-*` | `gemma4-realistic-vision-v6-test` | `sham-donor-gemma4-e4b-media` |
 | `minicpmo45` | MiniCPM-o 4.5 candidate | owner only (locked) | `sham-donor-minicpmo45-*` | `umranz-sd15-image-test` | `sham-donor-minicpmo45-media` |
 | `sham_v2` | Sham v2 (old Sham code + modified donor weights) | owner; visibility toggle | `sham-v2-server` (+ overflow) | `realistic-vision-v6-test` | Sham v2's own media lane |
-| `sham` | Sham v1 | owner | **hands-off** (being retrained from scratch) | — | — |
+| `sham` | Sham v1 | owner | open (being retrained from scratch; work on it freely — owner's order 2026-11-06) | — | — |
 
 ## LFM2.5 (the "forgotten fast candidate")
 It was measured on 2026-11-02 (about 58 tok/s reading, 11.6 tok/s writing on 2 vCPU) but was then hidden inside Nova's pool as replica 4 (`MODEL_OVERRIDES`).

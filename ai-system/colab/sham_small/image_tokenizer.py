@@ -189,6 +189,52 @@ class VectorQuantizer(nn.Module):
         token_ids = token_ids.view(batch, height, width)
         return quantized, token_ids, vq_loss
 
+    @torch.no_grad()
+    def initialize_from_data(self, z: torch.Tensor, iters: int = 25, seed: int = 0) -> None:
+        """Seed the codebook from real encoder outputs (k-means) instead of the
+        uniform init above. The uniform init puts every code within
+        ~1/num_codes of the origin while real encoder outputs sit ~1.0 away from
+        it, so at step 0 every location maps to whichever code happens to be
+        nearest the origin and the codebook collapses to a handful of codes
+        (measured: 12/256 used on the synthetic set). Seeding the codes with the
+        encoder's own output distribution removes that mismatch."""
+        flat = z.detach().permute(0, 2, 3, 1).reshape(-1, self.code_dim).float()
+        n = flat.shape[0]
+        generator = torch.Generator().manual_seed(seed)
+        if n >= self.num_codes:
+            idx = torch.randperm(n, generator=generator)[: self.num_codes]
+        else:
+            # Fewer encoder outputs than codes (a tiny batch): sample with
+            # replacement so the codebook is still fully seeded.
+            idx = torch.randint(0, n, (self.num_codes,), generator=generator)
+        centers = flat[idx].clone()
+        for _ in range(iters):
+            labels = (
+                flat.pow(2).sum(dim=1, keepdim=True)
+                - 2 * flat @ centers.t()
+                + centers.pow(2).sum(dim=1)
+            ).argmin(dim=1)
+            for code in range(self.num_codes):
+                mask = labels == code
+                if mask.any():
+                    centers[code] = flat[mask].mean(dim=0)
+        self.codebook.weight.copy_(centers.to(self.codebook.weight.dtype))
+
+    @torch.no_grad()
+    def revive_dead_codes(self, usage: torch.Tensor, z: torch.Tensor, threshold: float = 0.5) -> int:
+        """Re-seed codes that have fallen out of use with current encoder
+        outputs (the standard VQ-VAE revival step). Without it a code that dies
+        once can never come back, which is how a partially-collapsed codebook
+        stays collapsed for the whole run. Returns how many codes were revived."""
+        dead = (usage < threshold).nonzero(as_tuple=True)[0]
+        if dead.numel() == 0:
+            return 0
+        flat = z.detach().permute(0, 2, 3, 1).reshape(-1, self.code_dim).float()
+        picked = flat[torch.randint(0, flat.shape[0], (dead.numel(),), device=flat.device)]
+        self.codebook.weight[dead] = (picked + 0.01 * flat.std() * torch.randn_like(picked)).to(self.codebook.weight.dtype)
+        usage[dead] = threshold * 4  # a revived code gets a grace period before it can be called dead again
+        return int(dead.numel())
+
 
 class ImageTokenizer(nn.Module):
     def __init__(self, cfg: ImageTokenizerConfig):

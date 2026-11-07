@@ -118,7 +118,7 @@ if __name__ == "__main__":
     repo_root = Path(__file__).resolve().parents[3]
     corpus_paths = [
         p for p in glob.glob(str(repo_root / "**/*.md"), recursive=True) + glob.glob(str(repo_root / "**/*.txt"), recursive=True)
-        if Path(p).stat().st_size > 0
+        if Path(p).is_file() and Path(p).stat().st_size > 0
     ]
     assert corpus_paths, f"no bootstrap text found under {repo_root}"
     total_bytes = sum(Path(p).stat().st_size for p in corpus_paths)

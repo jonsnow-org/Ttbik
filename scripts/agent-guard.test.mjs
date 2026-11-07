@@ -13,7 +13,7 @@ test("changing a coin image or the frozen registry blocks", () => {
   assert.equal(run("M\tsrc/app/api/zenobia/znbt/icon/route.ts").some((h) => h.level === "block"), true);
 });
 test("contracts, Athar, Oracle and the gate block", () => {
-  for (const p of ["contracts/zenobia-curve/contracts/curve.tolk", "athar/build/x.boc", "deploy/oracle/agent/BRANCH", "cloudflare/site-gate/worker.js", "src/lib/atharBotLogic.ts", "CLAUDE.md", "src/lib/znbtPayout.ts"])
+  for (const p of ["contracts/zenobia-curve/contracts/curve.tolk", "athar/build/x.boc", "deploy/oracle/agent/BRANCH", "cloudflare/site-gate/worker.js", "src/lib/atharBotLogic.ts", "src/lib/znbtPayout.ts"])
     assert.equal(run(`M\t${p}`).some((h) => h.level === "block"), true, p);
 });
 test("a NEW file in a protected folder only warns; ordinary files are untouched", () => {
@@ -25,14 +25,13 @@ test("pins, workflows and schema warn but never block", () => {
   assert.equal(hits.length, 3);
   assert.equal(hits.every((h) => h.level === "warn"), true);
 });
-test("the guard and the common rules protect themselves", () => {
-  for (const p of ["deploy/hosting/protected-paths.json", "scripts/agent-guard.mjs", ".github/workflows/agent-guard.yml", "docs/agents/COMMON.md"])
-    assert.equal(run(`M\t${p}`).some((h) => h.level === "block"), true, p);
-});
-test("Sham AI model files are flagged for review (supervised by the owner and the main session: a warning, not a block)", () => {
-  for (const p of ["ai-system/colab/sham_small/x.py", ".github/workflows/sham-lightning.yml", ".github/workflows/deploy-kaggle-notebook.yml", "docs/SHAM_NOTES.md", "deploy/oracle/agent/install-sham.sh"])
-    assert.equal(run(`M\t${p}`).some((h) => h.id === "sham-model" && h.level === "warn"), true, p);
-  assert.equal(run("M\tsrc/lib/shamStudio.ts").every((h) => h.level === "warn"), true);
+test("the Sham AI model and the general notices are NOT protected (owner's order 2026-11-06: only Athar is hands-off)", () => {
+  // No hands-off rule, and no Sham-specific rule: only the generic workflows caution may remain for a workflow file.
+  for (const p of ["ai-system/colab/sham_small/x.py", ".github/workflows/sham-lightning.yml", ".github/workflows/deploy-kaggle-notebook.yml", "docs/SHAM_NOTES.md", "CLAUDE.md", "AGENTS.md", "docs/agents/COMMON.md", "scripts/agent-guard.mjs", "src/lib/shamStudio.ts", "src/lib/shamMemory.ts"])
+    assert.equal(run(`M\t${p}`).every((h) => h.level === "warn"), true, p);
+  // None of them is a block, and none carries a Sham-specific id any more.
+  for (const p of ["ai-system/colab/sham_small/x.py", "docs/SHAM_NOTES.md", "CLAUDE.md", "src/lib/shamStudio.ts"])
+    assert.equal(run(`M\t${p}`).some((h) => h.id === "sham-model" || h.id === "sham-interface" || h.id === "notices"), false, p);
 });
 test("owner approval turns blocks into warnings", () => {
   assert.equal(run("M\tpublic/zenobia/znbt-coin.webp", true).every((h) => h.level === "warn"), true);

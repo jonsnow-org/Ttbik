@@ -75,6 +75,30 @@ describe("the unified chat list", () => {
     const after: any = await appOp(owner, "chats", { model: "all" }, { db: d, bot, botRow });
     expect(after.items.map((x: any) => x.model)).toEqual(["coder"]);
   });
+
+  it("chat_messages reports the live run of that chat so the app can stream it (and null when idle)", async () => {
+    const d: any = pgDb();
+    const { bot } = fakeBot();
+    const { taskStart, taskEvent } = await import("@/lib/coderTasks");
+    const { currentThreadId } = await import("@/lib/shamThreads");
+    await seed(d);
+    const all: any = await appOp(owner, "chats", { model: "all" }, { db: d, bot, botRow });
+    const sham = all.items.find((x: any) => x.model === "sham_v2");
+    const shamThread = await asV("v2", () => currentThreadId(OWNER, "v2", d));
+    expect(shamThread).toBe(sham.id);
+    // idle: no run for this chat yet
+    const before: any = await appOp(owner, "chat_messages", { model: "sham_v2", id: sham.id }, { db: d, bot, botRow });
+    expect(before.liveRun).toBeNull();
+    // a running Sham task tagged with this chat's thread is reported
+    const runId = "sham-live-1";
+    await taskStart(OWNER, { runId, slot: "sham_v2", source: "interactive", title: "سؤال", threadId: sham.id }, d);
+    await taskEvent(runId, "text", "جزء", d);
+    const during: any = await appOp(owner, "chat_messages", { model: "sham_v2", id: sham.id }, { db: d, bot, botRow });
+    expect(during.liveRun).toBe(runId);
+    // a run of the OTHER Sham variant is not reported for this chat
+    const otherThread = await asV("v1", () => currentThreadId(OWNER, "v1", d));
+    expect(otherThread).not.toBe(sham.id);
+  });
 });
 
 describe("the shared terminal survives dropped connections", () => {

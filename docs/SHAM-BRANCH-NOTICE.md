@@ -1,20 +1,17 @@
-> **ابدأ من بوابة شام:** [`docs/SHAM_GATE.md`](./SHAM_GATE.md): ما هو شام، قواعده الصارمة، ومن يشرف عليه. اقرأها قبل أي تعديل.
+# تنبيه: كود شام ودفاتره (مُحدَّث 2026-11-06)
 
-# تنبيه لجلسة أثر ولجروك ولأي جلسة أخرى: فرع كود شام (2026-10-05)
+> **تحديث المالك (2026-11-06): لا يوجد «ممنوع اللمس» إلا مشروع أثر.** كل ما في هذا الملف عن حماية ملفات شام من جلسة أثر لم يعد ساريًا؛ شام ودفاتره مفتوحة للعمل لكل جلسة هنا.
 
-**بأمر صريح من المالكة.** كود نموذج «شام» (مجلد `ai-system/` وملفات `.github/workflows/sham-*.yml`) ومهامّه المجدولة على GitHub **لا تتبع هذا الفرع**، بل الفرع **`sham-main`**.
-
-## ماذا حدث
-- هذا الفرع (`claude/free-services-marketplace-h6rwk2`) هو الفرع الافتراضي للمستودع، وهو فرع جلسة أثر. GitHub لا يشغّل الجداول الزمنية (`cron`) إلا من الفرع الافتراضي، فبقيت **أربعة ملفات** تعريف فقط هنا:
+## الحقائق التقنية (تبقى صحيحة)
+- كود نموذج «شام» (مجلد `ai-system/`) وبعض مهامّه المجدولة تعمل من فرع **`sham-main`**، وبقيت أربعة ملفات تعريف فقط على الفرع الافتراضي لأن GitHub لا يشغّل الجداول (`cron`) إلا من الفرع الافتراضي:
   `.github/workflows/sham-collector.yml` · `sham-cpu-trainer.yml` · `sham-merge-eval.yml` · `sham-status.yml`
-- كل واحد منها يبدأ بـ `actions/checkout` مع `ref: sham-main`، أي يسحب كود شام من فرعه الخاص. لذلك **لا حاجة لدمج كود شام في هذا الفرع بعد الآن.**
-- **تصحيح (2026-10-10):** نسخة `ai-system/` الموجودة هنا **مستعملة فعلاً**: دفاتر Kaggle تسحب كودها بـ `git clone --branch claude/free-services-marketplace-h6rwk2`. فهي ليست نسخة منسية. تُحدَّث **فقط** بيد 🟣 CLAUDE-SHAM-MODEL وبموافقة المالكة (تحديث لملفات شام فقط، لا يمس أثر). **لا تُحذف ولا تُعدَّل** من أي جلسة أخرى: حذفها أو تعديلها يوقف دفاتر التدريب.
+- كل واحد منها يبدأ بـ `actions/checkout` مع `ref: sham-main`.
+- نسخة `ai-system/` الموجودة على هذا الفرع **مستعملة فعلاً**: دفاتر Kaggle تسحب كودها بـ `git clone --branch claude/free-services-marketplace-h6rwk2`. **لا تُحذف**: حذفها يوقف دفاتر التدريب.
 
-## القواعد
-1. **جلسة أثر:** لا تلمسي الملفات الأربعة ولا `ai-system/` ولا `sham-*`. هذا تنبيه متبادل: `CLAUDE.md` يحمي ملفات أثر منّا، وهذا الملف يحمي ملفات شام منكم.
-2. **جروك:** لا تعدّل شيئاً من ذلك. طلبات الدمج الخاصة بشام تستهدف `sham-main` ولا تُدمج إلا بموافقة 🟣 CLAUDE-SHAM-MODEL (فترة المراقبة أسبوع على الأقل).
-3. **لا تغيّروا اسم `sham-main` ولا تحذفوه ولا تدفعوا إليه** (حذفه يوقف كل مهام النموذج المجدولة).
-4. أي تغيير مطلوب على هذه الملفات الأربعة يمر عبر 🟣 CLAUDE-SHAM-MODEL بإذن المالكة.
+## القواعد الحالية (2026-11-06)
+1. `ai-system/` و`sham-*` مفتوحة للعمل — عدّلها وأصلحها وأعد تشغيلها. لا تُحذف نسخة `ai-system/` لأن الدفاتر تسحبها.
+2. لا تغيّر اسم `sham-main` ولا تحذفه ولا تدفع إليه بالقوة (حذفه يوقف المهام المجدولة).
+3. القواعد الحيّة الوحيدة: لا أسرار في المستودع، ولا تلمس مشروع أثر وعقوده الحيّة.
 
 ---
-Notice to all sessions: Sham model code and its scheduled GitHub jobs run from branch **`sham-main`**. Only four thin workflow files live on this (Athar's, default) branch because GitHub runs `cron` only from the default branch; each checks out `sham-main`. Do not edit, delete or "sync" them, `ai-system/`, or `sham-*` files, and do not push to or delete `sham-main`, without the owner's explicit request. CORRECTION 2026-10-10: the `ai-system/` copy on this branch is NOT a leftover: Kaggle notebooks `git clone` this branch, so deleting or editing it stops the training notebooks. Only the Sham session updates it, with the owner's approval.
+Notice to all sessions (updated 2026-11-06): the owner's order removed every hands-off rule except Athar. Sham model code (`ai-system/`) and its scheduled jobs run from branch **`sham-main`**; four thin workflow files live on this default branch because GitHub runs `cron` only from the default branch, each checking out `sham-main`. The `ai-system/` copy on this branch is NOT a leftover: Kaggle notebooks `git clone` this branch, so deleting it stops the training notebooks. You may now edit, fix and re-run all of it; just never delete the `ai-system/` copy and never force-push to `sham-main`.

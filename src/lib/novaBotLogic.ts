@@ -869,7 +869,7 @@ const SHAM_LEGS = 6;                                   // v1 keeps its existing 
 const SHAM_V2_LEGS = 12;                                // v2 can use up to roughly 48 minutes including the initial leg
 
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
-async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false): Promise<boolean> {
+async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false, streamed = false): Promise<boolean> {
   if (r.kind === "stopped") {
     if (runId) { await taskEvent(runId, "info", "أُوقفت المهمة بناءً على طلب المستخدم.").catch(() => null); await taskStatus(runId, "stopped").catch(() => null); }
     if (!appOnly) { await cardDrop(bot, chatId, card); await bot.api.sendMessage(chatId, "⏹️ أُوقفت المهمة.").catch(() => null); }
@@ -907,7 +907,7 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   }
   if (r.kind === "reply") {
     if (runId) {
-      if (r.reply?.type === "text" && r.reply.text) await taskEvent(runId, "text", r.reply.text).catch(() => null);
+      if (!streamed && r.reply?.type === "text" && r.reply.text) await taskEvent(runId, "text", r.reply.text).catch(() => null);
       else await taskEvent(runId, "info", r.reply?.text || `Sham returned ${r.reply?.type || "a reply"}`).catch(() => null);
       await taskEvent(runId, "done", "").catch(() => null);
       await taskStatus(runId, "done", r.steps).catch(() => null);
@@ -924,7 +924,7 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
     if (!(await cardSay(bot, chatId, card, planMsg))) await bot.api.sendMessage(chatId, planMsg).catch(() => null);
     return true;
   }
-  if (runId) { await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
+  if (runId) { if (!streamed) await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
   if (appOnly) await cardDrop(bot, chatId, card);
   else if (card?.msgId && out.trim() && out.length <= 24000) await cardFinish(bot, chatId, card, out, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
   else { await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, { type: "text", text: out }); }
@@ -1179,11 +1179,14 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
   const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+  // Token-by-token: Sham v2's streamed chat appends each piece as it is written, so the chat grows live (owner: all models live).
+  let streamed = false;
+  const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
   await progress.flush();
-  return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard());
+  return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard(), false, streamed);
 }
 
 /** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
@@ -1203,12 +1206,14 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
         await taskEvent(runId, "info", "جاري تحميل سياق المحادثة الخاص بالنموذج...").catch(() => null);
         const mem = await loadChatMemory(chatId, text);
         const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+        let streamed = false;
+        const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
         stage = "generate with selected Sham variant";
         await taskEvent(runId, "info", `جاري التوليد عبر ${variant === "v2" ? "استوديو شام v2" : "استوديو شام v1"} فقط.`).catch(() => null);
-        const r = await shamAgentRun({ text, history: mem?.history, onEvent, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
+        const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
         if (!(await taskIsActive(runId))) return;
         stage = "deliver model result";
-        await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true);
+        await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true, streamed);
       } catch (e) {
         const detail = String((e as Error)?.message || e).replace(/\s+/g, " ").slice(0, 240);
         const message = `${variant === "v2" ? "شام v2" : "شام"} — ${stage}: ${detail}`;
