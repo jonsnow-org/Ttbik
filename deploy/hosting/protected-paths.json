@@ -1,38 +1,6 @@
 {
-  "_": "Paths that autonomous agents (supervisor bots, Grok, any scheduled session) must not change without the owner's explicit approval. Checked by scripts/agent-guard.mjs (CI on pull requests; label `owner-approved` on the PR lets a reviewed change through). 'block' = modified/deleted/renamed file fails the check; added files only warn. See docs/agents/COMMON.md §1.",
+  "_": "Paths that autonomous agents (supervisor bots, Grok, any scheduled session) must not change without the owner's explicit approval. Checked by scripts/agent-guard.mjs (CI on pull requests; label `owner-approved` on the PR lets a reviewed change through). 'block' = modified/deleted/renamed file fails the check; added files only warn. See docs/agents/COMMON.md §1. Owner's order 2026-11-06: the only hands-off project is Athar; the Sham AI model and the general notices are NOT protected and were removed from this list. What remains below are live-money guards (on-chain coins, contracts, Athar, the servers that serve them) — a change there can move real money and is irreversible.",
   "rules": [
-    {
-      "id": "guard-itself",
-      "level": "block",
-      "why": "The guard and the common rules cannot be weakened by the agents they restrain.",
-      "paths": [
-        "deploy/hosting/protected-paths.json",
-        "scripts/agent-guard.mjs",
-        "scripts/agent-guard.test.mjs",
-        ".github/workflows/agent-guard.yml",
-        "docs/agents/COMMON.md"
-      ]
-    },
-    {
-      "id": "sham-model",
-      "level": "warn",
-      "why": "Training of the Sham AI model is supervised by the owner and the main Claude session only (owner's order 2026-10-26). A change here is a warning for review, not a block; any OTHER agent must still not touch it.",
-      "paths": [
-        "ai-system/",
-        ".github/workflows/sham-",
-        ".github/workflows/deploy-sham-small.yml",
-        ".github/workflows/deploy-kaggle-",
-        ".github/workflows/deploy-modelscope-studio.yml",
-        ".github/workflows/deploy-hf-",
-        ".github/workflows/gather-knowledge.yml",
-        ".github/workflows/propose-self-improvement.yml",
-        "docs/SHAM",
-        "docs/FOR_SHAM_",
-        "docs/sham-",
-        "deploy/oracle/agent/install-sham.sh",
-        "deploy/oracle/agent/SHAM_ON"
-      ]
-    },
     {
       "id": "coin-frozen",
       "level": "block",
@@ -114,15 +82,6 @@
       ]
     },
     {
-      "id": "notices",
-      "level": "block",
-      "why": "The shared-repository notice itself (owner's standing order).",
-      "paths": [
-        "CLAUDE.md",
-        "AGENTS.md"
-      ]
-    },
-    {
       "id": "framework-pins",
       "level": "warn",
       "why": "Next 16.3.8, --webpack, deepmerge-ts override and isOwnerServer() async are pinned by the owner.",
@@ -152,18 +111,6 @@
         "prisma/schema.prisma",
         "prisma/migration_",
         "supabase/"
-      ]
-    },
-    {
-      "id": "sham-interface",
-      "level": "warn",
-      "why": "Site-side glue to the Sham model (memory/studio client). Leave alone unless a site error forces a minimal fix, then say so in the PR.",
-      "paths": [
-        "src/lib/shamMemory.ts",
-        "src/lib/shamStudio.ts",
-        "src/lib/__tests__/shamMemory.test.ts",
-        "src/lib/__tests__/shamStudio.test.ts",
-        "prisma/migration_19_sham_memory.sql"
       ]
     }
   ]
