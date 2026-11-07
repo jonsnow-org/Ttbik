@@ -250,7 +250,9 @@ def _worker() -> None:
                          error=f"{type(exc).__name__}: {str(exc)[:200]}")
             _say(f"failed: {type(exc).__name__}: {str(exc)[:200]}")
             print(traceback.format_exc()[-600:])
-        time.sleep(300 if STATE["phase"] != "ready" else REFRESH_SECONDS)
+        # Not ready yet (a transient hub error such as "Failed to check existence of repo" is common right after a deploy): retry every minute, not every 5
+        # (live 2026-11-07: 33 failed checks, the Studio needed >20 min to recover and the deploy job gave up first). A ready Studio keeps the slow refresh.
+        time.sleep(60 if STATE["phase"] != "ready" else REFRESH_SECONDS)
 
 
 def status() -> str:
