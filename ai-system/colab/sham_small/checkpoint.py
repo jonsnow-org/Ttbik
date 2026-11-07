@@ -18,6 +18,7 @@ growing a trained small checkpoint into a larger config.
 from dataclasses import dataclass
 from pathlib import Path
 
+import os
 import torch
 
 from model import ShamSmall, ShamSmallConfig
@@ -71,6 +72,37 @@ def save_checkpoint(
         raise IOError(f"checkpoint write to {path} did not take effect (Drive sync issue?)")
 
 
+def _lowmem(path: str | Path) -> bool:
+    """SHAM_LOWMEM=1 forces the low-memory load, 0 forbids it; otherwise it is used for checkpoints over 2 GB only (small / old Sham: unchanged)."""
+    v = os.environ.get("SHAM_LOWMEM", "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    try:
+        return Path(path).stat().st_size > 2 * 1024**3
+    except OSError:
+        return False
+
+
+def quantize_int8(model: "ShamSmall") -> "ShamSmall":
+    """Dynamic int8 for every Linear, one layer at a time (peak memory stays near the bf16 size). Generation on a CPU is bound by reading the weights for
+    every token, so half the bytes is about twice the speed. The remaining float parts (embedding, norms) go to float32, the dtype the int8 layers take."""
+    from torch.ao.nn.quantized.dynamic import Linear as QLinear
+    qconfig = torch.ao.quantization.default_dynamic_qconfig
+    for parent in list(model.modules()):
+        for name, child in list(parent.named_children()):
+            if isinstance(child, torch.nn.Linear):
+                f = child.float()
+                f.qconfig = qconfig
+                setattr(parent, name, QLinear.from_float(f))
+    return model.float()
+
+
+def _quant(path: str | Path) -> bool:
+    """SHAM_QUANT=int8 asks for the int8 load; off by default (not yet measured fast enough on the Studio)."""
+    v = os.environ.get("SHAM_QUANT", "").strip().lower()
+    return v == "int8"                       # opt-in: the first int8 load of the 1.7B body stayed "loading" for 8+ minutes on the 2-core Studio (2026-10-26)
+
+
 def load_checkpoint(
     path: str | Path,
     map_location: str | torch.device = "cpu",
@@ -81,12 +113,32 @@ def load_checkpoint(
     idea of what config to use), loads its weights, and returns
     (model, step, extra). Pass load_optimizer_into=<an optimizer built
     for this same model> to also resume its state."""
-    payload = torch.load(path, map_location=map_location, weights_only=False)
+    lowmem = _lowmem(path) and str(map_location) == "cpu"
+    # 2026-10-27: a big (≈1.7B) checkpoint on an 8 GB free Studio hung silently: the whole file in memory + a random fp32 model + the copy = more than the RAM.
+    # Low-memory path: the file is memory-mapped (pages are evictable), the model is built directly in bf16 (the dtype it is saved in) and the weights are copied in.
+    payload = torch.load(path, map_location=map_location, weights_only=False, **({"mmap": True} if lowmem else {}))
 
     cfg = ShamSmallConfig.from_dict(payload["config"])
-    model = ShamSmall(cfg)
-    model.load_state_dict(payload["model_state_dict"])
+    if lowmem:
+        prev = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+        try:
+            with torch.device("meta"):                                    # no random initialisation of 1.7B weights (minutes on 2 cores): the saved tensors are assigned
+                model = ShamSmall(cfg)
+        finally:
+            torch.set_default_dtype(prev)
+        from model import precompute_rope
+        cos, sin = precompute_rope(cfg.hd, cfg.max_seq_len, cfg.rope_theta)             # the position tables stay in float32, as in the normal load
+        model.register_buffer("rope_cos", cos, persistent=False)
+        model.register_buffer("rope_sin", sin, persistent=False)
+    else:
+        model = ShamSmall(cfg)
+    model.load_state_dict(payload["model_state_dict"], assign=lowmem)
+    if lowmem:
+        payload["model_state_dict"] = None
     model.to(map_location)
+    if lowmem and _quant(path):
+        quantize_int8(model)
 
     if load_optimizer_into is not None:
         if "optimizer_state_dict" not in payload:

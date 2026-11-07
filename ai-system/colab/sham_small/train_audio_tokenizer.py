@@ -41,6 +41,10 @@ def train_vqvae(
     lr: float = 3e-4,
     device: str | None = None,
     log_every: int = 10,
+    data_init: bool = True,
+    revive_every: int = 16,
+    usage_decay: float = 0.995,
+    revive_threshold: float = 0.5,
 ) -> TrainStats:
     # None = whatever the notebook runs on: the GPU if one is attached, else the CPU.
     # (Owner, 2026-09-27: every notebook must use the accelerator she picks, GPU or CPU.)
@@ -53,6 +57,16 @@ def train_vqvae(
     num_samples = mels.shape[0]
     epoch_losses = []
     all_token_ids_last_epoch = []
+    usage = torch.zeros(tokenizer.cfg.num_codes, device=device)
+    revived_total = 0
+    step = 0
+
+    if data_init:
+        with torch.no_grad():
+            tokenizer.encoder.eval()
+            z_seed = tokenizer.encoder(mels[: min(num_samples, 8 * batch_size)].to(device))
+            tokenizer.encoder.train()
+        tokenizer.quantizer.initialize_from_data(z_seed)
 
     for epoch in range(num_epochs):
         permutation = torch.randperm(num_samples)
@@ -67,6 +81,15 @@ def train_vqvae(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            # Data-dependent init + dead-code revival (see train_image_tokenizer
+            # for the measurements behind these settings): without them the
+            # audio codebook collapses the same way the image one did.
+            usage *= usage_decay
+            usage += torch.bincount(token_ids.detach().reshape(-1), minlength=tokenizer.cfg.num_codes).to(usage.dtype)
+            step += 1
+            if revive_every > 0 and step % revive_every == 0:
+                revived_total += tokenizer.quantizer.revive_dead_codes(usage, tokenizer.encoder(batch).detach(), revive_threshold)
 
             epoch_loss_sum += loss.item() * batch.shape[0]
             if epoch == num_epochs - 1:
@@ -83,7 +106,12 @@ def train_vqvae(
     final_usage = int(torch.unique(all_token_ids_last_epoch).numel())
     # Hand the tokenizer back on the CPU: callers save it and encode CPU tensors with it.
     tokenizer.to("cpu")
-    return TrainStats(epoch_losses=epoch_losses, final_codebook_usage=final_usage, codebook_size=tokenizer.cfg.num_codes)
+    return TrainStats(
+        epoch_losses=epoch_losses,
+        final_codebook_usage=final_usage,
+        codebook_size=tokenizer.cfg.num_codes,
+        revived_codes=revived_total,
+    )
 
 
 def save_tokenizer_checkpoint(path: str | Path, tokenizer: AudioTokenizer, step: int) -> None:

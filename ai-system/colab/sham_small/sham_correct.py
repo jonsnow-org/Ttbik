@@ -17,7 +17,9 @@ Damage kinds (all taken from what the owner saw in the bot):
   dropped    words missing here and there
   off_topic  the answer to a DIFFERENT question
 
-<REVISE> is the last free special id (base + 15). When the measured gain is
+<REVISE> is a free special id (base + 17). +13/+14 are sham_decoding.py's
+turn markers and +15/+16 are motion_tokenizer.py's motion delimiters, so
+the next genuinely free slot is +17. When the measured gain is
 real (answer loss after a damaged draft approaches the loss with no draft),
 the bot can let Sham revise its own first draft — a learned step, no rules.
 """
@@ -31,10 +33,10 @@ import torch
 from model import SpecialTokens
 from sham_decoding import SHAM_TURN, USER_TURN
 
-REVISE = SpecialTokens._base + 15
+REVISE = SpecialTokens._base + 17
 _taken = {v for k, v in vars(SpecialTokens).items() if k.isupper() and isinstance(v, int)}
 assert REVISE not in _taken | {USER_TURN, SHAM_TURN}, "REVISE id already used"
-assert REVISE < SpecialTokens._base + 16
+assert REVISE < SpecialTokens._base + 20
 IGNORE = -100
 KINDS = ("loop", "invented", "cut", "dropped", "off_topic")
 
@@ -145,7 +147,7 @@ if __name__ == "__main__":
     exs = correction_examples(enc, ds, share=0.5, seed=3)
     assert 5 <= len(exs) <= 10
     from model import ShamSmall, ShamSmallConfig
-    m = ShamSmall(ShamSmallConfig(vocab_size=42256, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=512))
+    m = ShamSmall(ShamSmallConfig(vocab_size=REVISE + 1, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=512))
     g = revision_gain(m, enc, ds[:4], "cpu")
     assert set(g) == {"plain", "after_draft"}
     print(format_gain(g))

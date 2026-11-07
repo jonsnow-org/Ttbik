@@ -553,7 +553,7 @@ def stream_video_corpus(
                     [
                         ffmpeg_exe, "-y", "-i", video_path,
                         "-vf", f"fps=2,scale={frame_size}:{frame_size}",
-                        "-vsync", "vfr", "-frames:v", str(num_frames),
+                        "-fps_mode", "vfr", "-frames:v", str(num_frames),
                         frame_pattern,
                     ],
                     capture_output=True, text=True, timeout=60, check=True,

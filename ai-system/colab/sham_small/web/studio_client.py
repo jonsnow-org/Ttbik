@@ -19,12 +19,15 @@ import os
 
 import requests
 
-DEFAULT_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
+DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net"
 _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 
 
 def _base() -> str:
-    return (os.environ.get("SHAM_MODELSCOPE_URL") or DEFAULT_URL).rstrip("/")
+    # This client serves old Sham only. A stale Nova Studio URL must never cross the model boundary.
+    configured = [x.strip().rstrip("/") for x in (os.environ.get("SHAM_MODELSCOPE_URL") or DEFAULT_URL).split(",") if x.strip()]
+    valid = [x for x in configured if "nova-inference-server" not in x.lower()]
+    return (valid[0] if valid else DEFAULT_URL).rstrip("/")
 
 
 def _token() -> str:

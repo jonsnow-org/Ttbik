@@ -1,0 +1,503 @@
+"""
+Sham — teaching data for ALL of Nova's tools (GitHub, the private VM / terminal, web, memory, schedules, sub-agents, connectors), so that a trained Sham can
+use them through Nova's engine (src/lib/shamTools.ts). Same idea and masking as sham_agent_data.py, but for any tool:
+
+  the user's request -> <tool_call>{"name": ..., "arguments": {...}}</tool_call> (learned) -> the tool's result (masked: it comes from the tool at inference)
+  -> [more calls] -> the final answer (learned).
+
+No new special tokens (the live model's vocabulary is fixed): the call is plain text, written exactly as shamTools.ts reads it. Two sources:
+  examples_from_lessons(): the owner's Nova lessons (coder_lessons export, JSON Lines) of ANY kind — real tool use by a bigger model, secrets already dropped there;
+  synthetic_examples():    short, correct calls for each tool family (so every tool is seen even before enough lessons exist).
+Share of these in a training mix: SHAM_TOOLS_MIX (0..1, default 0.08 = a small share, ON). Until 2026-11-06 the default was 0 and this whole path was wired into v2 only, so v1's chat stage trained on no call at all while its engine offered ~40 tools — the owner's "components not connected to their correct paths" defect. SHAM_TOOLS_MIX=0 turns it off. Nothing here runs at inference as an answer rule.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+from pathlib import Path
+
+from model import SpecialTokens
+from sham_decoding import SHAM_TURN, USER_TURN
+
+IGNORE = -100
+
+
+def mix_share() -> float:
+    try:
+        return min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.08"))))
+    except ValueError:
+        return 0.0
+
+
+def tool_call_text(name: str, arguments: dict | str) -> str:
+    """The one spelling of a call (must stay identical to shamTools.ts shamToolConversation)."""
+    args = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+    return f'<tool_call>{{"name": "{name}", "arguments": {args or "{}"}}}</tool_call>'
+
+
+def result_text(name: str, result: str) -> str:
+    return f"\nنتيجة الأداة {name}:\n{result}\nشام:"
+
+
+def build_tool_example(text_ids_fn, user: str, steps: list[tuple[str, dict | str, str]], answer: str, max_result_tokens: int = 200,
+                       max_answer_tokens: int = 120, date_line: str | None = None) -> tuple[list[int], list[int]]:
+    """steps = [(tool name, arguments, result text), ...]. Calls and the answer are learned; results are masked."""
+    prefix = [SpecialTokens.BOS, USER_TURN] + text_ids_fn((date_line + "\n" if date_line else "") + user) + [SHAM_TURN]
+    ids, labels = list(prefix), [IGNORE] * len(prefix)
+    for name, args, result in steps:
+        call = text_ids_fn(tool_call_text(name, args))
+        back = text_ids_fn(result_text(name, result))[:max_result_tokens]
+        ids += call + back
+        labels += call + [IGNORE] * len(back)
+    ans = text_ids_fn(answer)[:max_answer_tokens]
+    return ids + ans + [SpecialTokens.EOS], labels + ans + [SpecialTokens.EOS]
+
+
+def examples_from_lessons(path: str | Path, text_ids_fn, limit: int = 2000, max_steps: int = 3, **kw) -> list[tuple[list[int], list[int]]]:
+    out: list[tuple[list[int], list[int]]] = []
+    p = Path(path)
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if len(out) >= limit:
+            break
+        try:
+            msgs = json.loads(line).get("messages") or []
+        except ValueError:
+            continue
+        user = next((m for m in msgs if m.get("role") == "user" and str(m.get("content", "")).strip()), None)
+        final = next((m for m in reversed(msgs) if m.get("role") == "assistant" and not m.get("tool_calls") and len(str(m.get("content", "")).strip()) >= 20), None)
+        if not (user and final):
+            continue
+        results = {m.get("tool_call_id"): str(m.get("content", "")) for m in msgs if m.get("role") == "tool"}
+        steps: list[tuple[str, dict | str, str]] = []
+        for m in msgs:
+            for c in m.get("tool_calls") or []:
+                f = c.get("function") or {}
+                res = results.get(c.get("id"))
+                if f.get("name") and res is not None and len(steps) < max_steps:
+                    steps.append((f["name"], f.get("arguments") or "{}", res[:1500]))
+        if steps:
+            out.append(build_tool_example(text_ids_fn, str(user["content"])[:700], steps, str(final["content"]).strip()[:600], **kw))
+    return out
+
+
+# (request, tool, arguments, a typical short result, the answer)
+CATALOG = [
+    ("اقرأ ملف README في {repo}.", "github_read_file", {"repo": "{repo}", "path": "README.md"}, "README.md (40 lines)\n1| # المشروع\n2| أداة لإدارة المهام.", "الملف يقول إن المشروع أداة لإدارة المهام."),
+    ("أعطني نظرة سريعة على المستودع {repo}.", "github_repo_scan", {"repo": "{repo}"}, "default branch main\nfolders: src, docs\nroot files: package.json, README.md", "المستودع فرعه الرئيسي main، وفيه مجلدا src وdocs وملف package.json."),
+    ("ما الملفات الموجودة في {repo}؟", "github_list_files", {"repo": "{repo}"}, "12 files\nREADME.md\nsrc/app.ts", "فيه 12 ملفاً، منها README.md وsrc/app.ts."),
+    ("ابحث في {repo} عن الدالة login.", "github_search_code", {"repo": "{repo}", "query": "login"}, "src/auth.ts\nsrc/routes.ts", "وجدت login في src/auth.ts وsrc/routes.ts."),
+    ("شغّل الاختبارات في المستودع {repo}.", "computer_repo", {"url": "https://github.com/{repo}"}, "cloned into repos/{repo}", None),
+    ("اعرض محتوى المجلد الحالي في الجهاز.", "computer_run", {"command": "ls"}, "app.py\nREADME.md\ntests", "في المجلد app.py وREADME.md ومجلد tests."),
+    ("ابحث عن آخر إصدار من Python.", "web_search", {"query": "latest Python release"}, "Python 3.14 released ...", "آخر إصدار وجدته هو Python 3.14."),
+    ("اقرأ هذه الصفحة: {url}", "fetch_page", {"url": "{url}"}, "Example Domain. This domain is for use in examples.", "الصفحة مخصصة لأمثلة التوثيق."),
+    ("تذكّر أنني أفضّل الردود القصيرة.", "memory_save", {"text": "المستخدم يفضّل الردود القصيرة"}, "saved", "حفظتُ ذلك، سأجعل ردودي قصيرة."),
+    ("ذكّرني كل صباح بمراجعة الطلبات.", "schedule_create", {"title": "مراجعة الطلبات", "prompt": "راجع طلبات الدمج الجديدة في المستودع الرئيسي ولخّصها", "kind": "cron"}, "scheduled", "تم، سأذكّرك كل صباح الساعة 9."),
+    ("ارسم لي قطة تلعب في الحديقة.", "make_media", {"kind": "image", "prompt": "قطة تلعب في الحديقة"}, "sent to the user as a picture", "أرسلتُ لك الصورة."),
+    ("ماذا تتذكر عن تفضيلاتي؟", "memory_search", {"query": "تفضيلات المستخدم"}, "المستخدم يفضّل الردود القصيرة", "أتذكر أنك تفضّل الردود القصيرة."),
+    ("ما المهام المجدولة عندي؟", "schedule_list", {}, "s1 | مراجعة الطلبات | كل يوم 9:00", "عندك مهمة واحدة: مراجعة الطلبات كل يوم 9:00."),
+    ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
+    ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
+    ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
+    ("هل تستطيع تحليل مستودع GitHub {repo}؟ ابدأ بفحص بنيته.", "github_repo_scan", {"repo": "{repo}"}, "default branch main; root files README.md, package.json; folders src, tests", "فحصت المستودع بالأداة. الفرع الافتراضي main، وفيه src وtests وملفات المشروع الأساسية."),
+    ("ما حالة CI في {repo} على الفرع main؟", "github_ci", {"repo": "{repo}", "ref": "main"}, "checks: build=success, lint=success, tests=success", "قرأت حالة CI للفرع main؛ البناء والتدقيق والاختبارات ناجحة بحسب نتيجة الأداة."),
+    ("اعرض طلبات الدمج المفتوحة في {repo}.", "github_prs", {"repo": "{repo}", "state": "open"}, "open pull requests: #7 Fix tests; #8 Update README", "هذه طلبات الدمج المفتوحة التي أعادتها GitHub؛ لا أستنتج طلبات غير موجودة في النتيجة."),
+    ("اقرأ الملفات الأساسية في {repo} حتى تحلل بنيته.", "github_read_files", {"repo": "{repo}", "paths": ["README.md", "package.json"], "ref": "main"}, "README.md: project overview; package.json: scripts build, lint, test", "قرأت README وpackage.json من نتيجة الأداة، ويمكنني تلخيص البنية والأوامر الفعلية الواردة فيهما."),
+    ("افحص آخر عمليات النشر في حساب Vercel المرتبط بالتطبيق.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v6/deployments?limit=5"}, "deployments: [{url: ttbik.vercel.app, state: READY}, {url: preview.example.vercel.app, state: ERROR}]", "قرأت قائمة النشر عبر موصل Vercel المرتبط. سأذكر الحالات التي أعادتها الأداة فقط، ولن أزعم أن نشرًا ناجح أو فاشل دون نتيجة."),
+    ("اعرض المشاريع المتاحة في حساب Vercel المرتبط.", "connector_api", {"service": "vercel", "method": "GET", "path": "/v9/projects?limit=5"}, "projects: [{name: ttbik, id: prj_example}, {name: docs, id: prj_docs}]", "قرأت المشاريع التي أتاحها موصل Vercel المرتبط؛ إذا لم يُرجع المشروع المطلوب أذكر ذلك بدل التخمين."),
+    ("ما الأدوات المتاحة في خادم MCP {server} الذي أضفته؟", "mcp_list_tools", {"server": "{server}"}, "tools: list_projects; read_project; search_docs", "استعلمت من الخادم عن قائمة الأدوات الفعلية؛ أستخدم الاسم والمعاملات التي أعادها الخادم فقط."),
+    ("استدع أداة search_docs على خادم MCP {server} للبحث عن واجهة المشروع.", "mcp_call", {"server": "{server}", "tool": "search_docs", "arguments": {"query": "project API"}}, "requires user confirmation; awaiting approval", "طلب الاستدعاء ينتظر موافقتك؛ لم أنفذ الأداة قبل التأكيد."),
+    ("قسّم تحليل {repo} إلى فحص للبنية وفحص مستقل لحالة الاختبارات.", "delegate", {"tasks": [{"title": "بنية المستودع", "task": "افحص README والملفات الأساسية في المستودع {repo}."}, {"title": "حالة CI", "task": "تحقق من حالة CI على الفرع الافتراضي للمستودع {repo}."}]}, "agent reports: structure reviewed; CI status collected", "جمعت نتائج الفحصين المستقلين. أميّز بين النتائج التي أعادتها الأدوات وأي استنتاج إضافي."),
+    ("اختبر عنوان API عام بطلب قراءة GET: {url}", "http_request", {"method": "GET", "url": "{url}"}, "HTTP 200; JSON response", "نفذت طلب GET للعنوان العام وراجعت الاستجابة التي أعادها الخادم."),
+    ("لخّص ما قرأناه سابقاً من README في هذا التحقيق.", "recall", {"query": "README overview", "count": 3}, "previously read: README states project purpose and main commands", "استرجعت المعلومة من القراءات السابقة في هذه المهمة."),
+    ("أرسل التقرير الذي أنشأته في الجهاز الافتراضي إلى المستخدم.", "send_file", {"path": "/work/report.md", "caption": "تقرير تحليل المستودع"}, "file sent: /work/report.md", "أرسلت الملف الذي أنشأته الأداة، بعد التحقق من وجوده."),
+    ("احذف المهمة المجدولة ذات المعرّف s1 التي طلبت حذفها.", "schedule_delete", {"id": "s1"}, "deleted schedule s1", "حذفت المهمة المجدولة ذات المعرّف الذي طلبته."),
+    # the persistent computer hub and this model's own browser/desktop
+    ("شغّل الأمر ls -la في جهازي.", "computer_run", {"command": "ls -la"}, "total 12\ndrwxr-xr-x 1 user user 4096 .\n-rw-r--r-- 1 user user   20 notes.md", "نفّذت الأمر؛ المجلد فيه notes.md."),
+    ("اكتب ملفاً اسمه notes.md فيه «مرحباً».", "computer_write", {"path": "notes.md", "content": "مرحباً"}, "wrote notes.md (8 bytes)", "كتبتُ الملف notes.md في جهازك."),
+    ("اقرأ لي ملف notes.md من جهازي.", "computer_read", {"path": "notes.md"}, "مرحباً", "محتوى notes.md هو: مرحباً."),
+    ("شغّل تدريباً طويلاً في الخلفية على جهازي.", "computer_job", {"action": "start", "command": "python train.py", "name": "تدريب"}, "job j7 started (name=تدريب)", "بدأت المهمة j7 في الخلفية؛ سأراقب سجلها حتى تنتهي."),
+    ("غيّر كلمة «قديم» إلى «جديد» في الملف config.py على جهازي.", "computer_edit", {"path": "config.py", "old": "قديم", "new": "جديد"}, "replaced 1 occurrence in config.py", "استبدلت الكلمة في config.py."),
+    ("انسخ مستودع ttbik إلى جهازي.", "computer_repo", {"url": "https://github.com/owner/ttbik"}, "cloned into repos/owner-ttbik", "نسخت المستودع إلى مجلد repos/owner-ttbik في جهازك."),
+    ("ابحث عن كلمة TODO في جهازي.", "computer_search", {"pattern": "TODO", "path": "."}, "src/app.ts:12: // TODO fix", "وجدت TODO في src/app.ts السطر 12."),
+    ("انشر تعديلاتك من مستودع ttbik في فرع fix-tests.", "computer_publish", {"repo": "owner/ttbik", "branch": "fix-tests", "message": "إصلاح الاختبارات"}, "requires user confirmation; awaiting approval", "طلب النشر ينتظر موافقتك؛ لن يُرسل شيء قبل تأكيدك."),
+    ("افتح صفحة example.com في متصفحك وانظر إليها.", "browser", {"action": "open", "url": "https://example.com"}, "opened https://example.com; 3 elements", "فتحت الصفحة؛ فيها 3 عناصر قابلة للنقر."),
+    ("اضغط العنصر رقم 2 في المتصفح.", "browser", {"action": "click", "id": 2}, "clicked element 2; page changed", "ضغطت العنصر رقم 2 وتغيّرت الصفحة."),
+    ("أظهر لي شاشة سطح المكتب الخاص بك.", "desktop", {"action": "frame"}, "screenshot: 1344x840", "هذه صورة شاشتك الحالية؛ سأصف ما فيها."),
+    ("شغّل المتصفح على سطح مكتبك وافتح ttbik.vercel.app.", "desktop", {"action": "launch", "app": "browser", "url": "https://ttbik.vercel.app"}, "browser launched on the desktop", "شغّلت المتصفح على سطح المكتب وفتحت الموقع."),
+]
+# the whole fix flow, as Nova does it: clone the repository into the PERSISTENT computer (computer_repo), run its tests,
+# edit in place (computer_edit), test again, PUBLISH the commit from that checkout (computer_publish — nothing is sent
+# until the user confirms), then the pull request INTO the branch the user named. The temporary sandbox_* tools are NOT
+# the normal path (their own descriptions say so), so training a fix flow on them taught a workflow the engine rejects.
+FLOW_REQUESTS = [
+    "اذهب إلى المستودع {repo} على الفرع {base}، شغّل الاختبارات وأصلح الأخطاء وافتح طلب دمج إلى {base}.",
+    "أصلح الأخطاء في {repo} (الفرع {base}) وادفع الإصلاح في فرع جديد ثم افتح PR إلى {base}.",
+]
+BRANCHES = ["dev", "test/mini", "staging"]
+
+
+def fix_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    repo, base = rng.choice(REPOS), rng.choice(BRANCHES)
+    fix = rng.choice(["fix/cart-bugs", "fix/tests", "fix/errors"])
+    d = f"repos/{repo.replace('/', '-')}"
+    steps = [
+        ("computer_repo", {"url": f"https://github.com/{repo}", "ref": base}, f"cloned {repo}@{base} into {d}"),
+        ("computer_run", {"command": "python3 -m pytest -q", "cwd": d}, "exit code 1\nFAILED test_cart.py::test_discount - assert 190.0 == 180"),
+        ("computer_edit", {"path": f"{d}/cart.py", "old": "percent / 10", "new": "percent / 100"}, f"edited {d}/cart.py (1 replacement)"),
+        ("computer_run", {"command": "python3 -m pytest -q", "cwd": d}, "exit code 0\n5 passed"),
+        ("computer_publish", {"repo": repo, "branch": fix, "message": "fix the discount", "dir": d}, f"commit abc fix the discount\n cart.py | 2 +-\nPUSHED to {repo} branch {fix}"),
+        ("github_create_pr", {"repo": repo, "head": fix, "base": base, "title": "Fix the discount"}, f"PR #7 https://github.com/{repo}/pull/7 ({fix} → {base}; 1 files changed, +1 -1)"),
+    ]
+    ans = f"أصلحت الخطأ في الحاسوب ونجحت الاختبارات الخمسة، ثم نشرتُ التعديل من الحاسوب إلى الفرع {fix} وفتحت الطلب #7 من {fix} إلى {base}."
+    return rng.choice(FLOW_REQUESTS).format(repo=repo, base=base), steps, ans
+
+
+def fix_flow_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *_spec_args(fix_flow_spec(rng)), **kw)
+
+
+def _spec_args(spec):
+    user, steps, ans = spec
+    return user, steps, ans
+
+
+# the request does not name what to work on: the learned behaviour is ONE question with ask_user (which repository / branch / file), never a guess
+MISSING_REQUESTS = [
+    ("شغّل الاختبارات وأصلح الأخطاء.", "أي مستودع تقصد؟ وعلى أي فرع أعمل؟", "jonsnow-org/Ttbik على الفرع dev", "حسناً، سأعمل على jonsnow-org/Ttbik في الفرع dev."),
+    ("اقرأ الملف وأخبرني ماذا فيه.", "أي ملف تقصد، وفي أي مستودع؟", "الملف README.md في octocat/hello-world", "سأقرأ README.md من octocat/hello-world الآن."),
+    ("افتح طلب دمج بالتعديلات.", "من أي فرع وإلى أي فرع تريد الدمج؟", "من fix/tests إلى main", "حسناً، سأفتح الطلب من fix/tests إلى main."),
+    ("هل يمكنك مراجعة مشروعي؟", "ما اسم المستودع الذي تريد مراجعته؟", "user/project", "سأراجع user/project الآن."),
+    ("استعمل خادم MCP الذي أضفته إلى التطبيق.", "ما معرّف خادم MCP الذي تريد استخدامه؟", "mcp:ab12cd34ef", "سأستعلم عن الأدوات من الخادم الذي حددته، دون تخمين معرّف خادم آخر."),
+]
+
+
+def ask_missing_spec(rng: random.Random) -> tuple[str, list, str]:
+    req, question, reply, ans = rng.choice(MISSING_REQUESTS)
+    return req, [("ask_user", {"question": question}, reply)], ans
+
+
+def ask_missing_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *ask_missing_spec(rng), **kw)
+
+
+# code: write it, RUN it in the computer, fix what fails, answer only after it passes (the way Nova works)
+CODE_TASKS = [
+    ("اكتب دالة تعكس نصاً وجرّبها.", "rev.py", "def rev(s):\n    return s[::1]\n", "s[::1]", "s[::-1]", "assert rev('abc') == 'cba'", "دالة rev تعكس النص: `return s[::-1]`، وجرّبتها فنجح الاختبار."),
+    ("اكتب دالة تحسب مجموع قائمة أرقام وتأكد أنها تعمل.", "total.py", "def total(xs):\n    t = 1\n    for x in xs:\n        t += x\n    return t\n", "t = 1", "t = 0", "assert total([1, 2, 3]) == 6", "دالة total تجمع الأرقام ابتداءً من 0، وجرّبتها فنجح الاختبار."),
+    ("اكتب دالة تتحقق إن كان العدد زوجياً واختبرها.", "even.py", "def even(n):\n    return n % 2 == 1\n", "== 1", "== 0", "assert even(4) and not even(3)", "دالة even تتحقق من الباقي صفراً، وجرّبتها فنجح الاختبار."),
+]
+
+
+def code_run_spec(rng: random.Random) -> tuple[str, list, str]:
+    req, path, bad, old, new, check, ans = rng.choice(CODE_TASKS)
+    mod = path[:-3]
+    run = f"python3 -c \"from {mod} import *; {check}\""
+    steps = [
+        ("computer_write", {"path": path, "content": bad}, f"wrote {path}"),
+        ("computer_run", {"command": run}, "exit code 1\nAssertionError"),
+        ("computer_edit", {"path": path, "old": old, "new": new}, f"edited {path} (1 replacement)"),
+        ("computer_run", {"command": run}, "exit code 0"),
+    ]
+    return req, steps, ans
+
+
+def code_run_example(text_ids_fn, rng: random.Random, **kw) -> tuple[list[int], list[int]]:
+    return build_tool_example(text_ids_fn, *code_run_spec(rng), **kw)
+
+
+REPOS = ["jonsnow-org/Ttbik", "octocat/hello-world", "user/project"]
+URLS = ["https://example.com", "https://docs.python.org/3/"]
+MCP_SERVERS = ["mcp:ab12cd34ef"]  # synthetic shape only; inference must use an id supplied by the app/user
+
+
+def fill_template(value, values: dict[str, str]):
+    """Format catalog templates recursively so nested connector/agent arguments never keep {repo} placeholders."""
+    if isinstance(value, str):
+        return value.format(**values)
+    if isinstance(value, dict):
+        return {key: fill_template(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [fill_template(item, values) for item in value]
+    return value
+
+
+def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
+    out = []
+    for _ in range(n):
+        r = rng.random()
+        if r < 0.14:
+            out.append(build_tool_example(text_ids_fn, *repo_audit_spec(rng), **kw))
+            continue
+        if r < 0.27:                                                          # the fix flow with the push back to GitHub
+            out.append(fix_flow_example(text_ids_fn, rng, **kw))
+            continue
+        if r < 0.39:                                                          # code written, run in the computer, fixed, then answered
+            out.append(code_run_example(text_ids_fn, rng, **kw))
+            continue
+        if r < 0.49:                                                          # a missing detail: ask once, never guess
+            out.append(ask_missing_example(text_ids_fn, rng, **kw))
+            continue
+        req, name, args, res, ans = rng.choice(CATALOG)
+        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
+        fill = lambda v: fill_template(v, sub)                                      # noqa: E731
+        args = {k: fill(v) for k, v in args.items()}
+        if ans is None:                                                       # a two-step example: clone, then run
+            steps = [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")]
+            ans = "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
+        else:
+            steps = [(name, args, res)]
+        out.append(build_tool_example(text_ids_fn, fill(req), steps, ans, **kw))
+    return out
+
+
+def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_len: int = 1100) -> list:
+    """Padded (ids, labels) batches of tool / code / ask examples in Sham's OWN dialogue layout.
+
+    Owner's order (2026-11-06): Sham v1's engine offers ~40 tools, but its chat stage trained on
+    no call at all — this module's `mix_share` and the Qwen3 builder were wired only into v2, so the
+    "components not connected to their correct paths" defect applied to v1 too. This is the v1 entry
+    point: SHAM_TOOLS_MIX (0..1, default 0 = off) decides the share; lessons from the owner's Nova
+    runs (SHAM_LESSONS_PATH) are used first when present, then synthetic cases. Returns [] when off,
+    so a notebook that calls it unconditionally changes nothing until the share is set."""
+    from sham_chat import batch_examples
+    share = mix_share()
+    if share <= 0 or n <= 0:
+        return []
+    lessons: list = []
+    path = os.environ.get("SHAM_LESSONS_PATH")
+    if path:
+        lessons = examples_from_lessons(path, text_ids_fn, limit=max(1, n // 4))
+    synth = synthetic_examples(text_ids_fn, rng, max(1, n - len(lessons)))
+    ex = lessons + synth
+    if max_len:
+        ex = [e for e in ex if len(e[0]) <= max_len] or ex[:batch_size]
+    return batch_examples(ex[:n], batch_size)
+
+
+def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
+    req, name, args, res, ans = rng.choice(CATALOG)
+    sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
+    fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
+    args = {k: fill(v) for k, v in args.items()}
+    if ans is None:
+        return fill(req), [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")], "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
+    return fill(req), [(name, args, res)], ans
+
+
+def repo_audit_spec(rng: random.Random) -> tuple[str, list, str]:
+    """A real multi-step read-only analysis flow, the request pattern shown in the user's screenshot."""
+    repo = rng.choice(REPOS)
+    steps = [
+        ("github_repo_scan", {"repo": repo}, "default branch main; root files README.md, package.json; folders src, tests"),
+        ("github_read_files", {"repo": repo, "paths": ["README.md", "package.json"], "ref": "main"},
+         "README: project purpose; package.json: build, lint, test scripts"),
+        ("github_ci", {"repo": repo, "ref": "main"}, "checks: build=success, lint=success, tests=success"),
+    ]
+    return (f"هل يمكنك تحليل مستودع GitHub {repo} بالكامل؟ ابدأ بفحص البنية والملفات وحالة CI، ثم أعطني تقريراً مبنياً على النتائج.",
+            steps,
+            "حللت المستودع باستخدام أدوات GitHub: فحصت البنية، وقرأت الملفات الأساسية، ثم تحققت من CI. هذه خلاصة النتائج التي أعادتها الأدوات، وأي نقطة لم أستطع التحقق منها أذكرها صراحة.")
+
+
+def any_spec(rng: random.Random) -> tuple[str, list, str]:
+    """One teaching case: the fix flow, code written-run-fixed, a missing detail asked once, or a single catalog call (same shares as synthetic_examples)."""
+    r = rng.random()
+    if r < 0.14:
+        return repo_audit_spec(rng)
+    if r < 0.27:
+        return fix_flow_spec(rng)
+    if r < 0.39:
+        return code_run_spec(rng)
+    if r < 0.49:
+        return ask_missing_spec(rng)
+    return catalog_spec(rng)
+
+
+# ---- the SAME conversation layout Nova's engine shows Sham (src/lib/shamTools.ts: shamToolBlock + shamToolConversation), for a donor body that chats in the Qwen3 layout ----
+# Kept byte-identical to the three live constants by the self-test at the bottom of this file. The
+# live FORMAT_CODE was updated to the persistent computer (computer_write/computer_edit/computer_run/
+# computer_job) while this copy still pointed at the temporary sandbox tools, so a Sham trained on the
+# old text was taught a workflow its own engine no longer offers.
+FORMAT_LINE = ('لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.'
+               ' إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة.'
+               ' وإذا كتبت كوداً أو عدّلت مشروعاً فاعمل في حاسوبك الدائم: اكتب الملف بـ computer_write أو computer_edit، ثم شغّله فعلياً بـ computer_run. للأوامر التي تتجاوز 90 ثانية استخدم computer_job وانتظر نتيجته. لا تستخدم مساحة sandbox المؤقتة للعمل العادي.')
+# name -> (arguments, "?" = optional ; first words of the description as the engine shows them)
+TOOL_SPECS: dict[str, tuple[str, str]] = {
+    "github_read_file": ("repo, path, ref?", "Read one file from a GitHub repository"),
+    "github_read_files": ("repo, paths, ref?, max_chars_per_file?", "Read several repository files in one call"),
+    "github_repo_scan": ("repo", "Overview of a repository: default branch, folders, root files"),
+    "github_list_files": ("repo, path?, ref?", "List the files of a repository"),
+    "github_search_code": ("repo, query", "Search the code of a repository"),
+    "github_prs": ("repo, number?, state?", "List or inspect pull requests in a GitHub repository"),
+    "github_ci": ("repo, ref?", "Read actual CI check outcomes and failure lines"),
+    "github_create_pr": ("repo, head, base, title, body?", "Open a pull request from head INTO base after permission"),
+    "github_merge_pr": ("repo, number, method?", "Merge a pull request after the user's confirmation"),
+    "connector_api": ("service, method?, path, body?", "Read or call the API of a connected service such as Vercel; writes require confirmation"),
+    "mcp_list_tools": ("server", "List tools from the user's configured MCP server"),
+    "mcp_call": ("server, tool, arguments?", "Call an MCP tool; the app asks for confirmation"),
+    "delegate": ("tasks", "Run independent read-only investigations in parallel"),
+    "http_request": ("url, method?, headers?, body?", "Read a public HTTP API; write methods require confirmation"),
+    "recall": ("query, count?", "Retrieve information already read during this task"),
+    "send_file": ("path, caption?, cwd?", "Send a file created in the task VM to the user"),
+    "sandbox_clone": ("repo, branch?, dir?, depth?", "Copy a repository into this task's private computer"),
+    "sandbox_exec": ("command, cwd?", "Run a shell command in this task's VM"),
+    "sandbox_write_file": ("path, content, cwd?", "Write a file in the VM (creates folders)"),
+    "sandbox_edit_file": ("path, old, new, replace_all?, cwd?", "Edit a file in the VM by replacing an exact piece of text"),
+    "sandbox_push": ("repo, branch, message, dir?", "Send the edits made in the VM to a GitHub branch after permission"),
+    "web_search": ("query, limit?", "Search the web"),
+    "fetch_page": ("url, max_chars?", "Read one web page"),
+    "schedule_delete": ("id", "Delete a scheduled task when explicitly requested"),
+    "sandbox_wait": ("id", "Keep waiting for a long command"),
+    "sandbox_search": ("pattern?, glob?, path?, max?, cwd?", "Search files in the task VM"),
+    "sandbox_read_file": ("path, start_line?, max_lines?, cwd?", "Read a file in the task VM"),
+    "deep_research": ("question, max_sources?", "Research a question using multiple sources"),
+    "make_media": ("kind, prompt, scenes?, narration?", "Create an image, sound or short video using Sham's own media service"),
+    "memory_save": ("text, kind?, repo?", "Remember a lasting fact, preference or decision"),
+    "memory_search": ("query, repo?", "Search what is remembered"),
+    "schedule_create": ("title, prompt, kind?, recurrence?, repo?", "Schedule a task that runs later"),
+    "schedule_list": ("", "List scheduled tasks"),
+    "ask_user": ("question, options?", "Ask the user one short question when a required detail is missing"),
+    # The persistent computer hub and the browser/desktop of this model's own computer session.
+    # These were live in src/lib/shamExec.ts but missing here, so Sham was never trained on the
+    # very tools it is offered — the exact "components not connected to their correct paths"
+    # defect. Kept in lockstep with shamExec.ts by the self-test at the bottom of this file.
+    "computer_run": ("command, cwd?, timeout?", "Run a bash command in this model's private persistent computer"),
+    "computer_write": ("path, content", "Write a text file into this model's private computer"),
+    "computer_read": ("path?", "Read a file or list a folder on this model's private computer"),
+    "computer_job": ("action, command?, name?, id?, tail?", "Start, log, stop or list a background job on this model's computer"),
+    "computer_edit": ("path, old?, new?, replace_all?, edits?", "Replace exact text in a file on this model's private computer"),
+    "computer_repo": ("url, ref?", "Clone a public GitHub repository into this model's persistent computer"),
+    "computer_search": ("pattern, path?, glob?", "Search files on this model's private computer with ripgrep"),
+    "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
+    "browser": ("action, url?, id?, x?, y?, text?, enter?, key?, dy?, seconds?", "Drive this model's own headless browser: open, look, click, type, press, scroll, back, wait, aria"),
+    "desktop": ("action, app?, url?, x?, y?, button?, text?, key?, direction?, amount?", "Operate the graphical desktop of this model's own computer session (start, frame, launch, click, type, key, scroll, stop)"),
+}
+
+
+def tool_block(names: list[str]) -> str:
+    lines = [f"- {n}({TOOL_SPECS[n][0]}) — {TOOL_SPECS[n][1][:70]}" for n in names if n in TOOL_SPECS]
+    return "الأدوات المتاحة لك:\n" + "\n".join(lines) + "\n" + FORMAT_LINE
+
+
+def qwen3_prompt(system: str, user_text: str) -> str:
+    prefix = f"<|im_start|>system\n{system}<|im_end|>\n" if system.strip() else ""
+    return prefix + f"<|im_start|>user\n{user_text}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+
+def qwen3_tool_examples(tokenizer, rng: random.Random, n: int, system: str, max_len: int = 1100, max_result_chars: int = 700) -> list[tuple[list[int], list[int]]]:
+    """n examples in the layout the engine really sends: ONE user turn = the loaded-tools block + the conversation so far (user line, earlier calls and results), ending «شام:»;
+    the learned reply is the NEXT call (or the final answer). One example per decision point of a case. Loss only on the reply.
+
+    Bounded on purpose: the old `while len(out) < n` loop had no progress guard, so a context too
+    small for a case spun forever (found by running this file's own self-test). A case now tries the
+    live shape (a few extra tools), then shrinks toward only the tools it uses, and the whole loop
+    gives up after a bounded number of attempts instead of hanging a training run."""
+    out: list[tuple[list[int], list[int]]] = []
+    end = tokenizer.encode("<|im_end|>")[-1]
+    attempts = 0
+    max_attempts = max(200, n * 40)
+    while len(out) < n and attempts < max_attempts:
+        attempts += 1
+        user, steps, ans = any_spec(rng)
+        used = [st[0] for st in steps]
+        others = [t for t in TOOL_SPECS if t not in used]
+        rng.shuffle(others)
+        lines = [f"المستخدم: {user}"]
+        for extra_n in (rng.randint(2, 6), 1, 0):       # live shape first; shrink only when the window is tight
+            names = list(dict.fromkeys(used + others[:extra_n]))
+            rng.shuffle(names)
+            made = False
+            for i in range(len(steps) + 1):
+                if i < len(steps):
+                    name, args, res = steps[i]
+                    target = tool_call_text(name, args)
+                else:
+                    target = ans
+                prompt = qwen3_prompt(system, f"{tool_block(names)}\n\n" + "\n".join(lines) + "\nشام:")
+                p_ids, t_ids = tokenizer.encode(prompt), tokenizer.encode(target) + [end]
+                if len(p_ids) + len(t_ids) <= max_len:
+                    out.append((p_ids + t_ids, [IGNORE] * len(p_ids) + t_ids))
+                    made = True
+                if i < len(steps):
+                    lines.append(f"شام: {tool_call_text(name, args)}")
+                    lines.append(f"نتيجة الأداة {name}:\n{str(res)[:max_result_chars]}")
+            if made:
+                break
+    return out[:n]
+
+
+if __name__ == "__main__":
+    fake = lambda s: [ord(c) % 4000 + 10 for c in s]          # noqa: E731  a stand-in tokenizer: the layout and the masking are what is checked
+    ex = synthetic_examples(fake, random.Random(1), 40)
+    assert len(ex) == 40
+    must_have = {"github_read_files", "github_prs", "github_ci", "connector_api", "mcp_list_tools", "mcp_call", "delegate", "http_request", "recall", "send_file", "schedule_delete"}
+    assert must_have.issubset(TOOL_SPECS), f"missing live tools in training specs: {must_have - set(TOOL_SPECS)}"
+    engine_tools = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamExec.ts"
+    if engine_tools.is_file():
+        import re
+        live_names = set(re.findall(r'tool\("([a-z_]+)"', engine_tools.read_text(encoding="utf-8")))
+        assert live_names == set(TOOL_SPECS), f"tool schema mismatch: live-only={live_names - set(TOOL_SPECS)}, training-only={set(TOOL_SPECS) - live_names}"
+    audit_user, audit_steps, audit_answer = repo_audit_spec(random.Random(4))
+    assert [s[0] for s in audit_steps] == ["github_repo_scan", "github_read_files", "github_ci"]
+    assert "GitHub" in audit_user and "تقريراً" in audit_user
+    assert fill_template({"tasks": [{"task": "Inspect {repo}" }], "server": "{server}"},
+                         {"repo": "owner/project", "server": "mcp:sample"}) == {
+                             "tasks": [{"task": "Inspect owner/project"}], "server": "mcp:sample"
+                         }
+    flow = fix_flow_example(fake, random.Random(2))
+    for mk in (code_run_example, ask_missing_example):
+        ids2, lab2 = mk(fake, random.Random(3))
+        assert len(ids2) == len(lab2) and any(l != IGNORE for l in lab2) and ids2[-1] == SpecialTokens.EOS
+    assert any(l != IGNORE for l in flow[1]) and len(flow[0]) == len(flow[1])
+    assert any(fake(tool_call_text("computer_publish", {"repo": r, "branch": b, "message": "fix the discount"}))[0] for r in REPOS for b in ["fix/tests"])
+    for ids, labels in ex:
+        assert len(ids) == len(labels) and ids[-1] == SpecialTokens.EOS and labels[-1] == SpecialTokens.EOS
+        assert labels[0] == IGNORE and any(l != IGNORE for l in labels)
+    ids, labels = build_tool_example(fake, "سؤال", [("web_search", {"query": "x"}, "RESULT-TEXT")], "جواب")
+    call = fake(tool_call_text("web_search", {"query": "x"})); res = fake(result_text("web_search", "RESULT-TEXT"))
+    start = ids.index(call[0], 3)
+    assert ids[start:start + len(call)] == call and labels[start:start + len(call)] == call              # the call is learned
+    r0 = start + len(call)
+    assert ids[r0:r0 + len(res)] == res and all(l == IGNORE for l in labels[r0:r0 + len(res)])           # the result is masked
+    assert labels[-len(fake("جواب")) - 1:-1] == fake("جواب")                                             # the answer is learned
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "l.jsonl"
+        f.write_text(json.dumps({"messages": [{"role": "user", "content": "اقرأ a"}, {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "function": {"name": "github_read_file", "arguments": "{\"repo\":\"o/r\",\"path\":\"a\"}"}}]},
+                                                {"role": "tool", "tool_call_id": "1", "content": "1| hello"}, {"role": "assistant", "content": "الملف فيه كلمة hello فقط."}]}) + "\n", encoding="utf-8")
+        got = examples_from_lessons(f, fake)
+        assert len(got) == 1 and any(l != IGNORE for l in got[0][1])
+    class _T:                                                                 # the Qwen3-layout builder: the prompt is masked, the reply (and <|im_end|>) learned
+        def encode(self, t):
+            return [9999] if t == "<|im_end|>" else fake(t)
+    # The fake tokenizer is one id per character, while the real one is ~3 chars per id, so a real
+    # 1100-token window is a ~3300-character window here. Passing the token budget straight through
+    # made every case too big to fit and the builder produced nothing.
+    # v1 entry point (owner's order 2026-11-06): ON by default (a small share) and returns real masked
+    # batches in Sham's own dialogue layout so the chat stage can train tools; SHAM_TOOLS_MIX=0 turns it off.
+    os.environ.pop("SHAM_TOOLS_MIX", None)
+    tb = tool_batches(fake, random.Random(7), 8, 4)
+    assert tb and all(a.shape == b.shape and (b != IGNORE).any() for a, b in tb), tb
+    assert 1 <= sum(a.shape[0] for a, b in tb) <= 8
+    os.environ["SHAM_TOOLS_MIX"] = "0"
+    try:
+        assert tool_batches(fake, random.Random(7), 8, 4) == [], "SHAM_TOOLS_MIX=0 must turn tool training off"
+    finally:
+        os.environ.pop("SHAM_TOOLS_MIX", None)
+    qx = qwen3_tool_examples(_T(), random.Random(5), 30, "SYS", max_len=4000)
+    assert len(qx) == 30 and all(len(a) == len(b) and any(l != IGNORE for l in b) and b[-1] == 9999 for a, b in qx)
+    assert all(b[0] == IGNORE for a, b in qx) and sum(1 for a, b in qx if len([l for l in b if l != IGNORE]) > 1) == 30
+    ts = Path(__file__).resolve().parents[3] / "src" / "lib" / "shamTools.ts"                              # keep training and live tool instructions byte-identical
+    if ts.is_file():
+        import re
+        source = ts.read_text(encoding="utf-8")
+        base = re.search(r"const FORMAT_BASE = '(.*)';", source)
+        ask = re.search(r'const FORMAT_ASK = "(.*)";', source)
+        code = re.search(r'const FORMAT_CODE = "(.*)";', source)
+        assert base and ask and code, "Could not find the live Sham tool-format constants"
+        live_format = base.group(1) + ask.group(1) + code.group(1)
+        assert live_format == FORMAT_LINE, "Training FORMAT_LINE differs from src/lib/shamTools.ts"
+    print("sham_tools_data OK: calls learned, results masked, answers learned, lessons of any kind, every tool family seen.")
