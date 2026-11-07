@@ -81,6 +81,34 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(result["backend"], "internal")
         self.make_media.assert_called_once()
 
+    def test_internal_video_receives_the_loaded_motion_tokenizer(self):
+        """Video is the model's OWN keyframe + motion tokens; make_media returns the honest
+        NO_VIDEO notice when it gets no motion tokenizer. serve.py loads one into
+        _state["motion_tokenizer"], so the internal path must forward it — otherwise video
+        silently degrades to a notice (or, before, to stitched frames)."""
+        sentinel = object()
+        self.fake_serve._state["motion_tokenizer"] = sentinel
+        self.make_media.return_value = {"type": "video", "mime": "video/mp4", "b64": GOOD_MP4}
+        with patch("media_quality.check_mp4", lambda data, **k: {"decoded": False}):
+            result = json.loads(sham_app.generate_media("video", "a rabbit in a garden"))
+        self.assertEqual(result["type"], "video")
+        self.assertEqual(self.make_media.call_args.kwargs.get("motion_tokenizer"), sentinel)
+
+    def test_generate_any_receives_the_loaded_motion_tokenizer(self):
+        """The model-decides path must forward the motion tokenizer too, so a model that starts a
+        clip by itself gets a real video instead of the NO_VIDEO notice."""
+        sentinel = object()
+        self.fake_serve._state["motion_tokenizer"] = sentinel
+        generate_any = Mock(return_value={"type": "text", "text": "hello"})
+        self.modules_patch.stop()
+        self.modules_patch = patch.object(
+            sham_app, "_studio_modules",
+            return_value=(None, types.SimpleNamespace(make_media=self.make_media, generate_any=generate_any)),
+        )
+        self.modules_patch.start()
+        sham_app.generate_any("hello", 30)
+        self.assertEqual(generate_any.call_args.kwargs.get("motion_tokenizer"), sentinel)
+
     def test_alternative_requires_local_weights_and_never_silently_falls_back(self):
         result = json.loads(
             sham_app.generate_media_from_panel("image", "a tree", "المسار البديل (أوزان محلية جاهزة)")

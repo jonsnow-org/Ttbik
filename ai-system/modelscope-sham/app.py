@@ -541,7 +541,8 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
             result = _studio_modules()[1].make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
-                kind.strip().lower(), prompt
+                kind.strip().lower(), prompt,
+                motion_tokenizer=serve._state.get("motion_tokenizer"),
             )
         result = _vet(result, raw_test=raw_test)
         if isinstance(result, dict):
