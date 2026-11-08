@@ -1,0 +1,85 @@
+name: Delete the three removed donor candidates' ModelScope repos and Studios (owner's order 2026-11-08, one-time, exact names only)
+# The owner ordered Qwen3.5-9B, Gemma 4 E4B and MiniCPM-o 4.5 deleted. The code is gone (commit "Remove the three donor candidates").
+# This job removes ONLY the names listed below: their weight repos, their media-model copies, their private image-model repos, and their Studios.
+# It never touches Nova (epicrealism-image-test, nova-*, coder-*), LFM2.5, Sham, Sham v2 (realistic-vision-v6-test, sham-v2-*) or the computer hub (nova-inference-server).
+# Needs the typed confirmation so it can never run by accident. Every name is looked at before it is deleted and checked again after.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'type exactly: DELETE donor candidates'
+        required: true
+permissions:
+  contents: read
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: test "$CONFIRM" = "DELETE donor candidates" || { echo "::error::wrong confirmation"; exit 1; }
+      - name: Delete the exact repos and Studios
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          pip install -q modelscope requests
+          python3 - <<'PY'
+          import os, sys, requests
+          from modelscope.hub.api import HubApi
+          OWNER = "novaai2026"
+          REPOS = [
+              "sham-donor-qwen35-9b-weights", "sham-donor-gemma4-e4b-weights", "sham-donor-minicpmo45-weights",
+              "qwen35-9b-media-models", "gemma4-e4b-media-models", "minicpmo45-media-models",
+              "cyberrealistic-final-test-models", "gemma4-realistic-vision-v6-test-models", "umranz-sd15-test-models",
+          ]
+          STUDIOS = [
+              "sham-donor-qwen35-9b-test", "sham-donor-gemma4-e4b-test", "sham-donor-minicpmo45-test",
+              "sham-donor-qwen35-9b-media", "sham-donor-gemma4-e4b-media", "sham-donor-minicpmo45-media",
+              "cyberrealistic-final-test", "gemma4-realistic-vision-v6-test", "umranz-sd15-image-test",
+          ]
+          PROTECTED = ("epicrealism", "nova-", "coder-", "lfm25", "sham-v1", "sham-v2", "realistic-vision-v6-test", "juggernaut")
+          for n in REPOS + STUDIOS:
+              if n.startswith(PROTECTED) and n != "realistic-vision-v6-test":
+                  sys.exit("refusing a protected name: " + n)
+              if n in ("realistic-vision-v6-test", "realistic-vision-v6-test-models", "epicrealism-image-test", "epicrealism-image-test-models"):
+                  sys.exit("refusing a protected name: " + n)
+          tok = os.environ["T"]
+          api = HubApi()
+          api.login(tok)
+          H = {"Authorization": "Bearer " + tok}
+          MS = "https://www.modelscope.cn"
+          print("== model repos")
+          for n in REPOS:
+              repo = f"{OWNER}/{n}"
+              try:
+                  exists = bool(api.get_model(repo))
+              except Exception as exc:
+                  exists = False
+                  print(f"  {repo}: not found before ({type(exc).__name__})")
+                  continue
+              try:
+                  api.delete_model(repo)
+                  print(f"  {repo}: delete requested")
+              except Exception as exc:
+                  print(f"  {repo}: delete error {type(exc).__name__}: {str(exc)[:160]}")
+              try:
+                  api.get_model(repo); print(f"  {repo}: STILL EXISTS")
+              except Exception:
+                  print(f"  {repo}: confirmed gone")
+          print("== Studios")
+          for n in STUDIOS:
+              url = f"{MS}/openapi/v1/studios/{OWNER}/{n}"
+              try:
+                  r = requests.get(url, headers=H, timeout=20)
+                  print(f"  {n}: exists check HTTP {r.status_code}")
+                  if r.status_code == 404:
+                      continue
+                  d = requests.delete(url, headers=H, timeout=30)
+                  print(f"  {n}: DELETE HTTP {d.status_code} {d.text[:160]!r}")
+                  a = requests.get(url, headers=H, timeout=20)
+                  print(f"  {n}: after HTTP {a.status_code}")
+              except Exception as exc:
+                  print(f"  {n}: error {type(exc).__name__}: {str(exc)[:160]}")
+          PY
