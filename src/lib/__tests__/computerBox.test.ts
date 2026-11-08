@@ -78,9 +78,11 @@ describe("the model's own persistent computer", () => {
     expect(out).toContain("hello");
     expect(calls[0].url).toContain("nova-inference-server");
     expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:lfm25" });
-    expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/hello/);
-    expect(calls[2].url).toContain("sham-v2-server");                          // Sham v2: its OWN embedded computer, never the shared hub (owner 2026-11-08)
-    expect(calls[2].url).not.toContain("nova-inference-server");
+    // Sham and Sham v2 have NO computer Studio: their computer is inside the model's own loop (owner 2026-11-08), so the app never sends them a command
+    const before = calls.length;
+    expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
+    expect(await boxDo("sham", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
+    expect(calls.length).toBe(before);
   });
 
   test("persistent computer and temporary worker are separate tool groups", () => {

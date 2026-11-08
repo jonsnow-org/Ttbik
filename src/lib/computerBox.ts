@@ -3,11 +3,10 @@
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
-/** Where a model's terminal / files / jobs live. Sham and Sham v2 each have their OWN embedded computer inside their own Studio (owner's order 2026-11-08: no outside dependency);
- *  the shared hub is Nova's only. */
+/** Where a model's terminal / files / jobs live. Sham and Sham v2 have NO computer Studio at all (owner's order 2026-11-08): their computer is part of the model's own loop and runs inside
+ *  its serving code (sham_embedded_tools.py). The hub is Nova's only. */
 export function boxStudioFor(modelId: string | undefined): string | null {
-  if (modelId === "sham_v2") return (process.env.SHAM_V2_URL || DEFAULT_V2_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
-  if (modelId === "sham") return (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  if (modelId === "sham" || modelId === "sham_v2") return null;
   return browserStudioFor(modelId);
 }
 
@@ -156,6 +155,17 @@ export type BoxChanges = { ok: true; repo: string; base: string; files: { path: 
 
 /** Changed files are read from this user+model session on the computer hub. The GitHub token never goes there: the app commits what comes back. */
 export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
+  if (modelId === "sham" || modelId === "sham_v2") {
+    // The Shams' computer is inside the model (no computer Studio). Publishing needs only the READ-ONLY list of changed files from the model's own serving app (computer_changes).
+    const own = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
+    try {
+      const r = await studioCall(own, "computer_changes", { repo: String(args.repo).slice(0, 200), dir: String(args.dir || "").slice(0, 300), session }, fetchImpl, 110_000);
+      if (!r || r.ok === false) return { ok: false, error: String(r?.error || "the computer did not answer").slice(0, 300) };
+      return { ok: true, repo: String(r.repo), base: String(r.base || ""), files: Array.isArray(r.files) ? r.files : [], deleted: Array.isArray(r.deleted) ? r.deleted.map(String) : [], skipped: Array.isArray(r.skipped) ? r.skipped : [] };
+    } catch (error) {
+      return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
+    }
+  }
   const base = boxStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };
   try {

@@ -2,7 +2,6 @@
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
 export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
-import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
@@ -74,10 +73,9 @@ export async function readComplete(res: Response): Promise<unknown> {
   throw new Error("the browser Studio sent no answer");
 }
 
-/** Each Sham has its OWN embedded browser inside its own Studio (owner's order 2026-11-08); every other model keeps the shared hub. */
+/** Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (sham_embedded_tools.py); the hub is Nova's only. */
 export function browserOwnStudioFor(modelId: string | undefined): string | null {
-  if (modelId === "sham_v2") return (process.env.SHAM_V2_URL || DEFAULT_V2_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
-  if (modelId === "sham") return (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  if (modelId === "sham" || modelId === "sham_v2") return null;
   return browserStudioFor(modelId);
 }
 

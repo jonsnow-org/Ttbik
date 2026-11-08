@@ -14,10 +14,6 @@ from urllib.request import Request, urlopen
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
-# Sham v2's computer is EMBEDDED in its own Studio (owner's order 2026-11-08): the computer calls go to the same base as its chat, never to the shared hub.
-COMPUTER_BASE = BASE
-
-
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = json.dumps(payload or {}, ensure_ascii=False).encode("utf-8") if payload is not None else None
@@ -95,39 +91,6 @@ def chat(messages: list[dict], max_new_tokens: int = 256) -> str:
 
 
 
-def call_computer_box(payload: dict, timeout: int = 90):
-    if "sham-v2-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
-        raise RuntimeError("Refusing to send Sham v2 computer calls anywhere except Sham v2's own embedded computer")
-    wire = "b64:" + base64.b64encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
-    submitted = request_json(f"{COMPUTER_BASE}/gradio_api/call/box_do", "POST", {"data": [wire]}, timeout=40)
-    event_id = submitted.get("event_id")
-    if not event_id:
-        raise RuntimeError("Sham v2 computer Studio did not return an event id")
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        req = Request(f"{COMPUTER_BASE}/gradio_api/call/box_do/{event_id}", headers={"Authorization": f"Bearer {TOKEN}"})
-        try:
-            with urlopen(req, timeout=min(30, max(5, int(deadline - time.monotonic())))) as res:
-                while time.monotonic() < deadline:
-                    line = res.readline()
-                    if not line:
-                        break
-                    value = unwrap_line(line.decode("utf-8", errors="replace"))
-                    if value is not None:
-                        if isinstance(value, str):
-                            try:
-                                value = json.loads(value)
-                            except json.JSONDecodeError:
-                                pass
-                        if not isinstance(value, dict):
-                            raise RuntimeError("computer Studio returned an unreadable result")
-                        return value
-        except (TimeoutError, URLError, OSError):
-            pass
-        time.sleep(0.5)
-    raise TimeoutError(f"box_do: timed out after {timeout}s")
-
-
 def native_model_terminal_smoke() -> None:
     """Have Sham v2 choose computer_run itself, then execute that exact safe call on its own Studio."""
     marker = "SHAM_V2_MODEL_TERMINAL_TOOL_OK"
@@ -161,39 +124,30 @@ def native_model_terminal_smoke() -> None:
         "prompt": prompt,
         "tools_json": json.dumps(tools, ensure_ascii=False, separators=(",", ":")),
         "max_new_tokens": 192,
+        "session": session,
     }, timeout=240)
     if isinstance(response, str):
         try:
             response = json.loads(response)
         except json.JSONDecodeError:
             raise RuntimeError("agent_step did not return a structured result")
-    if not isinstance(response, dict) or response.get("type") != "tool_calls":
-        raise RuntimeError("Sham v2 did not choose a structured computer_run tool call: " + str(response)[:280])
-    calls = response.get("tool_calls") or []
-    if len(calls) != 1 or (calls[0].get("function") or {}).get("name") != "computer_run":
-        raise RuntimeError("Sham v2 selected a tool other than its own computer_run")
-    raw_args = calls[0]["function"].get("arguments")
-    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-    if not isinstance(args, dict):
-        raise RuntimeError("Sham v2 computer_run arguments were malformed")
-    generated_command = str(args.get("command") or "")
+    # Sham v2's computer is part of the model's OWN loop (owner 2026-11-08): the model writes computer_run, the Studio runs it inside the serving process and the reply carries the trace.
+    if not isinstance(response, dict):
+        raise RuntimeError("agent_step did not return an object: " + str(response)[:280])
+    trace = response.get("embedded") or []
+    if not trace or trace[0].get("name") != "computer_run":
+        raise RuntimeError("Sham v2 did not choose computer_run (or the embedded computer did not run it): " + str(response)[:280])
+    generated_command = str((trace[0].get("arguments") or {}).get("command") or "")
     safe_command = re.fullmatch(r"\s*printf\s+(['\"])"+re.escape(marker)+r"\1\s*;\s*id\s+-u\s*", generated_command)
     if not safe_command:
-        raise RuntimeError("Sham v2 requested an unexpected terminal command; no generated command was executed")
-    executed = call_computer_box({
-        "action": "run",
-        "session": session,
-        "command": generated_command,
-        "timeout": 20,
-        "cwd": ".",
-    }, timeout=45)
-    output = str(executed.get("output") or "")
-    if executed.get("ok") is not True or executed.get("exit_code") != 0 or marker not in output:
-        raise RuntimeError("Sham v2's selected computer_run did not execute successfully: " + output[:180])
+        raise RuntimeError("Sham v2 requested an unexpected terminal command: " + generated_command[:120])
+    output = str(trace[0].get("result") or "")
+    if marker not in output:
+        raise RuntimeError("Sham v2's embedded computer did not run the command: " + output[:180])
     uid = output.splitlines()[-1].strip() if output.splitlines() else ""
     if uid == "0":
         raise RuntimeError("Sham v2 computer terminal unexpectedly executed as root")
-    print(f"PASS Sham v2 itself selected computer_run and executed it in its own persistent computer (uid={uid})")
+    print(f"PASS Sham v2 itself selected computer_run and its own embedded computer ran it inside the model's loop (uid={uid})")
 
     final = call("agent_step", {
         "prompt": (
