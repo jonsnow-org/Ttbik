@@ -105,6 +105,7 @@ def run_session(nb_path: Path, work: Path, session: int, donor: Path) -> dict:
     script = work / f"session{session}.py"
     body = [PRELUDE]
     for i, c in enumerate(cells):
+        c = c.replace("HuggingFaceTB/SmolLM3-3B", str(donor))              # a candidate notebook names its real donor; the dry run uses the tiny local one (same code paths)
         body.append(f"# ---- cell {i}\n{c}\n")
     body.append("print('DRY-RUN-DONE')\n")
     script.write_text("\n".join(body), encoding="utf-8")
