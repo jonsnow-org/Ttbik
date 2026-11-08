@@ -24,6 +24,15 @@ import torch
 
 DEFAULT_DONOR = os.environ.get("SHAM_V2_DONOR", "Qwen/Qwen3-1.7B")
 TEXT_VOCAB_DEFAULT = 151936
+DEFAULT_DATASET = os.environ.get("SHAM_V2_DATASET", "sham-v2-checkpoint")       # the lineage's own checkpoint dataset; a CANDIDATE donor publishes to its own (never over the served one)
+
+
+def donor_text_vocab(donor: str) -> int:
+    """The text-vocabulary width of a donor (its embedding rows): SHAM_TEXT_VOCAB must be set to this BEFORE model.py is imported."""
+    if donor == "Qwen/Qwen3-1.7B":
+        return TEXT_VOCAB_DEFAULT
+    from transformers import AutoConfig
+    return int(AutoConfig.from_pretrained(donor).vocab_size)
 
 
 def setup_env(text_vocab: int = TEXT_VOCAB_DEFAULT) -> None:
@@ -34,18 +43,27 @@ def setup_env(text_vocab: int = TEXT_VOCAB_DEFAULT) -> None:
 def prepare_model(donor: str, own_checkpoint: Path | None, device: str):
     """(model, step). Resume from the lineage's own checkpoint when there is one, else the in-memory transplant from the donor."""
     from checkpoint import load_checkpoint
+    dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16}.get(os.environ.get("SHAM_V2_DTYPE", "").strip().lower())      # "" = fp32 (the Qwen3-1.7B lineage)
     if own_checkpoint is not None and Path(own_checkpoint).is_file():
         model, step, _ = load_checkpoint(own_checkpoint, map_location="cpu")
         print(f"resumed from {own_checkpoint} (step {step})", flush=True)
     else:
         from sham_transplant import LazyDonor, native_model
-        model = native_model(LazyDonor(donor), chat_format="qwen3")
+        previous = torch.get_default_dtype()
+        if dtype is not None:
+            torch.set_default_dtype(dtype)               # a 3B donor in fp32 (12 GB) does not fit: the model is BUILT in the narrow dtype, tensor by tensor
+        try:
+            model = native_model(LazyDonor(donor), chat_format="qwen3" if "base" not in donor.lower() else "")
+        finally:
+            torch.set_default_dtype(previous)
         step = 0
         print(f"built the native model from the donor (step 0, {sum(p.numel() for p in model.parameters()) / 1e9:.2f}B parameters)", flush=True)
     rank = max(0, int(os.environ.get("SHAM_V2_ADAPTER_RANK", "8")))
     if rank:
         wrapped = model.enable_adapters(rank, float(os.environ.get("SHAM_V2_ADAPTER_ALPHA", "16")))
         print(f"enabled {wrapped} trainable low-rank adapters; donor base projections remain frozen", flush=True)
+    if dtype is not None:
+        model = model.to(dtype)
     return model.to(device), step
 
 
@@ -251,6 +269,43 @@ def heldout_loss(model, tokenizer, device: str, text: str | None = None) -> floa
     return float(text_loss(model, tokenizer, text or heldout_text(), device))
 
 
+def heldout_docs(n: int = 16) -> dict[str, list[str]]:
+    """Fixed Arabic and English documents (Wikipedia, the same slice every time) for the cross-lineage yardstick; the built-in Arabic sample when offline."""
+    try:
+        from datasets import load_dataset
+        out = {}
+        for lang in ("ar", "en"):
+            docs = []
+            for r in load_dataset("wikimedia/wikipedia", f"20231101.{lang}", split="train", streaming=True).skip(5000):
+                t = (r.get("text") or "").strip()
+                if len(t) > 1500:
+                    docs.append(t[:1500])
+                if len(docs) >= n:
+                    break
+            out[lang] = docs
+        if all(out.values()):
+            return out
+    except Exception as exc:  # noqa: BLE001
+        print(f"held-out documents: built-in sample ({type(exc).__name__})", flush=True)
+    return {"ar": [HELDOUT_FALLBACK[i:i + 700] for i in range(0, 700 * 4, 700)], "en": ["The quick brown fox jumps over the lazy dog. " * 12]}
+
+
+@torch.no_grad()
+def heldout_bpb(model, tokenizer, device: str, texts: list[str], text_vocab: int, maxlen: int = 384) -> float:
+    """Bits per UTF-8 byte on fixed documents: comparable ACROSS lineages whose tokenizers differ (a per-token loss is not)."""
+    model.train(False)
+    nll, nbytes = 0.0, 0
+    for d in texts:
+        ids = tokenizer.encode(d)[:maxlen]
+        if len(ids) < 8:
+            continue
+        x = torch.tensor([ids], device=device)
+        logits = model(x)[0][0, :-1, :text_vocab].float()
+        nll += float(torch.nn.functional.cross_entropy(logits, x[0, 1:], reduction="sum"))
+        nbytes += len(tokenizer.decode(ids).encode("utf-8")) - len(tokenizer.decode(ids[:1]).encode("utf-8"))
+    return nll / max(nbytes, 1) / math.log(2)
+
+
 def gate(loss_before: float, loss_after: float, tools_before: dict | None = None, tools_after: dict | None = None,
          loss_tolerance: float = 1.03, tool_floor: float = 0.9) -> dict:
     """Decide whether a trained checkpoint may be PUBLISHED over the served one. Refused when the held-out loss is not finite or worse than before by more than
@@ -320,6 +375,14 @@ if __name__ == "__main__":
     assert mt["cases"] == 2 and len(mt["rows"]) == 2 and 0 <= mt["right"] <= mt["valid"] <= 2
     ar = arabic_pairs_to_batches(Tok(), [("ما هي عاصمة سوريا؟", "دمشق."), ("كيف حالك؟", "بخير، شكراً.")], 2)
     assert ar
+    mb = ShamSmall(cfg).to(torch.bfloat16)                      # the narrow-dtype path used for a 3B donor: adapters and media rows still train, the donor body does not move
+    mb.enable_adapters(4)
+    freeze_for_media(mb, tv)
+    wb0 = mb.token_embedding.weight.detach().clone()
+    with tempfile.TemporaryDirectory() as d2:
+        lb, _ = run_session(mb, 0, batches[:4], "cpu", 0.05, ckpt_dir=d2)
+    assert lb and all(math.isfinite(x) for x in lb), lb
+    assert torch.equal(wb0[:tv], mb.token_embedding.weight.detach()[:tv]) and not torch.equal(wb0[tv:], mb.token_embedding.weight.detach()[tv:])
     rp = reasoning_pairs(5, 1)
     assert len(rp) == 5 and all(q and a for q, a in rp)
     arts = [(f"t{i}", " ".join(f"في عام {1900 + i * 7 + j} حدث أمر مهم رقم {j} في المدينة الكبيرة رقم {i} وتحدث الناس عنه كثيرا." for j in range(12))) for i in range(8)]
@@ -329,9 +392,11 @@ if __name__ == "__main__":
     with _tf.TemporaryDirectory() as _d:
         (Path(_d) / "a.txt").write_text("نص عربي طويل " * 400, encoding="utf-8")
         assert text_mix_batches(Tok(), batch_size=2, window=64, files=[str(Path(_d) / "a.txt")])
+    bpb_val = heldout_bpb(model, Tok(), "cpu", ["ab" * 200], tv)
+    assert math.isfinite(bpb_val) and bpb_val > 0, bpb_val
     hl = heldout_loss(model, Tok(), "cpu", text="ab" * 400)
     assert math.isfinite(hl), hl
     assert gate(2.0, 2.0)["ok"] and gate(2.0, 2.05)["ok"] and not gate(2.0, 2.2)["ok"] and not gate(2.0, float("nan"))["ok"]
     assert not gate(2.0, 1.9, {"cases": 10, "right": 8}, {"cases": 10, "right": 5})["ok"] and gate(2.0, 1.9, {"cases": 10, "right": 8}, {"cases": 10, "right": 8})["ok"]
-    assert heldout_text.__doc__ and len(HELDOUT_FALLBACK) > 2000
+    assert heldout_text.__doc__ and len(HELDOUT_FALLBACK) > 2000 and set(heldout_docs.__annotations__) >= {"return"}
     print("sham_v2_train self-test OK: media rows and low-rank adapters train; donor base remains frozen; role-based tool/Arabic batches and checkpoint round-trip.")

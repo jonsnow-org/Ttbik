@@ -298,6 +298,7 @@ class ShamSmallConfig:
     head_dim: int = 0               # 0 = d_model // n_heads
     qkv_bias: bool = False
     qk_norm: bool = False
+    nope_layers: tuple = ()         # layer indices that use NO rotary embedding (SmolLM3's every-4th-layer NoPE); () = every layer rotates, as in every older checkpoint
     chat_format: str = ""           # "" = Sham's own dialogue layout; "qwen3" = the donor's chat template (<|im_start|> ... <|im_end|>), see sham_studio_chat.py
     adapter_rank: int = 0              # 0 preserves legacy checkpoints; positive enables low-rank adapters
     adapter_alpha: float = 16.0
@@ -318,6 +319,9 @@ class ShamSmallConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ShamSmallConfig":
+        data = dict(data)
+        if "nope_layers" in data:
+            data["nope_layers"] = tuple(data["nope_layers"])
         return cls(**data)
 
 
@@ -390,8 +394,9 @@ class AdapterLinear(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, cfg: ShamSmallConfig):
+    def __init__(self, cfg: ShamSmallConfig, layer_idx: int = -1):
         super().__init__()
+        self.use_rope = layer_idx not in tuple(cfg.nope_layers)
         self.n_heads = cfg.n_heads
         self.n_kv_heads = cfg.n_kv_heads
         self.head_dim = cfg.hd
@@ -429,8 +434,9 @@ class Attention(nn.Module):
         offset = past_kv[0].shape[2] if past_kv is not None else 0
         cos_pos = cos[offset : offset + seq_len]
         sin_pos = sin[offset : offset + seq_len]
-        q = apply_rope(q, cos_pos, sin_pos)
-        k = apply_rope(k, cos_pos, sin_pos)
+        if self.use_rope:
+            q = apply_rope(q, cos_pos, sin_pos)
+            k = apply_rope(k, cos_pos, sin_pos)
 
         # Cache stores the compact n_kv_heads tensors (pre-GQA-expansion)
         # so a growing cache costs n_kv_heads worth of memory per token,
@@ -491,10 +497,10 @@ class SwiGLU(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, cfg: ShamSmallConfig):
+    def __init__(self, cfg: ShamSmallConfig, layer_idx: int = -1):
         super().__init__()
         self.input_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
-        self.attention = Attention(cfg)
+        self.attention = Attention(cfg, layer_idx)
         self.post_attention_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
         self.mlp = SwiGLU(cfg)
 
@@ -521,7 +527,7 @@ class ShamSmall(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.token_embedding = nn.Embedding(cfg.vocab_size, cfg.d_model)
-        self.layers = nn.ModuleList(TransformerBlock(cfg) for _ in range(cfg.n_layers))
+        self.layers = nn.ModuleList(TransformerBlock(cfg, i) for i in range(cfg.n_layers))
         if cfg.adapter_rank > 0:
             self.enable_adapters(cfg.adapter_rank, cfg.adapter_alpha)
         self.final_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
