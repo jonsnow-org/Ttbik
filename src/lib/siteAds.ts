@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { gateUrl } from "@/lib/hostingOps";
 
 export const AD_PLANS = [
   { days: 7, price: 15, label: "7 أيام" },
@@ -55,7 +56,7 @@ export async function bindAdmenBot() {
       data: { isActive: false, template: "SITE_BANNER_ADMIN" },
     }).catch(() => null);
   }
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const base = gateUrl().replace(/\/$/, ""); // gate first: never a bare vercel.app link
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
   await fetch(`https://api.telegram.org/bot${bot.token}/setChatMenuButton`, {
     method: "POST",
