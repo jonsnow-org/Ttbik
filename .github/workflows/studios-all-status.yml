@@ -15,8 +15,8 @@ jobs:
           python3 - <<'PY'
           import json, os, time, urllib.request, urllib.error
           from concurrent.futures import ThreadPoolExecutor
-          names = ["cyberrealistic-final-test","epicrealism-image-test","gemma4-realistic-vision-v6-test","realistic-vision-v6-test","umranz-sd15-image-test",
-                   "nova-media-server","sham-donor-qwen35-9b-media","sham-donor-gemma4-e4b-media","sham-donor-minicpmo45-media",
+          names = ["epicrealism-image-test","realistic-vision-v6-test",
+                   "nova-media-server",
                    "sham-v1-server","sham-v2-server","sham-v2-overflow-server","sham-v2-video-server","nova-inference-server"]
           head = {"Authorization": "Bearer " + os.environ["T"], "Content-Type": "application/json"}
           def one(n):

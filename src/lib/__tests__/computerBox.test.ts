@@ -1,7 +1,6 @@
 import { boxActionFor, boxDo, cleanBoxArgs, renderBoxReply } from "@/lib/computerBox";
 import { COMPUTER_PLAYBOOK, toolGroups } from "@/lib/coderAgent";
 const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice(4), "base64").toString("utf8") : x);   // jobs travel as base64 (the gateway filter rejects some plain text)
-import { candidateToolsFor } from "@/lib/donorToolBridge";
 
 describe("the model's own persistent computer", () => {
   test("computer_batch maps every step to its Studio action, refuses unknown or nested steps, and renders each result", () => {
@@ -75,10 +74,10 @@ describe("the model's own persistent computer", () => {
       if (url.endsWith("/gradio_api/call/box_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, exit_code: 0, seconds: 0.1, cwd: ".", output: "hello" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await boxDo("minicpmo45", "42:minicpmo45", { action: "run", command: "echo hello" }, fetchImpl);
+    const out = await boxDo("lfm25", "42:lfm25", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
     expect(calls[0].url).toContain("nova-inference-server");
-    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:minicpmo45" });
+    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:lfm25" });
     expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/hello/);
     expect(calls[2].url).toContain("nova-inference-server");
   });
@@ -91,10 +90,6 @@ describe("the model's own persistent computer", () => {
     expect(worker).toEqual(expect.arrayContaining(["sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_search"]));
     expect(COMPUTER_PLAYBOOK).toContain("computer_repo");
     expect(COMPUTER_PLAYBOOK).toContain("computer_job");
-    const seen = candidateToolsFor(["computer"], false, false).find((t) => t.function.name === "computer_run")!;
-    expect(seen.function.description).toContain("90 s");
-    expect(seen.function.description).toContain("computer_job");
-    expect(candidateToolsFor(["computer"], false, false).map((t) => t.function.name)).not.toContain("sandbox_exec");
   });
 });
 
@@ -177,12 +172,9 @@ describe("writing fast: edit in place and publish in one commit", () => {
     expect(gh).not.toHaveBeenCalled();
   });
 
-  test("publishing to a default or protected branch asks for confirmation like every other push, and candidates can publish like Nova (the same confirmation)", async () => {
+  test("publishing to a default or protected branch asks for confirmation like every other push", async () => {
     const gh = async (_m: string, p: string) => p === "/repos/o/r" ? { status: 200, data: { default_branch: "main" } } : p.includes("/branches/") ? { status: 200, data: { protected: false } } : { status: 404, data: {} };
     const guard = await guardCall(call("computer_publish", { repo: "o/r", branch: "main", message: "m" }), gh as any, "user");
     expect(guard.confirm).toBe(true);
-    const names = candidateToolsFor(["computer", "github"], true, false).map((t) => t.function.name);
-    expect(names).toContain("computer_publish");                          // owner 2026-11-02: candidates have the same tools as Nova; a push to a default / protected branch still asks (guard above)
-    expect(names).toContain("computer_edit");
   });
 });

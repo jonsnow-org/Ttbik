@@ -8,7 +8,6 @@ import { Button, Caption, Cell, Input, Section, Select, Spinner, Switch } from "
 type Api = <T = any>(op: string, body?: Record<string, unknown>) => Promise<T>;
 type Opt = { id: string; ar: string; en: string; hint: { ar: string; en: string } };
 type Probe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } };
-type CandidateMedia = { id: string; studio: string; ok: boolean; phase: string; detail: string; media: { image: boolean; audio: boolean; video: boolean } };
 type Line = { kind: "image" | "audio" | "video"; ar: string; en: string; studio: string };
 type ModelMedia = { id: string; engine: string; options: Opt[]; lines: Line[]; studios: Probe[] };
 type PhotoWeight = { modelId: string; displayName: string; sourceModel: string; modelRepo: string; endpoint: string; ready: boolean; phase: string; checkpointSha256: string | null; sourceRevision: string | null; memoryGb: number | null; detail: string };
@@ -26,7 +25,6 @@ export function accessText(m: OwnerModel, ar: boolean): string {
 export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { ar: boolean; api: Api; haptic: (k: "success" | "error") => void; models: OwnerModel[]; reload: () => void | Promise<void> }) {
   const [media, setMedia] = useState<ModelMedia[] | null>(null);
   const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
-  const [candidateMedia, setCandidateMedia] = useState<CandidateMedia[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
@@ -34,7 +32,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const loadMedia = useCallback(async () => {
     setBusy("status");
     setErr("");
-    try { const result = await api<{ models: ModelMedia[]; photoWeights?: PhotoWeight[]; candidateMedia?: CandidateMedia[] }>("media_status"); setMedia(result.models); setPhotoWeights(result.photoWeights || []); setCandidateMedia(result.candidateMedia || []); } catch (e: any) { setErr(String(e?.message || e)); }
+    try { const result = await api<{ models: ModelMedia[]; photoWeights?: PhotoWeight[] }>("media_status"); setMedia(result.models); setPhotoWeights(result.photoWeights || []); } catch (e: any) { setErr(String(e?.message || e)); }
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
@@ -100,24 +98,11 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             const hash = w.checkpointSha256 ? w.checkpointSha256.slice(0, 12) + "…" : (ar ? "لا توجد بصمة" : "no checkpoint hash");
             const detail = w.detail ? " · " + w.detail : "";
             const subtitle = w.sourceModel + " · " + w.modelRepo + " · " + hash + memory + detail;
-            const labels: Record<string, string> = { coder: "Nova", "qwen35-9b": "Qwen3.5-9B", "gemma4-e4b": "Gemma 4 E4B", minicpmo45: "MiniCPM-o 4.5", sham_v2: "Sham v2" };
+            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham v2" };
             return <Cell key={w.modelId} multiline after={w.ready ? "✅" : "❌"} subtitle={subtitle}>
               {(ar ? (labels[w.modelId] || w.displayName) : w.displayName) + " — " + (ar ? (w.ready ? "جاهز" : "غير جاهز") : w.phase)}
             </Cell>;
           })}
-        </Section>
-        <Section
-          header={ar ? "🎬 استوديوهات الوسائط الخاصة بالمرشحين" : "🎬 Candidate-owned media Studios"}
-          footer={ar ? "كل مرشح يملك استوديو صور وصوت وفيديو منفصلاً. الجاهزية تعني أن أوزان الفيديو موجودة فعلياً، ولا تُحسب مجرد حالة تشغيل Studio نجاحاً." : "Each candidate has a separate media Studio. Ready means the local video weights are present; a running Studio alone is not a pass."}
-        >
-          {candidateMedia.map((s) => {
-            const label = ({ "qwen35-9b": "Qwen3.5-9B", "gemma4-e4b": "Gemma 4 E4B", minicpmo45: "MiniCPM-o 4.5" } as Record<string, string>)[s.id] || s.id;
-            const modalities = ar
-              ? `صورة ${s.media.image ? "✅" : "❌"} · صوت ${s.media.audio ? "✅" : "❌"} · فيديو ${s.media.video ? "✅" : "❌"}`
-              : `Image ${s.media.image ? "✅" : "❌"} · Audio ${s.media.audio ? "✅" : "❌"} · Video ${s.media.video ? "✅" : "❌"}`;
-            return <Cell key={s.id} multiline after={s.ok ? "✅" : "❌"} subtitle={`${s.studio} · ${s.phase}${s.detail ? " · " + s.detail : ""}`}>{label + " — " + modalities}</Cell>;
-          })}
-          {!candidateMedia.length && <Cell before={<Spinner size="s" />}>{ar ? "لم تصل حالة استوديوهات المرشحين بعد" : "Candidate media status is not available yet"}</Cell>}
         </Section>
         <Cell><Button size="s" mode="bezeled" loading={busy === "status"} onClick={() => void loadMedia()}>{ar ? "🔄 افحص الآن" : "🔄 Check now"}</Button></Cell>
       </Section>

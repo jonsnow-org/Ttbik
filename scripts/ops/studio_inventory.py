@@ -27,9 +27,6 @@ KNOWN = {
     "sham-v2-server": "Sham v2 chat + packaged image/audio weights",
     "sham-v2-overflow-server": "Sham v2 text overflow replica",
     "sham-v2-video-server": "Sham v2 dedicated video generation",
-    "sham-donor-qwen35-9b-test": "Qwen3.5-9B donor candidate",
-    "sham-donor-gemma4-e4b-test": "Gemma 4 E4B donor candidate",
-    "sham-donor-minicpmo45-test": "MiniCPM-o 4.5 donor candidate",
 }
 KEEP = (
     "phase", "detail", "error", "model", "model_repo", "app_revision", "ctx", "context_tokens",

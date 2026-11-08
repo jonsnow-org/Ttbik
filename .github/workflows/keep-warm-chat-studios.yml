@@ -19,7 +19,7 @@ jobs:
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          for n in sham-donor-minicpmo45-test sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test lfm25-inference-server sham-v2-server; do
+          for n in lfm25-inference-server sham-v2-server; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "$n HTTP $code"
           done

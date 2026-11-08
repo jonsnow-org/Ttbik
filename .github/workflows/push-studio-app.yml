@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "cyberrealistic-final-test | epicrealism-image-test | umranz-sd15-image-test | gemma4-realistic-vision-v6-test"
+        description: "epicrealism-image-test"
         required: true
-        default: "cyberrealistic-final-test"
+        default: "epicrealism-image-test"
 
 permissions:
   contents: read
@@ -32,10 +32,7 @@ jobs:
           set -euo pipefail
           echo "::add-mask::$T"
           case "$STUDIO" in
-            cyberrealistic-final-test) DIR=cyberrealistic-test ;;
             epicrealism-image-test) DIR=epicrealism-image-test ;;
-            umranz-sd15-image-test) DIR=umranz-image-test ;;
-            gemma4-realistic-vision-v6-test) DIR=gemma4-realistic-vision-v6-test ;;
             *) echo "::error::studio not allowed"; exit 1 ;;
           esac
           git config --global user.name "image Studio CI"

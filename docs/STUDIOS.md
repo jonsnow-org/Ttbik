@@ -8,7 +8,6 @@
 | Sham v2 overflow | \`sham-v2-overflow-server\` | \`SHAM_V2_OVERFLOW_URL\` | Sham v2 text overflow only after checkpoint verification |
 | Sham v2 video | \`sham-v2-video-server\` | \`SHAM_V2_VIDEO_URL\` | Sham v2 dedicated video generation |
 | Nova media | \`nova-media-server\` | \`NOVA_MEDIA_STUDIO_URL\` | Nova image, Arabic speech and real video |
-| Candidate inference | \`sham-donor-qwen35-9b-test\`, \`sham-donor-gemma4-e4b-test\`, \`sham-donor-minicpmo45-test\` | candidate-specific routes | Three isolated model evaluations |
 | Candidate media | each candidate's \`*-media\` Studio | candidate-specific media router | Candidate-owned image/audio/video weights |
 | **Computer hub** | **\`nova-inference-server\` (private 16 GB RAM)** | **\`COMPUTER_STUDIO_URL\` → \`browserStudioFor()\`** | **Full developer terminal/toolchain, persistent files/jobs, Chromium and X11 desktop only; no LLM or media weights** |
 

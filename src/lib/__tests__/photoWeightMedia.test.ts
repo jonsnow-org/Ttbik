@@ -2,30 +2,27 @@ import { makePhotoMedia, photoWeightEndpoint, photoWeightProfile, PHOTO_WEIGHT_P
 
 describe("per-model photo weight routing", () => {
   const savedToken = process.env.MODELSCOPE_API_TOKEN;
-  const savedGemmaUrl = process.env.GEMMA4_IMAGE_STUDIO_URL;
+  const savedV2Url = process.env.SHAM_V2_IMAGE_STUDIO_URL;
   afterEach(() => {
     if (savedToken === undefined) delete process.env.MODELSCOPE_API_TOKEN;
     else process.env.MODELSCOPE_API_TOKEN = savedToken;
-    if (savedGemmaUrl === undefined) delete process.env.GEMMA4_IMAGE_STUDIO_URL;
-    else process.env.GEMMA4_IMAGE_STUDIO_URL = savedGemmaUrl;
+    if (savedV2Url === undefined) delete process.env.SHAM_V2_IMAGE_STUDIO_URL;
+    else process.env.SHAM_V2_IMAGE_STUDIO_URL = savedV2Url;
     jest.restoreAllMocks();
   });
 
-  it("maps each selectable model to a different private image Studio and model repo", () => {
+  it("maps each remaining model to a different private image Studio and model repo", () => {
     const entries = Object.values(PHOTO_WEIGHT_PROFILES);
-    expect(entries.map((x) => x.modelId)).toEqual(["coder", "qwen35-9b", "gemma4-e4b", "minicpmo45", "sham_v2"]);
+    expect(entries.map((x) => x.modelId)).toEqual(["coder", "sham_v2"]);          // the three donor candidates were removed on 2026-11-08
     expect(new Set(entries.map((x) => x.modelRepo)).size).toBe(entries.length);
     expect(new Set(entries.map((x) => x.defaultEndpoint)).size).toBe(entries.length);
-    expect(photoWeightProfile("gemma4-e4b")?.modelRepo).toBe("novaai2026/gemma4-realistic-vision-v6-test-models");
-    expect(photoWeightProfile("qwen35-9b")?.modelRepo).toBe("novaai2026/cyberrealistic-final-test-models");
-    expect(photoWeightProfile("minicpmo45")?.modelRepo).toBe("novaai2026/umranz-sd15-test-models");
-    expect(photoWeightProfile("qwen35-9b")?.validationStatus).toBe("previously_passed");
-    expect(photoWeightProfile("gemma4-e4b")?.validationStatus).toBe("previously_passed");
-    expect(photoWeightProfile("minicpmo45")?.validationStatus).toBe("previously_passed");
+    expect(photoWeightProfile("sham_v2")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
+    expect(photoWeightProfile("sham_v2")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("coder")?.validationStatus).toBe("previously_passed");
     expect(photoWeightProfile("coder")?.modelRepo).toBe("novaai2026/epicrealism-image-test-models");
-    expect(photoWeightProfile("sham_v2")?.modelRepo).toBe("novaai2026/realistic-vision-v6-test-models");
-    expect(new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"].map((id) => photoWeightProfile(id)?.modelRepo)).size).toBe(3);
+    expect(photoWeightProfile("qwen35-9b")).toBeNull();
+    expect(photoWeightProfile("gemma4-e4b")).toBeNull();
+    expect(photoWeightProfile("minicpmo45")).toBeNull();
   });
 
   it("rejects an unknown model without making any HTTP request or trying a fallback", async () => {
@@ -43,19 +40,19 @@ describe("per-model photo weight routing", () => {
       if (init?.method === "POST") return { ok: true, json: async () => ({ event_id: "status-1" }) };
       return {
         ok: true,
-        text: async () => 'event: complete\ndata: [{"phase":"error","model_repo":"novaai2026/gemma4-realistic-vision-v6-test-models","error":"weights missing"}]\n\n',
+        text: async () => 'event: complete\ndata: [{"phase":"error","model_repo":"novaai2026/realistic-vision-v6-test-models","error":"weights missing"}]\n\n',
       };
     }) as unknown as typeof fetch;
-    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { fetchImpl });
+    const result = await makePhotoMedia("sham_v2", "A realistic portrait of an adult woman", { fetchImpl });
     expect(result).toMatchObject({ type: "error", reason: "studio_not_ready" });
     expect(urls.length).toBe(2);
-    expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
+    expect(urls.every((url) => url.includes("realistic-vision-v6-test"))).toBe(true);
     expect(urls.some((url) => url.includes("cyberrealistic") || url.includes("epicrealism") || url.includes("juggernaut"))).toBe(false);
   });
 
   it("uses only the selected model Studio and verifies the repo and checkpoint before returning an image", async () => {
     process.env.MODELSCOPE_API_TOKEN = "test-token";
-    const profile = photoWeightProfile("gemma4-e4b")!;
+    const profile = photoWeightProfile("sham_v2")!;
     const checksum = profile.expectedCheckpointSha256 || "a".repeat(64);
     const urls: string[] = [];
     const calls: Array<{ url: string; body?: string }> = [];
@@ -83,12 +80,12 @@ describe("per-model photo weight routing", () => {
       throw new Error("Unexpected URL " + url);
     }) as unknown as typeof fetch;
 
-    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { seed: 42, fetchImpl: fakeFetch, bypassNegativePrompt: true });
+    const result = await makePhotoMedia("sham_v2", "A realistic portrait of an adult woman", { seed: 42, fetchImpl: fakeFetch, bypassNegativePrompt: true });
     expect(result.type).toBe("image");
     if (result.type !== "image") throw new Error("Expected image result");
     expect(result.metadata).toMatchObject({ model_repo: profile.modelRepo, checkpoint_sha256: checksum });
     expect(Buffer.from(result.b64, "base64")).toEqual(bytes);
-    expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
+    expect(urls.every((url) => url.includes("realistic-vision-v6-test"))).toBe(true);
     expect(urls.some((url) => url.includes("/gradio_api/file=/tmp/rv6-test.png"))).toBe(true);
     expect(JSON.parse(calls[2].body!).data).toEqual([
       "A realistic portrait of an adult woman", "", profile.resolution, profile.steps, profile.cfg, 42,
@@ -97,7 +94,7 @@ describe("per-model photo weight routing", () => {
 
   it("waits for a warming Studio (phase=loading) instead of losing the picture to a cold start", async () => {
     process.env.MODELSCOPE_API_TOKEN = "test-token";
-    const profile = photoWeightProfile("gemma4-e4b")!;
+    const profile = photoWeightProfile("sham_v2")!;
     const checksum = profile.expectedCheckpointSha256 || "a".repeat(64);
     let statusCalls = 0;
     const bytes = Buffer.alloc(4096, 127);
@@ -116,7 +113,7 @@ describe("per-model photo weight routing", () => {
       if (url.includes("/gradio_api/file=")) return { ok: true, headers: { get: () => "image/png" }, arrayBuffer: async () => bytes };
       throw new Error("Unexpected URL " + url);
     }) as unknown as typeof fetch;
-    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { fetchImpl: fakeFetch });
+    const result = await makePhotoMedia("sham_v2", "A realistic portrait of an adult woman", { fetchImpl: fakeFetch });
     expect(result.type).toBe("image");
     expect(statusCalls).toBeGreaterThanOrEqual(3);       // it asked again while the Studio was still loading
   });
@@ -130,16 +127,15 @@ describe("per-model photo weight routing", () => {
       const sse = 'event: complete\ndata: [{"phase":"ready","model_repo":"novaai2026/cyberrealistic-final-test-models","checkpoint_sha256":"' + "b".repeat(64) + '"}]\n\n';
       return { ok: true, text: async () => sse };
     }) as unknown as typeof fetch;
-    const result = await makePhotoMedia("gemma4-e4b", "A realistic portrait of an adult woman", { fetchImpl: fakeFetch });
+    const result = await makePhotoMedia("sham_v2", "A realistic portrait of an adult woman", { fetchImpl: fakeFetch });
     expect(result).toMatchObject({ type: "error", reason: "model_identity_mismatch" });
     expect(urls.length).toBe(2);
-    expect(urls.every((url) => url.includes("gemma4-realistic-vision-v6-test"))).toBe(true);
+    expect(urls.every((url) => url.includes("realistic-vision-v6-test"))).toBe(true);
   });
 
   it("allows per-model endpoint overrides without changing another model's destination", () => {
-    process.env.GEMMA4_IMAGE_STUDIO_URL = "off";
-    expect(photoWeightEndpoint(photoWeightProfile("gemma4-e4b")!)).toBe("");
-    expect(photoWeightEndpoint(photoWeightProfile("qwen35-9b")!)).toContain("cyberrealistic-final-test");
-    expect(photoWeightEndpoint(photoWeightProfile("minicpmo45")!)).toContain("umranz-sd15-image-test");
+    process.env.SHAM_V2_IMAGE_STUDIO_URL = "off";
+    expect(photoWeightEndpoint(photoWeightProfile("sham_v2")!)).toBe("");
+    expect(photoWeightEndpoint(photoWeightProfile("coder")!)).toContain("epicrealism-image-test");
   });
 });

@@ -7,9 +7,6 @@ Inference and media weights remain isolated by model. The execution host is now 
 | Nova AI (\`coder\`) | \`coder-inference-server\` 1–5 | Nova's own image/speech/video Studios | Shared 16 GB computer hub; private \`user:coder\` session |
 | Sham (old) | \`sham-v1-server\` | Its own media route | Shared 16 GB computer hub; private \`user:sham\` session |
 | Sham v2 | \`sham-v2-server\` (+ overflow) | Its own image/audio/video Studios | Shared 16 GB computer hub; private \`user:sham_v2\` session |
-| Qwen3.5-9B | \`sham-donor-qwen35-9b-test\` | Its own media Studio | Shared 16 GB computer hub; private \`user:qwen35-9b\` session |
-| Gemma 4 E4B | \`sham-donor-gemma4-e4b-test\` | Its own media Studio | Shared 16 GB computer hub; private \`user:gemma4-e4b\` session |
-| MiniCPM-o 4.5 | \`sham-donor-minicpmo45-test\` | Its own media Studio | Shared 16 GB computer hub; private \`user:minicpmo45\` session |
 
 ## The computer host
 

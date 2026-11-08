@@ -7,7 +7,7 @@ on:
       studio:
         description: "Studio name under novaai2026"
         required: true
-        default: "cyberrealistic-final-test"
+        default: "epicrealism-image-test"
       grep:
         description: "text to look for in app.py"
         required: false

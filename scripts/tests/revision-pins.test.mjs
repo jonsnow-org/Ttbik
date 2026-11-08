@@ -31,16 +31,3 @@ test("computer hub revision is pinned identically everywhere", () => {
   for (const pin of docPins) assert.equal(pin, revision, `docs/MODELS_AND_COMPUTER.md pins ${pin}, app declares ${revision}`);
 });
 
-test("donor-bakeoff revision matches the candidate readiness guard", () => {
-  const revision = appRevision(read("experiments/donor-bakeoff/app.py"));
-  assert.ok(revision, "experiments/donor-bakeoff/app.py must declare APP_REVISION");
-
-  const guard = read("src/lib/donorTests.ts");
-  const expected = (guard.match(/EXPECTED_DONOR_APP_REVISION\s*=\s*"([^"]+)"/) || [])[1];
-  assert.equal(expected, revision, `donorTests EXPECTED_DONOR_APP_REVISION is ${expected}, app declares ${revision}`);
-
-  const acceptedBlock = (guard.match(/ACCEPTED_DONOR_APP_REVISIONS\s*=\s*new Set\(\[([^\]]*)\]\)/) || [])[1] || "";
-  const accepted = all(acceptedBlock, /"([^"]+)"/g);
-  const referencesExpected = /EXPECTED_DONOR_APP_REVISION/.test(acceptedBlock);
-  assert.ok(referencesExpected || accepted.includes(revision), `the accepted set must include the current revision ${revision}`);
-});

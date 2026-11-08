@@ -33,7 +33,6 @@ import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskS
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, clock12, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
-import { DONOR_TESTS, donorJobPoll, donorJobStart, type DonorChatResult, isDonorTestId, probeDonorTestStudio, type DonorHistoryMessage, type DonorTestId, type DonorTestMedia } from "@/lib/donorTests";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -62,7 +61,7 @@ export type Run = {
   // each leg polls the Studio's own background job id, and the run hands itself to the next leg until the file is delivered. `phase`: route -> prompt -> submit -> poll -> send.
   media?: { kind: "image" | "video" | "audio"; request: string; phase: "route" | "prompt" | "submit" | "poll"; model?: string; subject?: string; prompt?: string; aspect?: "wide" | "tall" | "square"; seconds?: number; job?: string; jobStarted?: number; retried?: boolean; reserved?: boolean; attempts?: number; started?: number };
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; donorTestModel?: DonorTestId; donorTestHistory?: Partial<Record<DonorTestId, DonorHistoryMessage[]>>; donorTestInFlight?: Partial<Record<DonorTestId, string>> };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; };
 export type { Db };
 export { coderChatKey };
 
@@ -374,24 +373,13 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
-  // Resolve the owner-only candidate mode before the normal coder availability gate.
-  // A selected donor remains reachable even when Nova's own coding Studio is disabled.
+  // The model picker must stay reachable even when Nova's own coding Studio is switched off.
   const incomingChatId = update.message?.chat?.id;
   const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
-  const selectedDonor = isDonorTestId(preloadedOwnerState?.model || "")
-    ? preloadedOwnerState!.model as DonorTestId
-    : preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
-      ? preloadedOwnerState.donorTestModel
-      : null;
-  const donorPickerAction = Boolean(
-    update.callback_query && (
-      String(update.callback_query.data || "").startsWith("donor_model|") ||
-      String(update.callback_query.data || "").startsWith("model_pick|")
-    )
-  ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
+  const modelPickerAction = Boolean(update.callback_query && String(update.callback_query.data || "").startsWith("model_pick|")) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled() && currentEngineModel() !== "lfm25" && !selectedDonor && !donorPickerAction) {
+  if (!coderEnabled() && currentEngineModel() !== "lfm25" && !modelPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -439,7 +427,6 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
         await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج غير متاح لهذا الحساب.", show_alert: true }).catch(() => null);
         return true;
       }
-      state.donorTestModel = undefined;
       await withEngineModel("coder", () => saveStateStrict(chatId, state, db));
       await bot.api.answerCallbackQuery(cq.id, { text: "تم اختيار النموذج." }).catch(() => null);
       const selected = models.find((m) => m.id === id);
@@ -574,53 +561,6 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
-    return true;
-  }
-  if (owner && (isDonorTestId(st.model || "") || (st.donorTestModel && isDonorTestId(st.donorTestModel)))) {
-    const donorId = isDonorTestId(st.model || "") ? st.model as DonorTestId : st.donorTestModel!;
-    if (cmd === "/start" || cmd === "/help") {
-      await send(bot, chatId, "✅ النموذج الحالي: " + (DONOR_TESTS.find((x) => x.id === donorId)?.name.ar || donorId) + ". أرسل رسالتك، أو /models لتبديل النموذج.");
-      return true;
-    }
-    if (cmd === "/stop") {
-      const runId = st.donorTestInFlight?.[donorId];
-      if (!runId) {
-        await send(bot, chatId, "لا يوجد طلب نشط لهذا النموذج.");
-        return true;
-      }
-      const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
-      const actualSlot = await taskSlot(runId, chatId, db);
-      if (actualSlot !== "model:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
-        await send(bot, chatId, "تعذّر إيقاف الطلب؛ ربما اكتمل بالفعل.");
-        return true;
-      }
-      const active = { ...(st.donorTestInFlight || {}) };
-      delete active[donorId];
-      st.donorTestInFlight = active;
-      await saveStateStrict(chatId, st, db);
-      await taskEvent(runId, "info", "أوقف المستخدم الطلب.", db);
-      await send(bot, chatId, "⏹️ تم إيقاف الطلب.");
-      return true;
-    }
-    if (cmd === "/new") {
-      const history = { ...(st.donorTestHistory || {}) };
-      delete history[donorId];
-      st.donorTestHistory = history;
-      await saveStateStrict(chatId, st, db);
-      await send(bot, chatId, "🆕 بدأت محادثة جديدة مع هذا النموذج.");
-      return true;
-    }
-    try {
-      const attachment = await telegramDonorAttachment(bot, botRow, msg);
-      if (!attachment.text && !attachment.media) {
-        await send(bot, chatId, "أرسل نصاً أو أرفق صورة أو ملف صوت أو فيديو.");
-        return true;
-      }
-      await startCandidateTerminal(bot, chatId, donorId, attachment.text, botRow.id, attachment.media, db, "telegram");
-    } catch (error) {
-      const message = String((error as Error)?.message || error).slice(0, 600);
-      await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
-    }
     return true;
   }
   if (st.mode === "sham") {
@@ -1075,12 +1015,6 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
 
-  // Each ModelScope candidate has its own terminal adapter and private Studio session.
-  if (isDonorTestId(st.model || "")) {
-    if (tierFor(chatId) !== "owner") throw new Error("candidate models are owner-only");
-    return startCandidateTerminal(bot, chatId, st.model as DonorTestId, content, botRow.id, undefined, db, "app");
-  }
-
   // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
   if (st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") {
     const known = await listModels(db);
@@ -1129,373 +1063,6 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
   later(() => frontAck(bot, chatId, runId, content, "app", db, selectedModel));
   return { runId, queued: false };
-}
-
-/**
- * One shared mini-app terminal with a model-specific adapter. Each adapter validates the
- * selected model id before opening that candidate's own Studio endpoint and state slot.
- */
-async function startCandidateTerminal(
-  bot: TelegramBot,
-  chatId: number,
-  id: DonorTestId,
-  text: string,
-  botId: string,
-  media: DonorTestMedia | undefined,
-  db: Db,
-  surface: "telegram" | "app",
-): Promise<{ runId: string; queued: boolean }> {
-  switch (id) {
-    case "qwen35-9b": return startQwen35Terminal(bot, chatId, text, botId, media, db, surface);
-    case "gemma4-e4b": return startGemma4Terminal(bot, chatId, text, botId, media, db, surface);
-    case "minicpmo45": return startMiniCPMO45Terminal(bot, chatId, text, botId, media, db, surface);
-  }
-}
-
-export const startQwen35Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "qwen35-9b");
-
-export const startGemma4Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "gemma4-e4b");
-
-export const startMiniCPMO45Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "minicpmo45");
-
-/** Telegram chat path: the selected candidate receives the message directly; no production runner is invoked. */
-export async function startDonorTestTelegramTask(
-  bot: TelegramBot,
-  chatId: number,
-  text: string,
-  botId: string,
-  media?: DonorTestMedia,
-  db: Db = prismaDb,
-  fetchImpl: typeof fetch = globalThis.fetch,
-  surface: "telegram" | "app" = "telegram",
-  expectedModel?: DonorTestId,
-): Promise<{ runId: string; queued: boolean }> {
-  if (tierFor(chatId) !== "owner") throw new Error("هذا النموذج غير متاح لهذا الحساب.");
-  const st = await loadStateStrict(chatId, db);
-  const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
-  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار النموذج.");
-  if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
-  const readiness = await probeDonorTestStudio(id, fetchImpl);
-  if (readiness.phase !== "ready") {
-    const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
-    const detail = readiness.detail ? " · " + readiness.detail : "";
-    throw new Error("النموذج " + label + " غير جاهز بعد (" + readiness.phase + ")" + detail + ". لم يتم إرسال رسالتك إلى Nova أو Sham.");
-  }
-  const previousRun = st.donorTestInFlight?.[id];
-  if (previousRun && await taskIsActive(previousRun, db)) {
-    throw new Error("هناك طلب جارٍ لهذا النموذج. أرسل /stop لإيقافه أو انتظر الرد.");
-  }
-  const inFlight = { ...(st.donorTestInFlight || {}) };
-  delete inFlight[id];
-  const runId = "donor-" + id + "-" + randomUUID().slice(0, 8);
-  const history = (st.donorTestHistory?.[id] || []).slice(-12);
-  st.donorTestInFlight = { ...inFlight, [id]: runId };
-  await saveStateStrict(chatId, st, db);
-  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
-  await taskStart(chatId, {
-    runId,
-    slot: "model:" + id,
-    source: "interactive",
-    title: "🧪 " + label + ": " + text.slice(0, 150),
-    botId,
-  }, db);
-  await taskEvent(runId, "info", "🧪 رسالة تيليغرام متجهة مباشرة إلى " + label + " فقط.", db);
-  later(() => runDonorTestTask(chatId, runId, id, text, history, db, fetchImpl, bot, media, surface, botId));
-  if (surface === "telegram") void bot.api.sendChatAction(chatId, "typing").catch(() => null);
-  return { runId, queued: false };
-}
-
-/**
- * Persist a candidate response delivered asynchronously by its private ModelScope Studio.
- * This is used when image generation outlives Vercel's 60-second Telegram webhook limit.
- */
-export async function recordDonorAsyncDelivery(
-  chatId: number,
-  runId: string,
-  id: DonorTestId,
-  prompt: string,
-  answer: string,
-  db: Db = prismaDb,
-): Promise<boolean> {
-  if (!isDonorTestId(id)) return false;
-  const st = await loadStateStrict(chatId, db);
-  if (st.donorTestInFlight?.[id] !== runId) return false;
-  const current: DonorHistoryMessage[] = [
-    ...(st.donorTestHistory?.[id] || []),
-    { role: "user", content: String(prompt || "").slice(0, 12_000) },
-    { role: "assistant", content: String(answer || "").slice(0, 4_000) },
-  ];
-  st.donorTestHistory = { ...(st.donorTestHistory || {}), [id]: current.filter((x) => Boolean(x.content)).slice(-16) };
-  const active = { ...(st.donorTestInFlight || {}) };
-  delete active[id];
-  st.donorTestInFlight = active;
-  await saveStateStrict(chatId, st, db);
-  return true;
-}
-
-const DONOR_LEG_MS = (surface: "telegram" | "app") => (surface === "app" ? 240_000 : 45_000);
-const DONOR_TOTAL_MS = 40 * 60_000;
-const donorPause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/** The next leg of a long candidate task: the previous leg (a 60 s webhook) hands the running Studio job to /api/coder/donor-continue. */
-async function donorHandOff(botRow: BotRow, chatId: number, state: DonorChain): Promise<void> {
-  const chain = Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
-  const who = String(chatId);
-  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
-  const res = await fetch(`${selfUrl()}/api/coder/donor-continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000), cache: "no-store" });
-  if (res.status !== 202) throw new Error(`donor continuation was not accepted (HTTP ${res.status})`);
-}
-export type DonorChain = { runId: string; id: DonorTestId; jobId: string; prompt: string; surface: "telegram" | "app"; started: number; botId: string; hadMedia?: boolean; retried?: boolean };
-
-export async function continueDonorRun(botRow: BotRow, chatId: number, chain: DonorChain, db: Db = prismaDb, fetchImpl: typeof fetch = globalThis.fetch): Promise<void> {
-  const st = await loadState(chatId, db);
-  const prior = (st.donorTestHistory?.[chain.id] || []).slice(-12);
-  // A Bot instance only to send messages: the token never leaves this process.
-  const { Bot } = await import("grammy");
-  const bot = chain.surface === "telegram" ? new Bot(botRow.token) : undefined;
-  await followDonorJob(chatId, chain, prior, db, fetchImpl, bot, botRow);
-}
-
-async function runDonorTestTask(
-  chatId: number,
-  runId: string,
-  id: DonorTestId,
-  prompt: string,
-  prior: DonorHistoryMessage[],
-  db: Db,
-  fetchImpl: typeof fetch,
-  bot?: TelegramBot,
-  media?: DonorTestMedia,
-  surface: "telegram" | "app" = "telegram",
-  botId?: string,
-): Promise<void> {
-  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
-  try {
-    await taskEvent(runId, "info", "إرسال مباشر إلى " + label + " عبر ModelScope…", db);
-    const jobId = await donorJobStart(id, prompt, prior, media, { chatId, db, runId, botId }, fetchImpl);
-    await followDonorJob(chatId, { runId, id, jobId, prompt, surface, started: Date.now(), botId: botId || "", hadMedia: Boolean(media) }, prior, db, fetchImpl, bot);
-  } catch (error) {
-    await failDonorRun(chatId, runId, id, label, error, db, bot, surface);
-  }
-}
-
-async function failDonorRun(chatId: number, runId: string, id: DonorTestId, label: string, error: unknown, db: Db, bot: TelegramBot | undefined, surface: "telegram" | "app"): Promise<void> {
-  const message = String((error as Error)?.message || error).slice(0, 700);
-  const notice = "تعذّر الرد من " + label + ": " + message;
-  await taskEvent(runId, "failed", notice, db);
-  await taskStatus(runId, "failed", undefined, db);
-  if (bot && surface === "telegram") await bot.api.sendMessage(chatId, notice).catch(() => null);
-  const st = await loadState(chatId, db);
-  if (st.donorTestInFlight?.[id] === runId) {
-    const active = { ...(st.donorTestInFlight || {}) };
-    delete active[id];
-    st.donorTestInFlight = active;
-    await saveState(chatId, st, db);
-  }
-}
-
-/** Follow one Studio job with short polls. A failed poll is not a failed task; a leg that runs out of time hands the job on instead of giving up. */
-async function followDonorJob(
-  chatId: number, chain: DonorChain, prior: DonorHistoryMessage[], db: Db, fetchImpl: typeof fetch, bot?: TelegramBot, botRow?: BotRow,
-): Promise<void> {
-  const { runId, id, prompt, surface } = chain;
-  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
-  const legEnd = Date.now() + DONOR_LEG_MS(surface);
-  const heartbeat = setInterval(() => { void taskTouch(runId, db).catch(() => null); }, 15_000);
-  // «يكتب…» only while THIS candidate is still the chat's selected model: after the owner switches to another model (owner's report 2026-11-01: still «typing» for Qwen after
-  // switching to old Sham) the old job keeps working quietly and its answer still arrives, but the chat no longer claims the bot is typing.
-  let stillSelected = true;
-  const typing = bot && surface === "telegram" ? setInterval(() => {
-    void (async () => {
-      try { const cur = await loadState(chatId, db); stillSelected = (cur.model === id) || (cur.donorTestModel === id && cur.model === "coder"); } catch { /* keep the last answer */ }
-      if (stillSelected) await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-    })();
-  }, 4_000) : null;
-  try {
-    let pollFailures = 0;
-    let result: Awaited<ReturnType<typeof donorJobPoll>> | null = null;
-    while (true) {
-      if (!(await taskIsActive(runId, db))) return;
-      try {
-        result = await donorJobPoll(id, chain.jobId, fetchImpl);
-        pollFailures = 0;
-      } catch (error) {
-        // A reset connection or a Studio gateway hiccup: the job keeps running inside the Studio. Only a long outage is reported.
-        pollFailures += 1;
-        if (pollFailures >= 40) throw new Error("انقطع الاتصال باستوديو النموذج لأكثر من ثلاث دقائق.");
-        result = null;
-      }
-      if (result?.state === "done") break;
-      if (result?.state === "unknown") {
-        // The Studio restarted and lost the running job. A text request is started again once, automatically; one with an attachment needs the user to resend it.
-        if (chain.retried || chain.hadMedia) throw new Error("فقد الاستوديو هذه المهمة (أُعيد تشغيله). أعد إرسال الطلب.");
-        await taskEvent(runId, "info", "↻ أُعيد تشغيل استوديو النموذج أثناء الطلب؛ أعيد إرساله تلقائياً مرة واحدة.", db);
-        chain = { ...chain, jobId: await donorJobStart(id, prompt, prior, undefined, { chatId, db, runId, botId: chain.botId || undefined }, fetchImpl), retried: true };
-        pollFailures = 0;
-        await donorPause(4_000);
-        continue;
-      }
-      if (Date.now() - chain.started > DONOR_TOTAL_MS) throw new Error("تجاوز الطلب الحد الأقصى للمدة (40 دقيقة).");
-      if (Date.now() >= legEnd) {
-        let row = botRow || null;
-        if (!row && chain.botId) {
-          const { prisma } = await import("@/lib/prisma");
-          row = await prisma.bot.findUnique({ where: { id: chain.botId } }).catch(() => null);
-        }
-        if (!row) throw new Error("تعذّر متابعة الطلب الطويل: لم يُعثر على البوت.");
-        await donorHandOff(row, chatId, chain);
-        return;
-      }
-      await donorPause(4_000);
-    }
-    const doneResult = (result as { state: "done"; result: DonorChatResult }).result;
-    await finishDonorRun(chatId, chain, prior, doneResult, db, bot);
-  } catch (error) {
-    await failDonorRun(chatId, runId, id, label, error, db, bot, surface);
-  } finally {
-    clearInterval(heartbeat);
-    if (typing) clearInterval(typing);
-  }
-}
-
-async function finishDonorRun(
-  chatId: number, chain: DonorChain, prior: DonorHistoryMessage[], result: DonorChatResult, db: Db, bot?: TelegramBot,
-): Promise<void> {
-  const { runId, id, prompt, surface } = chain;
-  const label = DONOR_TESTS.find((x) => x.id === id)?.name.ar || id;
-  {
-    if (!(await taskIsActive(runId, db))) return;
-    const answer = stripThinkTags(String(result.text || "")).trim();       // a thought block never reaches the chat or the Mini App (any model)
-    const toolCalls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
-    const executedTools = Array.isArray(result.executed_tools) ? result.executed_tools : [];
-    const auditForHistory = executedTools.length
-      ? "\n\n[سجل الأدوات المنفّذة]\n" + JSON.stringify(executedTools).slice(0, 3500)
-      : "";
-    const historyAnswer = (answer + auditForHistory).trim() || (toolCalls.length ? JSON.stringify(toolCalls) : "");
-    const currentTurn: DonorHistoryMessage[] = [
-      ...prior,
-      { role: "user" as const, content: prompt.slice(0, 12_000) },
-      { role: "assistant" as const, content: historyAnswer },
-    ];
-    const stored: DonorHistoryMessage[] = currentTurn.filter((x) => Boolean(x.content)).slice(-16);
-    const st = await loadStateStrict(chatId, db);
-    if (st.donorTestInFlight?.[id] === runId) {
-      st.donorTestHistory = { ...(st.donorTestHistory || {}), [id]: stored };
-      const active = { ...(st.donorTestInFlight || {}) };
-      delete active[id];
-      st.donorTestInFlight = active;
-      await saveStateStrict(chatId, st, db);
-    }
-    if (answer && !result.delivered_to_telegram) {
-      for (const piece of splitForTelegram(answer, 3600)) {
-        await taskEvent(runId, "text", piece, db);
-        if (bot && surface === "telegram") await bot.api.sendMessage(chatId, piece).catch(() => null);
-      }
-    }
-    const generatedMedia = result.delivered_to_telegram ? [] : (Array.isArray(result.generated_media) ? result.generated_media : []);
-    if (generatedMedia.length) {
-      const photo = await import("@/lib/photoWeightMedia");
-      const assigned = photo.photoWeightProfile(id);
-      let delivered = 0;
-      for (const item of generatedMedia.slice(0, 2)) {
-        if (!assigned || !item || item.kind !== "image" || item.candidate !== id ||
-            item.model_repo !== assigned.modelRepo || !/^[a-f0-9]{64}$/i.test(String(item.checkpoint_sha256 || "")) ||
-            (assigned.expectedCheckpointSha256 && String(item.checkpoint_sha256).toLowerCase() !== assigned.expectedCheckpointSha256.toLowerCase()) ||
-            !item.metadata || item.metadata.result !== "image_generated" ||
-            item.metadata.model_repo !== assigned.modelRepo ||
-            String(item.metadata.checkpoint_sha256 || "").toLowerCase() !== String(item.checkpoint_sha256).toLowerCase()) {
-          await taskEvent(runId, "failed", "رُفض ملف وسيط مولّد لأن هوية النموذج أو مستودع الوزن أو بصمة الملف لا تطابق التعيين الخاص بالمرشح؛ لم يُرسل إلى المستخدم.", db);
-          continue;
-        }
-        const bytes = Buffer.from(String(item.b64 || ""), "base64");
-        if (bytes.length < 1000 || bytes.length > 20 * 1024 * 1024) {
-          await taskEvent(runId, "failed", "رُفض ملف الصورة المولّد لأنه فارغ أو يتجاوز الحجم المسموح.", db);
-          continue;
-        }
-        if (!bot) {
-          await taskEvent(runId, "failed", "تم إنشاء الصورة والتحقق من هويتها، لكن لا يوجد كائن بوت لإرسال الملف إلى المحادثة.", db);
-          continue;
-        }
-        const ext = item.mime === "image/jpeg" ? "jpg" : item.mime === "image/webp" ? "webp" : "png";
-        const inputFile = new InputFile(bytes, id + "-generated." + ext);
-        const caption = "🖼 صورة مولّدة بواسطة " + label + "\nالوزن المستقل: " + assigned.sourceModel + "\nStudio: " + assigned.modelRepo;
-        if (bytes.length <= 10 * 1024 * 1024 && item.mime !== "image/webp") {
-          await bot.api.sendPhoto(chatId, inputFile, { caption });
-        } else {
-          await bot.api.sendDocument(chatId, inputFile, { caption });
-        }
-        delivered += 1;
-        await taskEvent(runId, "info", "✅ تم تسليم صورة مولّدة من وزن " + assigned.sourceModel + " المخصص حصراً لـ " + label + ". بصمة الوزن: " + String(item.checkpoint_sha256).slice(0, 16) + "…", db);
-      }
-      if (delivered === 0) {
-        await taskEvent(runId, "failed", "لم يتم تسليم أي صورة مولّدة؛ لم يحدث تحويل إلى نموذج أو وزن آخر.", db);
-      }
-    }
-    if (executedTools.length) {
-      const auditLines = executedTools.slice(0, 4).map((entry: any) => {
-        const name = String(entry?.name || "unknown_tool");
-        const output = entry?.result && typeof entry.result === "object" ? entry.result as Record<string, any> : {};
-        const args = entry?.arguments && typeof entry.arguments === "object" ? entry.arguments as Record<string, any> : {};
-        if (name === "github_repo_scan") {
-          if (output.ok === true) {
-            const names = Array.isArray(output.files)
-              ? output.files.slice(0, 8).map((file: any) => String(file?.name || file?.path || "")).filter(Boolean).join("، ")
-              : "";
-            return "✅ github_repo_scan: فُحص المستودع العام " + String(args.repo || output.repo || "") +
-              "؛ العناصر: " + String(output.count ?? "—") + (names ? "؛ أمثلة: " + names : "");
-          }
-          return "❌ github_repo_scan: " + String(output.error || ("HTTP " + (output.http_status ?? "—")));
-        }
-        if (name === "github_read_files") {
-          if (output.ok === true) {
-            const names = Array.isArray(output.files)
-              ? output.files.map((file: any) => String(file?.path || file?.name || "")).filter(Boolean).join("، ")
-              : "";
-            const sizes = Array.isArray(output.files)
-              ? output.files.map((file: any) => String(file?.bytes ?? "—") + " بايت").join("، ")
-              : "";
-            return "✅ github_read_files: قُرئت ملفات عامة فعلياً من " + String(args.repo || output.repo || "") +
-              "؛ " + names + (sizes ? "؛ الأحجام: " + sizes : "");
-          }
-          return "❌ github_read_files: " + String(output.error || ("HTTP " + (output.http_status ?? "—")));
-        }
-        if (name === "vercel_deployment_status") {
-          return (output.ok === true ? "✅ " : "❌ ") + "vercel_deployment_status: " +
-            "فحص HTTP للموقع العام فقط؛ الحالة " + String(output.http_status ?? "—") +
-            "؛ " + (output.reachable === true ? "استجابة متاحة" : "تعذّر تأكيد الاستجابة") +
-            " (ليس فحصاً لحالة النشر من لوحة Vercel).";
-        }
-        return (output.ok === true ? "✅ " : "❌ ") + name + ": " +
-          String(output.error || JSON.stringify(output)).slice(0, 500);
-      });
-      const note = "🧪 سجل تنفيذ الأدوات داخل الاستوديو المعزول (قراءة عامة فقط):\n" + auditLines.join("\n");
-      await taskEvent(runId, "info", note.slice(0, 3500), db);
-      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
-    }
-    if (toolCalls.length) {
-      const note = "⏸ استدعاءات بقيت دون تنفيذ بعد حد جولات الأدوات: " + JSON.stringify(toolCalls).slice(0, 1500);
-      await taskEvent(runId, "info", note, db);
-      if (bot && surface === "telegram") await bot.api.sendMessage(chatId, note.slice(0, 3500)).catch(() => null);
-    }
-    await taskEvent(
-      runId,
-      "info",
-      "⏱ " + (result.seconds ?? "—") + "ث · " + (result.tokens_per_second ?? "—") +
-        " token/s · نُفّذت " + executedTools.length + " أداة قراءة فقط · بقي " + toolCalls.length + " غير منفّذ",
-      db,
-    );
-    await taskEvent(runId, "done", "اكتمل الرد من " + label + ".", db);
-    await taskStatus(runId, "done", undefined, db);
-  }
 }
 
 /** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */
@@ -1766,60 +1333,6 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
   } catch {
     return `[could not read file ${doc.file_name || ""}]`;
   }
-}
-
-async function telegramDonorAttachment(
-  bot: TelegramBot,
-  botRow: BotRow,
-  msg: any,
-): Promise<{ text: string; media?: DonorTestMedia }> {
-  const prompt = String(msg.text || msg.caption || "").trim();
-  if (Array.isArray(msg.photo) && msg.photo.length) {
-    const image = await telegramPhoto(bot, botRow, msg.photo);
-    if (!image) throw new Error("تعذّر تحميل الصورة من تيليغرام.");
-    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind: "image", dataUrl: image, format: "jpeg" } };
-  }
-
-  let file: any = null;
-  let kind: "image" | "audio" | "video" | null = null;
-  if (msg.voice) { file = msg.voice; kind = "audio"; }
-  else if (msg.audio) { file = msg.audio; kind = "audio"; }
-  else if (msg.video || msg.video_note || msg.animation) { file = msg.video || msg.video_note || msg.animation; kind = "video"; }
-  else if (msg.document) {
-    file = msg.document;
-    const name = String(file.file_name || "").toLowerCase();
-    const mime = String(file.mime_type || "").toLowerCase();
-    if (mime.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/.test(name)) kind = "image";
-    else if (mime.startsWith("audio/") || /\.(wav|mp3|ogg|oga|opus|m4a|aac|webm)$/.test(name)) kind = "audio";
-    else if (mime.startsWith("video/") || /\.(mp4|mov|m4v)$/.test(name)) kind = "video";
-    else return { text: (prompt + "\n\n" + await readDocument(bot, botRow, file)).trim() };
-  }
-  if (!file || !kind) return { text: prompt };
-
-  const max = kind === "image" ? 20_000_000 : kind === "audio" ? 24_000_000 : 32_000_000;
-  if (Number(file.file_size || 0) > max) throw new Error("حجم المرفق أكبر من الحد المسموح لهذا الطلب.");
-  const telegramFile = await bot.api.getFile(file.file_id);
-  const response = await fetch("https://api.telegram.org/file/bot" + botRow.token + "/" + telegramFile.file_path, {
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!response.ok) throw new Error("تعذّر تنزيل المرفق من تيليغرام (HTTP " + response.status + ").");
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (!bytes.length || bytes.length > max) throw new Error("حجم المرفق غير صالح لهذا الطلب.");
-
-  const suffix = String(file.file_name || telegramFile.file_path || "").toLowerCase().split(".").pop() || "";
-  if (kind === "image") {
-    const image = await toModelImage(bytes, 1024);
-    if (!image) throw new Error("صيغة الصورة غير مدعومة.");
-    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind, dataUrl: image, format: "jpeg" } };
-  }
-  const format = kind === "video"
-    ? (["mp4", "mov", "m4v"].includes(suffix) ? suffix : "mp4")
-    : (["wav", "mp3", "ogg", "oga", "opus", "m4a", "aac", "webm"].includes(suffix) ? suffix : "ogg");
-  const mime = kind === "video"
-    ? (format === "mov" ? "video/quicktime" : "video/mp4")
-    : (format === "mp3" ? "audio/mpeg" : format === "wav" ? "audio/wav" : "audio/ogg");
-  const dataUrl = "data:" + mime + ";base64," + bytes.toString("base64");
-  return { text: prompt || (kind === "audio" ? "استمع إلى هذا التسجيل وأجب بالعربية." : "حلّل هذا الفيديو واشرح ما يحدث فيه بالعربية."), media: { kind, dataUrl, format } };
 }
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */

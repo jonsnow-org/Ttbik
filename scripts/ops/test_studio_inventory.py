@@ -67,10 +67,8 @@ class Pick(unittest.TestCase):
         self.assertEqual(inv._decode_sse_status(sse), {"phase": "ready"})
         self.assertEqual(inv._unwrap_direct_status({"data": ['{"phase":"ready"}']}), {"phase": "ready"})
 
-    def test_known_names_cover_candidate_and_specialized_media_studios(self):
-        for name in ("sham-donor-qwen35-9b-test", "sham-donor-gemma4-e4b-test",
-                     "sham-donor-minicpmo45-test", "sham-v2-video-server",
-                     "sham-v2-overflow-server", "nova-media-server"):
+    def test_known_names_cover_specialized_media_studios(self):
+        for name in ("sham-v2-video-server", "sham-v2-overflow-server", "nova-media-server"):
             self.assertIn(name, inv.KNOWN)
 
     def test_known_names_cover_the_repo_studios(self):

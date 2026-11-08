@@ -12,7 +12,7 @@ const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, t
 jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
-const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
+const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2").split(",");
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
 const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
 const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";

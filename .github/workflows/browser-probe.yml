@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "media Studio name under novaai2026, e.g. sham-donor-qwen35-9b-media or nova-media-server"
+        description: "media Studio name under novaai2026, e.g. nova-media-server or lfm25-media-server"
         required: true
-        default: "sham-donor-qwen35-9b-media"
+        default: "nova-media-server"
       open_url:
         description: "public page to open (empty = status only)"
         required: false

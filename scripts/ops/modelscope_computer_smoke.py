@@ -516,7 +516,7 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", required=True, help="ModelScope Studio inference API base URL")
-    parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"))
+    parser.add_argument("--model-id", required=True, choices=("computer_hub", "coder", "sham", "sham_v2"))
     parser.add_argument("--no-gui", action="store_true", help="Run only persistent terminal/file/job smoke tests")
     parser.add_argument("--browser", action="store_true", help="Also open a public page in the isolated headless browser")
     parser.add_argument("--bench", action="store_true", help="Also time the common operations (prints one BENCH json line)")

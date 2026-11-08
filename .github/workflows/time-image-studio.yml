@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "cyberrealistic-final-test | gemma4-realistic-vision-v6-test | umranz-sd15-image-test | epicrealism-image-test | realistic-vision-v6-test"
+        description: "epicrealism-image-test | realistic-vision-v6-test"
         required: true
-        default: "cyberrealistic-final-test"
+        default: "epicrealism-image-test"
       prompt:
         description: "image prompt"
         required: false

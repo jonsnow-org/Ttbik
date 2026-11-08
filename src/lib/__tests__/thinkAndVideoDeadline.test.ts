@@ -47,7 +47,6 @@ describe("each model knows who it is and what it can do (live 2026-11-04: LFM2.5
     expect(a).toMatch(/I'm Nova AI/);
     expect(a).toMatch(/CAN make pictures/);
     expect(withModelIdentity(NOVA_LITE_SYSTEM, "coder")).toBe(a);
-    expect(modelDisplayName("qwen35-9b")).toBe("Qwen3.5-9B");
   });
 });
 

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "nova-media-server | lfm25-media-server | sham-v2-video-server | sham-donor-qwen35-9b-media | sham-donor-gemma4-e4b-media | sham-donor-minicpmo45-media | nova-inference-server | lfm25-inference-server"
+        description: "nova-media-server | lfm25-media-server | sham-v2-video-server | nova-inference-server | lfm25-inference-server"
         required: true
         default: "lfm25-media-server"
 permissions:
@@ -20,7 +20,7 @@ jobs:
           STUDIO: ${{ inputs.studio }}
         run: |
           set -euo pipefail
-          case "$STUDIO" in nova-media-server|lfm25-media-server|sham-v2-video-server|sham-donor-qwen35-9b-media|sham-donor-gemma4-e4b-media|sham-donor-minicpmo45-media|nova-inference-server|lfm25-inference-server) ;; *) echo "::error::not one of our media/computer Studios"; exit 1;; esac
+          case "$STUDIO" in nova-media-server|lfm25-media-server|sham-v2-video-server|nova-inference-server|lfm25-inference-server) ;; *) echo "::error::not one of our media/computer Studios"; exit 1;; esac
           MS=https://www.modelscope.cn
           mask() { sed -E 's/(ms-[A-Za-z0-9-]{8})[A-Za-z0-9-]+/\1***/g; s/(Bearer )[A-Za-z0-9._-]+/\1***/g; s/(token=)[^&" ]+/\1***/g'; }
           curl -sS --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$STUDIO" | python3 -c "import sys,json; d=json.load(sys.stdin).get('Data') or {}; print({k:d.get(k) for k in ('Status','Hardware','UpdatedTime','ErrorMessage','StudioId') if k in d})" || true

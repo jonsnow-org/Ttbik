@@ -132,13 +132,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
-        const donor = await import("@/lib/donorTests");
-        if (donor.isDonorTestId(body.model)) {
-          const live = await donor.probeDonorTestStudio(body.model, deps.fetchImpl || globalThis.fetch);
-          if (live.phase !== "ready") throw new AppError(503, `النموذج ${body.model} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
-        }
-        // Selecting a production model explicitly exits donor test mode; candidate history stays separate.
-        st.donorTestModel = undefined;
         // Model switching changes routing only. Never import or copy the previous model's conversation.
         // Connectors belong to the user account and remain available to every permitted model.
       }
@@ -390,14 +383,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!text) throw new AppError(400, "empty");
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
       const stNow = await loadStateStrict(chatId, db);
-      // Migrate a legacy trial selector into the primary model field; never send it through another model's runner.
-      if (stNow.donorTestModel) {
-        if (user.tier !== "owner") throw new AppError(403, "candidate models are owner only");
-        const { isDonorTestId } = await import("@/lib/donorTests");
-        if (isDonorTestId(stNow.donorTestModel)) stNow.model = stNow.donorTestModel;
-        stNow.donorTestModel = undefined;
-        await saveStateStrict(chatId, stNow, db);
-      }
       { // The ordinary production model's availability check is unchanged.
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
         const verdict = ensureUsableModel(stNow, await listModels(db), user.tier === "owner");
@@ -495,58 +480,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         models: publicModels(all, st.model),
         ...(user.tier === "owner" ? {
           owner: ownerModels(all, st.model),
-          // Candidate models are first-class entries in owner.models, not a secondary trial selector.
-          donorTests: [],
-          trialSelected: null,
         } : {}),
       };
     }
     case "model_health": {
       const { modelHealth } = await import("@/lib/modelHealth");
       return { health: await modelHealth() };
-    }
-    case "donor_test_select": {
-      // Backward-compatible client op; selection now changes the main model, never a parallel "trial" mode.
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const id = String(body.id || "").trim();
-      const D = await import("@/lib/donorTests");
-      if (id && !D.isDonorTestId(id)) throw new AppError(400, "unknown candidate model");
-      const st = await loadStateStrict(chatId, db);
-      const { listModels, chooseModel } = await import("@/lib/coderModels");
-      const selected = id || "coder";
-      if (id && D.isDonorTestId(id)) {
-        const live = await D.probeDonorTestStudio(id, deps.fetchImpl || globalThis.fetch);
-        if (live.phase !== "ready") throw new AppError(503, `النموذج ${id} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
-      }
-      if (!chooseModel(st, await listModels(db), selected, true)) throw new AppError(503, "candidate model route is not configured");
-      st.donorTestModel = undefined;
-      await saveStateStrict(chatId, st, db);
-      return { ok: true, trialSelected: null, model: st.model };
-    }
-    case "donor_test_status": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const D = await import("@/lib/donorTests");
-      return { statuses: await D.probeDonorTestStudios(deps.fetchImpl || globalThis.fetch) };
-    }
-    case "donor_test_history": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const st = await loadStateStrict(chatId, db);
-      const id = String(body.id || st.donorTestModel || "");
-      const D = await import("@/lib/donorTests");
-      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
-      return { id, messages: st.donorTestHistory?.[id] || [], inFlight: st.donorTestInFlight?.[id] || null };
-    }
-    case "donor_test_reset": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const st = await loadStateStrict(chatId, db);
-      const id = String(body.id || st.donorTestModel || "");
-      const D = await import("@/lib/donorTests");
-      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
-      const history = { ...(st.donorTestHistory || {}) };
-      delete history[id];
-      st.donorTestHistory = history;
-      await saveStateStrict(chatId, st, db);
-      return { ok: true, id };
     }
     case "pressure": {
       // the owner's load switch (src/lib/pressureMode.ts): read / set; owner only, decided here from the verified id

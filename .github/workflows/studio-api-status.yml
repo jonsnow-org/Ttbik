@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "Studio name under novaai2026, e.g. umranz-sd15-image-test"
+        description: "Studio name under novaai2026, e.g. epicrealism-image-test"
         required: true
-        default: "umranz-sd15-image-test"
+        default: "epicrealism-image-test"
       api:
         description: "status | box_status | browser_status"
         required: false

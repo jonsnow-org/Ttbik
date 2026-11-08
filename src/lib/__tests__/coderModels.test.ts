@@ -104,62 +104,34 @@ describe("coder models", () => {
     }
   });
 
-  it("treats each private donor Studio as ready only when a ModelScope token is configured", async () => {
-    const previousApi = process.env.MODELSCOPE_API_TOKEN;
-    const previousFallback = process.env.MODELSCOPE_TOKEN;
-    delete process.env.MODELSCOPE_API_TOKEN;
-    delete process.env.MODELSCOPE_TOKEN;
-    try {
-      const all = await listModels(modelsDb());
-      const ids = ["qwen35-9b", "gemma4-e4b", "minicpmo45"] as const;
-      for (const id of ids) {
-        const model = all.find((item) => item.id === id)!;
-        expect(modelReady(model)).toBe(false);
-        expect(chooseModel({ mode: "coder" }, all, id, true)).toBe(false);
-        expect(chooseModel({ mode: "coder" }, all, id, false)).toBe(false);
-      }
-
-      process.env.MODELSCOPE_TOKEN = "test-fallback-token";
-      for (const id of ids) {
-        const model = all.find((item) => item.id === id)!;
-        expect(modelReady(model)).toBe(true);
-        expect(chooseModel({ mode: "coder" }, all, id, true)).toBe(true);
-      }
-
-      delete process.env.MODELSCOPE_TOKEN;
-      process.env.MODELSCOPE_API_TOKEN = "test-api-token";
-      for (const id of ids) {
-        const model = all.find((item) => item.id === id)!;
-        expect(modelReady(model)).toBe(true);
-      }
-    } finally {
-      if (previousApi === undefined) delete process.env.MODELSCOPE_API_TOKEN;
-      else process.env.MODELSCOPE_API_TOKEN = previousApi;
-      if (previousFallback === undefined) delete process.env.MODELSCOPE_TOKEN;
-      else process.env.MODELSCOPE_TOKEN = previousFallback;
+  it("the three donor candidates were removed (2026-11-08): they are not listed and cannot be chosen", async () => {
+    const all = await listModels(modelsDb());
+    for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+      expect(all.find((item) => item.id === id)).toBeUndefined();
+      expect(chooseModel({ mode: "coder" }, all, id, true)).toBe(false);
     }
   });
 
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45", "lfm25"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "lfm25"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "sham", false).id).toBe("coder");                    // a user cannot use a hidden one
     expect(effectiveModel(all, "sham", true).id).toBe("sham");                 // the owner can try it
     expect(effectiveModel(all, "sham_loop", true).id).toBe("sham");                      // the former "Sham (advanced)" id is the old Sham now
     expect(effectiveModel(all, "sham_v2", true).id).toBe("sham_v2");                     // the new Sham is its own entry, tried beside the old one
-    for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+    for (const id of ["lfm25"]) {
       const candidate = all.find((m) => m.id === id);
       expect(candidate).toMatchObject({ ownerOnly: true, visible: false });
       expect(candidate?.lockedOwnerOnly).toBeFalsy();                   // owner t88u: every model has a show/hide switch
       expect(effectiveModel(all, id, true).id).toBe(id);
       expect(effectiveModel(all, id, false).id).toBe("coder");
     }
-    await updateModel("qwen35-9b", { visible: true }, db);                               // the owner's switch now shows a candidate to everyone…
-    expect((await listModels(db)).find((m) => m.id === "qwen35-9b")?.visible).toBe(true);
-    await updateModel("qwen35-9b", { visible: false }, db);                              // …and hides it again
-    expect(publicModels(await listModels(db), undefined).map((m) => m.id)).not.toContain("qwen35-9b");
+    await updateModel("lfm25", { visible: true }, db);                               // the owner's switch now shows a candidate to everyone…
+    expect((await listModels(db)).find((m) => m.id === "lfm25")?.visible).toBe(true);
+    await updateModel("lfm25", { visible: false }, db);                              // …and hides it again
+    expect(publicModels(await listModels(db), undefined).map((m) => m.id)).not.toContain("lfm25");
     await updateModel("coder", { visible: false }, db);                                  // Nova has its own switch now (owner panel); the owner can hide it and bring it back
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(false);
     await updateModel("coder", { visible: true }, db);

@@ -79,24 +79,14 @@ const ROLE = {
   v1: { ar: "استوديو شام القديم", en: "Old Sham Studio" },
 };
 
-export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; candidateMedia: CandidateMediaProbe[]; checkedAt: string }> {
+export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; checkedAt: string }> {
   const msToken = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   const novaToken = (process.env.OPEN_CODER_STUDIO_TOKEN || msToken).trim();
   const novaUrl = novaMediaUrl();
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
-  const candidateSpecs = [
-    { id: "qwen35-9b", studio: "sham-donor-qwen35-9b-media" },
-    { id: "gemma4-e4b", studio: "sham-donor-gemma4-e4b-media" },
-    { id: "minicpmo45", studio: "sham-donor-minicpmo45-media" },
-  ];
-  const [pNova, pV2, pV2v, pV1, photoWeights, candidateMedia] = await Promise.all([
+  const [pNova, pV2, pV2v, pV1, photoWeights] = await Promise.all([
     probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
-    Promise.all(candidateSpecs.map(async (candidate) => {
-      const base = "https://studio-novaai2026-" + candidate.studio + ".api-inference.modelscope.net";
-      const status = await probeStudio(base, msToken, f, 7000, true);
-      return { id: candidate.id, studio: candidate.studio, ...status, media: status.media || { image: false, audio: false, video: false } };
-    })),
   ]);
   const S = (id: string, role: { ar: string; en: string }, p: Pick<StudioProbe, "ok" | "phase" | "detail" | "media">): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();
@@ -108,7 +98,6 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   return {
     checkedAt: new Date().toISOString(),
     photoWeights,
-    candidateMedia,
     models: [
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
         lines: [{ kind: "image", ar: "صورة: epiCRealism (وزن Nova المستقل)", en: "Image: epiCRealism dedicated Nova weight", studio: "epicrealism-image-test" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },

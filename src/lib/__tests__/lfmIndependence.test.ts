@@ -37,7 +37,7 @@ describe("LFM2.5 has its own Studio pool", () => {
     expect(coderStudioUrls("lfm25")).toEqual([LFM]);
     expect(withEngineModel("lfm25", () => coderStudioUrls())).toEqual([LFM]);
     expect(withEngineModel("coder", () => coderStudioUrls()).includes(LFM)).toBe(false);
-    expect(withEngineModel("qwen35-9b", () => currentEngineModel())).toBe("coder");
+    expect(withEngineModel("gemma4-e4b", () => currentEngineModel())).toBe("coder");
   });
   it("a new LFM completion goes only to LFM's Studio and its job id points back to it", async () => {
     const o = await withEngineModel("lfm25", () => coderChat([{ role: "user", content: "hi" }], { waitS: 1, timeoutMs: 5000 }));
@@ -83,9 +83,9 @@ describe("LFM2.5 media is its own", () => {
     expect(r?.type).toBe("error");
     expect(hits).toEqual([]);
   });
-  it("candidates' speech and video stay on their own media Studios", () => {
-    expect(ownMediaBase("qwen35-9b")).toContain("sham-donor-qwen35-9b-media");
-    expect(ownMediaBase("gemma4-e4b")).not.toContain("lfm25");
+  it("a removed candidate has no media Studio at all (the three donor candidates were deleted on 2026-11-08)", () => {
+    expect(ownMediaBase("qwen35-9b")).toBe("");
+    expect(ownMediaBase("gemma4-e4b")).toBe("");
   });
 });
 

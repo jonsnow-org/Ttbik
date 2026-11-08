@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma list: coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
+        description: "comma list: coder,lfm25,sham_v2"
         required: false
-        default: "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45"
+        default: "coder,lfm25,sham_v2"
       kinds:
         description: "chat,image,video,audio (chat sends «مرحبا»: a greeting must get a normal reply, never a media note)"
         required: false
