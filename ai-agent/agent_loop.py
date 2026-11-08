@@ -89,9 +89,45 @@ def workflow_problem(name: str) -> str | None:
     return None
 
 
+_ALIASES = {"bash": "run", "shell": "run", "exec": "run", "read": "read_file", "cat": "read_file", "write": "write_file", "edit": "edit_file",
+            "grep": "search", "ls": "list_files", "list": "list_files", "finish": "final", "done": "final", "answer": "final"}
+_ARG_ALIASES = (("command", "cmd"), ("file_path", "path"), ("filepath", "path"), ("filename", "path"), ("file", "path"), ("directory", "path"),
+                ("dir", "path"), ("pattern", "query"), ("text", "message"), ("content_text", "content"), ("old_string", "old"), ("new_string", "new"))
+_XML_CALL = re.compile(r"<function=([\w.-]+)>(.*?)</function>", re.S)
+_XML_PARAM = re.compile(r"<parameter=([\w.-]+)>\s*(.*?)\s*</parameter>", re.S)
+_PY_CALL = re.compile(r"<\|tool_call_start\|>\s*\[?\s*([\w.-]+)\((.*?)\)\s*\]?\s*<\|tool_call_end\|>", re.S)
+
+
+def _normalise(tool: str, args: dict) -> dict:
+    tool = _ALIASES.get(tool, tool)
+    args = dict(args)
+    for a, b in _ARG_ALIASES:
+        if a in args and b not in args:
+            args[b] = args.pop(a)
+    if isinstance(args.get("inputs"), str):                           # a dict sent as a JSON string
+        try:
+            args["inputs"] = json.loads(args["inputs"])
+        except ValueError:
+            args.pop("inputs")
+    return {"tool": tool, "args": args}
+
+
 def parse_step(text: str) -> dict | None:
-    """The model's {"tool": ..., "args": {...}}, tolerant of code fences and text around it; None when there is no object."""
+    """One tool call from the model, in whichever dialect it used (free models differ):
+    {"tool": .., "args": ..} (also name/function/tool_name + arguments/parameters/input), Qwen-style <function=NAME><parameter=K>V</parameter></function>,
+    Liquid-style <|tool_call_start|>[name(k='v')]<|tool_call_end|>, and <tool_call>{json}</tool_call>. None when there is no call."""
     t = text.strip()
+    m = _XML_CALL.search(t)
+    if m:
+        return _normalise(m.group(1), {k: v for k, v in _XML_PARAM.findall(m.group(2))})
+    m = _PY_CALL.search(t)
+    if m:
+        import ast
+        try:
+            call = ast.parse(f"f({m.group(2)})", mode="eval").body
+            return _normalise(m.group(1), {k.arg: ast.literal_eval(k.value) for k in call.keywords if k.arg})
+        except (SyntaxError, ValueError):
+            return None
     i = t.find("{")
     if i < 0:
         return None
@@ -99,10 +135,19 @@ def parse_step(text: str) -> dict | None:
         obj, _ = json.JSONDecoder().raw_decode(t[i:])
     except ValueError:
         return None
-    if not isinstance(obj, dict) or not isinstance(obj.get("tool"), str):
+    if not isinstance(obj, dict):
         return None
-    args = obj.get("args")
-    return {"tool": obj["tool"], "args": args if isinstance(args, dict) else {}}
+    obj = obj.get("tool_call") if isinstance(obj.get("tool_call"), dict) else obj
+    name = next((obj[k] for k in ("tool", "name", "function", "tool_name", "action") if isinstance(obj.get(k), str)), None)
+    if not name:
+        return None
+    args = next((obj[k] for k in ("args", "arguments", "parameters", "params", "input") if isinstance(obj.get(k), (dict, str))), {})
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except ValueError:
+            args = {}
+    return _normalise(name, args if isinstance(args, dict) else {})
 
 
 def redact(t: str) -> str:

@@ -33,6 +33,8 @@ import requests
 API = "https://api.github.com"
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openrouter/free"
+# the agent needs models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
+AGENT_MODELS = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
 FULL_LABEL = "ai-full"
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARK = "<!-- ai-reply -->"
@@ -288,7 +290,7 @@ def main_run() -> int:
     model = os.environ.get("AI_MODEL") or DEFAULT_MODEL
     if agent:                                                      # a command: carry it out with tools (agent_loop.py)
         from agent_loop import run_agent
-        text, trace = run_agent(issue, comments, model, default)
+        text, trace = run_agent(issue, comments, os.environ.get("AI_MODEL") or AGENT_MODELS, default)
         tail = f"\n\n_Steps: {', '.join(trace)}_" if trace else ""
         gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
         Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "agent": True, "at": int(time.time())}))

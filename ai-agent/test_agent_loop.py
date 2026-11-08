@@ -34,6 +34,16 @@ class Helpers(unittest.TestCase):
         self.assertIsNone(L.parse_step("no json here"))
         self.assertIsNone(L.parse_step('{"nothing": 1}'))
 
+    def test_parse_step_understands_the_dialects_free_models_use(self):
+        qwen = "<tool_call>\n<function=read_file>\n<parameter=path>\nhosting/sham-v2/Dockerfile\n</parameter>\n</function>\n</tool_call>"
+        self.assertEqual(L.parse_step(qwen), {"tool": "read_file", "args": {"path": "hosting/sham-v2/Dockerfile"}})
+        liquid = "<|tool_call_start|>[bash(command='ls src | head')]<|tool_call_end|>"
+        self.assertEqual(L.parse_step(liquid), {"tool": "run", "args": {"cmd": "ls src | head"}})
+        hermes = '<tool_call>{"name": "search", "arguments": {"query": "x", "path": "src"}}</tool_call>'
+        self.assertEqual(L.parse_step(hermes), {"tool": "search", "args": {"query": "x", "path": "src"}})
+        self.assertEqual(L.parse_step('{"name": "finish", "parameters": {"text": "تم"}}'), {"tool": "final", "args": {"message": "تم"}})
+        self.assertEqual(L.parse_step('{"tool": "run_workflow", "args": {"workflow": "a.yml", "inputs": "{\\"k\\": 1}"}}')["args"]["inputs"], {"k": 1})
+
     def test_commands_are_allow_listed(self):
         for ok in ("python3 -m unittest discover -s ai-system", "cd athar && npx jest --runInBand", "git status", "node --test scripts/tests/a.test.mjs"):
             self.assertIsNone(L.command_problem(ok), ok)
