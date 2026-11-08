@@ -7,6 +7,7 @@
 // Owner only. Needs AI_GITHUB_TOKEN (a token that can create issues in AI_REPO) and AI_REPO ("owner/name").
 
 import { tierFor } from "@/lib/coderAuth";
+import { getSecret, handleSecretUpdate } from "@/lib/hostedSecrets";
 
 export type AICmd = "build" | "fix" | "full" | "ai";
 
@@ -31,6 +32,7 @@ type Api = { sendMessage: (chatId: number, text: string) => Promise<unknown> };
 
 /** true = the update was a AI command (answered here); false = not ours, the normal flow continues. */
 export async function handleAiAgentUpdate(bot: { api: Api }, update: any, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (await handleSecretUpdate(bot, update)) return true;           // /secret NAME VALUE (owner only, the message is deleted)
   const msg = update?.message;
   const text = typeof msg?.text === "string" ? msg.text : "";
   const parsed = parseAiCommand(text);
@@ -38,9 +40,9 @@ export async function handleAiAgentUpdate(bot: { api: Api }, update: any, fetchI
   if (!parsed || !chatId) return false;
   if (tierFor(chatId) !== "owner") return false;                      // for anyone else these remain ordinary messages
   const say = (t: string) => bot.api.sendMessage(chatId, t).catch(() => null);
-  const token = (process.env.AI_GITHUB_TOKEN || "").trim();
-  const repo = (process.env.AI_REPO || "jonsnow-org/Ttbik").trim();
-  if (!token) { await say("AI Agent غير مفعّل بعد: أضف AI_GITHUB_TOKEN في إعدادات الاستضافة (انظر ai-agent/README.md)."); return true; }
+  const token = await getSecret("AI_GITHUB_TOKEN");
+  const repo = (await getSecret("AI_REPO")) || "jonsnow-org/Ttbik";
+  if (!token) { await say("AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> هنا (انظر ai-agent/README.md)."); return true; }
   if (!parsed.body) { await say(HELP); return true; }
   try {
     const f = aiAgentIssue(parsed.cmd, parsed.body, chatId, update.update_id ?? Date.now());

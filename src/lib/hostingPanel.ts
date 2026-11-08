@@ -1,6 +1,7 @@
 // The owner's «🌐 الاستضافة» panel in the Athar bot: see both servers, switch the gate, move the bots' webhooks, move the settings to Oracle.
 // Owner-only (the caller checks). Texts are Arabic with short English. See docs/HOSTING.md.
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
+import { secretNames } from "@/lib/hostedSecrets";
 import { HOSTING, MODES, gateState, gateUrl, openEnvWindow, probeOrigin, rehookBots, setGateMode, type Mode } from "@/lib/hostingOps";
 
 const MODE_NAME: Record<Mode, string> = { auto: "تلقائي (Oracle أولاً ثم Vercel)", oracle: "Oracle فقط", vercel: "Vercel فقط (الاحتياطي)" };
@@ -12,6 +13,7 @@ export function panelKeyboard(): InlineKeyboard {
     .text("🔁 تلقائي", "hg:auto").text("🖥 Oracle فقط", "hg:oracle").text("☁️ Vercel فقط", "hg:vercel").row()
     .text("🔗 نقل الويبهوكات إلى البوابة", "hg:hooks").row()
     .text("📥 نقل الإعدادات إلى Oracle", "hg:env").row()
+    .text("🔐 الأسرار", "hg:secrets").row()
     .text("🔄 تحديث الحالة", "hg:refresh");
 }
 
@@ -55,6 +57,11 @@ export async function handleHostingCallback(bot: TelegramBot, chatId: number, da
     const rows = await rehookBots(gateUrl(), false);
     const ok = rows.filter((r) => r.ok).length;
     await send(`${ok === rows.length ? "✅" : "⚠️"} الويبهوكات: ${ok}/${rows.length} على البوابة.${rows.some((r) => !r.ok) ? "\n" + rows.filter((r) => !r.ok).map((r) => `• ${r.template}: ${r.note}`).join("\n") : ""}`);
+    return;
+  }
+  if (data === "hg:secrets") {
+    const names = await secretNames().catch(() => [] as string[]);
+    await send(`🔐 الأسرار · Secrets (تعمل على كل الخوادم بلا إعادة تشغيل)\nالمحفوظ الآن: ${names.length ? names.join(", ") : "لا شيء"}\n\nفي بوت نوفا أرسل:\n/secret AI_GITHUB_TOKEN <القيمة>\n/secret AI_REPO jonsnow-org/Ttbik\nتُحذف رسالتك فوراً ولا تُعرض القيمة أبداً. للحذف: /secret NAME delete`);
     return;
   }
   if (data === "hg:env") {
