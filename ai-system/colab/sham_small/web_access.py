@@ -35,6 +35,7 @@ corpus, ...)` is the complete, real, non-mocked call.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import urllib.robotparser
 from urllib.parse import urlparse
@@ -76,6 +77,53 @@ def _robots_allows(url: str) -> bool:
         return True
 
 
+def _bing_real_url(href: str) -> str:
+    """Bing wraps results as https://www.bing.com/ck/a?...&u=a1<base64url of the real URL>: unwrap it."""
+    try:
+        from urllib.parse import parse_qs, urlparse
+        import base64
+        if "bing.com/ck/a" not in href:
+            return href
+        u = parse_qs(urlparse(href).query).get("u", [""])[0]
+        if u.startswith("a1"):
+            raw = u[2:]
+            return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
+    except Exception:
+        pass
+    return href
+
+
+def bing_search(query: str, max_results: int = 5, *, timeout: float = 12.0) -> list[dict]:
+    """Search through Bing's HTML page: [{"title", "body", "href"}].
+
+    Added 2026-11-08: from the ModelScope Studio's network DuckDuckGo (every host), Wikipedia and public SearXNG are blocked
+    (ms_worker.py's network probe), so Sham's live search (ddgs) returned nothing there and "ask_web" had no sources. cn.bing.com
+    answers 200 from the Studio; this is the fallback used when ddgs finds nothing. Never raises: [] on any failure."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        r = requests.get("https://cn.bing.com/search", params={"q": query, "ensearch": "1", "setlang": "ar"}, timeout=timeout,
+                         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+                                  "Accept-Language": "ar,en;q=0.8"})
+        if r.status_code != 200:
+            return []
+        out: list[dict] = []
+        for li in BeautifulSoup(r.text, "html.parser").select("li.b_algo"):
+            a = li.select_one("h2 a")
+            if not a or not a.get("href", "").startswith("http"):
+                continue
+            cap = li.select_one(".b_caption p") or li.select_one("p")
+            out.append({"title": a.get_text(" ", strip=True), "body": cap.get_text(" ", strip=True) if cap else "", "href": _bing_real_url(a["href"])})
+        # Bing sometimes answers an Arabic query with unrelated pages (measured 2026-11-08: "ما هي عاصمة فرنسا" returned payment-provider ads).
+        # A source that shares no word with the question would mislead the model, so keep only hits that mention one of its words.
+        words = [w for w in re.findall(r"\w+", query.lower()) if len(w) >= 3]
+        kept = [o for o in out if not words or any(w in (o["title"] + " " + o["body"]).lower() for w in words)]
+        return kept[:max_results]
+    except Exception:
+        return []
+
+
 def real_search(query: str, language: str = "ar", max_results: int = 5) -> list[str]:
     """Matches autonomous_knowledge_crawler.SearchFn: (query, language) ->
     list of real URLs. Real DDGS() call, the same one already proven
@@ -101,7 +149,11 @@ def real_search(query: str, language: str = "ar", max_results: int = 5) -> list[
             "Kaggle/GitHub Actions runners were not affected the same way).",
             query, e,
         )
-        return []
+        results = bing_search(query, max_results)            # ddgs failed: Bing's page (reachable from the Studio)
+        urls = [r["href"] for r in results if r.get("href")]
+        return _drop_known_robots_denied(urls)
+    if not results:                                           # ddgs answered with nothing (blocked silently): try Bing too
+        results = bing_search(query, max_results)
     urls = [r["href"] for r in results if r.get("href")]
     return _drop_known_robots_denied(urls)
 

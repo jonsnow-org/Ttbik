@@ -13,7 +13,7 @@ import re
 import unittest
 from pathlib import Path
 
-from sham_tools_data import TOOL_SPECS, mix_share, tool_batches
+from sham_tools_data import TOOL_SPECS, mix_share, tool_batches, tool_examples
 
 REPO = Path(__file__).resolve().parents[3]
 SHAM_EXEC = REPO / "src" / "lib" / "shamExec.ts"
@@ -41,6 +41,20 @@ class ToolCoverageTests(unittest.TestCase):
         for ids, labels in batches:
             self.assertEqual(ids.shape, labels.shape)
             self.assertTrue((labels != -100).any(), "a batch with nothing learned is useless")
+
+    def test_tool_examples_are_single_unpadded_examples_the_live_trainer_can_batch(self):
+        """The live trainer once added each padded batch (a 2-D tensor) as ONE example and crashed in pad_batch
+        ("expand(LongTensor[4, 172], size=[4])"): its tool examples must be flat lists that make_batches can pad."""
+        from sham_live import make_batches
+        ex = tool_examples(_fake, random.Random(7), 10)
+        self.assertTrue(ex)
+        for ids, labels in ex:
+            self.assertIsInstance(ids[0], int)
+            self.assertIsInstance(labels[0], int)
+            self.assertEqual(len(ids), len(labels))
+        batches = make_batches(ex, 4096)                  # must not raise
+        self.assertTrue(batches)
+        self.assertEqual(sum(b[0].shape[0] for b in batches), len(ex))
 
     def test_zero_share_turns_tool_training_off(self):
         import os

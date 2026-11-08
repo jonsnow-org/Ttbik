@@ -91,7 +91,9 @@ SOURCES = [
     ("school-science", "HuggingFaceTB/cosmopedia", "khanacademy", "text", 3, 6000),
     ("school-math", "HuggingFaceTB/cosmopedia", "auto_math_text", "text", 3, 6000),
     # 2026-10-12 (owner: code and all human knowledge, not one language): programming questions and answers, practical how-to knowledge
-    ("code-qa", "HuggingFaceTB/cosmopedia", "stackoverflow", "text", 4, 6000),
+    # 2026-11-08: cosmopedia has NO "stackoverflow" config (its configs: auto_math_text, khanacademy, openstax, stanford, stories, web_samples_v1/v2, wikihow),
+    # so this source raised ValueError on every run and contributed nothing. The code Q&A role is covered by code-instruct / code-multi above; "stanford" is real lecture-style text.
+    ("lectures", "HuggingFaceTB/cosmopedia", "stanford", "text", 3, 6000),
     ("how-to", "HuggingFaceTB/cosmopedia", "wikihow", "text", 2, 6000),
     ("textbooks", "HuggingFaceTB/cosmopedia", "openstax", "text", 2, 6000),
 ]

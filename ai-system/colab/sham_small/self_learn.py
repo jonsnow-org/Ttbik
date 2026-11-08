@@ -81,7 +81,12 @@ def search_hits(query: str, max_results: int = 4) -> list[SearchHit]:
             if body or title:
                 hits.append(SearchHit(title=title, body=body, href=href))
     except Exception as exc:
-        print(f"self_learn.search_hits failed ({type(exc).__name__}); falling back to web_search_text")
+        print(f"self_learn.search_hits failed ({type(exc).__name__}); falling back to Bing, then web_search_text")
+    if not hits:                                                      # DuckDuckGo is blocked from the ModelScope Studio; Bing's page is reachable
+        from web_access import bing_search
+        for h in bing_search(query, max_results):
+            hits.append(SearchHit(title=h["title"], body=h["body"], href=h["href"]))
+    if not hits:
         snippet = web_search_text(query, max_results=max_results, max_chars=800)
         if snippet:
             hits.append(SearchHit(title=query, body=snippet, href=""))

@@ -733,13 +733,12 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         if _tools_share > 0:                                         # tool / code / ask calls in Sham's own layout (SHAM_TOOLS_MIX)
             try:
                 import sham_tools_data as _tools
-                _tb = _tools.tool_batches(tokenizer.encode, rng, max(2, int(len(pending) * _tools_share / max(1e-6, 1 - _tools_share))), 4)
+                _tb = _tools.tool_examples(tokenizer.encode, rng, max(2, int(len(pending) * _tools_share / max(1e-6, 1 - _tools_share))))
             except Exception as exc:                                 # never let one data source stop the live session
                 print(f"⚠ تعذّر بناء أمثلة الأدوات هذه الدورة ({type(exc).__name__}: {exc})")
                 _tb = []
-            for _ids, _labels in _tb:
-                pool.append((_ids.tolist() if hasattr(_ids, "tolist") else list(_ids),
-                             _labels.tolist() if hasattr(_labels, "tolist") else list(_labels)))
+            for _ids, _labels in _tb:                                # one example each (plain lists): make_batches pads them
+                pool.append((list(_ids), list(_labels)))
                 kinds.append("tools")
         pending = []
         for k in kinds:

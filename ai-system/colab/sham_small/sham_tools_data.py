@@ -254,16 +254,10 @@ def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> l
     return out
 
 
-def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_len: int = 1100) -> list:
-    """Padded (ids, labels) batches of tool / code / ask examples in Sham's OWN dialogue layout.
-
-    Owner's order (2026-11-06): Sham v1's engine offers ~40 tools, but its chat stage trained on
-    no call at all — this module's `mix_share` and the Qwen3 builder were wired only into v2, so the
-    "components not connected to their correct paths" defect applied to v1 too. This is the v1 entry
-    point: SHAM_TOOLS_MIX (0..1, default 0 = off) decides the share; lessons from the owner's Nova
-    runs (SHAM_LESSONS_PATH) are used first when present, then synthetic cases. Returns [] when off,
-    so a notebook that calls it unconditionally changes nothing until the share is set."""
-    from sham_chat import batch_examples
+def tool_examples(text_ids_fn, rng: random.Random, n: int, max_len: int = 1100) -> list:
+    """The unpadded (ids, labels) tool / code / ask examples (plain lists), [] when SHAM_TOOLS_MIX is off.
+    A trainer that builds its own batches (sham_live) must use THIS, not tool_batches: padded batches are 2-D tensors,
+    and adding one as a single example crashed the live trainer ("expand(LongTensor[4, 172], size=[4])", 2026-11-08)."""
     share = mix_share()
     if share <= 0 or n <= 0:
         return []
@@ -274,8 +268,22 @@ def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_l
     synth = synthetic_examples(text_ids_fn, rng, max(1, n - len(lessons)))
     ex = lessons + synth
     if max_len:
-        ex = [e for e in ex if len(e[0]) <= max_len] or ex[:batch_size]
-    return batch_examples(ex[:n], batch_size)
+        ex = [e for e in ex if len(e[0]) <= max_len] or ex[:4]
+    return [(list(i), list(l)) for i, l in ex[:n]]
+
+
+def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_len: int = 1100) -> list:
+    """Padded (ids, labels) batches of tool / code / ask examples in Sham's OWN dialogue layout.
+
+    Owner's order (2026-11-06): Sham v1's engine offers ~40 tools, but its chat stage trained on
+    no call at all — this module's `mix_share` and the Qwen3 builder were wired only into v2, so the
+    "components not connected to their correct paths" defect applied to v1 too. This is the v1 entry
+    point: SHAM_TOOLS_MIX (0..1, default 0 = off) decides the share; lessons from the owner's Nova
+    runs (SHAM_LESSONS_PATH) are used first when present, then synthetic cases. Returns [] when off,
+    so a notebook that calls it unconditionally changes nothing until the share is set."""
+    from sham_chat import batch_examples
+    ex = tool_examples(text_ids_fn, rng, n, max_len)
+    return batch_examples(ex, batch_size) if ex else []
 
 
 def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
