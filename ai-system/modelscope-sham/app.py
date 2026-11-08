@@ -776,6 +776,17 @@ def build_ui():
                              gr.Textbox(label="structured agent result"), api_name="agent_step", flagging_mode="never")
         interfaces.insert(1, agent)
         labels.insert(1, "وكيل شام v2 (استدعاءات منظّمة)")
+    # Sham v2's EMBEDDED computer (owner's order 2026-11-08: v2 depends on nothing outside itself): the same terminal / files / jobs / git engine the shared hub ran
+    # (computer_box.py, staged beside this file only for v2), served from v2's own Studio. The web app sends v2's computer_* calls here, never to the hub.
+    if _V2:
+        try:
+            import computer_box as _box
+            box_do = gr.Interface(_box.api_box_do, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="box_do", flagging_mode="never")
+            box_status = gr.Interface(_box.api_box_status, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="box_status", flagging_mode="never")
+            interfaces += [box_do, box_status]
+            labels += ["حاسوب شام v2 المدمج", "حالة الحاسوب المدمج"]
+        except Exception as exc:  # never keep the Studio from starting because the computer module is missing: chat still works, the status says so
+            print("embedded computer unavailable:", type(exc).__name__, str(exc)[:160], flush=True)
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 

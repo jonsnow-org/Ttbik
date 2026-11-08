@@ -14,6 +14,7 @@ on:
       # through the workflow_run below.
       - ai-system/modelscope-sham/app.py
       - ai-system/modelscope-sham/requirements.txt
+      - ai-system/modelscope-media/computer_box.py    # Sham v2's embedded computer is staged from here
       - ai-system/supervision/sham_v2_chat_smoke.py
       - scripts/transplant/stage_sham_v2_studio.py
       - .github/workflows/deploy-modelscope-sham-v2.yml

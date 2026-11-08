@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_sham_v2_studio import patch_staged_sham_v2_download, write_sham_v2_wrapper
+from stage_sham_v2_studio import patch_staged_sham_v2_download, stage_sham_v2, write_sham_v2_wrapper
 
 
 class StagedShamV2Runtime(unittest.TestCase):
@@ -41,6 +41,16 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertIn('os.environ["SHAM_MS_MODEL"] = "novaai2026/sham-v2"', wrapper)
             self.assertIn('os.environ.setdefault("SHAM_NATIVE_TOOL_CALLS", "1")', wrapper)
             self.assertNotIn("novaai2026/sham-v1", wrapper)
+
+    def test_v2_studio_ships_its_own_embedded_computer(self):
+        # owner 2026-11-08: Sham v2 depends on nothing outside itself; its terminal / files / jobs engine is staged inside its own Studio
+        with tempfile.TemporaryDirectory() as folder:
+            studio = Path(folder)
+            stage_sham_v2(studio)
+            self.assertTrue((studio / "computer_box.py").is_file())
+            app = (studio / "sham_app.py").read_text(encoding="utf-8")
+            self.assertIn('api_name="box_do"', app)
+            self.assertIn("import computer_box", app)
 
 
 if __name__ == "__main__":
