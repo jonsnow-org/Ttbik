@@ -8,8 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const q = req.nextUrl.searchParams.get("secret");
-  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}` && q !== process.env.CRON_SECRET)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const synced = await syncReferrals();
     const paid = await runPayouts(false).catch((e) => ({ sent: 0, total: 0n, note: String(e?.message || e).slice(0, 120) }));

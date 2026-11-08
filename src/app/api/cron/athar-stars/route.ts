@@ -13,8 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const querySecret = req.nextUrl.searchParams.get("secret");
-  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
+  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}`);
   if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!starsEnabled()) return NextResponse.json({ status: "off" });
 

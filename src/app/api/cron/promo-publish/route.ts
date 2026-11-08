@@ -15,7 +15,7 @@ const CHANNELS = { youtube: () => "", general: () => process.env.TELEGRAM_CHANNE
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const q = req.nextUrl.searchParams;
-  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}` && q.get("secret") !== process.env.CRON_SECRET)) {
+  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const tag = q.get("tag") || "", asset = q.get("asset") || "", to = (q.get("to") || "general") as keyof typeof CHANNELS;

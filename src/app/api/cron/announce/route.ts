@@ -7,7 +7,7 @@ export const maxDuration = 30;
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const q = req.nextUrl.searchParams;
-  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}` && q.get("secret") !== process.env.CRON_SECRET)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const to = q.get("to") || "both";
   if (!["both", "general", "coins"].includes(to)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
   return NextResponse.json({ ok: true, result: await announce(q.get("id") || "", to as "both" | "general" | "coins", q.get("dry") === "1") });
