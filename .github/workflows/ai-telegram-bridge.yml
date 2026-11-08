@@ -19,8 +19,8 @@ permissions:
 
 jobs:
   poll:
-    # AI_POLL=0 turns the listening off: use it when the messages arrive through the Nova bot instead (a bot with a webhook cannot also be polled)
-    if: ${{ github.event_name != 'workflow_run' && vars.AI_PAUSE != '1' && vars.AI_POLL != '0' }}
+    # opt-in: the 5-minute listening runs only when the repository variable AI_POLL=1 (use it with a separate bot; a bot that has a webhook, like Nova, cannot also be polled)
+    if: ${{ github.event_name != 'workflow_run' && vars.AI_PAUSE != '1' && vars.AI_POLL == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     concurrency:
