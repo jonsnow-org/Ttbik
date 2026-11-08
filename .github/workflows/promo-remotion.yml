@@ -78,8 +78,8 @@ jobs:
           SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
           CH=$(python3 -c "import json;print(json.load(open('episode.json')).get('channel','general'))")
           CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+' | شام AI'+chr(10)+e['site']+e['path']))")
-          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" \
-            --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
+          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" -H "Authorization: Bearer ${CRON_SECRET}" \
+            --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
             --data-urlencode "to=$CH" --data-urlencode "caption=$CAP")
           echo "HTTP $code"; cat resp.json; echo
           [ "$code" = "200" ] && grep -q '"ok":true' resp.json
@@ -98,7 +98,7 @@ jobs:
           TITLE=$(python3 -c "import json;e=json.load(open('episode.json'));print(e['title']+' | '+e.get('brand','Sham AI'))")
           LANGC=$(python3 -c "import json;print(json.load(open('episode.json')).get('lang','ar'))")
           CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+chr(10)+e['site']+e['path']))")
-          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" \
-            --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
+          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" -H "Authorization: Bearer ${CRON_SECRET}" \
+            --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
             --data-urlencode "to=youtube" --data-urlencode "title=$TITLE" --data-urlencode "lang=$LANGC" --data-urlencode "caption=$CAP") || true
           echo "HTTP $code"; cat resp.json; echo

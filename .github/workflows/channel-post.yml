@@ -25,7 +25,7 @@ jobs:
             echo "::error::GitHub secret CRON_SECRET is empty or missing (Settings > Secrets and variables > Actions)"
             exit 1
           fi
-          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/telegram-post?secret=${CRON_SECRET}${DRY:+&dry=1}")
+          code=$(curl -sS -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/telegram-post${DRY:+?dry=1}")
           echo "HTTP ${code}"
           cat body.json
           echo

@@ -12,6 +12,10 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# The "ready weights" media route exists only in the v2 Studio (app.py: `_V2 = "sham-v2" in MODEL_ID`; v1 refuses it with no_donor_generator since 2026-11-08), and these tests
+# exercise that route, so they run as the v2 Studio. The v1 refusal has its own test below.
+os.environ.setdefault("SHAM_MS_MODEL", "novaai2026/sham-v2")
+
 import app as sham_app  # noqa: E402
 import base64  # noqa: E402
 
@@ -201,6 +205,14 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(result["type"], "error")
         self.assertIn("JSON", result["text"])
         self.make_media.assert_not_called()
+
+
+class V1RefusesTheReadyRoute(unittest.TestCase):
+    def test_v1_has_no_donor_generator(self):
+        with patch.object(sham_app, "_V2", False):
+            out = json.loads(sham_app._generate_media_with_backend("image", "a cat", "ready"))
+        self.assertEqual(out["type"], "error")
+        self.assertEqual(out["reason"], "no_donor_generator")
 
 
 if __name__ == "__main__":

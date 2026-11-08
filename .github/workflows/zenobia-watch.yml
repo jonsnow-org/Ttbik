@@ -18,7 +18,7 @@ jobs:
       - name: tell the owner when ZNB's holders or supply change
         run: |
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
-          code=$(curl -sS -m 90 -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/zenobia-watch?secret=${CRON_SECRET}")
+          code=$(curl -sS -m 90 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/zenobia-watch")
           echo "HTTP ${code}"; cat body.json; echo
           [ "${code}" -lt 500 ]
         env:
