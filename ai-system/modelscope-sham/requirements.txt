@@ -22,3 +22,5 @@ transformers
 accelerate
 safetensors
 piper-tts
+# each Sham's own embedded browser (browser_computer.py); Chromium itself is fetched on first use
+playwright>=1.50,<2

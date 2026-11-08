@@ -776,9 +776,18 @@ def build_ui():
                              gr.Textbox(label="structured agent result"), api_name="agent_step", flagging_mode="never")
         interfaces.insert(1, agent)
         labels.insert(1, "وكيل شام v2 (استدعاءات منظّمة)")
-    # Sham v2's EMBEDDED computer (owner's order 2026-11-08: v2 depends on nothing outside itself): the same terminal / files / jobs / git engine the shared hub ran
-    # (computer_box.py, staged beside this file only for v2), served from v2's own Studio. The web app sends v2's computer_* calls here, never to the hub.
-    if _V2:
+    # The headless browser lives INSIDE each Sham's own Studio too (owner's order 2026-11-08: browsing is part of Sham's own architecture, like its computer):
+    # browser_computer.py (staged beside this file) opens pages, clicks, types, reads; Chromium is fetched on first use. The web app sends a Sham's browser calls here.
+    try:
+        import browser_computer as _br
+        interfaces += [gr.Interface(_br.api_browser_do, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="browser_do", flagging_mode="never"),
+                       gr.Interface(_br.api_browser_status, None, gr.Textbox(label="out"), api_name="browser_status", flagging_mode="never")]
+        labels += ["متصفح شام المدمج", "حالة المتصفح المدمج"]
+    except Exception as exc:
+        print("embedded browser unavailable:", type(exc).__name__, str(exc)[:160], flush=True)
+    # EACH Sham's EMBEDDED computer (owner's order 2026-11-08: Sham and Sham v2 depend on nothing outside themselves): the same terminal / files / jobs / git engine the shared hub ran
+    # (computer_box.py, staged beside this file), served from the model's own Studio. The web app sends a Sham's computer_* calls here, never to the hub.
+    if True:        # both Shams (the shared hub is Nova's only)
         try:
             import computer_box as _box
             box_do = gr.Interface(_box.api_box_do, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="box_do", flagging_mode="never")

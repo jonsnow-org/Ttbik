@@ -121,6 +121,8 @@ def stage_studio(studio_dir: Path) -> str:
     shutil.copy2(HERE / "app.py", studio_dir / "app.py")
     shutil.copy2(HERE / "requirements.txt", studio_dir / "requirements.txt")
     shutil.copy2(HERE / "codesign.py", studio_dir / "codesign.py")
+    shutil.copy2(HERE.parent / "modelscope-media" / "browser_computer.py", studio_dir / "browser_computer.py")      # each Sham's own embedded browser
+    shutil.copy2(HERE.parent / "modelscope-media" / "computer_box.py", studio_dir / "computer_box.py")              # each Sham's own embedded computer (terminal, files, jobs, git)
     code = studio_dir / "sham_small"
     shutil.rmtree(code, ignore_errors=True)
     code.mkdir()

@@ -2,6 +2,7 @@
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
 export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
+import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
@@ -73,8 +74,15 @@ export async function readComplete(res: Response): Promise<unknown> {
   throw new Error("the browser Studio sent no answer");
 }
 
+/** Each Sham has its OWN embedded browser inside its own Studio (owner's order 2026-11-08); every other model keeps the shared hub. */
+export function browserOwnStudioFor(modelId: string | undefined): string | null {
+  if (modelId === "sham_v2") return (process.env.SHAM_V2_URL || DEFAULT_V2_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  if (modelId === "sham") return (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  return browserStudioFor(modelId);
+}
+
 export async function browserDo(modelId: string | undefined, session: string, args: BrowserArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
-  const base = browserStudioFor(modelId);
+  const base = browserOwnStudioFor(modelId);
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
   if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";

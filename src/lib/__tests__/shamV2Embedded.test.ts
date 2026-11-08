@@ -7,7 +7,7 @@ const call = (name: string, args: object) => ({ id: "1", type: "function", funct
 const ran: { tool: string; args: any }[] = [];
 const host = {
   computer: { run: async (_c: unknown, tool: string, args: any) => { ran.push({ tool, args }); return "ok " + tool; } },
-  browser: { run: async () => { throw new Error("hub must not be used"); } },
+  browser: { run: async () => "page" },
   desktop: { run: async () => { throw new Error("hub must not be used"); } },
   bank: { add: async () => undefined, recall: async () => "" },
   sandbox: { has: () => true, run: async () => { throw new Error("separate sandbox must not be used by v2"); }, readFile: async () => null },
@@ -17,12 +17,13 @@ beforeEach(() => { ran.length = 0; setShamHost(host); });
 afterAll(() => setShamHost(null));
 
 describe("Sham v2 embedded environment", () => {
-  it("does not offer browser, desktop or sandbox_* to v2, but still offers them to v1", () => {
+  it("keeps the same tool list for both Shams (nothing is hidden): computer, browser and the sandbox names the model learned", () => {
     const v2 = shamVariant.run("v2", () => shamTools(true).map((t) => t.function.name));
     const v1 = shamVariant.run("v1", () => shamTools(true).map((t) => t.function.name));
     expect(v2).toEqual(expect.arrayContaining(["computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_job", "computer_repo"]));
-    expect(v2.some((n) => n === "browser" || n === "desktop" || n.startsWith("sandbox_"))).toBe(false);
-    expect(v1).toEqual(expect.arrayContaining(["browser", "desktop", "sandbox_exec"]));
+    expect(v2).toContain("browser");
+    expect(v2).toEqual(expect.arrayContaining(["sandbox_exec", "desktop"]));
+    expect(v1).toEqual(expect.arrayContaining(["sandbox_exec", "desktop", "browser"]));
   });
   it("the sandbox_* names the model learned run as the matching tool of the embedded computer", async () => {
     await shamRunTool(call("sandbox_exec", { command: "ls", cwd: "app" }), ctx("sham_v2"));
@@ -34,13 +35,19 @@ describe("Sham v2 embedded environment", () => {
     expect(ran[2].args).toMatchObject({ url: "https://github.com/o/r", ref: "dev" });
     expect(ran[3].args).toMatchObject({ action: "log", id: "j1" });
   });
-  it("browser and desktop answer honestly for v2 and never touch the hub", async () => {
-    expect(await shamRunTool(call("browser", { action: "open", url: "https://x.test" }), ctx("sham_v2"))).toMatch(/^error: browser is not available in Sham v2's embedded environment/);
-    expect(await shamRunTool(call("desktop", { action: "start" }), ctx("sham_v2"))).toMatch(/^error: desktop is not available/);
+  it("Sham v1 is the same: its sandbox_* run on its own embedded computer", async () => {
+    await shamRunTool(call("sandbox_exec", { command: "ls" }), ctx("sham"));
+    expect(ran.map((r) => r.tool)).toEqual(["computer_run"]);
   });
-  it("v1 is unchanged: its sandbox tool still reaches the sandbox", async () => {
-    const r = await shamRunTool(call("sandbox_exec", { command: "ls" }), ctx("sham"));
-    expect(ran).toHaveLength(0);                                    // not rewritten into a computer_* call
-    expect(r).not.toMatch(/embedded environment/);
+});
+
+import { browserOwnStudioFor } from "@/lib/browserComputer";
+describe("each Sham's browser lives in its own Studio", () => {
+  it("routes the browser of Sham and Sham v2 to their own Studios, other models to the shared hub", () => {
+    delete process.env.SHAM_V2_URL; delete process.env.SHAM_MODELSCOPE_URL;
+    expect(browserOwnStudioFor("sham_v2")).toContain("sham-v2-server");
+    expect(browserOwnStudioFor("sham")).not.toContain("sham-v2");
+    expect(browserOwnStudioFor("sham")).toContain("sham");
+    expect(browserOwnStudioFor("lfm25") || "").not.toContain("sham");
   });
 });

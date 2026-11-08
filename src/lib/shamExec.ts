@@ -106,7 +106,7 @@ const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_r
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
-  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2") && !(shamVariant.getStore() === "v2" && (V2_HUB_ONLY.has(t.function.name) || t.function.name.startsWith("sandbox_"))));
+  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
@@ -309,8 +309,8 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
   }
   return out;
 }
-/** Sham v2 has ONE embedded computer inside its own Studio (owner's order 2026-11-08), so the tools of the separate task workspace are the same computer:
- *  the sandbox_* names the model learned run as the matching computer_* tool. The browser and the graphical desktop need the shared hub and are not offered to v2. */
+/** Each Sham (v1 and v2) has ONE embedded computer inside its own Studio (owner's order 2026-11-08; the shared hub is Nova's only), so the tools of the separate task workspace are the same computer:
+ *  the sandbox_* names the model learned run as the matching computer_* tool. The browser is embedded in each Sham's own Studio; the graphical desktop still runs on the shared hub until it is embedded too (not hidden, not changed). */
 const V2_ALIAS: Record<string, (a: Record<string, any>) => [string, Record<string, unknown>]> = {
   sandbox_clone: (a) => ["computer_repo", { url: `https://github.com/${String(a.repo || "")}`, ref: a.branch || undefined }],
   sandbox_exec: (a) => ["computer_run", { command: a.command, cwd: a.cwd }],
@@ -321,18 +321,16 @@ const V2_ALIAS: Record<string, (a: Record<string, any>) => [string, Record<strin
   sandbox_read_file: (a) => ["computer_read", { path: a.cwd ? `${String(a.cwd).replace(/\/+$/, "")}/${String(a.path || "")}` : a.path }],
   sandbox_push: (a) => ["computer_publish", { repo: a.repo, branch: a.branch, message: a.message, dir: a.dir }],
 };
-const V2_HUB_ONLY = new Set(["browser", "desktop"]);
 
 async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const name = call.function.name;
   const a = parse(call);
   try {
     if (SHAM_NEEDS_OK.has(name) && !approved) return "error: this changes the user's repository: it runs only after the user taps «نفّذ».";
-    if (ctx.modelId === "sham_v2" && V2_ALIAS[name]) {
+    if (V2_ALIAS[name]) {
       const [to, args] = V2_ALIAS[name](a);
       return await shamRunToolInner({ ...call, function: { ...call.function, name: to, arguments: JSON.stringify(args) } }, ctx, approved);
     }
-    if (ctx.modelId === "sham_v2" && V2_HUB_ONLY.has(name)) return `error: ${name} is not available in Sham v2's embedded environment; use computer_run (the embedded computer has the network, Python, Node and git).`;
     if (name === "web_search") {
       const q = String(a.query || "").trim();
       return q ? clip(await (await host()).web.search(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 8 })) : "error: query is required";
