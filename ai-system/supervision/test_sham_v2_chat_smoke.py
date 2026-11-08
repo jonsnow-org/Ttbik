@@ -43,11 +43,11 @@ class ShamV2ChatRouteTests(unittest.TestCase):
             # tolerated (`|| true`) or the deploy aborts with no message.
             self.assertIn("head -1 || true)", workflow, name)
 
-    def test_computer_calls_use_the_reserved_shared_computer_hub_not_the_video_studio(self):
+    def test_computer_calls_use_sham_v2s_own_embedded_computer_not_the_shared_hub(self):
         source = SMOKE.read_text(encoding="utf-8")
-        self.assertIn('os.environ.get("COMPUTER_STUDIO_URL")', source)
-        self.assertIn("https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net", source)
-        self.assertIn('"nova-inference-server" not in COMPUTER_BASE.lower()', source)
+        self.assertIn("COMPUTER_BASE = BASE", source)
+        self.assertIn('"sham-v2-server" not in COMPUTER_BASE.lower()', source)
+        self.assertNotIn("COMPUTER_STUDIO_URL", source)
         self.assertNotIn("sham-v2-video-server", source)
 
     def test_live_smoke_requires_the_model_to_choose_and_execute_its_own_terminal_tool(self):

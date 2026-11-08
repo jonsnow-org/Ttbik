@@ -1,6 +1,14 @@
 // Shared 16 GB computer-only Studio (ai-system/modelscope-media/computer_box.py): shell, persistent files and background jobs.
 // The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
+import { DEFAULT_V2_URL } from "@/lib/shamStudio";
+
+/** Where a model's terminal / files / jobs live. Sham v2 has its OWN embedded computer inside its own Studio (owner's order 2026-11-08: no outside dependency);
+ *  every other model keeps the shared hub. */
+export function boxStudioFor(modelId: string | undefined): string | null {
+  if (modelId === "sham_v2") return (process.env.SHAM_V2_URL || DEFAULT_V2_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  return browserStudioFor(modelId);
+}
 
 export type BoxArgs = {
   action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
@@ -117,7 +125,7 @@ function renderBody(action: string, r: Record<string, any>): string {
 }
 
 export async function boxDo(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
-  const base = browserStudioFor(modelId);                 // the same per-model media Studio hosts the browser and the computer
+  const base = boxStudioFor(modelId);                 // the same per-model media Studio hosts the browser and the computer
   if (!base) return "error: this model has no computer Studio";
   const clean = cleanBoxArgs(args);
   if (!clean) return "error: unknown computer action";
@@ -132,7 +140,7 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
 
 /** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
 export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
-  const base = browserStudioFor(modelId);
+  const base = boxStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };
   const clean = cleanBoxArgs(args);
   if (!clean) return { ok: false, error: "unknown computer action" };
@@ -147,7 +155,7 @@ export type BoxChanges = { ok: true; repo: string; base: string; files: { path: 
 
 /** Changed files are read from this user+model session on the computer hub. The GitHub token never goes there: the app commits what comes back. */
 export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
-  const base = browserStudioFor(modelId);
+  const base = boxStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };
   try {
     const r = await studioCall(base, "box_do", { action: "changes", repo: String(args.repo).slice(0, 200), dir: String(args.dir || "").slice(0, 300), session }, fetchImpl, 110_000);

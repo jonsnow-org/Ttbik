@@ -14,7 +14,8 @@ from urllib.request import Request, urlopen
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
 EXPECTED_MODEL = "novaai2026/sham-v2"
-COMPUTER_BASE = (os.environ.get("COMPUTER_STUDIO_URL") or "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").strip().rstrip("/")
+# Sham v2's computer is EMBEDDED in its own Studio (owner's order 2026-11-08): the computer calls go to the same base as its chat, never to the shared hub.
+COMPUTER_BASE = BASE
 
 
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
@@ -95,8 +96,8 @@ def chat(messages: list[dict], max_new_tokens: int = 256) -> str:
 
 
 def call_computer_box(payload: dict, timeout: int = 90):
-    if "nova-inference-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
-        raise RuntimeError("Refusing to send Sham v2 computer calls outside the reserved shared computer Studio")
+    if "sham-v2-server" not in COMPUTER_BASE.lower() or not COMPUTER_BASE.startswith("https://studio-"):
+        raise RuntimeError("Refusing to send Sham v2 computer calls anywhere except Sham v2's own embedded computer")
     wire = "b64:" + base64.b64encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
     submitted = request_json(f"{COMPUTER_BASE}/gradio_api/call/box_do", "POST", {"data": [wire]}, timeout=40)
     event_id = submitted.get("event_id")
