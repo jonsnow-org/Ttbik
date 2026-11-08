@@ -1,6 +1,6 @@
 name: Stale issues (auto)
 # Daily housekeeping: quiet issues get a note after 45 days and close 14 days later. PRs are never touched
-# (#505 and #184 must stay open). Anything labelled keep/pinned/security is exempt.
+# Anything labelled keep/pinned/security is exempt.
 on:
   schedule:
     - cron: "17 3 * * *"
