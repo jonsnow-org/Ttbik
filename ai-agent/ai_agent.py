@@ -33,8 +33,8 @@ import requests
 API = "https://api.github.com"
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openrouter/free"
-# the agent needs models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
-AGENT_MODELS = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
+# Groq first (its free quota is far larger than OpenRouter's ~50 requests a day, and an agent makes one request per step); then free OpenRouter models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
+AGENT_MODELS = "groq/llama-3.3-70b-versatile,groq/qwen/qwen3-32b,groq/llama-3.1-8b-instant,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
 FULL_LABEL = "ai-full"
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARK = "<!-- ai-reply -->"
@@ -138,17 +138,36 @@ def model_list(spec: str | None) -> list[str]:
     return out or [DEFAULT_MODEL]
 
 
+GROQ = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def _provider(m: str) -> tuple[str, str, str, str]:
+    """(url, key, model id, name): a model written `groq/<id>` goes to Groq (free tier, GROQ_API_KEY); everything else to OpenRouter (OPENROUTER_API_KEY)."""
+    if m.startswith("groq/"):
+        return GROQ, os.environ.get("GROQ_API_KEY", "").strip(), m[5:], "Groq"
+    return OPENROUTER, os.environ.get("OPENROUTER_API_KEY", "").strip(), m, "OpenRouter"
+
+
 def call_model(messages: list[dict], model: str, max_tokens: int = 6000) -> str:
-    """Try each model of the list in order. A model that is gone (404), rate-limited (429), out of free quota (402) or failing (5xx) is skipped for the next one."""
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY is missing (add it in Settings -> Secrets and variables -> Actions).")
-    errors = []
+    """Try each model of the list in order (OpenRouter free models, or Groq's with the `groq/` prefix). A model that is gone (404), rate-limited (429), out of free
+    quota (402) or failing (5xx) is skipped for the next one; a provider whose key is missing is skipped too (an error only when no provider has a key)."""
+    errors, refused, any_key = [], [], False
     for m in model_list(model):
-        r = requests.post(OPENROUTER, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "ai-agent"},
-                          json={"model": m, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3}, timeout=600)
+        url, key, mid, name = _provider(m)
+        if not key:
+            errors.append(f"{m}: no {name} key")
+            continue
+        any_key = True
+        try:
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "ai-agent"},
+                              json={"model": mid, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3}, timeout=600)
+        except requests.RequestException as exc:
+            errors.append(f"{m}: {type(exc).__name__}")
+            continue
         if r.status_code in (401, 403):
-            raise RuntimeError("OpenRouter refused the key (OPENROUTER_API_KEY is wrong or revoked).")
+            refused.append(m)
+            errors.append(f"{m}: {name} refused the key")
+            continue
         if r.status_code >= 300:
             errors.append(f"{m}: HTTP {r.status_code}")
             continue
@@ -160,7 +179,11 @@ def call_model(messages: list[dict], model: str, max_tokens: int = 6000) -> str:
         if text and text.strip():
             return text
         errors.append(f"{m}: empty answer")
-    raise RuntimeError("no model answered (" + "; ".join(errors)[:400] + "). Free models and their daily limits change often: set AI_MODEL to a comma list of ids from https://openrouter.ai/models?q=free")
+    if not any_key:
+        raise RuntimeError("no key for any model: add OPENROUTER_API_KEY or GROQ_API_KEY (Settings -> Secrets and variables -> Actions).")
+    if refused and len(refused) == len([e for e in errors if "no " not in e.split(": ", 1)[-1][:3]]):
+        raise RuntimeError("the provider refused the key (OPENROUTER_API_KEY / GROQ_API_KEY is wrong or revoked).")
+    raise RuntimeError("no model answered (" + "; ".join(errors)[:500] + "). Free models and their daily limits change often: set AI_MODEL to a comma list of ids (OpenRouter ids, or groq/<id> for Groq).")
 
 
 def repo_context(issue_text: str) -> str:

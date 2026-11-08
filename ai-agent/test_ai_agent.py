@@ -184,6 +184,45 @@ class ModelCallTests(unittest.TestCase):
             M.call_model([], "a:free")
 
 
+class Providers(unittest.TestCase):
+    def setUp(self):
+        self.env = dict(os.environ)
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
+        os.environ["GROQ_API_KEY"] = "gsk_test"
+        self.calls = []
+        self.orig = M.requests.post
+
+    def tearDown(self):
+        M.requests.post = self.orig
+        os.environ.clear()
+        os.environ.update(self.env)
+
+    def test_groq_models_go_to_groq_with_its_own_key_and_fall_back_to_openrouter(self):
+        class R:
+            def __init__(self, code, text=""):
+                self.status_code, self._t = code, text
+
+            def json(self):
+                return {"choices": [{"message": {"content": self._t}}]}
+
+        def fake(url, headers=None, json=None, timeout=0):
+            self.calls.append((url, headers["Authorization"], json["model"]))
+            return R(429) if "groq.com" in url else R(200, "ok from openrouter")
+        M.requests.post = fake
+        self.assertEqual(M.call_model([], "groq/llama-3.3-70b-versatile,x/y:free"), "ok from openrouter")
+        self.assertEqual(self.calls[0], ("https://api.groq.com/openai/v1/chat/completions", "Bearer gsk_test", "llama-3.3-70b-versatile"))
+        self.assertEqual(self.calls[1][1:], ("Bearer sk-or-test", "x/y:free"))
+
+    def test_a_missing_key_skips_that_provider_and_no_key_at_all_says_so(self):
+        del os.environ["GROQ_API_KEY"]
+        M.requests.post = lambda *a, **k: type("R", (), {"status_code": 200, "json": lambda self: {"choices": [{"message": {"content": "hi"}}]}})()
+        self.assertEqual(M.call_model([], "groq/a,b:free"), "hi")           # Groq skipped (no key), OpenRouter answers
+        del os.environ["OPENROUTER_API_KEY"]
+        with self.assertRaises(RuntimeError) as e:
+            M.call_model([], "groq/a,b:free")
+        self.assertIn("no key for any model", str(e.exception))
+
+
 class ChatMode(unittest.TestCase):
     def test_a_telegram_message_is_a_conversation_not_an_engineering_issue(self):
         issue = {"number": 5, "title": "Telegram: [كيف حالك]", "labels": [{"name": "from-telegram"}], "body": "كيف حالك\n\n<!-- tg-chat:42 -->\n<!-- tg-update:7 -->"}
