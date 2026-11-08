@@ -72,6 +72,10 @@ def check(root: Path = ROOT) -> tuple[list[str], list[str]]:
                 bad.append(f"{key} يكتب في مجموعة غير معرّفة: {ds}")
     for ds, who in writers.items():
         if len(set(who)) > 1:
+            # One writer per dataset is the rule. The ONLY allowed exception (2026-11-08, Sham v2's focused stage notebooks): the dataset is declared "serialised" and EVERY one of its writers
+            # refuses to publish when another notebook published since it started (the source must contain `published_step`), so two sessions can never overwrite each other.
+            if c["datasets"].get(ds, {}).get("serialised") and all("published_step" in (root / c["components"][k]["file"]).read_text(encoding="utf-8", errors="replace") for k in set(who)):
+                continue
             bad.append(f"المجموعة {ds} لها أكثر من كاتب: {', '.join(sorted(set(who)))}")
         decl = c["datasets"].get(ds, {}).get("writer")
         if decl and not decl.startswith("any") and decl not in who:

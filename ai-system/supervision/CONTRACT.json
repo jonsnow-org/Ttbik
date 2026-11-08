@@ -152,11 +152,19 @@
     },
     "sham-v2-checkpoint": {
       "role": "نقطة حفظ سلالة شام v2 (جسم المانح المنقول + صفوف الوسائط المدرَّبة)؛ سلالة منفصلة بمُرمِّز المانح فلا تُدمج مع السلالة القديمة",
-      "writer": "sham_v2_train"
+      "writer": "sham_v2_train",
+      "serialised": true,
+      "serialised_note": "عدة دفاتر مراحل تكتب في هذه المجموعة بالتناوب؛ كل واحد يرفض النشر إن نشر غيره منذ بدأ (published_step) وبعد بوابة الدمج"
     },
     "sham-media-refined": {
       "role": "مفكّ الصورة والصوت المصقول وحده (الترميز والقاموس كما هما بالضبط) — يُعتمد في الاستوديو فقط إذا طابق ترميز النموذج المدموج",
       "writer": "decoder_refine"
+    },
+    "sham-v2-candidate-checkpoint": {
+      "role": "نقطة حفظ السلالة المرشحة لشام v2 (جسم SmolLM3-3B المنقول)؛ لا تحلّ محل المخدومة إلا عبر sham_v2_switch.py بقياس",
+      "writer": "sham_v2_candidate_train",
+      "serialised": true,
+      "serialised_note": "عدة دفاتر مراحل تكتب في هذه المجموعة بالتناوب؛ كل واحد يرفض النشر إن نشر غيره منذ بدأ (published_step) وبعد بوابة الدمج"
     }
   },
   "dynamic_dataset_patterns": [
@@ -166,7 +174,8 @@
   "dataset_rules": [
     "كل مجموعة لها كاتب واحد فقط (writer). دفتر ثانٍ لا ينشر فوقها — كل دفتر جمع جديد يستعمل اسماً جديداً يبدأ بـ sham-crawl-.",
     "أي مجموعة تبدأ بـ sham* تُكتشف تلقائياً كمصدر دمج؛ الدمج لا يتم إلا بعد الإصلاح وبوابة الجودة.",
-    "أي مجموعة جديدة تبدأ بـ sham* بلا وصف في العقد لا تبقى «خارج العقد»: تُصنَّف تلقائياً بحسب أنواع ملفاتها (صوت→صوت، نص→نص، صورة→صورة، فيديو→فيديو) وتُدمج في مكانها بعد الإصلاح وبوابة الجودة، ولا يلزم معرفة ما هي."
+    "أي مجموعة جديدة تبدأ بـ sham* بلا وصف في العقد لا تبقى «خارج العقد»: تُصنَّف تلقائياً بحسب أنواع ملفاتها (صوت→صوت، نص→نص، صورة→صورة، فيديو→فيديو) وتُدمج في مكانها بعد الإصلاح وبوابة الجودة، ولا يلزم معرفة ما هي.",
+    "استثناء وحيد معلن (2026-11-08): مجموعة موسومة serialised قد يكتبها أكثر من دفتر مراحل لسلالة شام v2، بشرط أن يحوي كود كل منها published_step (يرفض النشر إن نشر غيره أثناء جلسته). يتحقق منه sham_contract.py."
   ],
   "components": {
     "stage1_text": {
@@ -802,6 +811,66 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "sham_v2_stages_push": {
+      "file": ".github/workflows/sham-v2-stages-push.yml",
+      "title": "دفع دفتر تدريب واحد من دفاتر شام v2 المتخصصة إلى كاكل عند الطلب (أدوات، وسائط، سلالة مرشحة)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_v2_tools_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2_tools/sham_v2_tools_train.ipynb",
+      "title": "شام v2 مرحلة الأدوات: الأدوات الـ49 ومسارات عملها (تُدفع يدويًا)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-checkpoint"
+      ]
+    },
+    "sham_v2_media_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2_media/sham_v2_media_train.ipynb",
+      "title": "شام v2 مرحلة الوسائط: صور وصوت مع إعادة أدوات (تُدفع يدويًا)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-checkpoint",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-checkpoint"
+      ]
+    },
+    "sham_v2_candidate_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2_candidate/sham_v2_candidate_train.ipynb",
+      "title": "شام v2 المرشح (SmolLM3-3B): الخليط كاملًا (يُدفع يدويًا)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-candidate-checkpoint",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-candidate-checkpoint"
+      ]
+    },
+    "sham_v2_candidate_tools_train": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2_candidate_tools/sham_v2_candidate_tools_train.ipynb",
+      "title": "شام v2 المرشح مرحلة الأدوات (يُدفع يدويًا)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-v2-candidate-checkpoint"
+      ],
+      "writes": [
+        "sham-v2-candidate-checkpoint"
+      ]
     }
   },
   "lineage": [
