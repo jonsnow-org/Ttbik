@@ -136,11 +136,14 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "tool_calls" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
+  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
   reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   /** Structured assistant function calls returned by Sham v2's own agent_step endpoint. */
   tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }>;
   message?: { role?: "assistant"; content?: string; tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }> };
+  /** An embedded-tool step (the computer or browser of the model itself): the model wrote the call, ran it INSIDE its own loop and returns call + result for the app's loop to record. */
+  tool_call?: { id?: string; type?: "function"; function: { name: string; arguments: string } };
+  result?: string;
   raw?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
@@ -438,6 +441,13 @@ export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], m
       return { type: "tool_call_error", text: "استجابة استدعاء الأدوات المنظّمة غير صالحة؛ لم تُنفّذ أي أداة." };
     }
     return { ...reply, tool_calls: calls };
+  }
+  if (reply?.type === "embedded_step") {
+    if (!reply.tool_call?.function?.name || typeof reply.tool_call.function.arguments !== "string") {
+      setFailure("agent_step: malformed embedded_step envelope");
+      return { type: "tool_call_error", text: "استجابة خطوة الحاسوب المدمج غير صالحة." };
+    }
+    return reply;
   }
   if (reply?.type === "tool_call_error" || reply?.type === "text" || reply?.type === "busy" || reply?.type === "loading" || reply?.type === "notice" || reply?.type === "error") return reply;
   if (body) setFailure(`agent_step: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")})`);

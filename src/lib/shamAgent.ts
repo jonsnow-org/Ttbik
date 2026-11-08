@@ -263,6 +263,20 @@ export async function shamAgentRun(opts: {
       if (retry) reply = retry;
     }
     if (reply.type === "tool_call_error") return { kind: "text", text: "تعذّر إنشاء استدعاء أداة صالح بعد إعادة المحاولة؛ لم تُنفّذ أي أداة. أعد المحاولة أو اطلب المهمة بصياغة أوضح.", used, steps: steps + 1 };
+    if (reply.type === "embedded_step" && reply.tool_call) {
+      // The model ran its OWN computer/browser call inside its loop: the app records it exactly like a tool it ran itself (progress card, streamed report line, the
+      // step counted, the task carried on across legs), then asks again. One short Studio call per step, so the connection is never held open.
+      const c = reply.tool_call as CoderToolCall;
+      used.push(c.function.name);
+      opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
+      opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
+      const result = String(reply.result || "");
+      opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(result) });
+      opts.onEvent?.("info", clip(result, 300));
+      messages.push({ role: "assistant", content: String(reply.text || ""), tool_calls: [c] } as CoderMessage);
+      messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(result, toolClip) } as CoderMessage);
+      continue;
+    }
     if (reply.type !== "text" && reply.type !== "tool_calls") return { kind: "reply", reply, used, steps };
     let text = String(reply.text || "");
     let p = unpackToolReply(reply, toolsNow);

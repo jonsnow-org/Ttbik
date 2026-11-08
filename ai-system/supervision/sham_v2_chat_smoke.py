@@ -131,17 +131,18 @@ def native_model_terminal_smoke() -> None:
             response = json.loads(response)
         except json.JSONDecodeError:
             raise RuntimeError("agent_step did not return a structured result")
-    # Sham v2's computer is part of the model's OWN loop (owner 2026-11-08): the model writes computer_run, the Studio runs it inside the serving process and the reply carries the trace.
-    if not isinstance(response, dict):
-        raise RuntimeError("agent_step did not return an object: " + str(response)[:280])
-    trace = response.get("embedded") or []
-    if not trace or trace[0].get("name") != "computer_run":
-        raise RuntimeError("Sham v2 did not choose computer_run (or the embedded computer did not run it): " + str(response)[:280])
-    generated_command = str((trace[0].get("arguments") or {}).get("command") or "")
+    # Sham v2's computer is part of the model's OWN loop (owner 2026-11-08): the model writes computer_run, the Studio runs it inside the serving process and the reply is one
+    # embedded_step (the call + its result) that the app records and then asks again: one short Studio call per step, never a long open connection.
+    if not isinstance(response, dict) or response.get("type") != "embedded_step":
+        raise RuntimeError("Sham v2 did not run computer_run inside its own loop: " + str(response)[:280])
+    fn = (response.get("tool_call") or {}).get("function") or {}
+    if fn.get("name") != "computer_run":
+        raise RuntimeError("Sham v2 chose a tool other than computer_run: " + str(fn)[:160])
+    generated_command = str((json.loads(fn.get("arguments") or "{}")).get("command") or "")
     safe_command = re.fullmatch(r"\s*printf\s+(['\"])"+re.escape(marker)+r"\1\s*;\s*id\s+-u\s*", generated_command)
     if not safe_command:
         raise RuntimeError("Sham v2 requested an unexpected terminal command: " + generated_command[:120])
-    output = str(trace[0].get("result") or "")
+    output = str(response.get("result") or "")
     if marker not in output:
         raise RuntimeError("Sham v2's embedded computer did not run the command: " + output[:180])
     uid = output.splitlines()[-1].strip() if output.splitlines() else ""

@@ -140,6 +140,19 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
 
 /** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
 export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
+  if (modelId === "sham" || modelId === "sham_v2") {
+    // The owner's Mini App screen of a Sham's computer stays useful WITHOUT any command API: a READ-ONLY view (files, a file, jobs, a job log, what the model just did) served by the
+    // model's own app. Commands are run only by the model itself, inside its loop.
+    const map: Record<string, string> = { list: "list", ls: "list", read: "read", job_list: "job_list", job_log: "job_log", activity: "activity" };
+    const action = map[String((args as { action?: string })?.action || "")];
+    if (!action) return { ok: false, error: "the Shams' computer screen is read-only: the model itself runs its commands (you can see its files, jobs and what it just did)" };
+    const own = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
+    try {
+      return await studioCall(own, "computer_view", { action, path: (args as { path?: string }).path || "", id: (args as { id?: string }).id || "", session }, fetchImpl, 60_000);
+    } catch (error) {
+      return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
+    }
+  }
   const base = boxStudioFor(modelId);
   if (!base) return { ok: false, error: "this model has no computer Studio" };
   const clean = cleanBoxArgs(args);

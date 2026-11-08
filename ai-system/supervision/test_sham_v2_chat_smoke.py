@@ -48,7 +48,7 @@ class ShamV2ChatRouteTests(unittest.TestCase):
         self.assertNotIn("box_do", source)
         self.assertNotIn("COMPUTER_STUDIO_URL", source)
         self.assertNotIn("sham-v2-video-server", source)
-        self.assertIn('response.get("embedded")', source)
+        self.assertIn('embedded_step', source)
 
     def test_live_smoke_requires_the_model_to_choose_and_execute_its_own_terminal_tool(self):
         source = SMOKE.read_text(encoding="utf-8")

@@ -35,6 +35,7 @@ EMBEDDED = frozenset(sham_computer.TOOL_NAMES) | {BROWSER} | frozenset(SANDBOX_A
 MAX_CALLS = 6
 RESULT_CHARS = 1800
 _COMPUTERS: dict[str, "sham_computer.Computer"] = {}
+_ACTIVITY: dict[str, list] = {}                              # per session: the last embedded calls (for the owner's READ-ONLY screen in the Mini App)
 _LOCK = threading.Lock()
 
 
@@ -78,6 +79,48 @@ def extend_prompt(prompt: str, call_text: str, name: str, result: str) -> str:
     return f"{body}\nشام: {call_text}\nنتيجة الأداة {name}:\n{str(result)[:RESULT_CHARS]}\nشام:"
 
 
+def run_call(call: dict, session: str) -> str:
+    """Run ONE embedded call the model wrote ({"name","arguments"}): the sandbox_* names run as the matching computer tool. Returns the result text."""
+    args = call.get("arguments") or {}
+    run_name, run_args = SANDBOX_ALIAS[call["name"]](args) if call["name"] in SANDBOX_ALIAS else (call["name"], args)
+    result = run_embedded(run_name, {k: v for k, v in run_args.items() if v is not None}, session)
+    import time
+    log = _ACTIVITY.setdefault((session or "default").strip() or "default", [])
+    log.append({"t": int(time.time()), "tool": call["name"], "arguments": json.dumps(args, ensure_ascii=False)[:400], "result": str(result)[:600]})
+    del log[:-30]
+    return result
+
+
+def view(session: str, action: str, path: str = "", id: str = "") -> dict:
+    """READ-ONLY look at a session's workspace for the owner's Mini App screen (files, a file, jobs, a job log, what the model just did). It runs nothing and writes nothing."""
+    key = (session or "default").strip() or "default"
+    try:
+        c = computer_for(key)
+        if action == "activity":
+            return {"ok": True, "activity": list(_ACTIVITY.get(key, []))}
+        if action == "list":
+            return {"ok": True, "output": c.read(path or ".")}
+        if action == "read":
+            return {"ok": True, "output": c.read(path)}
+        if action == "job_list":
+            return {"ok": True, "output": c.job("list")}
+        if action == "job_log":
+            return {"ok": True, "output": c.job("log", id=id)}
+        return {"ok": False, "error": "the Shams' computer screen is read-only here: list, read, job_list, job_log, activity"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+def step(generate, extract, prompt: str, tool_names: list[str], session: str):
+    """ONE model turn, so every Studio call stays short (the app's loop streams progress between steps and carries the task across its background legs):
+    returns ("embedded", call, result) when the model wrote a call to an embedded tool and it ran here, else ("raw", raw_text, None)."""
+    raw = generate(prompt)
+    call = extract(raw, prompt, tool_names) if enabled() else None
+    if call and call["name"] in EMBEDDED:
+        return "embedded", call, run_call(call, session)
+    return "raw", raw, None
+
+
 def loop(generate, extract, prompt: str, tool_names: list[str], session: str, max_calls: int = MAX_CALLS):
     """generate(prompt) -> the model's raw reply; extract(raw, prompt, names) -> {"name","arguments","text"} | None.
     Returns (raw, trace, prompt): `raw` is the first reply that is NOT an embedded call (a final answer, or a call to a tool that belongs to the web app); `trace` lists the
@@ -90,8 +133,7 @@ def loop(generate, extract, prompt: str, tool_names: list[str], session: str, ma
         if not call or call["name"] not in EMBEDDED:
             break
         args = call.get("arguments") or {}
-        run_name, run_args = SANDBOX_ALIAS[call["name"]](args) if call["name"] in SANDBOX_ALIAS else (call["name"], args)
-        result = run_embedded(run_name, {k: v for k, v in run_args.items() if v is not None}, session)
+        result = run_call(call, session)
         trace.append({"name": call["name"], "arguments": args, "result": str(result)[:RESULT_CHARS]})
         prompt = extend_prompt(prompt, tool_call_text(call["name"], args), call["name"], result)
         raw = generate(prompt)
@@ -137,6 +179,10 @@ def _selftest() -> None:
     _, tr4, _ = loop(endless, extract_tool_call, prompt, names, "s2")
     assert tr4 == []
     os.environ["SHAM_INTERNAL_COMPUTER"] = "1"
+    kind, c1, r1 = step(lambda p: '<tool_call>{"name": "computer_run", "arguments": {"command": "echo onestep"}}</tool_call>', extract_tool_call, prompt, names, "s6")
+    assert kind == "embedded" and c1["name"] == "computer_run" and "onestep" in r1
+    kind2, raw2b, _ = step(lambda p: "جواب نهائي", extract_tool_call, prompt, names, "s6")
+    assert kind2 == "raw" and raw2b == "جواب نهائي"
     sprompt = prompt + "\n- sandbox_exec(command) — x"
     _it = iter(['<tool_call>{"name": "sandbox_exec", "arguments": {"command": "echo viaalias"}}</tool_call>', "تم"])
     sraw, strace, _ = loop(lambda p: next(_it), extract_tool_call, sprompt, names + ["sandbox_exec"], "s5")

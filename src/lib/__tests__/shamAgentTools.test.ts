@@ -176,6 +176,20 @@ describe("delegate: helper agents inside Sham v2", () => {
     expect(ran).toEqual([]);
     expect(r.kind).toBe("text");
   });
+  it("an embedded step (the model ran its own computer call inside its loop) is recorded like any tool: progress events, the step counted, the task goes on; the app runs nothing", async () => {
+    const ran: string[] = [];
+    const steps: string[] = [];
+    let n = 0;
+    const agentAsk = async () => (n++ === 0
+      ? ({ type: "embedded_step", text: "", tool_call: { id: "c1", type: "function", function: { name: "computer_run", arguments: JSON.stringify({ command: "ls" }) } }, result: "exit code 0\na.txt" })
+      : ({ type: "text", text: "في المجلد ملف a.txt." })) as any;
+    const r = await shamVariant.run("v2", () => shamAgentRun({ text: "شغّل الأمر ls في جهازي ثم أخبرني بالنتيجة", ctx: mkCtx(), tools, budgetMs: 120000, now: () => Date.now(), ask: (async () => text("")) as any, agentAsk, exec: async (c) => { ran.push(c.function.name); return "x"; },
+      onStep: (e: any) => { if (String(e.type).startsWith("tool_")) steps.push(e.type + ":" + (e.name || "")); } } as any));
+    expect(ran).toEqual([]);                                                   // the app did not execute it: the model did, inside itself
+    expect(steps).toEqual(["tool_start:computer_run", "tool_end:computer_run"]);
+    expect(r.kind).toBe("text");
+    expect((r as any).used).toContain("computer_run");
+  });
   it("no time left: the tool answers with an error the model can act on, nothing is started", async () => {
     let t = 0;
     const seen: string[] = [];

@@ -303,13 +303,26 @@ def _studio_modules():
             sys.path.insert(0, str(hot))
         for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat", "sham_media_ask", "sham_intent"):      # the hot copies replace the deployed ones
             sys.modules.pop(name, None)
-        _CHAT_SEEN["mods"] = (importlib.import_module("sham_studio_chat"), importlib.import_module("sham_studio_media"))
+        chat_mod = importlib.import_module("sham_studio_chat")
+        try:
+            media_mod = importlib.import_module("sham_studio_media")
+        except ImportError as exc:        # the hot copy can be newer than the deployed model.py (2026-11-09: MOTION_VOCAB_BASE): chat keeps working, media says what is wrong
+            print(f"sham_studio_media unavailable until the next redeploy ({exc})", flush=True)
+            media_mod = None
+        _CHAT_SEEN["mods"] = (chat_mod, media_mod)
         _CHAT_SEEN["stamp"] = stamp
     return _CHAT_SEEN["mods"]
 
 
 def _studio_chat():
     return _studio_modules()[0]
+
+
+def _studio_media():
+    media = _studio_modules()[1]
+    if media is None:
+        raise RuntimeError("the media code is waiting for the next redeploy (the deployed model.py is older than the media module); chat is not affected")
+    return media
 
 
 def _json_notice(text: str) -> str:
@@ -334,7 +347,7 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+        res = _studio_media().generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
                                                 serve._state["audio_tokenizer"], prompt, n,
                                                 motion_tokenizer=serve._state.get("motion_tokenizer"))
         return json.dumps(_vet(res), ensure_ascii=False)
@@ -369,7 +382,7 @@ def _chat_params(messages_json: str, max_new_tokens: float, temperature: float, 
     return clean, n, temp, thought
 
 
-def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0, session: str = "") -> str:
+def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
     """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions."""
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_chat is available only on Sham v2."}, ensure_ascii=False)
@@ -385,16 +398,6 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
     try:
         model = serve._state["model"]
         tok = serve._state["text_tokenizer"]
-        import sham_embedded_tools as embedded
-        last = clean[-1]["content"]
-        if embedded.enabled() and embedded.has_embedded_tools(last):         # a tool turn: the computer / browser calls run inside the model's own loop
-            from sham_native_tools import extract_tool_call
-            from sham_toolcall import tool_names_from_prompt
-            names = tool_names_from_prompt(last)
-            answer, trace, _ = embedded.loop(
-                lambda p: _studio_chat().qwen3_chat_messages(model, tok, clean[:-1] + [{"role": "user", "content": p}], n, temperature=temp, think_tokens=thought, tool_prompt=p),
-                extract_tool_call, last, names, str(session or "default"))
-            return json.dumps({"type": "text", "text": answer, **({"embedded": trace} if trace else {})}, ensure_ascii=False)
         answer = _studio_chat().qwen3_chat_messages(model, tok, clean, n, temperature=temp, think_tokens=thought)
         return json.dumps({"type": "text", "text": answer}, ensure_ascii=False)
     except Exception as exc:
@@ -494,11 +497,16 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160,
         from sham_toolcall import OPEN_TAG
         from sham_native_tools import extract_tool_call
         import sham_embedded_tools as embedded
-        # The computer and the browser are part of the model's own loop (owner 2026-11-08): when the model writes a call to one of them it runs HERE, the result is pasted
-        # back in the trained layout and the model goes on; every other tool is returned to the web app as before.
-        raw, trace, prompt = embedded.loop(lambda p: _studio_chat().studio_generate(model, tok, p, n, search_fn=None), extract_tool_call, str(prompt or ""), active_names,
-                                           str(session or "default"))
-
+        # The computer and the browser are part of the model's own loop (owner 2026-11-08): when the model writes a call to one of them it runs HERE. ONE step per Studio call:
+        # the app keeps its own loop (progress cards between steps, streamed reports, the task carried across its background legs), so no call here ever runs long enough
+        # to cut the connection. Every other tool is returned to the web app as before.
+        kind, first, result = embedded.step(lambda p: _studio_chat().studio_generate(model, tok, p, n, search_fn=None), extract_tool_call, str(prompt or ""), active_names,
+                                            str(session or "default"))
+        if kind == "embedded":
+            return json.dumps({"type": "embedded_step", "text": first.get("text", ""), "tool_call": {"id": "call_" + uuid.uuid4().hex[:16], "type": "function",
+                               "function": {"name": first["name"], "arguments": json.dumps(first["arguments"], ensure_ascii=False, separators=(",", ":"))}},
+                               "result": str(result)[:3500]}, ensure_ascii=False)
+        raw, trace = first, []
         call = extract_tool_call(raw, str(prompt or ""), active_names)
         if call:
             tool_calls = [{
@@ -545,6 +553,21 @@ def computer_changes(body: str = "") -> str:
             text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
         job = json.loads(text or "{}")
         return json.dumps(embedded.computer_for(str(job.get("session") or "default")).changes(str(job.get("repo") or ""), str(job.get("dir") or "") or None), ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+
+
+def computer_view(body: str = "") -> str:
+    """READ-ONLY look at a session's workspace for the owner's Mini App screen (sham_embedded_tools.view): files, a file, jobs, a job log, what the model just did.
+    It runs nothing and writes nothing; commands are only ever run by the model's own loop."""
+    try:
+        import base64
+        import sham_embedded_tools as embedded
+        text = str(body or "")
+        if text.startswith("b64:"):
+            text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+        job = json.loads(text or "{}")
+        return json.dumps(embedded.view(str(job.get("session") or "default"), str(job.get("action") or ""), str(job.get("path") or ""), str(job.get("id") or "")), ensure_ascii=False)
     except Exception as exc:  # noqa: BLE001
         return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
 
@@ -602,7 +625,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
             result = make(Path(STATE["media_root"]), kind, prompt, scenes=scenes, narration=narration)
         else:
             import serve
-            result = _studio_modules()[1].make_media(
+            result = _studio_media().make_media(
                 serve._state["model"], serve._state["text_tokenizer"],
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
                 kind.strip().lower(), prompt,
@@ -789,7 +812,7 @@ def build_ui():
         native_chat = gr.Interface(
             generate_chat,
             [gr.Textbox(label="messages_json"), gr.Number(label="max_new_tokens", value=512),
-             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0), gr.Textbox(label="session", value="")],
+             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0)],
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
@@ -811,6 +834,8 @@ def build_ui():
     interfaces.append(gr.Interface(computer_changes, gr.Textbox(label="body"), gr.Textbox(label="changes"),
                                    api_name="computer_changes", flagging_mode="never"))
     labels.append("تغييرات الحاسوب المدمج (قراءة فقط)")
+    interfaces.append(gr.Interface(computer_view, gr.Textbox(label="body"), gr.Textbox(label="view"), api_name="computer_view", flagging_mode="never"))
+    labels.append("شاشة الحاسوب المدمج (قراءة فقط)")
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 

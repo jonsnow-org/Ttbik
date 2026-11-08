@@ -281,7 +281,7 @@ def arabic_replay_pairs(seed: int, n: int = 600) -> list[tuple[str, str]]:
 def published_step(fetch_dataset, dataset: str) -> int:
     """The step of the newest checkpoint published to `dataset` (0 when none): a stage notebook publishes only when nobody published since it started."""
     try:
-        d = fetch_dataset(dataset)
+        d = fetch_dataset(dataset, fresh=True)             # fresh: the version that is latest RIGHT NOW (a cached copy would hide what another notebook published meanwhile)
         hp = sorted(d.rglob("v2_history.json")) if d else []
         return int(json.loads(hp[0].read_text(encoding="utf-8"))[-1]["step"]) if hp else 0
     except Exception:  # noqa: BLE001 - when it cannot be read, the caller treats it as "not changed" and the merge gate still protects the checkpoint
@@ -433,7 +433,11 @@ if __name__ == "__main__":
     assert torch.equal(wb0[:tv], mb.token_embedding.weight.detach()[:tv]) and not torch.equal(wb0[tv:], mb.token_embedding.weight.detach()[tv:])
     tb = tools_stage_batches(Tok(), 1, n=12, batch_size=2, replay_pairs=[("س", "ج")] * 60)
     assert tb and all(isinstance(b, tuple) and len(b) == 2 for b in tb)
-    assert published_step(lambda ds: None, "x") == 0
+    assert published_step(lambda ds, **k: None, "x") == 0
+    with tempfile.TemporaryDirectory() as _pd:                          # the "moved" guard reads the NEWEST published history, fresh
+        (Path(_pd) / "v2_history.json").write_text(json.dumps([{"step": 10}, {"step": 50}]), encoding="utf-8")
+        _seen = {}
+        assert published_step(lambda ds, **k: (_seen.update(k), Path(_pd))[1], "x") == 50 and _seen == {"fresh": True}
     rp = reasoning_pairs(5, 1)
     assert len(rp) == 5 and all(q and a for q, a in rp)
     arts = [(f"t{i}", " ".join(f"في عام {1900 + i * 7 + j} حدث أمر مهم رقم {j} في المدينة الكبيرة رقم {i} وتحدث الناس عنه كثيرا." for j in range(12))) for i in range(8)]
