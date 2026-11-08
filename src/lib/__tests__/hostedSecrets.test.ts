@@ -49,6 +49,12 @@ describe("hosted secrets", () => {
     expect(rows.size).toBe(0);
     expect(bot.sent[bot.sent.length - 1]).toContain("غير مسموح");
   });
+  test("the Athar bot can vouch for its own owner (its owner id may differ from the env owner ids)", async () => {
+    const bot = mkBot();
+    expect(await handleSecretUpdate(bot, { message: { text: "/secret AI_REPO o/r", chat: { id: 555 }, message_id: 1 } })).toBe(false);
+    expect(await handleSecretUpdate(bot, { message: { text: "/secret AI_REPO o/r", chat: { id: 555 }, message_id: 1 } }, true)).toBe(true);
+    expect(rows.has("AI_REPO")).toBe(true);
+  });
   test("delete removes it", async () => {
     const bot = mkBot();
     await handleSecretUpdate(bot, { message: { text: "/secret AI_REPO o/r", chat: { id: 42 }, message_id: 1 } });

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { BD, BD_OFF, bdText, parseBirthday, saveBirthday } from "@/lib/atharBirthday";
 import { handleHostingCallback, panelKeyboard, panelText } from "@/lib/hostingPanel";
+import { handleSecretUpdate } from "@/lib/hostedSecrets";
 import { handleStarsCallback, handleStarsMessage, handleStarsPayment, starsButton } from "@/lib/atharStarsBot";
 import { starsEnabled } from "@/lib/atharStars";
 import { checkPayments, dayKey, daySummary, fetchBalance, fetchIncoming, loadWatch, setAlerts, tons, txLink, walletLink, weekSummary } from "@/lib/atharWatch";
@@ -312,6 +313,8 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   if (fromId && !owner) {
     try { await recordBotVisit(botRow.id, fromId); } catch { /* visit counting is optional */ }
   }
+  // the owner adds a permanent secret from here (/secret NAME VALUE): stored encrypted in the shared database, read by every server, no restart; the message is deleted
+  if (owner && /^\/secret(?:@\w+)?(?:\s|$)/i.test(text) && (await handleSecretUpdate(bot as never, body, true))) return;
   const lang = fromId ? await getLang(botRow.id, fromId) : "en";
 
   // the owner sets (or stops) the mandatory channel: the answer to our question

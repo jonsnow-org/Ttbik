@@ -61,7 +61,7 @@ export async function handleHostingCallback(bot: TelegramBot, chatId: number, da
   }
   if (data === "hg:secrets") {
     const names = await secretNames().catch(() => [] as string[]);
-    await send(`🔐 الأسرار · Secrets (تعمل على كل الخوادم بلا إعادة تشغيل)\nالمحفوظ الآن: ${names.length ? names.join(", ") : "لا شيء"}\n\nفي بوت نوفا أرسل:\n/secret AI_GITHUB_TOKEN <القيمة>\n/secret AI_REPO jonsnow-org/Ttbik\nتُحذف رسالتك فوراً ولا تُعرض القيمة أبداً. للحذف: /secret NAME delete`);
+    await send(`🔐 الأسرار · Secrets (تعمل على كل الخوادم بلا إعادة تشغيل)\nالمحفوظ الآن: ${names.length ? names.join(", ") : "لا شيء"}\n\nفي هذا البوت (أثر) أرسل:\n/secret AI_GITHUB_TOKEN <القيمة>\n/secret AI_REPO jonsnow-org/Ttbik\nتُحذف رسالتك فوراً ولا تُعرض القيمة أبداً. للحذف: /secret NAME delete`);
     return;
   }
   if (data === "hg:env") {

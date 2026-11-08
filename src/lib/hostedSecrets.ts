@@ -69,7 +69,8 @@ export async function getSecret(name: string): Promise<string> {
   } catch { return ""; }
 }
 
-// ---------- the owner's commands (Nova bot, same entry as /ai) ----------
+// ---------- the owner's commands (Athar bot) ----------
+// Entry: the Athar bot (owner check by its own owner id) — src/lib/atharBotLogic.ts.
 //   /secret                       how to use it + the names stored (never the values)
 //   /secret NAME VALUE            store; the message carrying the value is deleted from the chat at once
 //   /secret NAME delete           remove
@@ -78,12 +79,12 @@ export function parseSecretCommand(text: string): { name?: string; value?: strin
   return m ? { name: m[1]?.toUpperCase(), value: m[2]?.trim() } : null;
 }
 type Api = { sendMessage: (chatId: number, text: string) => Promise<unknown>; deleteMessage?: (chatId: number, messageId: number) => Promise<unknown> };
-export async function handleSecretUpdate(bot: { api: Api }, update: any): Promise<boolean> {
+export async function handleSecretUpdate(bot: { api: Api }, update: any, ownerChecked?: boolean): Promise<boolean> {
   const msg = update?.message;
   const text = typeof msg?.text === "string" ? msg.text : "";
   const parsed = parseSecretCommand(text);
   const chatId = msg?.chat?.id;
-  if (!parsed || !chatId || tierFor(chatId) !== "owner") return false;
+  if (!parsed || !chatId || !(ownerChecked || tierFor(chatId) === "owner")) return false;
   const say = (t: string) => bot.api.sendMessage(chatId, t).catch(() => null);
   // the value must not stay in the chat: delete first, answer after
   if (parsed.value && msg.message_id) await bot.api.deleteMessage?.(chatId, msg.message_id)?.catch?.(() => null);
