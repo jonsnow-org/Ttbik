@@ -1,4 +1,12 @@
 # One line per Studio: "<studio> <model repo> <gguf file> [ctx]". That Studio runs ONLY this model: if it cannot be loaded the Studio reports
 # the error phase; it never quietly serves another model (owner 2026-11-04: models are independent, no silent fallback).
-# LFM2.5-8B-A1B is its own model on its own Studio (src/lib/coderModels.ts "lfm25"; LFM_STUDIO_URLS). Nova's replicas carry no override.
+# 2026-11-08 (owner's order): Nova's brain is LFM2.5-8B-A1B. Same harness, same 2 cores, same tests (nova-local-eval.yml run 42443209423):
+#   Qwen3.5-4B (old Nova)  tools 6/6 code 6/6  first token 9.3 s   6 tok/s   5.8 GB
+#   LFM2.5-8B-A1B          tools 5/6 code 6/6  80 tok/s (13x)         (Gemma 4 E4B 4 tok/s, Nemotron Bolt E4B 8 tok/s, both 5/6 and 8+ GB)
+# Rollback: delete the five coder-inference-server lines below (the app.py default is still Qwen3.5-4B).
 lfm25-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+coder-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+coder-inference-server-2 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+coder-inference-server-3 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+coder-inference-server-4 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+coder-inference-server-5 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
