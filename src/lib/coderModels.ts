@@ -27,6 +27,8 @@ export const DEFAULT_MODELS: CoderModel[] = [
   // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
   // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
   { id: "lfm25", name: { ar: "LFM2.5 (السريع)", en: "LFM2.5 (fast)" }, desc: { ar: "LFM2.5-8B-A1B: أسرع نموذج على المعالج، بأدوات GitHub والحاسوب الخاص، ويصنع الصور والصوت والفيديو من استوديوهاته الخاصة.", en: "LFM2.5-8B-A1B: the fastest model on CPU, with GitHub tools and its own computer; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "LFM_STUDIO_URLS", sort: 6 },
+  // "free i" (owner 2026-11-08): the AI Agent path as a picker entry. Picking it sends the owner's messages to the GitHub AI Agent (a free OpenRouter model) instead of any model of this app; owner-only.
+  { id: "freei", name: { ar: "free i", en: "free i" }, desc: { ar: "وكيل مجاني عبر GitHub (OpenRouter): يجيب ويقترح، وقد يفتح طلب دمج. للمالك فقط.", en: "Free GitHub agent (OpenRouter): answers and proposes, may open a pull request. Owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 50 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -99,11 +101,12 @@ export const canonModelId = (id: string | undefined): string | undefined => (id 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
 const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
 /** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
-export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
+export const novaModelOf = (id: string | undefined): string | undefined => (id === "freei" || id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
 
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
+  if (m.id === "freei") return Boolean((process.env.AI_GITHUB_TOKEN || "").trim());
   if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
