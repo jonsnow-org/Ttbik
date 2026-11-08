@@ -82,3 +82,17 @@ describe("failover alert debounce", () => {
     expect(b.alert).toBe(false);
   });
 });
+
+import { gateMenuUrl } from "../hostingOps";
+describe("gateMenuUrl", () => {
+  const gate = "https://ttbik-gate.jonsnowx1r.workers.dev";
+  test("a Vercel Mini App link moves to the gate keeping path, query and hash", () => {
+    expect(gateMenuUrl("https://ttbik.vercel.app/fadaa?bot=7#x", gate)).toBe(`${gate}/fadaa?bot=7#x`);
+    expect(gateMenuUrl("https://ttbik-vvggghh.vercel.app/", gate)).toBe(`${gate}/`);
+  });
+  test("a link already on the gate, or on another host, is left alone", () => {
+    expect(gateMenuUrl(`${gate}/zenobia/coins.html`, gate)).toBeNull();
+    expect(gateMenuUrl("https://athar.89-168-89-15.sslip.io/?lang=en", gate)).toBeNull();
+    expect(gateMenuUrl("not a url", gate)).toBeNull();
+  });
+});

@@ -1,0 +1,26 @@
+name: hosting-gate-sync
+# Hourly: every bot's webhook and Mini App menu button must name the GATE address, never a Vercel one (owner's report 2026-11-08: a Mini App opened from a bot showed
+# "This deployment is temporarily paused" because its button still pointed at ttbik.vercel.app; the gate can fail over to Oracle, a *.vercel.app link cannot).
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch: {}
+concurrency:
+  group: hosting-gate-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: move webhooks and menu buttons to the gate
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "CRON_SECRET is missing"; exit 1; fi
+          BASE=$(jq -r '[.gateUrl, .engineUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
+          code=$(curl -sS -m 90 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${BASE}/api/cron/hosting-gate-sync" || echo 000)
+          echo "HTTP ${code}"; head -c 600 body.json; echo
+          [ "${code}" = "200" ]
