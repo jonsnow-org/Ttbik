@@ -284,7 +284,7 @@ def main_run() -> int:
         return 0
     agent = uses_agent(issue, full)
     mode = mode_label(full, agent)
-    if already_answered(comments, mode):
+    if not os.environ.get("AI_FORCE") and already_answered(comments, mode):
         print("this issue's last comment is already the answer: nothing to do")
         return 0
     model = os.environ.get("AI_MODEL") or DEFAULT_MODEL
