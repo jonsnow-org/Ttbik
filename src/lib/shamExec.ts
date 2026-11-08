@@ -310,7 +310,7 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
   return out;
 }
 /** Sham v2 has ONE embedded computer inside its own Studio (owner's order 2026-11-08), so the tools of the separate task workspace are the same computer:
- *  the sandbox_* names the model learned run as the matching computer_* tool. The browser and the graphical desktop need the shared hub and are not offered to v2. */
+ *  the sandbox_* names the model learned run as the matching computer_* tool. The graphical desktop still needs the shared hub and is not offered to v2; the browser is embedded in v2's own Studio. */
 const V2_ALIAS: Record<string, (a: Record<string, any>) => [string, Record<string, unknown>]> = {
   sandbox_clone: (a) => ["computer_repo", { url: `https://github.com/${String(a.repo || "")}`, ref: a.branch || undefined }],
   sandbox_exec: (a) => ["computer_run", { command: a.command, cwd: a.cwd }],
@@ -321,7 +321,7 @@ const V2_ALIAS: Record<string, (a: Record<string, any>) => [string, Record<strin
   sandbox_read_file: (a) => ["computer_read", { path: a.cwd ? `${String(a.cwd).replace(/\/+$/, "")}/${String(a.path || "")}` : a.path }],
   sandbox_push: (a) => ["computer_publish", { repo: a.repo, branch: a.branch, message: a.message, dir: a.dir }],
 };
-const V2_HUB_ONLY = new Set(["browser", "desktop"]);
+const V2_HUB_ONLY = new Set(["desktop"]);
 
 async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const name = call.function.name;
