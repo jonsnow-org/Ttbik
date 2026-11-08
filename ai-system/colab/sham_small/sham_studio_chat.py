@@ -250,6 +250,9 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
     return qwen3_chat_messages(model, tokenizer, [{"role": "user", "content": prompt}], max_new_tokens,
                                temperature=temperature, think_tokens=think_tokens, tool_prompt=prompt)
 
+_COMPUTER = None            # the embedded computer of this Studio process (created on first use)
+
+
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
     """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
     Two diagnostic prompts for the owner: «#info» reports which path is active; «#raw <text>» answers <text> with the old raw continuation, so the two
@@ -276,6 +279,16 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
         search_fn = web_search_text if _on("SHAM_STUDIO_SEARCH") else None
     ids = tokenizer.encode(build_user_text(prompt, today))[-MAX_PROMPT_TOKENS:]
     wrapped = torch.tensor([chat_prompt_ids(ids)], dtype=torch.long)
+    from sham_computer import enabled as _computer_on
+    if _computer_on():          # SHAM_INTERNAL_COMPUTER=1: Sham's own embedded computer (sham_computer.py); the learned search still works beside it
+        from sham_computer import Computer, chat_generate_with_computer
+        global _COMPUTER
+        _COMPUTER = _COMPUTER or Computer("studio")
+        answer, calls = chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer, _COMPUTER, search_fn=search_fn,
+                                                    temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9)
+        text = tokenizer.decode(answer).strip()
+        if text:
+            return ("[حاسوب: " + " | ".join(n for n, _, _ in calls) + "] " + text) if calls else text
     answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer, search_fn=search_fn,
                                                 temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9)
     text = tokenizer.decode(answer).strip()
