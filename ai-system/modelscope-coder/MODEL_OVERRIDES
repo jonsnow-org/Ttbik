@@ -1,12 +1,7 @@
 # One line per Studio: "<studio> <model repo> <gguf file> [ctx]". That Studio runs ONLY this model: if it cannot be loaded the Studio reports
 # the error phase; it never quietly serves another model (owner 2026-11-04: models are independent, no silent fallback).
-# 2026-11-08 (owner's order): Nova's brain is LFM2.5-8B-A1B. Same harness, same 2 cores, same tests (nova-local-eval.yml run 42443209423):
+# 2026-11-08 trial of LFM2.5-8B-A1B as Nova's brain, ROLLED BACK the same day: in the real task test (nova-task-live, fibonacci on the computer) it never called the computer tool, invented the output and said it had run it, leaked its reasoning and took 214 s (old Nova: real execution in 52 s). The harness numbers were: Same harness, same 2 cores, same tests (nova-local-eval.yml run 42443209423):
 #   Qwen3.5-4B (old Nova)  tools 6/6 code 6/6  first token 9.3 s   6 tok/s   5.8 GB
 #   LFM2.5-8B-A1B          tools 5/6 code 6/6  80 tok/s (13x)         (Gemma 4 E4B 4 tok/s, Nemotron Bolt E4B 8 tok/s, both 5/6 and 8+ GB)
-# Rollback: delete the five coder-inference-server lines below (the app.py default is still Qwen3.5-4B).
+# Nova's Studios carry no override again (app.py default: Qwen3.5-4B).
 lfm25-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
-coder-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
-coder-inference-server-2 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
-coder-inference-server-3 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
-coder-inference-server-4 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
-coder-inference-server-5 LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768

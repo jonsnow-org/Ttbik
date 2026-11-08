@@ -7,7 +7,7 @@ Code: `src/lib/coderModels.ts` (registry), `src/lib/openCoderStudio.ts` (engine 
 
 | id | Name | Who can use it | Inference (own) | Image (own) | Speech + video (own) |
 |---|---|---|---|---|---|
-| `coder` | Nova AI (since 2026-11-08: LiquidAI LFM2.5-8B-A1B Q4_K_M via MODEL_OVERRIDES; was Qwen3.5-4B, 6 tok/s vs 80 tok/s on the same 2-core harness; no picture reading until a vision-capable model) | everyone (free tier: 3 images + 3 videos a day; owner unlimited) | `coder-inference-server`, `-2` … `-5` (`OPEN_CODER_STUDIO_URL(S)`) | `epicrealism-image-test` (`NOVA_IMAGE_STUDIO_URL`) | Nova media Studio (`NOVA_MEDIA_URL`) |
+| `coder` | Nova AI (Qwen3.5-4B Q4_K_M; LFM2.5 was tried as its brain on 2026-11-08 and rolled back: fast but it invented tool results in a real task) | everyone (free tier: 3 images + 3 videos a day; owner unlimited) | `coder-inference-server`, `-2` … `-5` (`OPEN_CODER_STUDIO_URL(S)`) | `epicrealism-image-test` (`NOVA_IMAGE_STUDIO_URL`) | Nova media Studio (`NOVA_MEDIA_URL`) |
 | `lfm25` | LFM2.5 (fast): LiquidAI LFM2.5-8B-A1B Q4_K_M, ctx 32k | owner; visibility toggle | `lfm25-inference-server` (`LFM_STUDIO_URLS`) | `lfm25-media-server` (`LFM_MEDIA_STUDIO_URL`) | `lfm25-media-server` |
 | `qwen35-9b` | Qwen3.5-9B candidate | owner only (locked) | `sham-donor-qwen35-9b-*` | `cyberrealistic-final-test` | `sham-donor-qwen35-9b-media` |
 | `gemma4-e4b` | Gemma 4 E4B candidate | owner only (locked) | `sham-donor-gemma4-e4b-*` | `gemma4-realistic-vision-v6-test` | `sham-donor-gemma4-e4b-media` |
