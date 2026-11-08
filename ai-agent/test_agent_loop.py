@@ -60,6 +60,19 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("AAA", L.redact("Authorization: Bearer github_pat_AAA and sk-or-v1-AAA"))
 
 
+class Context(unittest.TestCase):
+    def test_fit_keeps_the_task_and_the_newest_exchange_and_stays_under_the_budget(self):
+        msgs = [{"role": "system", "content": "S" * 3000}, {"role": "user", "content": "The owner's command: T"}]
+        for i in range(12):
+            msgs += [{"role": "assistant", "content": f'{{"tool": "read_file", "args": {{"path": "f{i}"}}}}'}, {"role": "user", "content": "Result of read_file:\n" + "x" * 3000}]
+        out = L.fit(msgs, 9000)
+        self.assertLessEqual(sum(len(m["content"]) for m in out), 9000)
+        self.assertEqual(out[:2], msgs[:2])
+        self.assertEqual(out[-2:], msgs[-2:])                                     # the newest exchange is whole
+        self.assertTrue(any("older result trimmed" in m["content"] for m in out))
+        self.assertEqual(L.fit(msgs[:4], 9000), msgs[:4])                          # small conversations are untouched
+
+
 class Tools(unittest.TestCase):
     def setUp(self):
         self.root = make_repo()
