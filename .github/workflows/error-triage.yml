@@ -26,7 +26,7 @@ jobs:
         run: |
           SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
           gh label create auto-error --color B60205 --description "found by the site's error log, to be fixed automatically" 2>/dev/null || true
-          code=$(curl -sS -o open.json -w "%{http_code}" -G "$SITE_BASE/api/ops/errors" --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "status=open")
+          code=$(curl -sS -o open.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" -G "$SITE_BASE/api/ops/errors" --data-urlencode "status=open")
           echo "errors endpoint: HTTP $code"
           if [ "$code" = "200" ]; then
             jq -c '.errors[]' open.json | while read -r row; do
@@ -42,7 +42,7 @@ jobs:
           # issues closed by the fixing session mark their error as fixed
           gh issue list --label auto-error --state closed --limit 50 --json title --jq '.[].title' | while read -r t; do
             fp=$(echo "$t" | grep -o '[0-9a-f]\{16\}$' || true)
-            [ -n "$fp" ] && curl -sS -o /dev/null -X POST "$SITE_BASE/api/ops/errors?secret=${CRON_SECRET}" -H 'content-type: application/json' -d "{\"fp\":\"$fp\",\"status\":\"fixed\",\"note\":\"issue closed\"}" || true
+            [ -n "$fp" ] && curl -sS -o /dev/null -X POST "$SITE_BASE/api/ops/errors" -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' -d "{\"fp\":\"$fp\",\"status\":\"fixed\",\"note\":\"issue closed\"}" || true
           done
       - name: issues from failed scheduled workflows
         env:
