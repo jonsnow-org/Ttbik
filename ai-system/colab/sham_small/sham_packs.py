@@ -42,15 +42,28 @@ def core_fingerprint(model: nn.Module, d_model: int, n_layers: int) -> dict:
 # ---------------------------------------------------------------- memory pack
 
 class MemoryPack(nn.Module):
-    """x -> x + memory(x); the memory's values start at zero so the core is unchanged until the pack is trained."""
+    """x -> x + memory(x); the memory's values start at zero so the core is unchanged until the pack is trained.
+
+    `active` is the detach switch: False = the pack is out of the computation (the core alone). Training the core TOGETHER with the pack while switching it
+    off at random (see `set_pack_dropout`) makes the core work both with and without it — which is what lets the pack be a separate file."""
 
     def __init__(self, d_model: int, n_keys: int = 64, topk: int = 4, heads: int = 2, key_dim: int = 32):
         super().__init__()
         self.mem = ProductKeyMemory(d_model, n_keys, topk, heads, key_dim)
         nn.init.zeros_(self.mem.values.weight)
+        self.active = True
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.mem(x)
+        return x + self.mem(x) if self.active else x
+
+
+def set_pack_dropout(packs, p_on: float = 0.5, rng=None) -> bool:
+    """Call once per training step: the packs are on for this step with probability p_on (all together). Returns the state chosen."""
+    import random as _r
+    on = (rng or _r).random() < p_on
+    for p in (packs if isinstance(packs, (list, tuple)) else [packs]):
+        p.active = on
+    return on
 
 
 def attach_memory_pack(block: nn.Module, pack: MemoryPack):

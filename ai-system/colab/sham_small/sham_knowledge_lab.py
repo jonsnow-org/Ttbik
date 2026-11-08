@@ -185,11 +185,81 @@ def experiment_b(n_train: int = 3000, n_test: int = 1000, steps: int = 4000, see
     print(f"{'UNSEEN entities, only the gold document':58s} {accuracy(test[:400], 'oracle'):7.1f}%")
 
 
+# ---------------------------------------------------------------- C) detachable pack: train together, detach, re-attach
+
+def experiment_c(n_facts: int = 6000, steps: int = 2500, seed: int = 0) -> None:
+    """The "OBB" idea in its strictest form: the memory pack is attached DURING training, then detached, then installed again from its own file.
+    A general skill (modular addition) lives in the core; the facts are meant to live in the pack. Two ways to train: the pack always on, or switched off
+    at random half of the steps (pack dropout). Measured: the core alone, core + pack, and core + the pack reloaded from disk."""
+    import tempfile
+
+    from sham_packs import MemoryPack, attach_memory_pack, core_fingerprint, load_weight_pack, save_weight_pack, set_pack_dropout
+    rnd = random.Random(seed)
+    M = 40
+    V1 = max(300, int((n_facts * 3) ** 0.5) + 1)
+    VALS = 300
+    GA, GB = V1 + VALS, V1 + VALS + M            # general task: a, b in [GA, GA+M) -> (a+b) mod M in [GB, GB+M)
+    SEP, SEP2 = GB + M, GB + M + 1
+    vocab = SEP2 + 2
+    facts = rnd.sample([(a, b) for a in range(V1) for b in range(V1)], n_facts)
+    fvals = [V1 + rnd.randrange(VALS) for _ in facts]
+    fx = torch.tensor([[a, b, SEP] for a, b in facts])
+    fy = torch.tensor(fvals)
+    gx = torch.tensor([[GA + a, GA + b, SEP2] for a in range(M) for b in range(M)])
+    gy = torch.tensor([GB + (a + b) % M for a in range(M) for b in range(M)])
+    print(f"C) {n_facts} facts (meant for the pack) + modular addition (the core's general skill), {steps} steps\n")
+    print(f"{'training':40s} {'condition':34s} {'facts':>7s} {'skill':>7s}")
+    for dropout in (False, True):
+        torch.manual_seed(seed)
+        m = _model(vocab)
+        fp = core_fingerprint(m, 128, 4)
+        pack = MemoryPack(128, n_keys=64, topk=4, heads=2, key_dim=32)
+        h = attach_memory_pack(m.layers[1], pack)
+        params = [{"params": [p for n, p in m.named_parameters()], "lr": 3e-3}, {"params": list(pack.parameters()), "lr": 3e-3 * MEM_LR_MULT}]
+        opt = torch.optim.AdamW(params, weight_decay=0.0)
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[g["lr"] for g in params], total_steps=steps, pct_start=0.05)
+        for s in range(steps):
+            if dropout:
+                set_pack_dropout(pack, 0.5, rnd)
+            fi, gi = torch.randint(0, n_facts, (256,)), torch.randint(0, len(gx), (256,))
+            x = torch.cat([fx[fi], gx[gi]])
+            y = torch.cat([fy[fi], gy[gi]])
+            loss = F.cross_entropy(m(x)[0][:, -1], y)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            sched.step()
+        pack.active = True
+
+        def acc(model):
+            with torch.no_grad():
+                f = sum(int((model(fx[i:i + 4096])[0][:, -1].argmax(-1) == fy[i:i + 4096]).sum()) for i in range(0, n_facts, 4096)) / n_facts * 100
+                g = int((model(gx)[0][:, -1].argmax(-1) == gy).sum()) / len(gx) * 100
+            return f, g
+        label = "pack always on" if not dropout else "pack dropout 50% (detachable)"
+        f, g = acc(m)
+        print(f"{label:40s} {'core + pack':34s} {f:6.1f}% {g:6.1f}%", flush=True)
+        pack.active = False
+        f, g = acc(m)
+        print(f"{'':40s} {'core alone (pack detached)':34s} {f:6.1f}% {g:6.1f}%", flush=True)
+        pack.active = True
+        with tempfile.TemporaryDirectory() as td:
+            size = save_weight_pack(td, "facts", "memory", {"mem": pack}, fp)
+            h.remove()
+            pack2 = MemoryPack(128, n_keys=64, topk=4, heads=2, key_dim=32)
+            attach_memory_pack(m.layers[1], pack2)
+            load_weight_pack(td, {"mem": pack2}, fp)
+            f, g = acc(m)
+            print(f"{'':40s} {'core + pack re-installed from file':34s} {f:6.1f}% {g:6.1f}%   (pack file {size / 1e6:.2f} MB)", flush=True)
+
+
 if __name__ == "__main__":     # sham-ci: entrypoint (minutes of CPU: run on purpose with --a / --b)
     if "--a" in sys.argv:
         experiment_a(*(int(v) for v in sys.argv[sys.argv.index("--a") + 1:][:2]))
     elif "--b" in sys.argv:
         experiment_b()
+    elif "--c" in sys.argv:
+        experiment_c(*(int(v) for v in sys.argv[sys.argv.index("--c") + 1:][:2]))
     else:
         experiment_a(2000, 60)
         print("sham_knowledge_lab smoke OK (use --a / --b for the real runs)")
