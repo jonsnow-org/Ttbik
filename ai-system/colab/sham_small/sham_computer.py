@@ -38,7 +38,7 @@ import tempfile
 import time
 from pathlib import Path
 
-TOOL_NAMES = ("computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_job", "computer_repo")
+TOOL_NAMES = ("computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_job", "computer_repo", "computer_patch", "computer_test")
 OUT_MAX = int(os.environ.get("SHAM_COMPUTER_OUT_MAX", "3000"))
 FILE_MAX = 200_000
 _ISOLATION: str | None = None
@@ -268,6 +268,58 @@ class Computer:
             files.append({"path": path, "content": raw.decode("utf-8", "replace")})
         return {"ok": True, "repo": repo, "base": base, "files": files, "deleted": deleted, "skipped": skipped}
 
+    # ------------------------------------------------------------ patch and test (the two tools a coding agent uses most after write/edit)
+    def patch(self, diff: str, cwd: str | None = None) -> str:
+        """Apply a unified diff (paths relative to cwd, `-p1` style as `git diff` writes them) all-or-nothing: a patch that does not fit changes nothing."""
+        if not (diff or "").strip():
+            return "error: give the diff text"
+        try:
+            wd = self._path(cwd)
+        except ValueError as e:
+            return f"error: {e}"
+        f = wd / ".sham.patch"
+        try:
+            f.write_text(diff if diff.endswith("\n") else diff + "\n", encoding="utf-8")
+            if self.drop:
+                os.chmod(f, 0o666)
+            for argv in (["git", "apply", "--check", "-p1", ".sham.patch"], ["git", "apply", "-p1", ".sham.patch"]):
+                r = subprocess.run(argv, cwd=wd, capture_output=True, text=True, timeout=60, env=self._env(), preexec_fn=_limits(60, self.mem_mb, self.drop))
+                if r.returncode != 0:
+                    return "error: the patch does not fit (nothing was changed): " + _clip((r.stderr or r.stdout).strip(), 400)
+            files = re.findall(r"^\+\+\+ b/(\S+)", diff, re.M)
+            return "patch applied to " + (", ".join(dict.fromkeys(files)) or "the files")
+        except Exception as e:  # noqa: BLE001
+            return f"error: {type(e).__name__}: {str(e)[:160]}"
+        finally:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+    def test(self, cwd: str | None = None, command: str | None = None) -> str:
+        """Run the project's tests as a background job (the runner is detected unless `command` is given); the job's last line is TESTS_EXIT=<code>."""
+        try:
+            wd = self._path(cwd)
+        except ValueError as e:
+            return f"error: {e}"
+        cmd = (command or "").strip()
+        if not cmd:
+            if (wd / "package.json").exists():
+                cmd = "npm test"
+            elif (wd / "go.mod").exists():
+                cmd = "go test ./..."
+            elif (wd / "Cargo.toml").exists():
+                cmd = "cargo test"
+            elif (wd / "Makefile").exists() and "test:" in (wd / "Makefile").read_text(errors="replace"):
+                cmd = "make test"
+            elif (wd / "pytest.ini").exists() or (wd / "tests").is_dir() or list(wd.glob("test_*.py")):
+                cmd = "python3 -m pytest -q 2>/dev/null || python3 -m unittest discover"
+            else:
+                return "error: no test runner found here; give the command (for example command=\"python3 -m unittest\")"
+        rel = str(wd.relative_to(self.home)) if wd != self.home else "."
+        started = self.job("start", f"cd {rel} && ({cmd}); echo TESTS_EXIT=$?", "tests", "", 60)
+        return f"tests started ({cmd} in {rel}). Read the result with computer_job action=log; the last line is TESTS_EXIT=<code>.\n{started}"
+
     # ------------------------------------------------------------ background jobs
     def job(self, action: str, command: str = "", name: str = "", id: str = "", tail: int = 60) -> str:
         if action == "list":
@@ -321,6 +373,10 @@ class Computer:
                 return self.search(str(a.get("pattern", "")), a.get("path"), a.get("glob"))
             if name == "computer_repo":
                 return self.repo(str(a.get("url", "")), a.get("ref"))
+            if name == "computer_patch":
+                return self.patch(str(a.get("diff", "")), a.get("cwd"))
+            if name == "computer_test":
+                return self.test(a.get("cwd"), a.get("command"))
             if name == "computer_job":
                 return self.job(str(a.get("action", "")), str(a.get("command", "")), str(a.get("name", "")), str(a.get("id", "")), a.get("tail", 60))
         except Exception as e:

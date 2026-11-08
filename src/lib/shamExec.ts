@@ -3,6 +3,7 @@
 // Sham and Nova share only the dedicated 16 GB computer host. Their session keys, UIDs, private homes and run IDs remain separate.
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
+import { SHAM_SKILL_NAMES, shamSkillText } from "@/lib/shamSkills";
 import { prismaDb, type Db } from "@/lib/shamDb";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
@@ -73,6 +74,11 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("computer_repo", "Clone a public GitHub repository into your own persistent computer in one call.", obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
   tool("computer_search", "Search files on your private computer using ripgrep.", obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
   tool("computer_publish", "Publish all changed files from a computer_repo checkout on YOUR persistent computer to one GitHub commit. Nothing is sent until the user confirms; GitHub credentials stay in the app server, never in the terminal.", obj({ repo: REPO, branch: s("target branch; creates it from the default branch if missing"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
+  tool("computer_patch", "Apply a unified diff (git diff format, paths relative to cwd) on your private computer: many changes in many files in ONE call, all or nothing (a patch that does not fit changes nothing).", obj({ diff: s("the unified diff"), cwd: s("folder the paths are relative to, e.g. repos/owner-name; default .") }, ["diff"])),
+  tool("computer_test", "Run the project's tests on your private computer as a background job (the runner is detected: npm test, pytest, go test, cargo test, make test). Read the result with computer_job action=log; the last line is TESTS_EXIT=<code>.", obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
+  tool("plan", "Write or update the task's TODO list: call it first for any task with more than three steps and again when a step is done or the plan changes. Each item is a short step with a status.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
+  tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from memory_search, or by a query).", obj({ id: n("memory id"), query: s("text to match when no id") })),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: SHAM_SKILL_NAMES } }, ["name"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
   tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
@@ -365,7 +371,16 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
         return `sent ${f.path} (${f.bytes.length} bytes) to the user`;
       } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
-    if (name === "memory_save" || name === "memory_search") {
+    if (name === "skill") return shamSkillText(String(a.name || ""));
+    if (name === "plan") {
+      const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
+      const rows = (Array.isArray(a.items) ? a.items : []).slice(0, 12).map((x: any) => (x && typeof x === "object" ? x : null)).filter((x: any) => x && String(x.step || "").trim());
+      if (!rows.length) return "error: give items: a list of {step, status}";
+      const text = rows.map((x: any, i: number) => `${mark[String(x.status)] || "☐"} ${i + 1}. ${String(x.step).trim().slice(0, 160)}`).join("\n");
+      void (async () => { try { await (await host()).bank.add(ctx.runId, ctx.chatKey, 0, "plan", "plan", text, ctx.db); } catch { /* the plan is also returned to the model below */ } })();
+      return text;
+    }
+    if (name === "memory_save" || name === "memory_search" || name === "memory_forget") {
       return await (await host()).memory(ctx.chatKey, name, a, ctx.runId, ctx.db);
     }
     if (name === "schedule_create" || name === "schedule_list" || name === "schedule_delete") {

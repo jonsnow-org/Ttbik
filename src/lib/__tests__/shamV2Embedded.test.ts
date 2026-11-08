@@ -10,6 +10,7 @@ const host = {
   browser: { run: async () => "page" },
   desktop: { run: async () => { throw new Error("hub must not be used"); } },
   bank: { add: async () => undefined, recall: async () => "" },
+  memory: async (_k: string, tool: string, args: any) => `${tool} ${JSON.stringify(args)}`,
   sandbox: { has: () => true, run: async () => { throw new Error("separate sandbox must not be used by v2"); }, readFile: async () => null },
 } as unknown as ShamHost;
 const ctx = (modelId: string): ShamCtx => ({ chatId: 7, db: {} as any, githubToken: null, chatKey: "k", runId: "r", owner: false, modelId } as any);
@@ -39,5 +40,25 @@ describe("Sham v2 embedded environment", () => {
   it("Nova's hub is untouched: another model's computer call still goes to the host", async () => {
     await shamRunTool(call("computer_run", { command: "ls" }), ctx("lfm25"));
     expect(ran.map((r) => r.tool)).toEqual(["computer_run"]);
+  });
+});
+
+describe("the tools of the largest assistants, for both Shams", () => {
+  it("skill loads a how-to, and lists the available ones for an unknown name", async () => {
+    expect(await shamRunTool(call("skill", { name: "chart" }), ctx("sham_v2"))).toMatch(/^SKILL chart: Draw a chart[\s\S]*savefig/);
+    expect(await shamRunTool(call("skill", { name: "git" }), ctx("sham"))).toMatch(/computer_repo[\s\S]*computer_test[\s\S]*computer_publish/);
+    expect(await shamRunTool(call("skill", { name: "nope" }), ctx("sham"))).toMatch(/Available: pdf/);
+  });
+  it("plan returns the checklist and refuses an empty one", async () => {
+    const out = await shamRunTool(call("plan", { items: [{ step: "اكتب الدالة", status: "done" }, { step: "اختبرها" }] }), ctx("sham_v2"));
+    expect(out).toBe("☑ 1. اكتب الدالة\n☐ 2. اختبرها");
+    expect(await shamRunTool(call("plan", { items: [] }), ctx("sham_v2"))).toMatch(/^error/);
+  });
+  it("memory_forget reaches the memory tool; the new tools are offered to both Shams", async () => {
+    expect(await shamRunTool(call("memory_forget", { id: 12 }), ctx("sham"))).toContain('memory_forget {"id":12}');
+    for (const v of ["v1", "v2"] as const) {
+      const names = shamVariant.run(v, () => shamTools(true).map((t) => t.function.name));
+      expect(names).toEqual(expect.arrayContaining(["skill", "plan", "memory_forget", "computer_patch", "computer_test"]));
+    }
   });
 });

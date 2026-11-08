@@ -129,6 +129,39 @@ CATALOG = [
     ("أظهر لي شاشة سطح المكتب الخاص بك.", "desktop", {"action": "frame"}, "screenshot: 1344x840", "هذه صورة شاشتك الحالية؛ سأصف ما فيها."),
     ("شغّل المتصفح على سطح مكتبك وافتح ttbik.vercel.app.", "desktop", {"action": "launch", "app": "browser", "url": "https://ttbik.vercel.app"}, "browser launched on the desktop", "شغّلت المتصفح على سطح المكتب وفتحت الموقع."),
 ]
+# More ways to ASK for the same tools (other wording, English, short, other arguments), and the tools that were offered but never taught: a model that has seen one phrasing
+# per tool calls it only for that phrasing. Each row is one call plus the answer read from its result.
+CATALOG += [
+    ("what's the weather in Damascus today?", "web_search", {"query": "weather Damascus today"}, "Damascus: 18°C, clear", "In Damascus it is 18°C and clear today."),
+    ("من هو رئيس وزراء كندا الحالي؟", "web_search", {"query": "رئيس وزراء كندا الحالي"}, "mark carney prime minister of canada", "رئيس وزراء كندا الحالي هو مارك كارني حسب نتيجة البحث."),
+    ("افتح هذا الرابط وقل لي ما فيه: https://docs.python.org/3/", "fetch_page", {"url": "https://docs.python.org/3/"}, "Python 3 documentation. Tutorial, Library reference...", "هذه وثائق Python 3 وفيها الدليل التعليمي ومرجع المكتبة."),
+    ("read https://example.com for me", "fetch_page", {"url": "https://example.com"}, "Example Domain", "The page is the Example Domain page used in documentation."),
+    ("remember that my project is called Ttbik", "memory_save", {"text": "The user's project is called Ttbik", "kind": "fact"}, "saved", "Noted: your project is called Ttbik."),
+    ("لا تنسَ أنني أعمل بمنطقة دمشق", "memory_save", {"text": "المستخدم يعمل في دمشق", "kind": "fact"}, "saved", "حفظت أنك تعمل في دمشق."),
+    ("what do you remember about my project?", "memory_search", {"query": "project"}, "#3 [fact user] The user's project is called Ttbik", "I remember that your project is called Ttbik."),
+    ("أنشئ ملف hello.py يطبع مرحبا ثم شغّله.", "computer_write", {"path": "hello.py", "content": "print('مرحبا')"}, "wrote hello.py (21 bytes)", None),
+    ("اقرأ آخر 30 سطراً من الملف app.log في جهازي.", "computer_run", {"command": "tail -n 30 app.log"}, "2026-11-08 INFO started\n2026-11-08 ERROR timeout", "في آخر السجل: بدأ التطبيق ثم ظهر خطأ timeout."),
+    ("ابحث عن جميع ملفات .py التي تحتوي import requests.", "computer_search", {"pattern": "import requests", "glob": "*.py"}, "fetch.py:1:import requests", "الملف الوحيد الذي يستورد requests هو fetch.py."),
+    ("استبدل الرقم 8000 بـ 9000 في server.py.", "computer_edit", {"path": "server.py", "old": "8000", "new": "9000", "replace_all": True}, "edited server.py (2 replacements)", "غيّرت المنفذ إلى 9000 في موضعين."),
+    ("check the log of job j1", "computer_job", {"action": "log", "id": "j1", "tail": 40}, "[exit 0]\nepoch 3 done", "The job finished with exit 0; the last line says epoch 3 is done."),
+    ("أوقف المهمة الخلفية j2.", "computer_job", {"action": "stop", "id": "j2"}, "job j2 stopped", "أوقفت المهمة j2."),
+    ("انظر ما في الصفحة الحالية في المتصفح.", "browser", {"action": "look"}, "page: Example Domain; 3 elements: 1 link More information", "الصفحة مثال على النطاق، وفيها رابط واحد للمزيد."),
+    ("اكتب «حليب» في خانة البحث ثم Enter.", "browser", {"action": "type", "id": 1, "text": "حليب", "enter": True}, "typed and pressed Enter; results page", "كتبت حليب وضغطت Enter فظهرت صفحة النتائج."),
+    ("ارجع للصفحة السابقة.", "browser", {"action": "back"}, "went back to https://example.com", "رجعت إلى الصفحة السابقة."),
+    ("اصنع صوتاً يقول: أهلاً بكم في شام.", "make_media", {"kind": "speech", "prompt": "أهلاً بكم في شام"}, "sent to the user as audio", "أرسلت لك المقطع الصوتي."),
+    ("make me a 6 second video of waves on a beach", "make_media", {"kind": "video", "prompt": "waves on a beach"}, "sent to the user as a video", "I made the 6 second video and sent it."),
+    ("ذكّرني بعد غد في العاشرة بالاتصال بأحمد.", "schedule_create", {"title": "الاتصال بأحمد", "prompt": "ذكّر المستخدم بالاتصال بأحمد", "kind": "cron", "recurrence": "once 10:00"}, "scheduled s2: مرة واحدة 10:00", "جدولت التذكير بعد غد في العاشرة."),
+    ("call https://api.github.com/zen", "http_request", {"method": "GET", "url": "https://api.github.com/zen"}, "HTTP 200 text/plain\nKeep it logically awesome.", "The API answered 200 with the line: Keep it logically awesome."),
+    # the offered-but-never-taught sandbox_* names: they are the SAME private computer for Sham (one environment)
+    ("انسخ المستودع {repo} للعمل المعزول.", "sandbox_clone", {"repo": "{repo}"}, "cloned into /work/{repo}", "نسخت المستودع للعمل."),
+    ("شغّل pytest داخل المساحة المؤقتة.", "sandbox_exec", {"command": "pytest -q"}, "exit code 0\n3 passed", "نجحت الاختبارات الثلاثة."),
+    ("اكتب ملف x.txt في المساحة المؤقتة.", "sandbox_write_file", {"path": "x.txt", "content": "hello"}, "wrote x.txt", "كتبت الملف x.txt."),
+    ("عدّل x.txt: بدّل hello بـ world.", "sandbox_edit_file", {"path": "x.txt", "old": "hello", "new": "world"}, "edited x.txt (1 replacement)", "عدّلت الملف."),
+    ("ابحث عن main في المساحة المؤقتة.", "sandbox_search", {"pattern": "main"}, "app.py:3:def main():", "وجدت main في app.py السطر 3."),
+    ("اقرأ app.py من المساحة المؤقتة.", "sandbox_read_file", {"path": "app.py"}, "1| def main():\n2|     pass", "الملف يعرّف الدالة main فقط."),
+    ("انتظر نهاية الأمر الطويل c1.", "sandbox_wait", {"id": "c1"}, "exit code 0", "انتهى الأمر بنجاح."),
+    ("ادفع تعديلات المساحة المؤقتة إلى الفرع fix-docs في {repo}.", "sandbox_push", {"repo": "{repo}", "branch": "fix-docs", "message": "تحديث الوثائق"}, "waiting for the user to confirm", "جهّزت الدفع إلى الفرع fix-docs وأنتظر تأكيدك قبل التنفيذ."),
+]
 # the whole fix flow, as Nova does it: clone the repository into the PERSISTENT computer (computer_repo), run its tests,
 # edit in place (computer_edit), test again, PUBLISH the commit from that checkout (computer_publish — nothing is sent
 # until the user confirms), then the pull request INTO the branch the user named. The temporary sandbox_* tools are NOT
@@ -310,17 +343,99 @@ def repo_audit_spec(rng: random.Random) -> tuple[str, list, str]:
             "حللت المستودع باستخدام أدوات GitHub: فحصت البنية، وقرأت الملفات الأساسية، ثم تحققت من CI. هذه خلاصة النتائج التي أعادتها الأدوات، وأي نقطة لم أستطع التحقق منها أذكرها صراحة.")
 
 
+# ---- the tools of the largest assistants, taught as WORKFLOWS (when to call, in what order, how to read the result): skills, plans, patch + test, forgetting ----
+SKILL_FLOWS = [
+    ("حوّل هذه الأرقام إلى ملف Excel: مبيعات يناير 120، فبراير 150، مارس 90.", "spreadsheet", "out.xlsx", "job.py",
+     "import pandas as pd\ndf=pd.DataFrame({'الشهر':['يناير','فبراير','مارس'],'المبيعات':[120,150,90]})\ndf.to_excel('out.xlsx',index=False)\nprint(df)", "python3 job.py", "الشهر المبيعات\n0 يناير 120\n1 فبراير 150\n2 مارس 90",
+     "أنشأت ملف Excel فيه ثلاثة أشهر: يناير 120 وفبراير 150 ومارس 90، وأرسلته لك."),
+    ("ارسم لي مخططاً بيانياً لدرجات الحرارة: السبت 21، الأحد 24، الاثنين 19.", "chart", "chart.png", "plot.py",
+     "import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nplt.plot(['Sat','Sun','Mon'],[21,24,19])\nplt.ylabel('C')\nplt.savefig('chart.png',dpi=150)", "python3 plot.py", "exit code 0",
+     "رسمت المخطط وأرسلته: أعلى درجة 24 يوم الأحد وأدناها 19 يوم الاثنين."),
+    ("اكتب لي تقريراً قصيراً بصيغة PDF عن فوائد القراءة.", "pdf", "out.pdf", "report.py",
+     "from reportlab.pdfgen import canvas\nc=canvas.Canvas('out.pdf')\nc.drawString(72,760,'Reading benefits')\nc.save()", "python3 report.py", "exit code 0",
+     "أنشأت ملف PDF قصيراً عن فوائد القراءة وأرسلته لك."),
+    ("أنشئ عرضاً تقديمياً من شريحتين عن الطاقة الشمسية.", "presentation", "deck.pptx", "deck.py",
+     "from pptx import Presentation\np=Presentation()\ns=p.slides.add_slide(p.slide_layouts[1])\ns.shapes.title.text='Solar'\np.save('deck.pptx')", "python3 deck.py", "exit code 0",
+     "أنشأت العرض التقديمي وأرسلته لك."),
+    ("اكتب مستنداً Word فيه عنوان وفقرة تعريفية عن شركتنا.", "word", "out.docx", "make_doc.py",
+     "from docx import Document\nd=Document()\nd.add_heading('Company',0)\nd.add_paragraph('Intro')\nd.save('out.docx')", "python3 make_doc.py", "exit code 0",
+     "أنشأت مستند Word فيه العنوان والفقرة التعريفية وأرسلته لك."),
+]
+
+
+def skill_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    req, skill, out, script, code, run, run_res, ans = rng.choice(SKILL_FLOWS)
+    steps = [
+        ("skill", {"name": skill}, f"SKILL {skill}: ... install the library, write the script, run it, send the file"),
+        ("computer_run", {"command": {"spreadsheet": "pip install -q pandas openpyxl", "chart": "pip install -q matplotlib", "pdf": "pip install -q reportlab",
+                                      "presentation": "pip install -q python-pptx", "word": "pip install -q python-docx"}[skill]}, "exit code 0"),
+        ("computer_write", {"path": script, "content": code}, f"wrote {script}"),
+        ("computer_run", {"command": run}, run_res),
+        ("send_file", {"path": out}, f"sent {out}"),
+    ]
+    return req, steps, ans
+
+
+def plan_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """A long task: plan first, do the steps, test, mark done."""
+    req = rng.choice(["ابنِ دالة بايثون تحسب المتوسط مع اختبار لها وتأكد أنه ينجح.", "اكتب برنامجاً صغيراً يعدّ الكلمات في ملف نصي، واختبره."])
+    code = "def mean(xs):\n    return sum(xs) / len(xs)\n"
+    test = "from stats import mean\n\ndef test_mean():\n    assert mean([1, 2, 3]) == 2\n"
+    items = [{"step": "كتابة الدالة", "status": "pending"}, {"step": "كتابة الاختبار", "status": "pending"}, {"step": "تشغيل الاختبار", "status": "pending"}]
+    done = [{"step": i["step"], "status": "done"} for i in items]
+    steps = [
+        ("plan", {"items": items}, "☐ 1. كتابة الدالة\n☐ 2. كتابة الاختبار\n☐ 3. تشغيل الاختبار"),
+        ("computer_write", {"path": "stats.py", "content": code}, "wrote stats.py"),
+        ("computer_write", {"path": "test_stats.py", "content": test}, "wrote test_stats.py"),
+        ("computer_test", {"cwd": "."}, "tests started (python3 -m pytest -q in .). job j1"),
+        ("computer_job", {"action": "log", "id": "j1"}, "1 passed\nTESTS_EXIT=0"),
+        ("plan", {"items": done}, "☑ 1. كتابة الدالة\n☑ 2. كتابة الاختبار\n☑ 3. تشغيل الاختبار"),
+    ]
+    return req, steps, "أنجزت الخطوات الثلاث: كتبت الدالة والاختبار، وشغّلت الاختبار فنجح (1 passed)."
+
+
+def patch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """Change a repository the careful way: clone, patch (all or nothing), run the tests, read the result, then offer to publish."""
+    repo = rng.choice(REPOS)
+    folder = "repos/" + repo.replace("/", "-")
+    diff = "--- a/app.py\n+++ b/app.py\n@@ -1,2 +1,2 @@\n def total(a, b):\n-    return a - b\n+    return a + b\n"
+    steps = [
+        ("computer_repo", {"url": f"https://github.com/{repo}"}, f"cloned into {folder}"),
+        ("computer_patch", {"diff": diff, "cwd": folder}, "patch applied to app.py"),
+        ("computer_test", {"cwd": folder}, "tests started (python3 -m pytest -q). job j1"),
+        ("computer_job", {"action": "log", "id": "j1"}, "3 passed\nTESTS_EXIT=0"),
+    ]
+    return f"في المستودع {repo} الدالة total تطرح بدل أن تجمع. أصلحها وتأكد بالاختبارات.", steps, "أصلحت الدالة (صارت تجمع) بتعديل واحد، وشغّلت الاختبارات فنجحت كلها (3). أخبرني إن أردت نشر التعديل في فرع."
+
+
+def forget_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    topic = rng.choice(["اللون الأزرق", "الكتابة بالإنجليزية", "الردود الطويلة"])
+    steps = [
+        ("memory_search", {"query": topic}, f"#12 [preference user] المستخدم يفضّل {topic}"),
+        ("memory_forget", {"id": 12}, "forgot memory #12"),
+    ]
+    return f"انسَ ما قلته لك عن تفضيلي: {topic}.", steps, f"حذفت من ذاكرتي ما يخص {topic}."
+
+
 def any_spec(rng: random.Random) -> tuple[str, list, str]:
     """One teaching case: the fix flow, code written-run-fixed, a missing detail asked once, or a single catalog call (same shares as synthetic_examples)."""
     r = rng.random()
-    if r < 0.14:
+    if r < 0.12:
         return repo_audit_spec(rng)
-    if r < 0.27:
+    if r < 0.23:
         return fix_flow_spec(rng)
-    if r < 0.39:
+    if r < 0.33:
         return code_run_spec(rng)
-    if r < 0.49:
+    if r < 0.41:
         return ask_missing_spec(rng)
+    if r < 0.50:
+        return skill_flow_spec(rng)
+    if r < 0.57:
+        return plan_flow_spec(rng)
+    if r < 0.64:
+        return patch_flow_spec(rng)
+    if r < 0.69:
+        return forget_flow_spec(rng)
     return catalog_spec(rng)
 
 
@@ -380,6 +495,11 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "computer_repo": ("url, ref?", "Clone a public GitHub repository into this model's persistent computer"),
     "computer_search": ("pattern, path?, glob?", "Search files on this model's private computer with ripgrep"),
     "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
+    "computer_patch": ("diff, cwd?", "Apply a unified diff on this model's private computer, all or nothing"),
+    "computer_test": ("cwd?, command?", "Run the project's tests on this model's computer as a background job"),
+    "plan": ("items", "Write or update the task's TODO list (step + status)"),
+    "memory_forget": ("id?, query?", "Forget a memory that is wrong or that the user asked to forget"),
+    "skill": ("name", "Load a short how-to: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data"),
     "browser": ("action, url?, id?, x?, y?, text?, enter?, key?, dy?, seconds?", "Drive this model's own headless browser: open, look, click, type, press, scroll, back, wait, aria"),
     "desktop": ("action, app?, url?, x?, y?, button?, text?, key?, direction?, amount?", "Operate the graphical desktop of this model's own computer session (start, frame, launch, click, type, key, scroll, stop)"),
 }
