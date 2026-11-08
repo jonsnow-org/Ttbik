@@ -132,7 +132,17 @@ export async function noteFailover(h: { get(n: string): string | null }): Promis
 }
 
 // ---------- the bots' webhooks ----------
-export type RehookRow = { id: string; template: string; from: string; to: string; ok: boolean; note?: string };
+export type RehookRow = { id: string; template: string; from: string; to: string; ok: boolean; note?: string; menu?: string };
+
+/** A Mini App link that still names a Vercel address (a menu button saved when Vercel was the front) is moved to the gate, keeping its path: a link to *.vercel.app
+ *  cannot fail over when Vercel is paused (HTTP 402/503 "deployment is temporarily paused"), a link to the gate can. Anything else is left alone. */
+export function gateMenuUrl(url: string, gateBase: string): string | null {
+  try {
+    const u = new URL(url), g = new URL(gateBase);
+    if (!u.hostname.endsWith(".vercel.app") || u.hostname === g.hostname) return null;
+    return `${g.origin}${u.pathname}${u.search}${u.hash}`;
+  } catch { return null; }
+}
 export async function rehookBots(base: string, dry: boolean): Promise<RehookRow[]> {
   const bots = await prisma.bot.findMany({ where: { isActive: true }, select: { id: true, token: true, template: true, webhookSecret: true } });
   const out: RehookRow[] = [];
@@ -141,9 +151,15 @@ export async function rehookBots(base: string, dry: boolean): Promise<RehookRow[
     const api = new Bot(row.token).api;
     try {
       const from = (await api.getWebhookInfo()).url || "";
-      if (from === to) { out.push({ id: row.id, template: row.template, from, to, ok: true, note: "already there" }); continue; }
+      let menu = "";
+      try {   // the bot's default menu button (the Mini App opened from the chat): move it off a Vercel address
+        const mb = (await api.getChatMenuButton()) as { type?: string; text?: string; web_app?: { url?: string } };
+        const nu = mb?.type === "web_app" && mb.web_app?.url ? gateMenuUrl(mb.web_app.url, base) : null;
+        if (nu) { if (!dry) await api.setChatMenuButton({ menu_button: { type: "web_app", text: mb.text || "App", web_app: { url: nu } } }); menu = dry ? "menu would change" : "menu changed"; }
+      } catch { /* a bot without a menu button, or the call failed: the webhook part below still counts */ }
+      if (from === to) { out.push({ id: row.id, template: row.template, from, to, ok: true, note: menu ? (dry ? "would change" : "changed") : "already there", menu }); continue; }
       if (!dry) await api.setWebhook(to, { secret_token: row.webhookSecret });
-      out.push({ id: row.id, template: row.template, from, to, ok: true, note: dry ? "would change" : "changed" });
+      out.push({ id: row.id, template: row.template, from, to, ok: true, note: dry ? "would change" : "changed", menu });
     } catch (e: any) {
       out.push({ id: row.id, template: row.template, from: "", to, ok: false, note: String(e?.description || e?.message || e).slice(0, 120) });
     }
