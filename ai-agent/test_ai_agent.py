@@ -197,10 +197,10 @@ class ChatMode(unittest.TestCase):
 
     def test_the_same_message_is_answered_once(self):
         answer = {"body": M.MARK + "\nhi\n\n<sub>AI Agent · m · mode: normal (comments only)</sub>"}
-        self.assertTrue(M.already_answered([answer], False))
-        self.assertFalse(M.already_answered([answer], True))                   # a later /full request is a different mode: it runs
-        self.assertFalse(M.already_answered([answer, {"body": "/ai more"}], False))   # a newer human comment: it runs
-        self.assertFalse(M.already_answered([], False))
+        self.assertTrue(M.already_answered([answer], "normal (comments only)"))
+        self.assertFalse(M.already_answered([answer], "agent"))                # another mode: it runs
+        self.assertFalse(M.already_answered([answer, {"body": "/ai more"}], "normal (comments only)"))   # a newer human comment: it runs
+        self.assertFalse(M.already_answered([], "agent"))
 
 
 if __name__ == "__main__":

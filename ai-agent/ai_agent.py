@@ -36,7 +36,7 @@ DEFAULT_MODEL = "openrouter/free"
 FULL_LABEL = "ai-full"
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARK = "<!-- ai-reply -->"
-DENY_PREFIXES = ("athar/", "cloudflare/", "deploy/oracle/", ".github/workflows/", ".git/", "node_modules/", "ai-agent/ai_agent.py")
+DENY_PREFIXES = ("athar/", "cloudflare/", "deploy/oracle/", ".github/workflows/", ".git/", "node_modules/", "ai-agent/ai_agent.py", "ai-agent/agent_loop.py")
 DENY_NAMES = {"CLAUDE.md", "AGENTS.md", ".env", ".npmrc", "id_rsa", "id_ed25519"}
 MAX_FILES = 12
 MAX_FILE_BYTES = 120_000
@@ -202,13 +202,19 @@ def is_chat(issue: dict, full: bool) -> bool:
     return "from-telegram" in names and not full and not ({"build", "fix"} & names)
 
 
-def mode_label(full: bool) -> str:
-    return "full" if full else "normal (comments only)"
+def mode_label(full: bool, agent: bool = False) -> str:
+    return "agent" if agent else "full" if full else "normal (comments only)"
 
 
-def already_answered(comments: list[dict], full: bool) -> bool:
+def uses_agent(issue: dict, full: bool) -> bool:
+    """A Telegram message (label from-telegram) or an ai-full request is a COMMAND the agent carries out (agent_loop.py). AI_AGENT_LOOP=0 turns that off."""
+    names = {l["name"] if isinstance(l, dict) else str(l) for l in issue.get("labels", [])}
+    return os.environ.get("AI_AGENT_LOOP", "1") != "0" and ("from-telegram" in names or full)
+
+
+def already_answered(comments: list[dict], mode: str) -> bool:
     """The issue's LAST comment is already this mode's answer (the opened and labeled events fire two runs for one Telegram message): do not answer twice."""
-    return bool(comments) and MARK in comments[-1]["body"] and f"mode: {mode_label(full)}" in comments[-1]["body"]
+    return bool(comments) and MARK in comments[-1]["body"] and f"mode: {mode}" in comments[-1]["body"]
 
 
 def build_messages(issue: dict, comments: list[dict], full: bool, context: str) -> list[dict]:
@@ -274,10 +280,19 @@ def main_run() -> int:
     if not is_trusted(issue):
         print("issue is not trusted (author is not the owner / a member / a collaborator, and no from-telegram label): nothing done")
         return 0
-    if already_answered(comments, full):
+    agent = uses_agent(issue, full)
+    mode = mode_label(full, agent)
+    if already_answered(comments, mode):
         print("this issue's last comment is already the answer: nothing to do")
         return 0
     model = os.environ.get("AI_MODEL") or DEFAULT_MODEL
+    if agent:                                                      # a command: carry it out with tools (agent_loop.py)
+        from agent_loop import run_agent
+        text, trace = run_agent(issue, comments, model, default)
+        tail = f"\n\n_Steps: {', '.join(trace)}_" if trace else ""
+        gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
+        Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "agent": True, "at": int(time.time())}))
+        return 0
     pr_url, refused = "", []
     try:
         reply = parse_reply(call_model(build_messages(issue, comments, full, repo_context(f"{issue['title']} {issue.get('body') or ''}")), model))
@@ -289,7 +304,6 @@ def main_run() -> int:
     except Exception as exc:                                   # one clear comment instead of a silent failure
         text = f"⚠️ AI Agent could not finish: {str(exc)[:500]}"
     tail = (f"\n\n**Pull request:** {pr_url}" if pr_url else "") + (("\n\n_Not written (refused by the safety rules): " + ", ".join(refused) + "_") if refused else "")
-    mode = mode_label(full)
     gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
     Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "pr": pr_url, "at": int(time.time())}))
     return 0
