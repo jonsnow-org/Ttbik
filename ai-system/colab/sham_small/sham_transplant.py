@@ -89,6 +89,7 @@ def config_from_hf(hf_cfg, vocab_size: int = TOTAL_VOCAB_SIZE, max_seq_len: int 
         n_kv_heads=getattr(hf_cfg, "num_key_value_heads", None) or hf_cfg.num_attention_heads, mlp_hidden=hf_cfg.intermediate_size,
         max_seq_len=max_seq_len, rope_theta=float(theta), rms_norm_eps=float(hf_cfg.rms_norm_eps), tie_embeddings=True,
         head_dim=0 if hd * hf_cfg.num_attention_heads == hf_cfg.hidden_size else hd, qkv_bias=has_bias, qk_norm=has_qk_norm,
+        nope_layers=tuple(i for i, on in enumerate(getattr(hf_cfg, "no_rope_layers", None) or []) if not on),          # SmolLM3: 0 = this layer has no rotary embedding
     )
 
 
@@ -225,7 +226,7 @@ def run_native(donor_id: str, out_dir: str | Path, media_init: str = "mean", cod
     from huggingface_hub import snapshot_download
 
     hf = LazyDonor(donor_id)
-    m = native_model(hf, max_seq_len, media_init, codebooks, chat_format="qwen3" if "qwen3" in str(donor_id).lower() and not str(donor_id).endswith("-Base") else "")
+    m = native_model(hf, max_seq_len, media_init, codebooks, chat_format="qwen3" if (("qwen3" in str(donor_id).lower()) or ("smollm3" in str(donor_id).lower())) and not str(donor_id).endswith("-Base") else "")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     from sham_tok_id import stamp
@@ -277,6 +278,24 @@ def _self_test() -> None:
         err = float((want - got).abs().max())
         assert err < 1e-4, f"{name}: the transplanted body differs from the donor (max |logit diff| {err})"
         print(f"  {name}: logits equal to the donor's (max diff {err:.2e})")
+    try:
+        from transformers import SmolLM3Config, SmolLM3ForCausalLM
+        hf = SmolLM3ForCausalLM(SmolLM3Config(vocab_size=256, hidden_size=48, intermediate_size=96, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2,
+                                              max_position_embeddings=64, rope_theta=5_000_000.0, tie_word_embeddings=True, no_rope_layer_interval=2, pad_token_id=0)).eval()
+        assert list(hf.config.no_rope_layers) == [1, 0, 1, 0], hf.config.no_rope_layers
+        with torch.no_grad():
+            for n, p in hf.named_parameters():
+                if "norm" in n:
+                    p.add_(0.3 * torch.randn_like(p))
+        m = transplant_body(hf, vocab_size=256, max_seq_len=64).eval()
+        assert m.cfg.nope_layers == (1, 3) and [l.attention.use_rope for l in m.layers] == [True, False, True, False]
+        with torch.no_grad():
+            m.token_embedding.weight.copy_(hf.get_input_embeddings().weight)
+            err = float((hf(ids).logits - m(ids)[0]).abs().max())
+        assert err < 1e-4, f"smollm3 (NoPE layers): the transplanted body differs from the donor (max |logit diff| {err})"
+        print(f"  smollm3 (NoPE every other layer here): logits equal to the donor's (max diff {err:.2e})")
+    except ImportError:
+        print("  smollm3: transformers too old for SmolLM3, test skipped")
     # native tokenizer: the donor's rows are copied as they are, the body still equals the donor's, media rows start sensibly in both modes
     hf = Qwen3ForCausalLM(Qwen3Config(vocab_size=256, hidden_size=48, intermediate_size=96, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2, head_dim=24,
                                       max_position_embeddings=64, rope_theta=1_000_000.0, tie_word_embeddings=True)).eval()
