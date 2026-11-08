@@ -2,6 +2,7 @@
 // whether users can see it. Nova AI is the default and visible unless the owner hides it with its own switch (its own improvement, "Nova 1", is trained on branch training/nova1 and
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
+import { secretCached } from "@/lib/hostedSecrets";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export type CoderModel = {
@@ -106,7 +107,7 @@ export const novaModelOf = (id: string | undefined): string | undefined => (id =
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
-  if (m.id === "freei") return Boolean((process.env.AI_GITHUB_TOKEN || "").trim());
+  if (m.id === "freei") return Boolean(secretCached("AI_GITHUB_TOKEN"));   // env or the secret stored from the Athar bot (src/lib/hostedSecrets.ts)
   if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }

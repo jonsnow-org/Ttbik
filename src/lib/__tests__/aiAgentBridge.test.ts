@@ -1,5 +1,6 @@
 import { parseAiCommand, aiAgentIssue, handleAiAgentUpdate } from "@/lib/aiAgentBridge";
 
+jest.mock("@/lib/prisma", () => ({ prisma: { $executeRawUnsafe: async () => 0, $queryRawUnsafe: async () => [] } }));
 jest.mock("@/lib/coderAuth", () => ({ tierFor: (id: number) => (id === 42 ? "owner" : "user") }));
 
 describe("aiBridge", () => {

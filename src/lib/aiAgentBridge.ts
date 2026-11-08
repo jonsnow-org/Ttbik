@@ -7,6 +7,7 @@
 // Owner only. Needs AI_GITHUB_TOKEN (a token that can create issues in AI_REPO) and AI_REPO ("owner/name").
 
 import { tierFor } from "@/lib/coderAuth";
+import { getSecret } from "@/lib/hostedSecrets";
 
 export type AICmd = "build" | "fix" | "full" | "ai";
 
@@ -33,9 +34,9 @@ type OpenResult = { ok: true; number?: number } | { ok: false; error: string };
 
 /** Opens the GitHub issue the AI Agent workflow answers. The answer comes back to the chat through ai-telegram-bridge.yml. */
 export async function openAiIssue(cmd: AICmd, body: string, chatId: number | string, updateId: number | string, fetchImpl: typeof fetch = fetch): Promise<OpenResult> {
-  const token = (process.env.AI_GITHUB_TOKEN || "").trim();
-  const repo = (process.env.AI_REPO || "jonsnow-org/Ttbik").trim();
-  if (!token) return { ok: false, error: "AI Agent غير مفعّل بعد: أضف AI_GITHUB_TOKEN في إعدادات الاستضافة (انظر ai-agent/README.md)." };
+  const token = await getSecret("AI_GITHUB_TOKEN");
+  const repo = (await getSecret("AI_REPO")) || "jonsnow-org/Ttbik";
+  if (!token) return { ok: false, error: "AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> في بوت أثر (انظر ai-agent/README.md)." };
   try {
     const r = await fetchImpl(`https://api.github.com/repos/${repo}/issues`, {
       method: "POST",
