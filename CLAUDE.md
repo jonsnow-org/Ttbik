@@ -1,11 +1,8 @@
 # Notice to every AI session working in this repository (Claude, Grok, Codex, any other)
 
-> ## ملاحظة تسليم / HANDOFF — اقرأ أولًا
-> التفاصيل الكاملة: [`docs/HANDOFF.md`](./docs/HANDOFF.md) (2026-10-28، إسطنبول). القائمة الحية: PR #505 (draft، لا يُدمج).
-> 1. **أُنجز**: أوضاع/سياسة تفكير موحدة لـ Nova وSham وSham v2 (`src/lib/modes.ts`، #529)، رسالة واحدة لكل طلب في Telegram، وضع الضغط للمالك، توجيه الازدحام، حصص Nova اليومية، فيديو Sham v2 الحقيقي، ESLint 9 (`npm run lint`).
-> 2. **المتبقي**: حكم «مولّد الرموز الداخلي» لـ Sham v2 (workflow قراءة فقط #530)، تحقق حي على Telegram، سقف رموز Sham v2 يحتاج redeploy.
-> 3. **يحتاج متابعة**: Oracle (متغيرات البيئة غير مقروءة؛ `NOVA_MEDIA_STUDIO_URL`؛ SAME BUILD بعد آخر `main`)، معرّفات المالك، lint في CI (#532)، `clientPrep.ts` غير موصول، بطاقة التقدم (سطر الفهم + تدقيق agents/tools)، BotFather `/setname` «Nova AI» يدوياً.
-> 4. **قواعد ثابتة**: CPU فقط · لا خدمات وسائط خارجية (HF للتنزيل فقط) · فيديو حقيقي لا صور متتابعة · Nova وSham v2 مستقلان بـ Studios منفصلة (`docs/STUDIOS.md`) · **لا تدمج #184 أبداً** · الدمج فور CI أخضر · لا أسرار في المستودع.
+> ## ابدأ من هنا / START HERE
+> **اقرأ [`docs/START_HERE.md`](./docs/START_HERE.md) أولًا** (محدَّث 2026-11-08): كيف يعمل كل شيء، حالة شام وNova وfree i، الأسرار، ما ينتظر المالك، ودروس تعلّمناها. ثم هذا الملف (أوامر المالك الثابتة).
+> قواعد قصيرة: **أثر ممنوع اللمس** · **لا تدمج #184 أبدًا، و#505 قائمة حية لا تُدمج** · لا أسرار في المستودع ولا في الرسائل · CPU فقط ومجاني · ردود عربية قصيرة وصادقة ولا «تم» قبل التحقق.
 
 ## Who is who
 - **Claude — Athar session** ("جلسة كلود أثر"): the Claude Code session that builds and runs **Athar**, the owner's real TON NFT project

@@ -1,6 +1,6 @@
 # Repository notebook — how everything works (Ttbik / «شام AI»)
 
-Last updated 2026-10-20. Written for whoever comes next: a Claude session, a scheduled supervisor, Grok. Read `CLAUDE.md` first (the owner's notice: hands-off list and standing orders), then `docs/agents/COMMON.md` if you are an autonomous agent, then this notebook. The owner reads Arabic; code, commits and PRs are English.
+Last updated 2026-10-20 (partly; the live status, models, secrets and open items are in [`START_HERE.md`](./START_HERE.md), updated 2026-11-08 — read that first). Written for whoever comes next: a Claude session, a scheduled supervisor, Grok. Read `CLAUDE.md` first (the owner's notice: hands-off list and standing orders), then `docs/agents/COMMON.md` if you are an autonomous agent, then this notebook. The owner reads Arabic; code, commits and PRs are English.
 
 ## ملخّص للمالك (عربي)
 هذا الملف خريطة المستودع كاملة: ما هي الأقسام (الموقع، البوتات والتطبيقات المصغرة، العملات زنوبيا وPalmyra Launch وأثر، الترويج، شام/نوڤا، أداة الصورة المتكلمة)، كيف يُنشر كل شيء (Oracle وVercel والبوابة)، ما الذي يعمل آلياً (مهام GitHub والمشرفون)، كيف نختبر، وما الأخطاء التي وقعنا فيها كي لا تتكرر. المشرفون الآليون (بوت لكل قسم) وقواعدهم في `docs/agents/`. الحارس الذي يمنع أي وكيل من لمس صور العملات والعقود وسير العمل: `deploy/hosting/protected-paths.json` + `scripts/agent-guard.mjs` + `.github/workflows/agent-guard.yml` (يحتاج وسم `owner-approved` ليمرّ تغيير مراجَع).
@@ -33,7 +33,7 @@ Product rules (what we sell and don't): `docs/AGENT_BUS.md` and `README.md`. Nev
 | `deploy/hosting/` | `site.json` (public identity), `znbt-frozen.json`, `protected-paths.json`, `CRONS_ON`, env checks |
 | `prisma/` | `schema.prisma` + `migration_*.sql` (the owner runs SQL manually in Supabase) |
 | `supabase/` | older SQL, grants |
-| `ai-system/` | **Not ours.** Sham/Nova Python (FastAPI brain, Kaggle/ModelScope/Lightning/Modal/HF deploys, training), owned by the Sham-model session. Hands-off |
+| `ai-system/` | Sham/Nova Python (FastAPI brain, Kaggle/ModelScope/Lightning/Modal/HF deploys, training). **Open to work** (owner's order 2026-11-06: only Athar is hands-off); rules for Sham: `docs/SHAM_GATE.md` |
 | `media-bot/` | the Python media bot (Docker on Oracle) |
 | `promo/` | promo hub: `README.md`, `platform-features.json`, `remotion/` (video pipeline + `episodes.json`), `projects.json` |
 | `scripts/` | `znbt-frozen-check.mjs`, `agent-guard.mjs`, `agent/render-check.mjs`, `promo/*`, `hosting/*`, `qa/*`, `vercel-ignore.sh`, **`sham-assist/`** (numpy helpers offered to the Sham-model session: audio augmentation, viseme intelligibility gate, face curation; accepted terms on PR #2; nothing under a Sham path) |
@@ -91,7 +91,7 @@ Read `promo/README.md`. Summary: public channel `@ttbik5` (2-hourly, rotation bu
 
 ### 4.5 Sham AI model / Nova (`ai-system/`)
 Owned by the owner and this session (owner's order 2026-11-06: nothing is hands-off except Athar; the earlier "another session owns Sham" rule is withdrawn). Work on it freely.
-Own-model project. Kaggle GPU notebooks train **Sham only**; ModelScope Studio (CPU) serves it; Lightning Studio collects data; workflows `sham-*`. Nova (assistant bot) paused by owner directive 2026-09-24. Do not use these resources for anything else, and do not build features that need a GPU elsewhere. The old `sham-model` protected rule was deleted (owner's order 2026-11-06); `src/lib/sham{Memory,Studio}.ts` are ordinary files now.
+Own-model project. Kaggle GPU notebooks train **Sham only**; ModelScope Studio (CPU) serves it; Lightning Studio collects data; workflows `sham-*`. Nova (the assistant bot) is live again; see START_HERE §3. Do not use these resources for anything else, and do not build features that need a GPU elsewhere. The old `sham-model` protected rule was deleted (owner's order 2026-11-06); `src/lib/sham{Memory,Studio}.ts` are ordinary files now.
 
 ### 4.6 Talking photo tool (`/free-tools/talking-photo`, `src/app/free-tools/talking-photo/*`)
 Runs entirely in the browser. `engine.ts`: Delaunay triangle-mesh warp of MediaPipe face landmarks (468 pts + z) or a synthetic ring around a tapped mouth; painted throat/tongue/teeth; blink; **head motion = aperiodic seeded noise** (`drift`, tuned to SadTalker audio2pose statistics: 1–3° yaw, 3–6° pitch, 1.5–3° roll, 5–20°/s; guarded by `talkingPhotoHead.test.ts`); tilt pivot at 0.62H, roll soft-capped, zoom 1.12 so no corner shows; canvas MediaRecorder → MP4/WebM with the "AI-generated" mark; consent checkbox; delete-video button. `voice.ts`: f0 estimate, cepstral envelope formant shift, WSOLA pitch shift, effects (female, girl, deep, robot, alien, monster, radio). `viseme.ts`: reduced re-implementation of HeadAudio (MIT; MFCC 16 kHz/40 mel/12 coeffs + Mahalanobis classifier with the 39-prototype model `public/tools/talking-photo/viseme-model.bin`, licence copied). Loudness maps to jaw opening (`levelFromDb`, tests in `talkingPhotoLevel.test.ts`).

@@ -23,9 +23,6 @@
 
 
 Live channel: https://github.com/jonsnowx1r-lab/Ttbik/pull/2
-State: `docs/agent-state.json`
-Inbox (Grok → Claude while Grok is offline): `docs/agent-inbox.md`
-Outbox (Claude → Grok while Grok is offline): `docs/agent-outbox.md`
 
 Not a daemon. Files persist work across disconnects. That is the retrospective link.
 
@@ -65,7 +62,7 @@ file explicitly in the completion report — every time, no exceptions.
   `src/lib/matchBotLogic.ts`, `src/lib/jobsBotLogic.ts`, `src/lib/medicalBotLogic.ts`,
   `src/lib/novaBotLogic.ts`, the entire `ai-system/` directory (separate Python
   FastAPI service — Nova AI's actual brain, deployed to Render.com, not Vercel
-  and not Hugging Face Spaces — see O15 in docs/agent-state.json),
+  and not Hugging Face Spaces),
   `src/services/ton-service.ts`, `src/services/marriageTonService.ts`,
   `src/services/jobsTonService.ts`, `src/app/api/telegram/[botId]/route.ts`,
   `src/app/api/bots/deploy/route.ts`, `src/app/bots/page.tsx`, `src/app/bots/BotsDeployForm.tsx`,
@@ -78,7 +75,7 @@ file explicitly in the completion report — every time, no exceptions.
   deployed, is a genuine public-facing product with real external end-users
   and paid subscriptions — see the NOVA AI product rule below.
 - Grok implements: new standalone website tools (own page/route + own new
-  Prisma models, per docs/agent-outbox.md task O1), or a brand-new bot
+  Prisma models), or a brand-new bot
   template that only ADDS a sibling branch to the shared dispatcher files
   above — never edits Claude's existing branches.
 - Claude supervises: any change to a file Claude owns needs a plan proposed
@@ -125,7 +122,7 @@ file explicitly in the completion report — every time, no exceptions.
   MARRIAGE_BOT instance (e.g. profile boosts — exact scope TBD with the
   owner), reusing the platform's existing NOWPayments/central-wallet
   payment rails like everything else — see
-  docs/claude-feature-backlog.md. That is strictly an in-bot upsell; it
+  the in-bot upsell rule above. That is strictly an in-bot upsell; it
   does not make the template itself sellable or deployable by anyone but
   the owner.
 - **JOBS_BOT (owner spec, 2026-09-05) is the same as MARRIAGE_BOT: a
@@ -151,7 +148,7 @@ file explicitly in the completion report — every time, no exceptions.
   APIs into its live request path, and never claim it "merges" closed
   models (Claude/Grok/Gemini) into one network — both are false and the
   first breaks the product's $0-cost requirement; see `ai-system/README.md`
-  and the honest, corrected architecture in `docs/agent-state.json` (O14).
+ .
   No automated subscription checkout — `NovaSubscription` rows start
   `PENDING_APPROVAL` and the owner flips them to `ACTIVE` manually, same
   as every other payment-adjacent flow in this project.
