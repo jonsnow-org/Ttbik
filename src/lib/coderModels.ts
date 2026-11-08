@@ -101,7 +101,7 @@ export const canonModelId = (id: string | undefined): string | undefined => (id 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
 const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
 /** The model id Nova's own engine is given: Sham models are never served by Nova's engine (they run on Sham's own path), so they map to Nova's default. */
-export const novaModelOf = (id: string | undefined): string | undefined => (id === "freei" || id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
+export const novaModelOf = (id: string | undefined): string | undefined => (id === "sham" || id === "sham_v2" || id === "sham_loop" || id === "sham_probe" ? undefined : id);
 
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
@@ -162,9 +162,12 @@ export function ensureUsableModel(st: { model?: string; mode: "coder" | "sham" }
 
 /** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of
  *  truth, and the old Nova/Sham section follows from it. Returns false when this person may not use that model. */
-export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
+export function chooseModel(st: { model?: string; mode: "coder" | "sham"; freei?: boolean }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
+  // "free i" is a switch only: it never becomes the chat's model and never reaches Nova's tools, Studios, settings or chats. Only a flag marks it.
+  if (m.id === "freei") { if (!owner) return false; st.freei = true; return true; }
+  st.freei = false;
   if ((m.id === "sham" || m.id === "sham_v2") && !studioTokenSet()) return false;                // they need the Studio token
   st.model = m.id;
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios

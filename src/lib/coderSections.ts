@@ -61,7 +61,7 @@ export type Run = {
   // each leg polls the Studio's own background job id, and the run hands itself to the next leg until the file is delivered. `phase`: route -> prompt -> submit -> poll -> send.
   media?: { kind: "image" | "video" | "audio"; request: string; phase: "route" | "prompt" | "submit" | "poll"; model?: string; subject?: string; prompt?: string; aspect?: "wide" | "tall" | "square"; seconds?: number; job?: string; jobStarted?: number; retried?: boolean; reserved?: boolean; attempts?: number; started?: number };
 };
-export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; };
+export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; freei?: boolean; perModel?: Record<string, Partial<ModelSettings>>; threadId?: string; agentResult?: AgentResult; carry?: { model: string; thread: string; turns: number }; memPer?: Record<string, Partial<MemorySettings>>; };
 export type { Db };
 export { coderChatKey };
 
@@ -511,7 +511,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const available = models.filter((m) => modelUsableBy(m, ownerOnly));
     const keyboard = new InlineKeyboard();
     for (const model of available) {
-      keyboard.text(((preloadedOwnerState?.model || "coder") === model.id) ? "✓ " + model.name.ar : model.name.ar, "model_pick|" + model.id).row();
+      keyboard.text((((preloadedOwnerState?.freei ? "freei" : preloadedOwnerState?.model) || "coder") === model.id) ? "✓ " + model.name.ar : model.name.ar, "model_pick|" + model.id).row();
     }
     await send(bot, chatId, "🤖 اختر النموذج. كل نموذج يعمل بمساره واستوديوهاته الخاصة.", { reply_markup: keyboard });
     return true;
@@ -1134,7 +1134,7 @@ export async function switchThread(chatId: number, st: ChatState, targetId: stri
   }
   else if (st.messages.length) await ensureThread(chatId, st, db);
   if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db, st);   // no key for quiet time: as before
-  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model, perModel: st.perModel };
+  const next: ChatState = { ...emptyState(), groups: st.groups, mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model, freei: st.freei, perModel: st.perModel };
   if (target) {
     next.threadId = target.id;
     next.messages = target.messages || [];

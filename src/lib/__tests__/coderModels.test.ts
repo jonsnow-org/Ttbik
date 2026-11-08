@@ -1,5 +1,5 @@
 import type { Db } from "@/lib/coderAuth";
-import { chooseModel, effectiveModel, listModels, modelReady, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, effectiveModel, listModels, modelReady, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
 
 function modelsDb(): Db {
   const rows = new Map<string, any>();
@@ -147,5 +147,19 @@ describe("coder models", () => {
     expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
     expect(ownerModels(on, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: true, ready: true });
     delete process.env.MODELSCOPE_API_TOKEN;
+  });
+});
+
+describe("free i is a switch only", () => {
+  const models = DEFAULT_MODELS.map((m) => ({ ...m }));
+  it("the owner can pick it without changing the chat's model; anyone else cannot; picking another model clears it", () => {
+    const st: any = { model: "coder", mode: "coder" };
+    expect(chooseModel(st, models, "freei", false)).toBe(false);
+    expect(st.freei).toBeUndefined();
+    expect(chooseModel(st, models, "freei", true)).toBe(true);
+    expect(st.freei).toBe(true);
+    expect(st.model).toBe("coder");                       // nothing else sees it as a model
+    expect(chooseModel(st, models, "coder", true)).toBe(true);
+    expect(st.freei).toBe(false);
   });
 });
