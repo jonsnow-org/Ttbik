@@ -81,4 +81,13 @@ describe("aiBridge", () => {
     expect(sent[sent.length - 1]).not.toContain("github_pat_x");
     delete process.env.AI_GITHUB_TOKEN;
   });
+  test("stray characters after the token are cut off (a pasted token once ended with /s)", async () => {
+    process.env.AI_GITHUB_TOKEN = 'Bearer github_pat_AAA_bbb9\n/s';
+    const bot = { api: { sendMessage: async () => undefined } };
+    let auth = "";
+    const fake = (async (_u: string, init: any) => { auth = init.headers.Authorization; return { ok: true, status: 201, json: async () => ({ number: 5 }) }; }) as unknown as typeof fetch;
+    await handleAiAgentUpdate(bot, { update_id: 12, message: { text: "/ai x", chat: { id: 42 } } }, fake);
+    expect(auth).toBe("Bearer github_pat_AAA_bbb9");
+    delete process.env.AI_GITHUB_TOKEN;
+  });
 });
