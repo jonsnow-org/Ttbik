@@ -187,7 +187,7 @@ def experiment_b(n_train: int = 3000, n_test: int = 1000, steps: int = 4000, see
 
 # ---------------------------------------------------------------- C) detachable pack: train together, detach, re-attach
 
-def experiment_c(n_facts: int = 6000, steps: int = 2500, seed: int = 0) -> None:
+def experiment_c(n_facts: int = 6000, steps: int = 2500, seed: int = 0, d: int = 128, n_keys: int = 64) -> None:
     """The "OBB" idea in its strictest form: the memory pack is attached DURING training, then detached, then installed again from its own file.
     A general skill (modular addition) lives in the core; the facts are meant to live in the pack. Two ways to train: the pack always on, or switched off
     at random half of the steps (pack dropout). Measured: the core alone, core + pack, and core + the pack reloaded from disk."""
@@ -207,13 +207,13 @@ def experiment_c(n_facts: int = 6000, steps: int = 2500, seed: int = 0) -> None:
     fy = torch.tensor(fvals)
     gx = torch.tensor([[GA + a, GA + b, SEP2] for a in range(M) for b in range(M)])
     gy = torch.tensor([GB + (a + b) % M for a in range(M) for b in range(M)])
-    print(f"C) {n_facts} facts (meant for the pack) + modular addition (the core's general skill), {steps} steps\n")
+    print(f"C) {n_facts} facts (meant for the pack) + modular addition (the core's general skill), {steps} steps, core d={d}, pack {n_keys}x{n_keys} slots\n")
     print(f"{'training':40s} {'condition':34s} {'facts':>7s} {'skill':>7s}")
     for dropout in (False, True):
         torch.manual_seed(seed)
-        m = _model(vocab)
-        fp = core_fingerprint(m, 128, 4)
-        pack = MemoryPack(128, n_keys=64, topk=4, heads=2, key_dim=32)
+        m = _model(vocab, d=d)
+        fp = core_fingerprint(m, d, 4)
+        pack = MemoryPack(d, n_keys=n_keys, topk=4, heads=2, key_dim=32)
         h = attach_memory_pack(m.layers[1], pack)
         params = [{"params": [p for n, p in m.named_parameters()], "lr": 3e-3}, {"params": list(pack.parameters()), "lr": 3e-3 * MEM_LR_MULT}]
         opt = torch.optim.AdamW(params, weight_decay=0.0)
@@ -246,7 +246,7 @@ def experiment_c(n_facts: int = 6000, steps: int = 2500, seed: int = 0) -> None:
         with tempfile.TemporaryDirectory() as td:
             size = save_weight_pack(td, "facts", "memory", {"mem": pack}, fp)
             h.remove()
-            pack2 = MemoryPack(128, n_keys=64, topk=4, heads=2, key_dim=32)
+            pack2 = MemoryPack(d, n_keys=n_keys, topk=4, heads=2, key_dim=32)
             attach_memory_pack(m.layers[1], pack2)
             load_weight_pack(td, {"mem": pack2}, fp)
             f, g = acc(m)
@@ -259,7 +259,7 @@ if __name__ == "__main__":     # sham-ci: entrypoint (minutes of CPU: run on pur
     elif "--b" in sys.argv:
         experiment_b()
     elif "--c" in sys.argv:
-        experiment_c(*(int(v) for v in sys.argv[sys.argv.index("--c") + 1:][:2]))
+        experiment_c(*(int(v) for v in sys.argv[sys.argv.index("--c") + 1:][:2]), d=int(sys.argv[sys.argv.index("--c") + 3]) if len(sys.argv) > sys.argv.index("--c") + 3 else 128)
     else:
         experiment_a(2000, 60)
         print("sham_knowledge_lab smoke OK (use --a / --b for the real runs)")
