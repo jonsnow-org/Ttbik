@@ -139,6 +139,14 @@ def _load(model_dir: Path) -> None:
                  context_tokens=int(getattr(getattr(serve._state.get("model"), "cfg", None), "max_seq_len", 0)))
     _refresh_media_assets(model_dir)
     _say("ready: the model is loaded")
+    if not _V2:      # the legacy Sham decodes through its llama.cpp copy (several times faster); built in the background, the first reply never waits for it
+        def _prepare_fast():
+            try:
+                from sham_gguf import fast_model
+                fast_model(serve._state["model"])
+            except Exception as exc:
+                print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
+        threading.Thread(target=_prepare_fast, daemon=True).start()
     manifest = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
     if manifest:
         try:

@@ -311,6 +311,12 @@ def chat_generate_with_computer(model, wrapped, max_new_tokens: int, tokenizer, 
     from sham_stream import iter_tokens
     from sham_tools_data import result_text
     token_iter = token_iter or iter_tokens
+    if model is not None and hasattr(model, "layers"):             # a real ShamSmall: decode with its llama.cpp copy when there is one (several times faster)
+        try:
+            from sham_gguf import fast_model
+            model = fast_model(model) or model
+        except Exception:
+            pass
     eos = SpecialTokens.EOS if eos_id is None else eos_id
     ids = wrapped[0].tolist() if hasattr(wrapped, "tolist") else list(wrapped)
     calls, produced, searches = [], 0, 0
