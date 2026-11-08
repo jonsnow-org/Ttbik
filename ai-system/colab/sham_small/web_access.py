@@ -246,7 +246,7 @@ if __name__ == "__main__":
         assert urls == ["https://example.com/a", "https://example.com/b"], f"unexpected urls: {urls}"
         print(f"real_search correctly extracted {len(urls)} real URLs and skipped a result missing href.")
 
-    with patch("ddgs.DDGS", side_effect=RuntimeError("simulated block")), patch("web_access.bing_search", return_value=[]):   # no real network in a self-test
+    with patch("ddgs.DDGS", side_effect=RuntimeError("simulated block")), patch(f"{__name__}.bing_search", return_value=[]):   # no real network in a self-test
         urls = real_search("test query")
         assert urls == [], "a search failure must return an empty list, not raise, so one bad query doesn't kill a whole crawl run"
         print("real_search correctly degrades to an empty list (with a logged diagnostic) on failure, instead of raising.")
