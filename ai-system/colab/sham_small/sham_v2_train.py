@@ -14,6 +14,7 @@ GPU when the quota allows, else CPU: train() and the restarter handle the device
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -156,6 +157,116 @@ def run_session(model, step: int, batches: list, device: str, hours: float, lr: 
     return losses, step + len(losses)
 
 
+# ---------------------------------------------------------------- Sham v1's other data, in the Qwen3 layout (parity with v1's chat stage: general text + code, worked reasoning, reading evidence)
+def text_mix_batches(tokenizer, documents: int = 400, batch_size: int = 2, window: int = 384, seed: int = 0, files: list[str] | None = None):
+    """General text + multi-language code from v1's own mixture (sham_text_mix.stream_mix), as plain language-model windows (loss on every token)."""
+    from sham_chat import batch_examples
+    if files is None:
+        import sham_text_mix
+        files = sham_text_mix.stream_mix("/tmp/sham_v2_textmix", max_documents=documents, seed=seed, documents_per_file=documents)
+    ex = []
+    for f in files:
+        if not str(f).endswith(".txt"):
+            continue
+        ids = tokenizer.encode(Path(f).read_text(encoding="utf-8"))
+        for i in range(0, max(0, len(ids) - window + 1), window):
+            w = ids[i:i + window]
+            ex.append((w, list(w)))
+    return batch_examples(ex, batch_size, seed=seed)
+
+
+def reasoning_pairs(n: int, seed: int) -> list[tuple[str, str]]:
+    """Worked problems (v1's sham_reasoning_data): (question, step-by-step solution ending with the final answer)."""
+    import sham_reasoning_data as R
+    rng = random.Random(seed)
+    out, seen = [], set()
+    while len(out) < n and len(seen) < n * 20:
+        p = R.make_problem(rng)
+        if p["question"] not in seen:
+            seen.add(p["question"])
+            out.append((p["question"], p["solution"]))
+    return out
+
+
+def rag_pairs(articles: list[tuple[str, str]], n: int, seed: int, n_results: int = 3, p_no_answer: float = 0.15, evidence_chars: int = 420) -> list[tuple[str, str]]:
+    """Reading evidence (v1's sham_rag_data): the passages a library returned are IN the user turn; the answer is the hidden word, or an honest 'not in the references'."""
+    import sham_rag_data as G
+    from sham_kb import KnowledgeBase
+    rng = random.Random(seed)
+    arts = [(t, x) for t, x in articles if x and len(x) > 200]
+    if len(arts) < 4:
+        return []
+    kb = KnowledgeBase().build(x for _, x in arts)
+    out, tries = [], 0
+    while len(out) < n and tries < n * 6:
+        tries += 1
+        pick = G._blank_question(arts[rng.randrange(len(arts))][1], rng)
+        if pick is None:
+            continue
+        blank_s, hidden, sentence = pick
+        res = kb.search(sentence.replace(hidden, " "), n_results)
+        if not res:
+            continue
+        gold = [r for r in res if hidden in r[2] and sentence[:40] in r[2]]
+        abstain = rng.random() < p_no_answer
+        if abstain:
+            res = [r for r in res if r not in gold]
+            if not res:
+                continue
+        elif not gold:
+            continue
+        else:
+            rng.shuffle(res)
+        evidence = "\n".join(f"[{i + 1}] {r[2][:evidence_chars]}" for i, r in enumerate(res))
+        out.append((f"المراجع:\n{evidence}\n\n" + rng.choice(G.ASK).format(s=blank_s), rng.choice(G.NO_ANSWER) if abstain else hidden))
+    return out
+
+
+# ---------------------------------------------------------------- the merge gate (the same rule Sham v1 lives by: nothing replaces the served checkpoint unless it is measured not worse)
+HELDOUT_FALLBACK = (
+    "دمشق عاصمة سوريا وهي من أقدم المدن المأهولة في العالم. تقع على نهر بردى وتتميز بأسواقها القديمة وجامعها الأموي. "
+    "يتعلم الطالب القراءة والكتابة في المدرسة، ثم ينتقل إلى الجامعة ليختار تخصصه. الماء يغلي عند مئة درجة مئوية على مستوى سطح البحر. "
+    "كتب الشاعر قصيدة عن الوطن والغربة، وقرأها أمام جمهور كبير في المسرح. البرمجة هي كتابة تعليمات يفهمها الحاسوب لحل مسألة ما. "
+    "في فصل الشتاء تهطل الأمطار وتخضر الأرض، وفي الصيف ترتفع الحرارة ويقصد الناس البحر. " * 6
+)
+
+
+def heldout_text(documents: int = 60) -> str:
+    """A FIXED Arabic/mixed text sample (seed 4242, never trained on) for the gate; an offline built-in sample when the text mix cannot be streamed."""
+    try:
+        import sham_text_mix
+        files = sham_text_mix.stream_mix("/tmp/sham_v2_heldout", max_documents=documents, seed=4242, documents_per_file=documents)
+        text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if f.endswith(".txt"))
+        if len(text) > 2000:
+            return text
+    except Exception as exc:  # noqa: BLE001 - a missing network must not stop a training session
+        print(f"held-out text: built-in sample ({type(exc).__name__})", flush=True)
+    return HELDOUT_FALLBACK
+
+
+@torch.no_grad()
+def heldout_loss(model, tokenizer, device: str, text: str | None = None) -> float:
+    """Mean next-token loss of `model` on the fixed held-out text (sham_base_select.text_loss: the same yardstick v1's base selection uses)."""
+    from sham_base_select import text_loss
+    return float(text_loss(model, tokenizer, text or heldout_text(), device))
+
+
+def gate(loss_before: float, loss_after: float, tools_before: dict | None = None, tools_after: dict | None = None,
+         loss_tolerance: float = 1.03, tool_floor: float = 0.9) -> dict:
+    """Decide whether a trained checkpoint may be PUBLISHED over the served one. Refused when the held-out loss is not finite or worse than before by more than
+    `loss_tolerance` (3 %), or when the correct-tool-call count on the same fixed cases fell below `tool_floor` of what it was. Returns {ok, reasons, ...}."""
+    import math
+    reasons = []
+    if not (math.isfinite(loss_after) and math.isfinite(loss_before)):
+        reasons.append("held-out loss is not finite")
+    elif loss_after > loss_before * loss_tolerance:
+        reasons.append(f"held-out loss rose {loss_before:.4f} -> {loss_after:.4f} (more than {int((loss_tolerance - 1) * 100)} %)")
+    if tools_before and tools_after and tools_before.get("cases") == tools_after.get("cases") and tools_before.get("right", 0) > 0:
+        if tools_after.get("right", 0) < tools_before["right"] * tool_floor:
+            reasons.append(f"correct tool calls fell {tools_before['right']} -> {tools_after.get('right', 0)} of {tools_before['cases']}")
+    return {"ok": not reasons, "reasons": reasons, "loss_before": loss_before, "loss_after": loss_after}
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -209,4 +320,18 @@ if __name__ == "__main__":
     assert mt["cases"] == 2 and len(mt["rows"]) == 2 and 0 <= mt["right"] <= mt["valid"] <= 2
     ar = arabic_pairs_to_batches(Tok(), [("ما هي عاصمة سوريا؟", "دمشق."), ("كيف حالك؟", "بخير، شكراً.")], 2)
     assert ar
+    rp = reasoning_pairs(5, 1)
+    assert len(rp) == 5 and all(q and a for q, a in rp)
+    arts = [(f"t{i}", " ".join(f"في عام {1900 + i * 7 + j} حدث أمر مهم رقم {j} في المدينة الكبيرة رقم {i} وتحدث الناس عنه كثيرا." for j in range(12))) for i in range(8)]
+    gp = rag_pairs(arts, 4, 1)
+    assert gp and all("المراجع:" in q and a for q, a in gp), gp[:1]
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _d:
+        (Path(_d) / "a.txt").write_text("نص عربي طويل " * 400, encoding="utf-8")
+        assert text_mix_batches(Tok(), batch_size=2, window=64, files=[str(Path(_d) / "a.txt")])
+    hl = heldout_loss(model, Tok(), "cpu", text="ab" * 400)
+    assert math.isfinite(hl), hl
+    assert gate(2.0, 2.0)["ok"] and gate(2.0, 2.05)["ok"] and not gate(2.0, 2.2)["ok"] and not gate(2.0, float("nan"))["ok"]
+    assert not gate(2.0, 1.9, {"cases": 10, "right": 8}, {"cases": 10, "right": 5})["ok"] and gate(2.0, 1.9, {"cases": 10, "right": 8}, {"cases": 10, "right": 8})["ok"]
+    assert heldout_text.__doc__ and len(HELDOUT_FALLBACK) > 2000
     print("sham_v2_train self-test OK: media rows and low-rank adapters train; donor base remains frozen; role-based tool/Arabic batches and checkpoint round-trip.")
