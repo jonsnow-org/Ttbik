@@ -43,7 +43,7 @@ Reply to EVERY step with exactly ONE JSON object and nothing else: {"tool": "<na
 
 Tools (args):
 - list_files {path?}: tracked files under a folder (default root).
-- read_file {path, start?, end?}: a file, by line window (default the first 200 lines).
+- read_file {path, start?, end?}: a file, by line window (default the first 300 lines).
 - search {query, path?}: grep -rn in tracked files.
 - write_file {path, content}: create or replace a whole file (on your branch).
 - edit_file {path, old, new}: replace one exact text in a file.
@@ -190,7 +190,7 @@ class Agent:
         files = [f for f in r.stdout.split("\n") if f and not read_problem(f)]
         return clip("\n".join(files[:400]) + (f"\n…[{len(files) - 400} more]" if len(files) > 400 else "")) or "(nothing)"
 
-    def read_file(self, path: str, start: int = 1, end: int = 200) -> str:
+    def read_file(self, path: str, start: int = 1, end: int = 300) -> str:
         p = self._safe(path, write=False)
         if not p.is_file():
             return f"no such file: {path}"
@@ -315,6 +315,31 @@ class Agent:
 
 # ------------------------------------------------------------------ the loop
 
+def compact_trace(trace: list[str]) -> str:
+    """read_file ×12, search ×3 (not one long list)."""
+    counts: dict[str, int] = {}
+    for t in trace:
+        counts[t] = counts.get(t, 0) + 1
+    return ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in counts.items())
+
+
+WRAP_UP = ("Stop using tools now. Write your FINAL answer to the owner's command from what you have read and done so far: "
+           "findings first, short and concrete, in the owner's language. Say plainly what you could not finish. Plain text, no JSON.")
+
+
+def wrap_up(messages: list[dict], model: str, why: str, trace: list[str]) -> str:
+    """The step or time limit ended the work: one last call turns what was read into an answer (never a bare list of steps)."""
+    try:
+        out = A.call_model(messages + [{"role": "user", "content": WRAP_UP}], model, 2500).strip()
+        act = parse_step(out)
+        text = str(act["args"].get("message") or "") if act and act["tool"] == "final" else ("" if act else out)
+        if text:
+            return f"{text}\n\n(توقفتُ عند {why}: لم أُكمل كل شيء.)"
+    except Exception:
+        pass
+    return f"توقفتُ عند {why} قبل أن أكتب خلاصة. ما أنجزتُه: {compact_trace(trace) or 'لا شيء'}"
+
+
 def run_agent(issue: dict, comments: list[dict], model: str, default: str, root: Path | None = None, now=time.time) -> tuple[str, list[str]]:
     """(the final message, the trace of tool calls). Never raises for a model or tool problem."""
     ag = Agent(int(issue["number"]), default, root)
@@ -324,7 +349,7 @@ def run_agent(issue: dict, comments: list[dict], model: str, default: str, root:
     started, bad = now(), 0
     for step in range(MAX_STEPS):
         if now() - started > MAX_SECONDS:
-            return f"توقفتُ بعد {int((now() - started) // 60)} دقيقة (حدّ الوقت) قبل أن أكمل. ما أنجزتُه: {', '.join(ag.trace) or 'لا شيء'}", ag.trace
+            return wrap_up(messages, model, f"حدّ الوقت ({int((now() - started) // 60)} دقيقة)", ag.trace), ag.trace
         try:
             out = A.call_model(messages, model, 3500)
         except Exception as exc:
@@ -340,7 +365,9 @@ def run_agent(issue: dict, comments: list[dict], model: str, default: str, root:
             return str(act["args"].get("message") or "(no message)"), ag.trace
         result = ag.call(act["tool"], act["args"])
         ag.trace.append(act["tool"])
-        messages += [{"role": "assistant", "content": json.dumps(act, ensure_ascii=False)[:2500]}, {"role": "user", "content": f"Result of {act['tool']}:\n{clip(result)}"}]
+        left = MAX_STEPS - step - 1
+        hint = f"\n[step {step + 1}/{MAX_STEPS}]" + ("\nFew steps left: call final NOW with your findings." if left <= 6 else "")
+        messages += [{"role": "assistant", "content": json.dumps(act, ensure_ascii=False)[:2500]}, {"role": "user", "content": f"Result of {act['tool']}:\n{clip(result)}{hint}"}]
         if len(messages) > 40:                                       # keep the task and the latest exchanges
             messages = messages[:2] + messages[-30:]
-    return f"وصلتُ إلى حدّ الخطوات ({MAX_STEPS}) قبل أن أكمل. ما أنجزتُه: {', '.join(ag.trace)}", ag.trace
+    return wrap_up(messages, model, f"حدّ الخطوات ({MAX_STEPS})", ag.trace), ag.trace

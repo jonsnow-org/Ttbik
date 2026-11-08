@@ -291,7 +291,8 @@ def main_run() -> int:
     if agent:                                                      # a command: carry it out with tools (agent_loop.py)
         from agent_loop import run_agent
         text, trace = run_agent(issue, comments, os.environ.get("AI_MODEL") or AGENT_MODELS, default)
-        tail = f"\n\n_Steps: {', '.join(trace)}_" if trace else ""
+        from agent_loop import compact_trace
+        tail = f"\n\n_Steps: {compact_trace(trace)}_" if trace else ""
         gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
         Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "agent": True, "at": int(time.time())}))
         return 0
