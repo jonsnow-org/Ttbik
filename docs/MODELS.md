@@ -28,3 +28,5 @@ It also became the media-prompt translator for every model. Both overlaps are re
 `LFM_STUDIO_URLS`: optional; defaults to the `lfm25-inference-server` address; `off` disables it.
 `LFM_MEDIA_STUDIO_URL`: optional; defaults to the `lfm25-media-server` address; `off` disables it.
 `MEDIA_SHOW_PROMPT=1`: owner raw-test only; shows the generator prompt as a caption (off by default).
+
+سطر اختبار من free i، يُحذف
