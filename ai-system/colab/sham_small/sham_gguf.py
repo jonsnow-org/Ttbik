@@ -95,7 +95,8 @@ class LlamaCppModel:
 
     def __init__(self, path: str | Path, n_ctx: int = 2048, threads: int | None = None):
         from llama_cpp import Llama
-        self.llm = Llama(model_path=str(path), n_ctx=n_ctx, n_threads=threads or os.cpu_count() or 4, n_batch=512, logits_all=False, verbose=False)
+        self.llm = Llama(model_path=str(path), n_ctx=n_ctx, n_threads=threads or os.cpu_count() or 4, n_batch=2048, n_ubatch=1024, flash_attn=True,
+                         logits_all=False, verbose=False)
         self.n_ctx = n_ctx
         self.cfg = type("Cfg", (), {"max_seq_len": n_ctx})()
 
@@ -119,8 +120,12 @@ _FAST: dict = {}
 def fast_model(model, kind: str | None = None):
     """A llama.cpp copy of `model` for DECODING (several times more tokens/s on a CPU), or None when it cannot / should not be used: not a plain ShamSmall, llama-cpp-python
     missing (one background install attempt), no disk, or the copy does not agree with the PyTorch model. Built once per model and cached. SHAM_GGUF=0 turns it off;
-    SHAM_GGUF=f16|q8_0|q4_0|q4_k_m chooses the format (default q8_0: near-lossless, measured ~2.3x faster writing than PyTorch fp32 on the build machine)."""
-    kind = (kind or os.environ.get("SHAM_GGUF", "q8_0")).strip().lower()
+    SHAM_GGUF=f16|q8_0|q6_k|q5_k_m|q4_k_m|q4_0 chooses the format. Default q4_k_m. Measured on a real model (SmolLM2-135M in Sham's own class, 2026-11-08, clean eval windows,
+    loss change English / Arabic) and on the 515M shape (4 threads, writing tokens/s vs PyTorch fp32 14.2):
+        q8_0   +0.24% / +0.29%   ~25-33 tok/s      q6_k   +1.05% / +1.49%   ~31 tok/s      q5_k_m +1.97% / +2.62%   ~31 tok/s
+        q4_k_m +2.67% / +3.70%   ~45 tok/s (3.2x)  q4_0   +9.5%  / +12.1%   ~47 tok/s   <- the k-quant is 3x less lossy at the same size, so q4_0 is never chosen
+    q4_k_m is the best speed/quality point: it makes a 4-bit-trained (QAT) model unnecessary, with no training at all."""
+    kind = (kind or os.environ.get("SHAM_GGUF", "q4_k_m")).strip().lower()
     if kind in ("0", "off", "false", "no", ""):
         return None
     key = (id(model), kind)
@@ -156,7 +161,7 @@ def fast_model(model, kind: str | None = None):
                 ref = model(ids)[0][0, -1].float()
             got = cand(ids)[0][0, -1]
             agree += int(got.argmax() == ref.argmax())
-        if agree < (6 if kind in ("f16", "q8_0") else 3):
+        if agree < (6 if kind in ("f16", "q8_0") else 5 if kind == "q6_k" else 4):
             print(f"sham_gguf: the {kind} copy agrees with PyTorch on {agree}/6 test prompts — not used", flush=True)
             return None
         _FAST[key] = cand
