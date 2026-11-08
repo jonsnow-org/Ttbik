@@ -209,9 +209,10 @@ def mode_label(full: bool, agent: bool = False) -> str:
 
 
 def uses_agent(issue: dict, full: bool) -> bool:
-    """A Telegram message (label from-telegram) or an ai-full request is a COMMAND the agent carries out (agent_loop.py). AI_AGENT_LOOP=0 turns that off."""
+    """A command from a trusted person carries it out (agent_loop.py), wherever it was written: a Telegram message (label from-telegram),
+    an issue by the owner / a member / a collaborator, or an ai-full request. AI_AGENT_LOOP=0 turns that off (comment-only analysis)."""
     names = {l["name"] if isinstance(l, dict) else str(l) for l in issue.get("labels", [])}
-    return os.environ.get("AI_AGENT_LOOP", "1") != "0" and ("from-telegram" in names or full)
+    return os.environ.get("AI_AGENT_LOOP", "1") != "0" and ("from-telegram" in names or full or is_trusted(issue))
 
 
 def already_answered(comments: list[dict], mode: str) -> bool:

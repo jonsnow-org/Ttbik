@@ -195,6 +195,18 @@ class ChatMode(unittest.TestCase):
         self.assertFalse(M.is_chat({**issue, "labels": [{"name": "from-telegram"}, {"name": "build"}]}, False))   # /build and /fix too
         self.assertFalse(M.is_chat({**issue, "labels": []}, False))
 
+    def test_a_trusted_person_gets_the_agent_from_github_too(self):
+        member = {"number": 1, "title": "t", "labels": [], "author_association": "MEMBER", "body": "x"}
+        stranger = {**member, "author_association": "NONE"}
+        self.assertTrue(M.uses_agent(member, False))
+        self.assertFalse(M.uses_agent(stranger, False))                       # not trusted: never runs at all (is_trusted gate)
+        self.assertTrue(M.uses_agent({**stranger, "labels": [{"name": "from-telegram"}]}, False))
+        os.environ["AI_AGENT_LOOP"] = "0"
+        try:
+            self.assertFalse(M.uses_agent(member, False))
+        finally:
+            del os.environ["AI_AGENT_LOOP"]
+
     def test_the_same_message_is_answered_once(self):
         answer = {"body": M.MARK + "\nhi\n\n<sub>AI Agent · m · mode: normal (comments only)</sub>"}
         self.assertTrue(M.already_answered([answer], "normal (comments only)"))
