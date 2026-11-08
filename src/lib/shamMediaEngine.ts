@@ -1,6 +1,6 @@
 // Which media engine each Sham model really uses (the owner's panel: «محركات توليد الوسائط»). ONE choice per model, never a global one:
-//   Sham v2   — "ready"    : the donor weights in Sham v2's own Studios (image + speech on sham-v2-server, video on sham-v2-video-server)  [default, recommended]
-//             — "internal" : Sham v2's own token generator (still training: the quality gate usually refuses its output)
+//   Sham v2   — "internal" : Sham v2's own token generator, exactly like Sham v1 (owner's order 2026-11-08: v2 is a copy of v1 and uses only its OWN internal generator;
+//               the "ready" donor generators (Realistic Vision / AnimateDiff) are retired from the choices and never selected)
 //   Sham (old)— "internal" : only the old Sham's own original Studio (still training: usually refused by the quality gate).
 // Media engines do not cross between Sham v1 and Sham v2. Missing settings use a default owned by that model.
 // Nova is not here: its media always comes from nova-media-server (src/lib/novaMedia.ts). Nothing switches by itself when a call fails.
@@ -9,7 +9,7 @@ import { prismaDb, type Db } from "@/lib/shamDb";
 
 export type ShamModelId = "sham" | "sham_v2";
 export type ShamEngine = "ready" | "internal";
-export const SHAM_ENGINE_OPTIONS: Record<ShamModelId, ShamEngine[]> = { sham_v2: ["ready", "internal"], sham: ["internal"] };
+export const SHAM_ENGINE_OPTIONS: Record<ShamModelId, ShamEngine[]> = { sham_v2: ["internal"], sham: ["internal"] };
 const KEY: Record<ShamModelId, string> = { sham: "media_engine_v1", sham_v2: "media_engine_v2" };
 
 let ready = false;
@@ -27,7 +27,7 @@ export async function shamEngine(model: ShamModelId, db: Db = prismaDb): Promise
     const stored = rows[0]?.value;
     if (stored && SHAM_ENGINE_OPTIONS[model].includes(stored as ShamEngine)) return stored as ShamEngine;
   } catch { /* use the selected model's own default below */ }
-  return model === "sham_v2" ? "ready" : "internal";
+  return "internal";
 }
 
 export async function setShamEngine(model: ShamModelId, engine: ShamEngine, db: Db = prismaDb): Promise<void> {

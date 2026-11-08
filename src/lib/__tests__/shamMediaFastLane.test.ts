@@ -68,8 +68,9 @@ describe("Sham media fast lane", () => {
     const { continueShamRun } = await import("@/lib/novaBotLogic");
     const { bot: b, calls } = bot();
     await shamVariant.run("v2", () => continueShamRun(b, 77, "bot1", "run-vid"));
-    expect(JSON.parse(videoStarts[0])).toMatchObject({ prompt: "a white horse", seconds: 30 });
-    expect(calls.some((c) => c.m === "sendVideo")).toBe(true);
+    expect(routeCalls[0][0]).toBe("video");                                     // Sham v2's own internal generator (no separate video Studio any more)
+    expect(routeCalls[0][2]).toMatchObject({ seconds: 30 });
+    expect(videoStarts).toHaveLength(0);
   });
 
   it("a video Studio without the background-job API still makes the clip through the single call", async () => {

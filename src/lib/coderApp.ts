@@ -580,7 +580,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "sham_media": {                       // owner's isolated Sham route selector + per-route enable switches
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const S = await import("@/lib/shamExec");
-      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal" || v === "sham_v2_ready";
+      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal";
       if (validRoute(body.route)) {
         await S.setShamMediaRoute(body.route, db);
       } else if (body.enabledRoute && validRoute(body.enabledRoute) && typeof body.enabled === "boolean") {

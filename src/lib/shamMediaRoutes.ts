@@ -19,17 +19,7 @@ export async function generateShamMediaThroughRoute(
     return { type: "error", route: "unselected", reason: "model_not_selected", text: "No Sham model was selected for this media request; no Studio was called." };
   }
   const modelId = model === "v2" ? "sham_v2" : "sham";
-  // Sham v2 images use its assigned Realistic Vision V6 checkpoint in a separate image Studio.
-  // The model's native audio/video routes remain isolated in its own Studios below.
-  if (model === "v2" && kind === "image") {
-    const photo = await import("@/lib/photoWeightMedia");
-    const generated = await photo.makePhotoMedia("sham_v2", prompt, { timeoutMs: Math.min(480000, Math.max(30000, opts.timeoutMs ?? 420000)), bypassNegativePrompt: opts.bypassContentHeuristics, aspect: opts.aspect });
-    if (generated.type === "image" && generated.b64) {
-      return { type: "image", mime: "image/png", b64: generated.b64, text: generated.text, route: "sham_v2_photo_weight" };
-    }
-    const reason = generated.type === "error" ? generated.reason : "image_payload_missing";
-    return { type: "error", route: "sham_v2_photo_weight", reason, text: generated.text };
-  }
+  // Owner's order 2026-11-08: Sham v2 is a copy of Sham v1 and makes ALL media (image, audio, video) with its own internal token generator; no donor/external generator is called.
   const route = targetOf(modelId, await shamEngine(modelId)).route;
   const timeoutMs = kind === "video"      // both Shams: a long clip (own motion-token video, 6 s … 5 min) is bounded by compute, not by a fixed 4 minutes
     ? Math.min(7_200_000, Math.max(Number(opts.timeoutMs) || 0, 300_000, shamVideoDeadlineMs(opts.seconds ?? pressureMedia().videoSeconds)))
