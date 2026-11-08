@@ -162,7 +162,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { isolateLegacyCarryState } = await import("@/lib/coderChats");
       await isolateLegacyCarryState(chatId, st, db);
       await saveStateStrict(chatId, st, db);
-      return { ok: true, model: st.model || "coder" };
+      return { ok: true, model: st.freei ? "freei" : st.model || "coder" };   // the picker confirms the pick by this value; "free i" is only a flag on the chat
     }
     // what Sham / Sham v2 have learned about this user: view, and forget only that (the conversations stay) — the owner's or an exposed Sham only
     case "sham_memory": {

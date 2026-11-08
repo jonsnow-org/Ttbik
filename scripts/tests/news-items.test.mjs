@@ -9,11 +9,9 @@ test("news catalogue is real, non-empty, and contains unique slugs", () => {
 });
 
 test("latest news entry and public sitemap exports are usable", () => {
-  // not tied to one day's story: the daily news automation adds a newer item every day
-  const latest = latestNewsItem();
-  assert.ok(latest && latest.slug);
-  assert.equal(getNewsItem(latest.slug)?.slug, latest.slug);
-  assert.ok(NEWS_ITEMS.every((item) => item.dateIso <= latest.dateIso), "latest is the newest item");
+  const newest = [...NEWS_ITEMS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];     // the daily automation adds newer items on top: do not pin one slug
+  assert.equal(latestNewsItem()?.slug, newest.slug);
+  assert.equal(getNewsItem("us-midterms-2026-democrats-gains-nov")?.dateIso, "2026-11-04");
   assert.equal(newsSitemapEntries().length, NEWS_ITEMS.length);
   assert.ok(newsSitemapEntries().every((item) => item.path.startsWith("/news/")));
 });
