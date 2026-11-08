@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "not_before": "2026-10-24T00:15:00Z",
   "nova_gpu_hours_per_week": 15,
   "sham_gpu_hours_per_week": 15,
@@ -7,5 +7,6 @@
   "session_cap_minutes": 660,
   "min_session_minutes": 60,
   "max_quick_fails": 2,
-  "done": false
+  "done": false,
+  "note": "Nova 1 training stopped at the owner's order 2026-11-08 (Nova is being removed); the whole Kaggle account goes back to Sham"
 }
