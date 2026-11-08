@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-08 18:03 UTC",
+  "generated_at": "2026-11-08 22:18 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -305,7 +305,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4184.0,
+      "size_mb": 0.0,
       "last_updated": "2026-11-08",
       "progress": {},
       "has_key_files": true
