@@ -379,6 +379,11 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   const modelPickerAction = Boolean(update.callback_query && String(update.callback_query.data || "").startsWith("model_pick|")) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
+  // "free i" (owner only): while it is picked, plain messages and the /ai /build /fix /full commands go to the AI Agent (GitHub + OpenRouter) and never reach Nova.
+  if (owner && update.message && typeof update.message.text === "string") {
+    const { handleAiAgentUpdate } = await import("@/lib/aiAgentBridge");
+    if (await handleAiAgentUpdate(bot as never, update, fetch, async () => (preloadedOwnerState?.freei ? "freei" : preloadedOwnerState?.model))) return true;
+  }
   if (!coderEnabled() && currentEngineModel() !== "lfm25" && !modelPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
