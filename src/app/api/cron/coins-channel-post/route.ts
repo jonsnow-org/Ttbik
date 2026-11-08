@@ -6,8 +6,7 @@ export const maxDuration = 60;
 /** The coins channel (Athar, ZNB, ZNBt, Palmyra Launch). Called by .github/workflows/coins-channel-post.yml; ?dry=1 previews the next post. */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const secret = req.nextUrl.searchParams.get("secret");
-  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}` && secret !== process.env.CRON_SECRET)) {
+  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}`)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const hourIstanbul = (new Date().getUTCHours() + 3) % 24;
