@@ -26,7 +26,8 @@ import ai_agent as A
 
 MAX_STEPS = 30
 MAX_SECONDS = 40 * 60
-OUT_LIMIT = 5000
+OUT_LIMIT = 3500
+CONTEXT_BUDGET = 14000          # characters per request (~4-5k tokens): the free tiers cap tokens per request and per minute (Groq answers 413 / 429 above that)
 NEVER_MERGE = {184, 505, 237}
 WORKFLOW_ALLOW = re.compile(r"^(deploy-|sham-|nova-|computer-|keep-warm|redeploy|push-studio|studio-|inspect-|modes-|all-models-|time-image)[\w.-]*\.yml$")
 WORKFLOW_DENY = re.compile(r"athar|cloudflare|ai-agent|ai-telegram|sync-main|npm-publish")
@@ -43,7 +44,7 @@ Reply to EVERY step with exactly ONE JSON object and nothing else: {"tool": "<na
 
 Tools (args):
 - list_files {path?}: tracked files under a folder (default root).
-- read_file {path, start?, end?}: a file, by line window (default the first 300 lines).
+- read_file {path, start?, end?}: a file, by line window (default the first 160 lines).
 - search {query, path?}: grep -rn in tracked files.
 - write_file {path, content}: create or replace a whole file (on your branch).
 - edit_file {path, old, new}: replace one exact text in a file.
@@ -190,7 +191,7 @@ class Agent:
         files = [f for f in r.stdout.split("\n") if f and not read_problem(f)]
         return clip("\n".join(files[:400]) + (f"\n…[{len(files) - 400} more]" if len(files) > 400 else "")) or "(nothing)"
 
-    def read_file(self, path: str, start: int = 1, end: int = 300) -> str:
+    def read_file(self, path: str, start: int = 1, end: int = 160) -> str:
         p = self._safe(path, write=False)
         if not p.is_file():
             return f"no such file: {path}"
@@ -315,6 +316,22 @@ class Agent:
 
 # ------------------------------------------------------------------ the loop
 
+def fit(messages: list[dict], budget: int = CONTEXT_BUDGET) -> list[dict]:
+    """The messages to send: the task and system prompt always; OLD tool results are cut to a few lines first (the model has already used them), then the
+    oldest exchanges are dropped, until the request is under the budget. The newest exchange is never cut."""
+    msgs = [dict(m) for m in messages]
+    size = lambda: sum(len(m["content"]) for m in msgs)       # noqa: E731
+    i = 2
+    while size() > budget and i < len(msgs) - 2:               # trim old results, oldest first
+        c = msgs[i]["content"]
+        if c.startswith("Result of") and len(c) > 300:
+            msgs[i]["content"] = c[:260] + "\n…[older result trimmed]"
+        i += 1
+    while size() > budget and len(msgs) > 4:                   # still too big: drop the oldest exchange (an assistant + its result)
+        del msgs[2:4]
+    return msgs
+
+
 def compact_trace(trace: list[str]) -> str:
     """read_file ×12, search ×3 (not one long list)."""
     counts: dict[str, int] = {}
@@ -330,7 +347,7 @@ WRAP_UP = ("Stop using tools now. Write your FINAL answer to the owner's command
 def wrap_up(messages: list[dict], model: str, why: str, trace: list[str]) -> str:
     """The step or time limit ended the work: one last call turns what was read into an answer (never a bare list of steps)."""
     try:
-        out = A.call_model(messages + [{"role": "user", "content": WRAP_UP}], model, 2500).strip()
+        out = A.call_model(fit(messages) + [{"role": "user", "content": WRAP_UP}], model, 2000).strip()
         act = parse_step(out)
         text = str(act["args"].get("message") or "") if act and act["tool"] == "final" else ("" if act else out)
         if text:
@@ -351,7 +368,7 @@ def run_agent(issue: dict, comments: list[dict], model: str, default: str, root:
         if now() - started > MAX_SECONDS:
             return wrap_up(messages, model, f"حدّ الوقت ({int((now() - started) // 60)} دقيقة)", ag.trace), ag.trace
         try:
-            out = A.call_model(messages, model, 3500)
+            out = A.call_model(fit(messages), model, 3000)
         except Exception as exc:
             return f"تعذّر الاتصال بالنموذج: {str(exc)[:300]}", ag.trace
         act = parse_step(out)

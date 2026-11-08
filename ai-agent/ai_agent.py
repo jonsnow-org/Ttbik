@@ -185,6 +185,18 @@ def call_model(messages: list[dict], model: str, max_tokens: int = 6000) -> str:
         except requests.RequestException as exc:
             errors.append(f"{m}: {type(exc).__name__}")
             continue
+        if r.status_code == 429 and name == "Groq":                  # a per-minute token limit: one short wait, one retry
+            try:
+                wait = min(25.0, float(r.headers.get("retry-after", "10")))
+            except (TypeError, ValueError):
+                wait = 10.0
+            time.sleep(wait)
+            try:
+                r = requests.post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "ai-agent"},
+                                  json={"model": mid, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3}, timeout=600)
+            except requests.RequestException as exc:
+                errors.append(f"{m}: {type(exc).__name__}")
+                continue
         if r.status_code in (401, 403):
             refused.append(m)
             errors.append(f"{m}: {name} refused the key")

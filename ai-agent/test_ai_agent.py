@@ -200,7 +200,7 @@ class Providers(unittest.TestCase):
     def test_groq_models_go_to_groq_with_its_own_key_and_fall_back_to_openrouter(self):
         class R:
             def __init__(self, code, text=""):
-                self.status_code, self._t = code, text
+                self.status_code, self._t, self.headers = code, text, {}
 
             def json(self):
                 return {"choices": [{"message": {"content": self._t}}]}
@@ -209,9 +209,14 @@ class Providers(unittest.TestCase):
             self.calls.append((url, headers["Authorization"], json["model"]))
             return R(429) if "groq.com" in url else R(200, "ok from openrouter")
         M.requests.post = fake
-        self.assertEqual(M.call_model([], "groq/llama-3.3-70b-versatile,x/y:free"), "ok from openrouter")
+        orig_sleep, M.time.sleep = M.time.sleep, lambda s: None
+        try:
+            self.assertEqual(M.call_model([], "groq/llama-3.3-70b-versatile,x/y:free"), "ok from openrouter")
+        finally:
+            M.time.sleep = orig_sleep
         self.assertEqual(self.calls[0], ("https://api.groq.com/openai/v1/chat/completions", "Bearer gsk_test", "llama-3.3-70b-versatile"))
-        self.assertEqual(self.calls[1][1:], ("Bearer sk-or-test", "x/y:free"))
+        self.assertEqual(self.calls[1], self.calls[0])                              # Groq's 429 gets one retry
+        self.assertEqual(self.calls[2][1:], ("Bearer sk-or-test", "x/y:free"))
 
     def test_groq_auto_asks_groq_for_its_live_models_and_picks_chat_ones(self):
         class G:
@@ -228,6 +233,24 @@ class Providers(unittest.TestCase):
             self.assertEqual(M.model_list("groq/auto,x:free"), ["x:free"])             # no key: nothing from Groq
         finally:
             M.requests.get = orig
+
+    def test_groq_429_waits_once_and_retries(self):
+        slept = []
+        orig_sleep, M.time.sleep = M.time.sleep, lambda s: slept.append(s)
+
+        class R:
+            def __init__(self, code, text=""):
+                self.status_code, self._t, self.headers = code, text, {"retry-after": "7"}
+
+            def json(self):
+                return {"choices": [{"message": {"content": self._t}}]}
+        seq = [R(429), R(200, "second try")]
+        M.requests.post = lambda *a, **k: seq.pop(0)
+        try:
+            self.assertEqual(M.call_model([], "groq/a"), "second try")
+        finally:
+            M.time.sleep = orig_sleep
+        self.assertEqual(slept, [7.0])
 
     def test_a_missing_key_skips_that_provider_and_no_key_at_all_says_so(self):
         del os.environ["GROQ_API_KEY"]
