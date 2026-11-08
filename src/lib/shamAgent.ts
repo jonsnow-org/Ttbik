@@ -91,7 +91,7 @@ export async function shamAgentRun(opts: {
     opts.agentAsk || (!opts.ask && v2
       ? ((p, n, t, activeTools = opts.tools) => shamModeCtx.run(effMode, async () => {
           // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
-          const structured = await shamGenerateAgentStep(p, activeTools, n, t);
+          const structured = await shamGenerateAgentStep(p, activeTools, n, t, `${opts.ctx.chatId}:${opts.ctx.modelId}`);
           return structured || shamGenerateAny(p, n, t);
         }))
       : rawAsk);

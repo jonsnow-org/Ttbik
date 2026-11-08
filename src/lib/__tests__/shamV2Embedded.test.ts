@@ -25,29 +25,19 @@ describe("Sham v2 embedded environment", () => {
     expect(v2).toEqual(expect.arrayContaining(["sandbox_exec", "desktop"]));
     expect(v1).toEqual(expect.arrayContaining(["sandbox_exec", "desktop", "browser"]));
   });
-  it("the sandbox_* names the model learned run as the matching tool of the embedded computer", async () => {
-    await shamRunTool(call("sandbox_exec", { command: "ls", cwd: "app" }), ctx("sham_v2"));
-    await shamRunTool(call("sandbox_write_file", { path: "a.txt", content: "x", cwd: "app" }), ctx("sham_v2"));
-    await shamRunTool(call("sandbox_clone", { repo: "o/r", branch: "dev" }), ctx("sham_v2"));
-    await shamRunTool(call("sandbox_wait", { id: "j1" }), ctx("sham_v2"));
-    expect(ran.map((r) => r.tool)).toEqual(["computer_run", "computer_write", "computer_repo", "computer_job"]);
-    expect(ran[1].args).toMatchObject({ path: "app/a.txt", content: "x" });
-    expect(ran[2].args).toMatchObject({ url: "https://github.com/o/r", ref: "dev" });
-    expect(ran[3].args).toMatchObject({ action: "log", id: "j1" });
+  it("Sham's computer and browser run inside the model: a call that still reaches the app is not run on any Studio", async () => {
+    for (const m of ["sham_v2", "sham"]) {
+      expect(await shamRunTool(call("computer_run", { command: "ls" }), ctx(m))).toMatch(/runs inside the model itself/);
+      expect(await shamRunTool(call("browser", { action: "open", url: "https://x.test" }), ctx(m))).toMatch(/runs inside the model itself/);
+    }
+    expect(ran).toHaveLength(0);                                          // the hub's computer was never called for a Sham
   });
-  it("Sham v1 is the same: its sandbox_* run on its own embedded computer", async () => {
-    await shamRunTool(call("sandbox_exec", { command: "ls" }), ctx("sham"));
+  it("sandbox_* that reaches the app is refused too: those names run inside the model's loop as the embedded computer", async () => {
+    await shamRunTool(call("sandbox_exec", { command: "ls" }), ctx("sham_v2"));
+    expect(ran).toHaveLength(0);
+  });
+  it("Nova's hub is untouched: another model's computer call still goes to the host", async () => {
+    await shamRunTool(call("computer_run", { command: "ls" }), ctx("lfm25"));
     expect(ran.map((r) => r.tool)).toEqual(["computer_run"]);
-  });
-});
-
-import { browserOwnStudioFor } from "@/lib/browserComputer";
-describe("each Sham's browser lives in its own Studio", () => {
-  it("routes the browser of Sham and Sham v2 to their own Studios, other models to the shared hub", () => {
-    delete process.env.SHAM_V2_URL; delete process.env.SHAM_MODELSCOPE_URL;
-    expect(browserOwnStudioFor("sham_v2")).toContain("sham-v2-server");
-    expect(browserOwnStudioFor("sham")).not.toContain("sham-v2");
-    expect(browserOwnStudioFor("sham")).toContain("sham");
-    expect(browserOwnStudioFor("lfm25") || "").not.toContain("sham");
   });
 });

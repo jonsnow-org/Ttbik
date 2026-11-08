@@ -59,9 +59,10 @@ describe("the model's own browser", () => {
     expect(calls[0].url).toContain("nova-inference-server");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
     expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:lfm25" });
-    expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toContain("PAGE TEXT:");
-    expect(calls[2].url).not.toContain("nova-inference-server");          // Sham: its OWN embedded browser (owner 2026-11-08), not the shared hub
-    expect(await browserDo("sham_v2", "1:v2", { action: "look" }, fetchImpl)).toContain("PAGE TEXT:");
-    expect(calls[4].url).toContain("sham-v2-server");
+    // Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (owner 2026-11-08), so nothing is sent
+    const before = calls.length;
+    expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
+    expect(await browserDo("sham_v2", "1:v2", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);
+    expect(calls.length).toBe(before);
   });
 });

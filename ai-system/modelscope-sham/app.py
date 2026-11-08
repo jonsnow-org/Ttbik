@@ -369,7 +369,7 @@ def _chat_params(messages_json: str, max_new_tokens: float, temperature: float, 
     return clean, n, temp, thought
 
 
-def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
+def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0, session: str = "") -> str:
     """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions."""
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_chat is available only on Sham v2."}, ensure_ascii=False)
@@ -385,6 +385,16 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
     try:
         model = serve._state["model"]
         tok = serve._state["text_tokenizer"]
+        import sham_embedded_tools as embedded
+        last = clean[-1]["content"]
+        if embedded.enabled() and embedded.has_embedded_tools(last):         # a tool turn: the computer / browser calls run inside the model's own loop
+            from sham_native_tools import extract_tool_call
+            from sham_toolcall import tool_names_from_prompt
+            names = tool_names_from_prompt(last)
+            answer, trace, _ = embedded.loop(
+                lambda p: _studio_chat().qwen3_chat_messages(model, tok, clean[:-1] + [{"role": "user", "content": p}], n, temperature=temp, think_tokens=thought, tool_prompt=p),
+                extract_tool_call, last, names, str(session or "default"))
+            return json.dumps({"type": "text", "text": answer, **({"embedded": trace} if trace else {})}, ensure_ascii=False)
         answer = _studio_chat().qwen3_chat_messages(model, tok, clean, n, temperature=temp, think_tokens=thought)
         return json.dumps({"type": "text", "text": answer}, ensure_ascii=False)
     except Exception as exc:
@@ -444,7 +454,7 @@ def generate_chat_stream(messages_json: str, max_new_tokens: float = 512, temper
         _LOCK.release()
 
 
-def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160) -> str:
+def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160, session: str = "") -> str:
     """Sham v2's structured agent API.
 
     The caller sends the active tool schemas separately from the text prompt.
@@ -481,9 +491,13 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
         if len(active_names) != len(set(active_names)):
             return json.dumps({"type": "tool_call_error", "text": "قائمة الأدوات تحتوي أسماء مكررة."}, ensure_ascii=False)
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
-        raw = _studio_chat().studio_generate(model, tok, str(prompt or ""), n, search_fn=None)
         from sham_toolcall import OPEN_TAG
         from sham_native_tools import extract_tool_call
+        import sham_embedded_tools as embedded
+        # The computer and the browser are part of the model's own loop (owner 2026-11-08): when the model writes a call to one of them it runs HERE, the result is pasted
+        # back in the trained layout and the model goes on; every other tool is returned to the web app as before.
+        raw, trace, prompt = embedded.loop(lambda p: _studio_chat().studio_generate(model, tok, p, n, search_fn=None), extract_tool_call, str(prompt or ""), active_names,
+                                           str(session or "default"))
 
         call = extract_tool_call(raw, str(prompt or ""), active_names)
         if call:
@@ -497,6 +511,7 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
             }]
             return json.dumps({
                 "type": "tool_calls",
+                "embedded": trace,
                 "text": call.get("text", ""),
                 "tool_calls": tool_calls,
                 "message": {"role": "assistant", "content": call.get("text", ""), "tool_calls": tool_calls},
@@ -509,12 +524,29 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160)
                 "text": "ولّد شام استدعاء أداة غير مكتمل أو غير مسموح. لم تُنفّذ أي أداة؛ أعد المحاولة بصيغة صحيحة.",
                 "raw": str(raw or "")[:240],
             }, ensure_ascii=False)
-        return json.dumps({"type": "text", "text": str(raw or "").strip()}, ensure_ascii=False)
+        return json.dumps({"type": "text", "text": str(raw or "").strip(), **({"embedded": trace} if trace else {})}, ensure_ascii=False)
     except Exception as exc:
         print(f"agent_step failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر إنشاء خطوة وكيل منظّمة الآن.")
     finally:
         _LOCK.release()
+
+
+def computer_changes(body: str = "") -> str:
+    """READ-ONLY: the files changed in one git checkout of the model's embedded computer (sham_computer.Computer.changes), so the web app can commit them after the user
+    confirms. It runs nothing and writes nothing; the GitHub token never comes here. Everything else of the computer is the model's own loop (sham_embedded_tools.py)."""
+    try:
+        import base64
+        import sham_embedded_tools as embedded
+        if not embedded.enabled():
+            return json.dumps({"ok": False, "error": "the embedded computer is switched off"})
+        text = str(body or "")
+        if text.startswith("b64:"):
+            text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+        job = json.loads(text or "{}")
+        return json.dumps(embedded.computer_for(str(job.get("session") or "default")).changes(str(job.get("repo") or ""), str(job.get("dir") or "") or None), ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
 
 
 def _vet(res, raw_test: bool = False):
@@ -757,7 +789,7 @@ def build_ui():
         native_chat = gr.Interface(
             generate_chat,
             [gr.Textbox(label="messages_json"), gr.Number(label="max_new_tokens", value=512),
-             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0)],
+             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0), gr.Textbox(label="session", value="")],
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
@@ -772,30 +804,13 @@ def build_ui():
     # Only the dedicated Sham v2 wrapper exposes this API; v1 keeps its existing Studio interface.
     if _V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1":
         agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Textbox(label="active tool schemas JSON", value="[]"),
-                                             gr.Number(label="max_new_tokens", value=160)],
+                                             gr.Number(label="max_new_tokens", value=160), gr.Textbox(label="session", value="")],
                              gr.Textbox(label="structured agent result"), api_name="agent_step", flagging_mode="never")
         interfaces.insert(1, agent)
         labels.insert(1, "وكيل شام v2 (استدعاءات منظّمة)")
-    # The headless browser lives INSIDE each Sham's own Studio too (owner's order 2026-11-08: browsing is part of Sham's own architecture, like its computer):
-    # browser_computer.py (staged beside this file) opens pages, clicks, types, reads; Chromium is fetched on first use. The web app sends a Sham's browser calls here.
-    try:
-        import browser_computer as _br
-        interfaces += [gr.Interface(_br.api_browser_do, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="browser_do", flagging_mode="never"),
-                       gr.Interface(_br.api_browser_status, None, gr.Textbox(label="out"), api_name="browser_status", flagging_mode="never")]
-        labels += ["متصفح شام المدمج", "حالة المتصفح المدمج"]
-    except Exception as exc:
-        print("embedded browser unavailable:", type(exc).__name__, str(exc)[:160], flush=True)
-    # EACH Sham's EMBEDDED computer (owner's order 2026-11-08: Sham and Sham v2 depend on nothing outside themselves): the same terminal / files / jobs / git engine the shared hub ran
-    # (computer_box.py, staged beside this file), served from the model's own Studio. The web app sends a Sham's computer_* calls here, never to the hub.
-    if True:        # both Shams (the shared hub is Nova's only)
-        try:
-            import computer_box as _box
-            box_do = gr.Interface(_box.api_box_do, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="box_do", flagging_mode="never")
-            box_status = gr.Interface(_box.api_box_status, gr.Textbox(label="body"), gr.Textbox(label="out"), api_name="box_status", flagging_mode="never")
-            interfaces += [box_do, box_status]
-            labels += ["حاسوب شام v2 المدمج", "حالة الحاسوب المدمج"]
-        except Exception as exc:  # never keep the Studio from starting because the computer module is missing: chat still works, the status says so
-            print("embedded computer unavailable:", type(exc).__name__, str(exc)[:160], flush=True)
+    interfaces.append(gr.Interface(computer_changes, gr.Textbox(label="body"), gr.Textbox(label="changes"),
+                                   api_name="computer_changes", flagging_mode="never"))
+    labels.append("تغييرات الحاسوب المدمج (قراءة فقط)")
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 

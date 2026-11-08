@@ -227,6 +227,47 @@ class Computer:
             return f"error: {type(e).__name__}: {str(e)[:160]}"
         return f"cloned into {name}" if r.returncode == 0 else "error: " + _clip((r.stderr or r.stdout).strip(), 400)
 
+    # ------------------------------------------------------------ read-only: what changed in a checkout (the app commits it after the user confirms; no token ever enters here)
+    def changes(self, repo: str, dir: str | None = None, max_files: int = 60, max_bytes: int = 200_000) -> dict:
+        """{ok, repo, base, files:[{path,content}], deleted:[path], skipped:[{path,why}]} for the checkout `dir` (default repos/<owner>-<name>) of `repo` (owner/name)."""
+        m = re.match(r"^([\w.-]+)/([\w.-]+)$", (repo or "").strip())
+        if not m:
+            return {"ok": False, "error": "repo must be owner/name"}
+        try:
+            root = self._path(dir or f"repos/{m.group(1)}-{m.group(2)}")
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if not (root / ".git").exists():
+            return {"ok": False, "error": f"no git checkout at {root.name}; clone it first with computer_repo"}
+
+        def git(*a):
+            return subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True, timeout=60, env=self._env(), preexec_fn=_limits(60, self.mem_mb, self.drop))
+        base = git("rev-parse", "HEAD").stdout.strip()
+        status = git("status", "--porcelain", "-z", "--untracked-files=all").stdout.split("\0")
+        files, deleted, skipped = [], [], []
+        for entry in [e for e in status if len(e) > 3]:
+            code, path = entry[:2], entry[3:]
+            if "D" in code:
+                deleted.append(path)
+                continue
+            if len(files) >= max_files:
+                skipped.append({"path": path, "why": "too many files"})
+                continue
+            try:
+                target = (root / path).resolve()
+                if root not in target.parents and target != root:
+                    skipped.append({"path": path, "why": "outside the checkout"})
+                    continue
+                raw = target.read_bytes()
+            except OSError:
+                skipped.append({"path": path, "why": "unreadable"})
+                continue
+            if len(raw) > max_bytes or b"\0" in raw[:4096]:
+                skipped.append({"path": path, "why": "binary or larger than 200 KB"})
+                continue
+            files.append({"path": path, "content": raw.decode("utf-8", "replace")})
+        return {"ok": True, "repo": repo, "base": base, "files": files, "deleted": deleted, "skipped": skipped}
+
     # ------------------------------------------------------------ background jobs
     def job(self, action: str, command: str = "", name: str = "", id: str = "", tail: int = 60) -> str:
         if action == "list":

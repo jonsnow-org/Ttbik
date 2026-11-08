@@ -42,16 +42,20 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertIn('os.environ.setdefault("SHAM_NATIVE_TOOL_CALLS", "1")', wrapper)
             self.assertNotIn("novaai2026/sham-v1", wrapper)
 
-    def test_v2_studio_ships_its_own_embedded_computer(self):
-        # owner 2026-11-08: Sham v2 depends on nothing outside itself; its terminal / files / jobs engine is staged inside its own Studio
+    def test_the_computer_and_browser_are_in_the_models_own_code_not_behind_an_api(self):
+        # owner 2026-11-08: Sham's computer lives in the model's code (its generation loop), not on a Studio and not behind a command API
         with tempfile.TemporaryDirectory() as folder:
             studio = Path(folder)
             stage_sham_v2(studio)
-            self.assertTrue((studio / "computer_box.py").is_file())
+            self.assertTrue((studio / "sham_small" / "sham_embedded_tools.py").is_file())
+            self.assertTrue((studio / "sham_small" / "sham_computer.py").is_file())
             self.assertTrue((studio / "browser_computer.py").is_file())
+            self.assertFalse((studio / "computer_box.py").exists())
             app = (studio / "sham_app.py").read_text(encoding="utf-8")
-            self.assertIn('api_name="box_do"', app)
-            self.assertIn("import computer_box", app)
+            self.assertIn("sham_embedded_tools", app)
+            self.assertNotIn('api_name="box_do"', app)
+            self.assertNotIn('api_name="browser_do"', app)
+            self.assertIn('api_name="computer_changes"', app)          # read-only, for publishing after the user confirms
 
 
 if __name__ == "__main__":

@@ -43,18 +43,17 @@ class ShamV2ChatRouteTests(unittest.TestCase):
             # tolerated (`|| true`) or the deploy aborts with no message.
             self.assertIn("head -1 || true)", workflow, name)
 
-    def test_computer_calls_use_sham_v2s_own_embedded_computer_not_the_shared_hub(self):
+    def test_the_computer_runs_inside_the_models_own_loop_not_behind_a_command_api(self):
         source = SMOKE.read_text(encoding="utf-8")
-        self.assertIn("COMPUTER_BASE = BASE", source)
-        self.assertIn('"sham-v2-server" not in COMPUTER_BASE.lower()', source)
+        self.assertNotIn("box_do", source)
         self.assertNotIn("COMPUTER_STUDIO_URL", source)
         self.assertNotIn("sham-v2-video-server", source)
+        self.assertIn('response.get("embedded")', source)
 
     def test_live_smoke_requires_the_model_to_choose_and_execute_its_own_terminal_tool(self):
         source = SMOKE.read_text(encoding="utf-8")
         self.assertIn('call("agent_step"', source)
         self.assertIn('"- computer_run(command, cwd?, timeout?)', source)
-        self.assertIn('call_computer_box({', source)
         self.assertIn("Sham v2 itself selected computer_run", source)
         self.assertIn("generated_command", source)
 

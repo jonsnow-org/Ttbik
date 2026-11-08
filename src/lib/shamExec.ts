@@ -395,6 +395,13 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       if (result.error) return `error: ${result.error}`;
       return clip({ published: `${collected.files.length} file(s) changed, ${collected.deleted.length} deleted in ONE commit on ${branch}`, ...result, ...(collected.skipped.length ? { skipped: collected.skipped } : {}) });
     }
+    if (name.startsWith("computer_") && (ctx.modelId === "sham" || ctx.modelId === "sham_v2")) {
+      // The Shams' computer runs INSIDE the model's own loop (sham_embedded_tools.py); a call that still reaches the app is not run anywhere else.
+      return "error: Sham's computer runs inside the model itself; this call was not executed here. Write the call again and the model will run it.";
+    }
+    if (name === "browser" && (ctx.modelId === "sham" || ctx.modelId === "sham_v2")) {
+      return "error: Sham's browser runs inside the model itself; this call was not executed here. Write the call again and the model will run it.";
+    }
     if (name.startsWith("computer_")) {
       return clip(await H0.computer.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, name, a));
     }
