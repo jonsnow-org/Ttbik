@@ -92,16 +92,19 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   const ov = overflowVerdict();
   const overflow: StudioProbe[] = over ? [S(hostOf(over), ROLE.v2over, { ok: ov.ok, phase: ov.ok ? "ready" : "unverified", detail: ov.ok ? "" : ov.why })] : [];
   const e2 = await shamEngine("sham_v2", db), e1 = await shamEngine("sham", db);
-  const v2lines = (e: ShamEngine): MediaLine[] => e === "ready"
-    ? [{ kind: "image", ar: "صورة: Realistic Vision V6 (استوديو مستقل)", en: "Image: Realistic Vision V6 (independent Studio)", studio: "realistic-vision-v6-test" }, { kind: "audio", ar: "صوت: أوزان جاهزة (Piper) على المعالج", en: "Speech: ready weights (Piper) on CPU", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: hostOf(v2v) }]
-    : [{ kind: "image", ar: "صورة: Realistic Vision V6 (استوديو مستقل)", en: "Image: Realistic Vision V6 (independent Studio)", studio: "realistic-vision-v6-test" }, { kind: "audio", ar: "صوت: مولّد شام الداخلي", en: "Speech: Sham's own generator", studio: hostOf(v2) }, { kind: "video", ar: "فيديو: مولّد شام الداخلي", en: "Video: Sham's own generator", studio: hostOf(v2) }];
+  // Owner's order 2026-11-08: Sham v2 is a copy of Sham v1 and makes image, speech and video with its OWN internal generator only.
+  const v2lines = (_e: ShamEngine): MediaLine[] => [
+    { kind: "image", ar: "صورة: مولّد شام v2 الداخلي", en: "Image: Sham v2's own generator", studio: hostOf(v2) },
+    { kind: "audio", ar: "صوت: مولّد شام الداخلي", en: "Speech: Sham's own generator", studio: hostOf(v2) },
+    { kind: "video", ar: "فيديو: مولّد شام الداخلي", en: "Video: Sham's own generator", studio: hostOf(v2) },
+  ];
   return {
     checkedAt: new Date().toISOString(),
     photoWeights,
     models: [
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
         lines: [{ kind: "image", ar: "صورة: epiCRealism (وزن Nova المستقل)", en: "Image: epiCRealism dedicated Nova weight", studio: "epicrealism-image-test" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },
-      { id: "sham_v2", engine: e2, options: opts("sham_v2"), lines: v2lines(e2), studios: [S(hostOf(v2), ROLE.v2chat, pV2), S(hostOf(v2v), ROLE.v2video, pV2v), ...overflow] },
+      { id: "sham_v2", engine: e2, options: opts("sham_v2"), lines: v2lines(e2), studios: [S(hostOf(v2), ROLE.v2chat, pV2), ...overflow] },
       { id: "sham", engine: e1, options: opts("sham"), lines: [{ kind: "image", ar: "صورة: مولّد شام القديم الداخلي", en: "Image: old Sham's own generator", studio: hostOf(v1) }, { kind: "audio", ar: "صوت: مولّد شام القديم الداخلي", en: "Speech: old Sham's own generator", studio: hostOf(v1) }, { kind: "video", ar: "فيديو: مولّد شام القديم الداخلي", en: "Video: old Sham's own generator", studio: hostOf(v1) }],
         studios: [S(hostOf(v1), ROLE.v1, pV1)] },
     ],

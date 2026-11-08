@@ -504,16 +504,14 @@ export async function shamMediaRoute(db: Db = prismaDb): Promise<ShamMediaRoute>
     await settingsTable(db);
     const current = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_route_v4'`);
     const route = current[0]?.value;
-    if (route === "sham_v1" || route === "sham_v2_internal" || route === "sham_v2_ready") return route;
-    if (route === "sham_v2") return "sham_v2_ready";
-    if (route === "nova_media" || route === "sham_v2_hf") return "sham_v2_ready";
+    if (route === "sham_v1" || route === "sham_v2_internal") return route;
+    if (route === "sham_v2_ready" || route === "sham_v2" || route === "nova_media" || route === "sham_v2_hf") return "sham_v2_internal";
     const previous = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_route_v3'`);
     if (previous[0]?.value === "sham_v1") return "sham_v1";
-    if (previous[0]?.value === "sham_v2") return "sham_v2_ready";
-    if (previous[0]?.value === "nova_media" || previous[0]?.value === "sham_v2_hf") return "sham_v2_ready";
+    if (previous[0]?.value === "sham_v2" || previous[0]?.value === "nova_media" || previous[0]?.value === "sham_v2_hf") return "sham_v2_internal";
     const legacy = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = 'media_order_v2'`);
-    return "sham_v2_ready";
-  } catch { return "sham_v2_ready"; }
+    return "sham_v2_internal";
+  } catch { return "sham_v2_internal"; }
 }
 export async function setShamMediaRoute(route: ShamMediaRoute, db: Db = prismaDb): Promise<void> {
   await settingsTable(db);
@@ -527,7 +525,7 @@ export async function shamMediaRouteEnabled(route: ShamMediaRoute, db: Db = pris
     const rows = await db.query<{ value: string }>(`SELECT value FROM sham_settings WHERE key = $1`, `media_enabled_${route}`);
     if (rows.length) return rows[0].value === "enabled";
   } catch { /* use the safe default below */ }
-  return route === "sham_v2_ready" || route === "sham_v1";
+  return route === "sham_v2_internal" || route === "sham_v1";
 }
 export async function shamMediaRouteEnabledMap(db: Db = prismaDb): Promise<ShamMediaEnabled> {
   const values = await Promise.all(MEDIA_ROUTES.map(async (route) => [route, await shamMediaRouteEnabled(route, db)] as const));
@@ -542,5 +540,5 @@ export async function shamMediaOrder(db: Db = prismaDb): Promise<ShamMediaOrder>
   return "own_first";
 }
 export async function setShamMediaOrder(order: ShamMediaOrder, db: Db = prismaDb): Promise<void> {
-  await setShamMediaRoute("sham_v2_ready", db);
+  await setShamMediaRoute("sham_v2_internal", db);
 }

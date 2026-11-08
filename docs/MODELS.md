@@ -9,7 +9,7 @@ Code: `src/lib/coderModels.ts` (registry), `src/lib/openCoderStudio.ts` (engine 
 |---|---|---|---|---|---|
 | `coder` | Nova AI (Qwen3.5-4B Q4_K_M; LFM2.5 was tried as its brain on 2026-11-08 and rolled back: fast but it invented tool results in a real task) | everyone (free tier: 3 images + 3 videos a day; owner unlimited) | `coder-inference-server`, `-2` … `-5` (`OPEN_CODER_STUDIO_URL(S)`) | `epicrealism-image-test` (`NOVA_IMAGE_STUDIO_URL`) | Nova media Studio (`NOVA_MEDIA_URL`) |
 | `lfm25` | LFM2.5 (fast): LiquidAI LFM2.5-8B-A1B Q4_K_M, ctx 32k | owner; visibility toggle | `lfm25-inference-server` (`LFM_STUDIO_URLS`) | `lfm25-media-server` (`LFM_MEDIA_STUDIO_URL`) | `lfm25-media-server` |
-| `sham_v2` | Sham v2 (old Sham code + modified donor weights) | owner; visibility toggle | `sham-v2-server` (+ overflow) | `realistic-vision-v6-test` | Sham v2's own media lane |
+| `sham_v2` | Sham v2 (old Sham code + modified donor weights) | owner; visibility toggle | `sham-v2-server` (+ overflow) | (none: its own internal generator) | Sham v2 makes all media itself, like v1 (2026-11-08) |
 | `sham` | Sham v1 | owner | open (being retrained from scratch; work on it freely — owner's order 2026-11-06) | — | — |
 | `freei` | free i (OpenRouter agent through GitHub; a flag on the chat, not a model of this app: see docs/START_HERE.md §4) | owner only | none | none | none |
 

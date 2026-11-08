@@ -10,11 +10,11 @@ beforeEach(async () => { await resetPg(); process.env.SUPER_ADMIN_TELEGRAM_ID = 
 describe("per-model media engine", () => {
   it("defaults each model to its own media Studio and has no shared engine", async () => {
     const db: any = pgDb();
-    expect(await shamEngine("sham_v2", db)).toBe("ready");
+    expect(await shamEngine("sham_v2", db)).toBe("internal");
     expect(await shamEngine("sham", db)).toBe("internal");
     expect(targetOf("sham", "internal")).toEqual({ route: "sham_v1", variant: "v1", backend: "internal" });
     expect(targetOf("sham_v2", "internal")).toEqual({ route: "sham_v2_internal", variant: "v2", backend: "internal" });
-    expect(targetOf("sham_v2", "ready")).toEqual({ route: "sham_v2_ready", variant: "v2", backend: "ready" });
+    expect(() => targetOf("sham_v2", "ready")).toThrow("engine not supported");   // the donor generators are retired: v2 is a copy of v1 and uses only its own
     expect(() => targetOf("sham", "ready")).toThrow("engine not supported");
   });
   it("choices are stored per model and cannot cross over", async () => {
@@ -46,8 +46,8 @@ describe("per-model media engine", () => {
     expect(by.coder.studios[0]).toMatchObject({ id: "nova-media-server", ok: true });
     expect(by.coder.lines.find((l) => l.kind === "image")?.studio).toBe("epicrealism-image-test");   // Nova's picture is its own dedicated weight Studio
     expect(by.coder.lines.filter((l) => l.kind !== "image").every((l) => l.studio === "nova-media-server")).toBe(true);
-    expect(by.sham_v2.lines.find((l) => l.kind === "video")?.studio).toBe("sham-v2-video-server");
-    expect(by.sham_v2.studios.map((s) => s.id)).toEqual(["sham-v2-server", "sham-v2-video-server"]);
+    expect(by.sham_v2.lines.every((l) => l.studio === "sham-v2-server")).toBe(true);                // v2 makes all its media itself, like v1
+    expect(by.sham_v2.studios.map((s) => s.id)).toEqual(["sham-v2-server"]);
     expect(JSON.stringify(by.coder)).not.toMatch(/sham/i);                           // Nova never touches a Sham Studio
     expect(by.sham.engine).toBe("internal");
     expect(by.sham.studios.map((s) => s.id)).toEqual(["sham-v1-server"]);
