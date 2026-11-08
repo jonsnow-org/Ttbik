@@ -1,5 +1,5 @@
 import type { Db } from "@/lib/coderAuth";
-import { chooseModel, effectiveModel, listModels, modelReady, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, effectiveModel, listModels, modelReady, ownerModels, publicModels, publicShamSelection, updateModel } from "@/lib/coderModels";
 
 function modelsDb(): Db {
   const rows = new Map<string, any>();
@@ -115,7 +115,7 @@ describe("coder models", () => {
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "lfm25"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "lfm25", "freei"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "sham", false).id).toBe("coder");                    // a user cannot use a hidden one
     expect(effectiveModel(all, "sham", true).id).toBe("sham");                 // the owner can try it
@@ -147,5 +147,19 @@ describe("coder models", () => {
     expect(JSON.stringify(pub)).not.toMatch(/serveEnv|URL|visible/);
     expect(ownerModels(on, undefined).find((m) => m.id === "sham")).toMatchObject({ visible: true, ready: true });
     delete process.env.MODELSCOPE_API_TOKEN;
+  });
+});
+
+describe("free i is a switch only", () => {
+  const models = DEFAULT_MODELS.map((m) => ({ ...m }));
+  it("the owner can pick it without changing the chat's model; anyone else cannot; picking another model clears it", () => {
+    const st: any = { model: "coder", mode: "coder" };
+    expect(chooseModel(st, models, "freei", false)).toBe(false);
+    expect(st.freei).toBeUndefined();
+    expect(chooseModel(st, models, "freei", true)).toBe(true);
+    expect(st.freei).toBe(true);
+    expect(st.model).toBe("coder");                       // nothing else sees it as a model
+    expect(chooseModel(st, models, "coder", true)).toBe(true);
+    expect(st.freei).toBe(false);
   });
 });

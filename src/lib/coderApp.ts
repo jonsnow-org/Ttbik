@@ -389,6 +389,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (verdict === "blocked") throw new AppError(403, "model not available");
         if (verdict === "moved") await saveState(chatId, stNow, db);
       }
+      if (user.tier === "owner" && stNow.freei) {        // "free i": the AI Agent path, not a model of this app; the answer arrives in the bot chat
+        const { sendToFreeI } = await import("@/lib/aiAgentBridge");
+        const r = await sendToFreeI(text, chatId);
+        if (!r.queued) throw new AppError(503, r.message);
+        return { ok: true, queued: true, freei: true, message: r.message, issue: r.issue };
+      }
       // Normal messages still use the existing Nova/Sham runner.
       const { startAppTask } = await import("@/lib/coderSections");
       try {
@@ -477,9 +483,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const st = await loadState(chatId, db);
       const all = await listModels(db);
       return {
-        models: publicModels(all, st.model),
+        models: publicModels(all, st.freei ? "freei" : st.model),
         ...(user.tier === "owner" ? {
-          owner: ownerModels(all, st.model),
+          owner: ownerModels(all, st.freei ? "freei" : st.model),
         } : {}),
       };
     }

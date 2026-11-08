@@ -30,32 +30,49 @@ const HELP = "AI Agent:\n/build <ما تريد بناءه>\n/fix <ما تريد 
 
 type Api = { sendMessage: (chatId: number, text: string) => Promise<unknown> };
 
-/** true = the update was a AI command (answered here); false = not ours, the normal flow continues. */
-export async function handleAiAgentUpdate(bot: { api: Api }, update: any, fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  const msg = update?.message;
-  const text = typeof msg?.text === "string" ? msg.text : "";
-  const parsed = parseAiCommand(text);
-  const chatId = msg?.chat?.id;
-  if (!parsed || !chatId) return false;
-  if (tierFor(chatId) !== "owner") return false;                      // for anyone else these remain ordinary messages
-  const say = (t: string) => bot.api.sendMessage(chatId, t).catch(() => null);
+type OpenResult = { ok: true; number?: number } | { ok: false; error: string };
+
+/** Opens the GitHub issue the AI Agent workflow answers. The answer comes back to the chat through ai-telegram-bridge.yml. */
+export async function openAiIssue(cmd: AICmd, body: string, chatId: number | string, updateId: number | string, fetchImpl: typeof fetch = fetch): Promise<OpenResult> {
   const token = await getSecret("AI_GITHUB_TOKEN");
   const repo = (await getSecret("AI_REPO")) || "jonsnow-org/Ttbik";
-  if (!token) { await say("AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> في بوت أثر (انظر ai-agent/README.md)."); return true; }
-  if (!parsed.body) { await say(HELP); return true; }
+  if (!token) return { ok: false, error: "AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> في بوت أثر (انظر ai-agent/README.md)." };
   try {
-    const f = aiAgentIssue(parsed.cmd, parsed.body, chatId, update.update_id ?? Date.now());
     const r = await fetchImpl(`https://api.github.com/repos/${repo}/issues`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "nova-ai-bridge" },
-      body: JSON.stringify(f),
+      body: JSON.stringify(aiAgentIssue(cmd, body, chatId, updateId)),
       signal: AbortSignal.timeout(20000),
     });
-    if (!r.ok) { await say(`تعذّر فتح القضية (HTTP ${r.status}).`); return true; }
-    const issue = (await r.json()) as { number?: number };
-    await say(`استلمتُ طلبك في AI Agent — القضية #${issue.number}، الوضع: ${parsed.cmd === "full" ? "صلاحيات كاملة (فرع + طلب دمج)" : "عادي (تعليق وتحليل)"}. سيصلك الرد هنا.`);
+    if (!r.ok) return { ok: false, error: `تعذّر فتح القضية (HTTP ${r.status}).` };
+    return { ok: true, number: ((await r.json()) as { number?: number }).number };
   } catch (e) {
-    await say(`تعذّر الوصول إلى جيتهوب: ${String((e as Error)?.message || e).slice(0, 120)}`);
+    return { ok: false, error: `تعذّر الوصول إلى جيتهوب: ${String((e as Error)?.message || e).slice(0, 120)}` };
   }
+}
+
+const received = (n: number | undefined, cmd: AICmd) => `استلمتُ طلبك في free i — القضية #${n}، الوضع: ${cmd === "full" ? "صلاحيات كاملة (فرع + طلب دمج)" : "عادي (تعليق وتحليل)"}. سيصلك الرد هنا خلال دقائق.`;
+
+/** Mini App send while the owner has "free i" selected. */
+export async function sendToFreeI(text: string, chatId: number | string, fetchImpl: typeof fetch = fetch): Promise<{ queued: boolean; message: string; issue?: number }> {
+  const r = await openAiIssue("ai", text, chatId, Date.now(), fetchImpl);
+  return r.ok ? { queued: true, message: received(r.number, "ai"), issue: r.number } : { queued: false, message: r.error };
+}
+
+/** true = the update was ours (answered here); false = not ours, the normal flow continues.
+ *  Ours: the four commands, and — when the owner picked the "free i" model — every plain text message. */
+export async function handleAiAgentUpdate(bot: { api: Api }, update: any, fetchImpl: typeof fetch = fetch, selectedModel?: (chatId: number) => Promise<string | undefined>): Promise<boolean> {
+  const msg = update?.message;
+  const text = typeof msg?.text === "string" ? msg.text : "";
+  const chatId = msg?.chat?.id;
+  if (!chatId || !text) return false;
+  if (tierFor(chatId) !== "owner") return false;                      // for anyone else these remain ordinary messages
+  let parsed = parseAiCommand(text);
+  if (!parsed && !text.trim().startsWith("/") && selectedModel && (await selectedModel(chatId).catch(() => undefined)) === "freei") parsed = { cmd: "ai", body: text.trim() };
+  if (!parsed) return false;
+  const say = (t: string) => bot.api.sendMessage(chatId, t).catch(() => null);
+  if (!parsed.body) { await say(HELP); return true; }
+  const r = await openAiIssue(parsed.cmd, parsed.body, chatId, update.update_id ?? Date.now(), fetchImpl);
+  await say(r.ok ? received(r.number, parsed.cmd) : r.error);
   return true;
 }

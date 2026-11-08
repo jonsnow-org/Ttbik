@@ -40,4 +40,21 @@ describe("aiBridge", () => {
     expect(await handleAiAgentUpdate(bot, { update_id: 4, message: { text: "/build x", chat: { id: 42 } } }, fake)).toBe(true);
     expect(sent[sent.length - 1]).toContain("AI_GITHUB_TOKEN");
   });
+  test("free i selected: owner's plain text goes to the AI Agent; another model or a stranger does not", async () => {
+    process.env.AI_GITHUB_TOKEN = "t"; process.env.AI_REPO = "o/r";
+    const sent: string[] = [];
+    const bot = { api: { sendMessage: async (_c: number, t: string) => { sent.push(t); } } };
+    const calls: any[] = [];
+    const fake = (async (_u: string, init: any) => { calls.push(JSON.parse(init.body)); return { ok: true, status: 201, json: async () => ({ number: 7 }) }; }) as unknown as typeof fetch;
+    const upd = (id: number, chat: number, text: string) => ({ update_id: id, message: { text, chat: { id: chat } } });
+    expect(await handleAiAgentUpdate(bot, upd(1, 42, "اشرح لي"), fake, async () => "freei")).toBe(true);
+    expect(calls[0].labels).toContain("from-telegram");
+    expect(calls[0].body).toContain("اشرح لي");
+    expect(sent[sent.length - 1]).toContain("#7");
+    expect(await handleAiAgentUpdate(bot, upd(2, 42, "اشرح لي"), fake, async () => "coder")).toBe(false);    // Nova stays Nova
+    expect(await handleAiAgentUpdate(bot, upd(3, 999, "x"), fake, async () => "freei")).toBe(false);          // not the owner
+    expect(await handleAiAgentUpdate(bot, upd(4, 42, "/models"), fake, async () => "freei")).toBe(false);     // other commands pass through
+    expect(calls).toHaveLength(1);
+    delete process.env.AI_GITHUB_TOKEN;
+  });
 });
