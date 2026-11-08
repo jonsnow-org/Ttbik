@@ -159,8 +159,6 @@ EXTRA_KERNELS = {
     "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
     # 6th notebook (2026-10-26, owner): Sham v2 training (donor body + Sham's media rows). GPU first (its kernel-metadata says enable_gpu), CPU when the quota is out.
     "jonsnowjonsnow/sham-v2-train": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "sham_v2",
-    # 7th notebook (2026-11-08, owner): the CANDIDATE donor lineage of Sham v2 (SmolLM3-3B body, own dataset sham-v2-candidate-checkpoint); the served lineage is never touched.
-    "jonsnowjonsnow/sham-v2-candidate-train": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "sham_v2_candidate",
 }
 
 

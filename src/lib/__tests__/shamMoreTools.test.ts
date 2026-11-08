@@ -68,6 +68,8 @@ describe("Nova's plan tool", () => {
     expect(out).toBe("◐ 1. read\n☐ 2. fix");
     expect(notes[0]).toMatch(/^PLAN\n◐ 1\. read/);
     expect(await runTool(call("plan", { items: [] }), { addNote: () => undefined } as any)).toMatch(/^error/);
+    // Nova has the shared skills too (owner 2026-11-08)
+    expect(await runTool(call("skill", { name: "pdf" }), { addNote: () => undefined } as any)).toMatch(/^SKILL pdf: Read or make a PDF/);
   });
   it("renders a TODO list with status marks, caps at 12, rejects nothing usable", () => {
     expect(renderPlan([{ step: "read the file", status: "done" }, { step: "fix it", status: "doing" }, { step: "test" }])).toBe("☑ 1. read the file\n◐ 2. fix it\n☐ 3. test");

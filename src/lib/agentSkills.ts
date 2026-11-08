@@ -1,6 +1,6 @@
-// Sham's SKILLS: short, exact how-tos the model loads with the `skill` tool before a kind of work it does not do every day (the idea behind the "skills" of the largest assistants:
+// SKILLS (shared by Sham, Sham v2 and Nova): short, exact how-tos the model loads with the `skill` tool before a kind of work it does not do every day (the idea behind the "skills" of the largest assistants:
 // a procedure on demand instead of a fact the weights must hold). Each one names the tools to call, in order, with real arguments. Plain text, no network, no secrets.
-export const SHAM_SKILLS: Record<string, { title: string; when: string; steps: string }> = {
+export const AGENT_SKILLS: Record<string, { title: string; when: string; steps: string }> = {
   pdf: {
     title: "Read or make a PDF", when: "the user gives a PDF to read, or wants a PDF file",
     steps: "Read: computer_run command=\"pip install -q pypdf && python3 -c \\\"import pypdf;r=pypdf.PdfReader('f.pdf');print(len(r.pages));print(r.pages[0].extract_text()[:3000])\\\"\". Scanned PDF (no text): computer_run \"pdftotext -layout f.pdf - | head -200\" or OCR with tesseract if installed.\nMake: computer_write report.py using reportlab (pip install -q reportlab; canvas.Canvas('out.pdf'); drawString; save), computer_run \"python3 report.py\", then send_file path=out.pdf. Arabic text needs arabic-reshaper + python-bidi and an Arabic TTF font.",
@@ -47,11 +47,11 @@ export const SHAM_SKILLS: Record<string, { title: string; when: string; steps: s
   },
 };
 
-export function shamSkillText(name: string): string {
+export function agentSkillText(name: string): string {
   const key = String(name || "").trim().toLowerCase();
-  const s = SHAM_SKILLS[key];
-  if (!s) return `unknown skill "${key}". Available: ${Object.entries(SHAM_SKILLS).map(([k, v]) => `${k} (${v.when})`).join("; ")}`;
+  const s = AGENT_SKILLS[key];
+  if (!s) return `unknown skill "${key}". Available: ${Object.entries(AGENT_SKILLS).map(([k, v]) => `${k} (${v.when})`).join("; ")}`;
   return `SKILL ${key}: ${s.title}\nUse when: ${s.when}\n${s.steps}`;
 }
 
-export const SHAM_SKILL_NAMES = Object.keys(SHAM_SKILLS);
+export const AGENT_SKILL_NAMES = Object.keys(AGENT_SKILLS);

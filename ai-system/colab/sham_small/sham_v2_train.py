@@ -240,6 +240,54 @@ def rag_pairs(articles: list[tuple[str, str]], n: int, seed: int, n_results: int
     return out
 
 
+# ---------------------------------------------------------------- stage notebooks (owner 2026-11-08): the same lineage trained in focused stages, one data family each
+STAGE = os.environ.get("SHAM_V2_STAGE", "all").strip().lower()          # all | tools | media
+
+
+def tools_stage_batches(tokenizer, seed: int, n: int = 4000, batch_size: int = 2, replay_pairs: list | None = None):
+    """The TOOLS stage: n tool/workflow examples in the engine's own layout (every one of the 49 tools is called a few times by the coverage guarantee, then the weighted mix of
+    skills, plans, patch+test, fix flows, asks ...), the identity facts repeated, and a small replay of Arabic chat so the language does not fade."""
+    from sham_chat import batch_examples
+    from sham_tools_data import qwen3_tool_examples
+    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, "", max_len=1400)
+    batches = batch_examples(ex, batch_size, seed=seed)
+    batches += arabic_pairs_to_batches(tokenizer, identity_grounding_pairs() * 8, batch_size)
+    if replay_pairs:
+        batches += arabic_pairs_to_batches(tokenizer, replay_pairs[: max(50, n // 10)], batch_size)
+    random.Random(seed).shuffle(batches)
+    return batches
+
+
+def arabic_replay_pairs(seed: int, n: int = 600) -> list[tuple[str, str]]:
+    """A few Arabic instruction pairs (streamed, best effort; [] when offline) so a focused stage does not make the language fade."""
+    out: list[tuple[str, str]] = []
+    try:
+        from datasets import load_dataset
+        for name, split, qf, af, flt in (("arbml/CIDAR", "train", "instruction", "output", None), ("CohereLabs/aya_dataset", "train", "inputs", "targets", "Arabic")):
+            ds = load_dataset(name, split=split, streaming=True)
+            if flt:
+                ds = ds.filter(lambda r: flt in (r.get("language") or ""))
+            for i, r in enumerate(ds.skip(seed % 5000)):
+                q, a = (r.get(qf) or "").strip(), (r.get(af) or "").strip()
+                if q and a:
+                    out.append((q[:600], a[:900]))
+                if i >= n // 2:
+                    break
+    except Exception as exc:  # noqa: BLE001
+        print(f"Arabic replay: skipped ({type(exc).__name__})", flush=True)
+    return out[:n]
+
+
+def published_step(fetch_dataset, dataset: str) -> int:
+    """The step of the newest checkpoint published to `dataset` (0 when none): a stage notebook publishes only when nobody published since it started."""
+    try:
+        d = fetch_dataset(dataset)
+        hp = sorted(d.rglob("v2_history.json")) if d else []
+        return int(json.loads(hp[0].read_text(encoding="utf-8"))[-1]["step"]) if hp else 0
+    except Exception:  # noqa: BLE001 - when it cannot be read, the caller treats it as "not changed" and the merge gate still protects the checkpoint
+        return 0
+
+
 # ---------------------------------------------------------------- the merge gate (the same rule Sham v1 lives by: nothing replaces the served checkpoint unless it is measured not worse)
 HELDOUT_FALLBACK = (
     "دمشق عاصمة سوريا وهي من أقدم المدن المأهولة في العالم. تقع على نهر بردى وتتميز بأسواقها القديمة وجامعها الأموي. "
@@ -383,6 +431,9 @@ if __name__ == "__main__":
         lb, _ = run_session(mb, 0, batches[:4], "cpu", 0.05, ckpt_dir=d2)
     assert lb and all(math.isfinite(x) for x in lb), lb
     assert torch.equal(wb0[:tv], mb.token_embedding.weight.detach()[:tv]) and not torch.equal(wb0[tv:], mb.token_embedding.weight.detach()[tv:])
+    tb = tools_stage_batches(Tok(), 1, n=12, batch_size=2, replay_pairs=[("س", "ج")] * 60)
+    assert tb and all(isinstance(b, tuple) and len(b) == 2 for b in tb)
+    assert published_step(lambda ds: None, "x") == 0
     rp = reasoning_pairs(5, 1)
     assert len(rp) == 5 and all(q and a for q, a in rp)
     arts = [(f"t{i}", " ".join(f"في عام {1900 + i * 7 + j} حدث أمر مهم رقم {j} في المدينة الكبيرة رقم {i} وتحدث الناس عنه كثيرا." for j in range(12))) for i in range(8)]

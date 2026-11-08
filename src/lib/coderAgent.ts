@@ -3,6 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
+import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
@@ -159,6 +160,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("plan", "Write or UPDATE the task's TODO list (call it first for any non-trivial task, and again when a step is done or the plan changes). Each item: a short step and its status. The list is kept for the whole task and shown back to you.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -216,7 +218,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
-    memory: by(["recall", "plan", "memory_note", "memory_save", "memory_search", "memory_forget"]),
+    memory: by(["recall", "plan", "skill", "memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
@@ -666,6 +668,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const playbook = ok.includes("computer") ? `\n${COMPUTER_PLAYBOOK}` : "";
       return `loaded: ${ok.join(", ")}. Their tools are ready now.${playbook}${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
     }
+    if (name === "skill") return agentSkillText(String(a.name || ""));
     if (name === "plan") {
       const text = renderPlan(a.items);
       if (!text) return "error: items must be a non-empty list of { step, status }";

@@ -1,0 +1,50 @@
+name: "Sham v2 stages (push ONE focused training notebook to Kaggle, on demand)"
+
+# 2026-11-08 (owner: split the training between the Shams by each one's state, ability and tools). Sham v2's focused notebooks are pushed ONE AT A TIME by hand:
+#   tools            jonsnowjonsnow/sham-v2-tools-train             the 49 tools and their workflows (v2's biggest gap: 0/6 correct calls before training)
+#   media            jonsnowjonsnow/sham-v2-media-train             image/audio pairs + a small tools replay
+#   candidate        jonsnowjonsnow/sham-v2-candidate-train         the whole mix on the candidate donor (SmolLM3-3B) -> its own dataset sham-v2-candidate-checkpoint
+#   candidate-tools  jonsnowjonsnow/sham-v2-candidate-tools-train   the tools stage on the candidate donor
+# They are NOT in the restarter's continuous list on purpose: Kaggle runs only a few sessions at once and Sham v1's five notebooks must keep their slots. Each notebook publishes to its
+# lineage's dataset only when the merge gate passes and nobody published since it started. The notebooks are derived from sham_v2_train.ipynb by make_stage_notebooks.py / make_candidate.py.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "which notebook to push"
+        required: true
+        type: choice
+        options: [tools, media, candidate, candidate-tools]
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade kaggle six
+      - name: Rebuild the stage notebooks from the v2 one (no drift)
+        run: |
+          python3 ai-system/colab/sham_small/kaggle_notebooks/sham_v2/make_candidate.py
+          python3 ai-system/colab/sham_small/kaggle_notebooks/sham_v2/make_stage_notebooks.py
+      - name: Push and start the chosen kernel
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          K=ai-system/colab/sham_small/kaggle_notebooks
+          case "$STAGE" in
+            tools)           D=$K/sham_v2_tools;           F=sham_v2_tools_train.ipynb;           SLUG=jonsnowjonsnow/sham-v2-tools-train ;;
+            media)           D=$K/sham_v2_media;           F=sham_v2_media_train.ipynb;           SLUG=jonsnowjonsnow/sham-v2-media-train ;;
+            candidate)       D=$K/sham_v2_candidate;       F=sham_v2_candidate_train.ipynb;       SLUG=jonsnowjonsnow/sham-v2-candidate-train ;;
+            candidate-tools) D=$K/sham_v2_candidate_tools; F=sham_v2_candidate_tools_train.ipynb; SLUG=jonsnowjonsnow/sham-v2-candidate-tools-train ;;
+          esac
+          mkdir -p /tmp/k && cp "$D/$F" "$D/kernel-metadata.json" /tmp/k/
+          kaggle kernels push -p /tmp/k
+          sleep 90
+          kaggle kernels status "$SLUG" || true

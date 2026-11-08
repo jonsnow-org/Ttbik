@@ -8,7 +8,7 @@ use them through Nova's engine (src/lib/shamTools.ts). Same idea and masking as 
 No new special tokens (the live model's vocabulary is fixed): the call is plain text, written exactly as shamTools.ts reads it. Two sources:
   examples_from_lessons(): the owner's Nova lessons (coder_lessons export, JSON Lines) of ANY kind — real tool use by a bigger model, secrets already dropped there;
   synthetic_examples():    short, correct calls for each tool family (so every tool is seen even before enough lessons exist).
-Share of these in a training mix: SHAM_TOOLS_MIX (0..1, default 0.08 = a small share, ON). Until 2026-11-06 the default was 0 and this whole path was wired into v2 only, so v1's chat stage trained on no call at all while its engine offered ~40 tools — the owner's "components not connected to their correct paths" defect. SHAM_TOOLS_MIX=0 turns it off. Nothing here runs at inference as an answer rule.
+Share of these in a training mix: SHAM_TOOLS_MIX (0..1, default 0.12, ON; plus a coverage guarantee: every tool is called at least SHAM_TOOLS_COVERAGE=3 times per batch of examples). Until 2026-11-06 the default was 0 and this whole path was wired into v2 only, so v1's chat stage trained on no call at all while its engine offered ~40 tools — the owner's "components not connected to their correct paths" defect. SHAM_TOOLS_MIX=0 turns it off. Nothing here runs at inference as an answer rule.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ IGNORE = -100
 
 def mix_share() -> float:
     try:
-        return min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.08"))))
+        return min(1.0, max(0.0, float(os.environ.get("SHAM_TOOLS_MIX", "0.12"))))
     except ValueError:
         return 0.0
 
@@ -258,33 +258,30 @@ def fill_template(value, values: dict[str, str]):
     return value
 
 
-def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
-    out = []
-    for _ in range(n):
-        r = rng.random()
-        if r < 0.14:
-            out.append(build_tool_example(text_ids_fn, *repo_audit_spec(rng), **kw))
-            continue
-        if r < 0.27:                                                          # the fix flow with the push back to GitHub
-            out.append(fix_flow_example(text_ids_fn, rng, **kw))
-            continue
-        if r < 0.39:                                                          # code written, run in the computer, fixed, then answered
-            out.append(code_run_example(text_ids_fn, rng, **kw))
-            continue
-        if r < 0.49:                                                          # a missing detail: ask once, never guess
-            out.append(ask_missing_example(text_ids_fn, rng, **kw))
-            continue
-        req, name, args, res, ans = rng.choice(CATALOG)
-        sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
-        fill = lambda v: fill_template(v, sub)                                      # noqa: E731
-        args = {k: fill(v) for k, v in args.items()}
-        if ans is None:                                                       # a two-step example: clone, then run
-            steps = [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")]
-            ans = "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
-        else:
-            steps = [(name, args, res)]
-        out.append(build_tool_example(text_ids_fn, fill(req), steps, ans, **kw))
+def coverage_specs(rng: random.Random, per_tool: int | None = None) -> list:
+    """Teaching cases chosen so that EVERY tool of TOOL_SPECS is called at least `per_tool` times (SHAM_TOOLS_COVERAGE, default 3): a random mix leaves the rare tools
+    (owner 2026-11-08: «ليست مجرد أداة بلا فائدة») with a handful of examples or none. Bounded: gives up after a fixed number of draws."""
+    per = int(os.environ.get("SHAM_TOOLS_COVERAGE", "3")) if per_tool is None else per_tool
+    need = {t: per for t in TOOL_SPECS}
+    out, tries = [], 0
+    while any(v > 0 for v in need.values()) and tries < 60 * len(TOOL_SPECS) * max(per, 1):
+        tries += 1
+        spec = any_spec(rng)
+        calls = [st[0] for st in spec[1]]
+        if any(need.get(t, 0) > 0 for t in calls):
+            out.append(spec)
+            for t in calls:
+                if t in need:
+                    need[t] -= 1
     return out
+
+
+def synthetic_examples(text_ids_fn, rng: random.Random, n: int = 200, **kw) -> list[tuple[list[int], list[int]]]:
+    """n examples from the SAME specs as the Qwen3 builder (any_spec: audit, fix flow, code, ask, skills, plans, patch+test, forgetting, one-call catalog): the coverage
+    cases first (every tool, a few times), then the weighted mix."""
+    specs = coverage_specs(rng)[: max(0, n // 2)]
+    specs += [any_spec(rng) for _ in range(max(0, n - len(specs)))]
+    return [build_tool_example(text_ids_fn, *spec, **kw) for spec in specs]
 
 
 def tool_examples(text_ids_fn, rng: random.Random, n: int, max_len: int = 1100) -> list:
@@ -322,7 +319,7 @@ def tool_batches(text_ids_fn, rng: random.Random, n: int, batch_size: int, max_l
 def catalog_spec(rng: random.Random) -> tuple[str, list, str]:
     req, name, args, res, ans = rng.choice(CATALOG)
     sub = {"repo": rng.choice(REPOS), "url": rng.choice(URLS), "server": rng.choice(MCP_SERVERS)}
-    fill = lambda v: v.format(**sub) if isinstance(v, str) else v            # noqa: E731
+    fill = lambda v: fill_template(v, sub)                                   # noqa: E731  nested arguments (delegate tasks, connector bodies) are filled too
     args = {k: fill(v) for k, v in args.items()}
     if ans is None:
         return fill(req), [(name, args, res), ("computer_run", {"command": "npm test"}, "Tests: 12 passed")], "نسخت المستودع وشغّلت الاختبارات: نجحت كلها (12 اختباراً)."
@@ -527,9 +524,10 @@ def qwen3_tool_examples(tokenizer, rng: random.Random, n: int, system: str, max_
     end = tokenizer.encode("<|im_end|>")[-1]
     attempts = 0
     max_attempts = max(200, n * 40)
+    queue = coverage_specs(rng)[: max(0, n // 2)]                 # every tool is called a few times in every batch of examples, then the weighted mix
     while len(out) < n and attempts < max_attempts:
         attempts += 1
-        user, steps, ans = any_spec(rng)
+        user, steps, ans = queue.pop(0) if queue else any_spec(rng)
         used = [st[0] for st in steps]
         others = [t for t in TOOL_SPECS if t not in used]
         rng.shuffle(others)
