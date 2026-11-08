@@ -235,6 +235,7 @@ def main_key() -> int:
     key = content_key(issue, wants_full(issue))
     out = os.environ.get("GITHUB_OUTPUT")
     print(key)
+    print(f"author={(issue.get('user') or {}).get('login')} association={issue.get('author_association')} trusted={is_trusted(issue)}")
     if out:
         Path(out).open("a").write(f"key={key}\ntrusted={'true' if is_trusted(issue) else 'false'}\nfull={'true' if wants_full(issue) else 'false'}\n")
     return 0

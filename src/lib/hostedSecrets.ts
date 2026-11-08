@@ -69,6 +69,20 @@ export async function getSecret(name: string): Promise<string> {
   } catch { return ""; }
 }
 
+/** Synchronous read for code that cannot await (e.g. "is this model ready"): the environment variable, else the last stored value; refreshes in the background
+ *  (the stale value stays until the new one lands). Only the very first call in a fresh instance can see "" before the first refresh finishes. */
+const refreshing = new Set<string>();
+export function secretCached(name: string): string {
+  const e = (process.env[name] || "").trim();
+  if (e) return e;
+  const hit = cache.get(name);
+  if ((!hit || Date.now() - hit.at >= 60_000) && !refreshing.has(name)) {
+    refreshing.add(name);
+    void getSecret(name).finally(() => refreshing.delete(name));
+  }
+  return hit?.v || "";
+}
+
 // ---------- the owner's commands (Athar bot) ----------
 // Entry: the Athar bot (owner check by its own owner id) — src/lib/atharBotLogic.ts.
 //   /secret                       how to use it + the names stored (never the values)

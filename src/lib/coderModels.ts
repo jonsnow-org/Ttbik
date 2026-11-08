@@ -2,6 +2,7 @@
 // whether users can see it. Nova AI is the default and visible unless the owner hides it with its own switch (its own improvement, "Nova 1", is trained on branch training/nova1 and
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
+import { secretCached } from "@/lib/hostedSecrets";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export type CoderModel = {
@@ -27,6 +28,8 @@ export const DEFAULT_MODELS: CoderModel[] = [
   // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
   // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
   { id: "lfm25", name: { ar: "LFM2.5 (السريع)", en: "LFM2.5 (fast)" }, desc: { ar: "LFM2.5-8B-A1B: أسرع نموذج على المعالج، بأدوات GitHub والحاسوب الخاص، ويصنع الصور والصوت والفيديو من استوديوهاته الخاصة.", en: "LFM2.5-8B-A1B: the fastest model on CPU, with GitHub tools and its own computer; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "LFM_STUDIO_URLS", sort: 6 },
+  // "free i" (owner 2026-11-08): the AI Agent path as a picker entry. Picking it sends the owner's messages to the GitHub AI Agent (a free OpenRouter model) instead of any model of this app; owner-only.
+  { id: "freei", name: { ar: "free i", en: "free i" }, desc: { ar: "وكيل مجاني عبر GitHub (OpenRouter): يجيب ويقترح، وقد يفتح طلب دمج. للمالك فقط.", en: "Free GitHub agent (OpenRouter): answers and proposes, may open a pull request. Owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 50 },
 ];
 export const DEFAULT_MODEL_ID = "coder";
 
@@ -104,6 +107,7 @@ export const novaModelOf = (id: string | undefined): string | undefined => (id =
 export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
+  if (m.id === "freei") return Boolean(secretCached("AI_GITHUB_TOKEN"));   // env or the secret stored from the Athar bot (src/lib/hostedSecrets.ts)
   if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
@@ -159,9 +163,12 @@ export function ensureUsableModel(st: { model?: string; mode: "coder" | "sham" }
 
 /** The ONE way a chat changes model (Mini App picker and the bot's buttons both end here): the chosen model is the single source of
  *  truth, and the old Nova/Sham section follows from it. Returns false when this person may not use that model. */
-export function chooseModel(st: { model?: string; mode: "coder" | "sham" }, models: CoderModel[], id: string, owner: boolean): boolean {
+export function chooseModel(st: { model?: string; mode: "coder" | "sham"; freei?: boolean }, models: CoderModel[], id: string, owner: boolean): boolean {
   const m = models.find((x) => x.id === canonModelId(id));
   if (!m || !(owner || openToUsers(m))) return false;
+  // "free i" is a switch only: it never becomes the chat's model and never reaches Nova's tools, Studios, settings or chats. Only a flag marks it.
+  if (m.id === "freei") { if (!owner) return false; st.freei = true; return true; }
+  st.freei = false;
   if ((m.id === "sham" || m.id === "sham_v2") && !studioTokenSet()) return false;                // they need the Studio token
   st.model = m.id;
   st.mode = m.id === "sham" || m.id === "sham_v2" ? "sham" : "coder";   // Sham (old and new) runs on its OWN path, separate from Nova's engine, tools and Studios
