@@ -198,6 +198,9 @@ def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: 
     from sham_toolcall import ToolCallGuard, repair_call, tool_names_from_prompt
     guard = ToolCallGuard(tokenizer, tool_names_from_prompt(tool_prompt)) if tool_prompt and _on("SHAM_TOOLCALL_GUARD") else None
     use = bool(guard and guard.usable)
+    if not use and not think:           # a plain answer: Sham v1's rolling-window loop (length not capped by the context); tool prompts keep the guarded loop below
+        plain = [t for t in _roll_tokens(model, ids[0].tolist(), tokenizer, max(1, int(max_new_tokens)), end, temperature) if t != end and t < tokenizer.vocab_size]
+        return tokenizer.decode(plain).strip()
     out = generate_tokens(model, ids, max_new_tokens=n, eos_id=end, repetition_penalty=1.0 if use else 1.05,
                           allowed_ranges=[(0, tokenizer.vocab_size)] * n,
                           stop_ids={guard.close_id} if use else None, allowed_fn=guard if use else None, **sample)
@@ -206,22 +209,27 @@ def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: 
     return repair_call(answer) if use else answer
 
 
+def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature: float):
+    """Token ids of a plain answer written with sham_stream's ROLLING window (the same loop Sham v1 uses): the reply is not capped by the 2048-token
+    context, and the scrolled-out chunks come back through the bank. `ids` is the whole prompt; the sampling matches qwen3_chat_messages."""
+    from sham_stream import iter_tokens
+    sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
+    yield from iter_tokens(model, list(ids), n, text_vocab=tokenizer.vocab_size, eos_id=end, stop_ids={end}, repetition_penalty=1.05, **sample)
+
+
 def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: int, temperature: float = 0.0):
     """Yield decoded text pieces of a native role chat as the model writes them, so a server can stream the answer
     token by token (the Mini App live view). Same prompt and sampling as qwen3_chat_messages; no tool-call guard and
-    no thinking span (a streamed reply is a plain answer)."""
-    from generate import generate_tokens_iter
+    no thinking span (a streamed reply is a plain answer). Since 2026-11-08 it runs on the rolling window (Sham v1's loop): the reply length is bounded
+    by max_new_tokens, not by the 2048-token context."""
     context = int(getattr(getattr(model, "cfg", None), "max_seq_len", MAX_PROMPT_TOKENS))
-    n = max(1, min(int(max_new_tokens), context - 16))
-    prompt_ids = _qwen3_messages_prompt_ids(tokenizer, messages, max(1, context - n - 8))
+    n = max(1, int(max_new_tokens))
+    prompt_ids = _qwen3_messages_prompt_ids(tokenizer, messages, max(1, context - min(n, context // 2) - 8))
     prompt_ids.extend(tokenizer.encode(" thinking\n\n</think>\n\n"))
-    ids = torch.tensor([prompt_ids], dtype=torch.long)
     end = tokenizer.encode("<|im_end|>")[-1]
-    sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
     held: list[int] = []
     prev = ""
-    for token in generate_tokens_iter(model, ids, max_new_tokens=n, eos_id=end, repetition_penalty=1.05,
-                                      allowed_ranges=[(0, tokenizer.vocab_size)] * n, **sample):
+    for token in _roll_tokens(model, prompt_ids, tokenizer, n, end, temperature):
         if token == end or token >= tokenizer.vocab_size:
             break
         held.append(token)
@@ -404,7 +412,7 @@ if __name__ == "__main__":
     a1 = qwen3_chat(mq, Tok2(), "سؤال", 10, temperature=0.2, think_tokens=6)       # a thought of at most 6 tokens, then the answer
     a0 = qwen3_chat(mq, Tok2(), "سؤال", 10, temperature=0.0, think_tokens=0)       # no thought
     _g.generate_tokens = _real
-    assert calls == [6, 10, 10], calls
+    assert calls == [6, 10], calls        # the thought + its answer use the guarded loop; the plain no-thought answer uses the rolling window (Sham v1's loop), not generate_tokens
     assert isinstance(a1, str) and isinstance(a0, str)
     # token streaming (the Mini App's live view): the streamed pieces reassemble to a prefix of the one-shot answer
     cfgq3 = ShamSmallConfig(vocab_size=402, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=1024, chat_format="qwen3")
@@ -414,4 +422,6 @@ if __name__ == "__main__":
     full = qwen3_chat(mq3, Tok2(), "سؤال", 10, temperature=0.0, think_tokens=0)
     assert pieces and all(isinstance(p, str) for p in pieces), pieces
     assert joined and full.startswith(joined), (joined, full)
+    longer = "".join(studio_generate_stream(mq3, Tok2(), "سؤال", 1500))                  # longer than the 1024-token window: the rolling window goes on, no cap/crash
+    assert len(longer) > 10, len(longer)                  # (a random toy model may stop early on its end token; the point is that a request beyond the window works)
     print("sham_studio_chat self-test OK")
