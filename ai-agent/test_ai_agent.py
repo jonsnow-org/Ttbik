@@ -184,5 +184,24 @@ class ModelCallTests(unittest.TestCase):
             M.call_model([], "a:free")
 
 
+class ChatMode(unittest.TestCase):
+    def test_a_telegram_message_is_a_conversation_not_an_engineering_issue(self):
+        issue = {"number": 5, "title": "Telegram: [كيف حالك]", "labels": [{"name": "from-telegram"}], "body": "كيف حالك\n\n<!-- tg-chat:42 -->\n<!-- tg-update:7 -->"}
+        self.assertTrue(M.is_chat(issue, False))
+        msgs = M.build_messages(issue, [], False, "repo context that must not be sent")
+        self.assertIn("free i", msgs[0]["content"])
+        self.assertEqual(msgs[1]["content"], "كيف حالك")                       # markers and repo context are not in the question
+        self.assertFalse(M.is_chat(issue, True))                               # /full keeps the engineering mode
+        self.assertFalse(M.is_chat({**issue, "labels": [{"name": "from-telegram"}, {"name": "build"}]}, False))   # /build and /fix too
+        self.assertFalse(M.is_chat({**issue, "labels": []}, False))
+
+    def test_the_same_message_is_answered_once(self):
+        answer = {"body": M.MARK + "\nhi\n\n<sub>AI Agent · m · mode: normal (comments only)</sub>"}
+        self.assertTrue(M.already_answered([answer], False))
+        self.assertFalse(M.already_answered([answer], True))                   # a later /full request is a different mode: it runs
+        self.assertFalse(M.already_answered([answer, {"body": "/ai more"}], False))   # a newer human comment: it runs
+        self.assertFalse(M.already_answered([], False))
+
+
 if __name__ == "__main__":
     unittest.main()
