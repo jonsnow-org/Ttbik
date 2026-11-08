@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { shrinkImage } from "@/lib/clientPrep";
 
 const PLANS = [
   { days: 7, price: 15, label: "7 أيام" },
@@ -21,8 +22,10 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
   const [msg, setMsg] = useState("");
   const price = useMemo(() => PLANS.find((p) => p.days === days)?.price || 0, [days]);
 
-  async function upload(file: File) {
+  async function upload(picked: File) {
     setMsg("");
+    // the server refuses pictures over 2 MB (a phone photo is usually bigger): shrink it in the user's own browser first, and only when it is too big
+    const file = picked.type.startsWith("image/") && picked.size > 1.8 * 1024 * 1024 ? await shrinkImage(picked, { max: 1600, quality: 0.85 }) : picked;
     const body = new FormData();
     body.set("file", file);
     const res = await fetch("/api/ads/upload", { method: "POST", body });
