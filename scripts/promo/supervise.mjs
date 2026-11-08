@@ -8,10 +8,10 @@ import fs from "node:fs";
 export const WORKFLOWS = [
   // [file, name, max hours since the last successful run]  (schedules: see promo/README.md)
   ["channel-post.yml", "General channel posts", 13],
-  ["coins-channel-post.yml", "Coins channel posts", 16],
+  ["coins-channel-post.yml", "Coins channel posts", 30],   // 3 posts a day, GitHub throttles crons: 16 h gave false alarms
   ["promo-remotion.yml", "Promo videos (Remotion)", 100],
   ["promo-projects.yml", "Project videos", 192],
-  ["error-triage.yml", "Error triage", 3],
+  ["error-triage.yml", "Error triage", 12],   // hourly cron, GitHub delays it by hours
   ["referral-sync.yml", "Invite reward sync", 12],
 ];
 export const RERUN_OK = new Set(["promo-projects.yml", "error-triage.yml"]);   // idempotent: re-rendering / re-reading never posts anything
