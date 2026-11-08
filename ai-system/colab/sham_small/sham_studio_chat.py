@@ -242,7 +242,33 @@ def studio_generate_stream(model, tokenizer, prompt: str, max_new_tokens: int = 
         yield from qwen3_chat_stream(model, tokenizer, [{"role": "user", "content": prompt}], max_new_tokens,
                                      temperature=modes.get("temp", 0.0))
         return
-    yield studio_generate(model, tokenizer, prompt, max_new_tokens, today, search_fn)
+    # the legacy Sham's own chat path is now token-streamed too (sham_stream.iter_tokens): the loop runs in a thread, the pieces come out as they are written
+    import queue
+    import threading
+    q: queue.Queue = queue.Queue()
+    done = object()
+    final: dict = {}
+
+    def work():
+        try:
+            final["text"] = studio_generate(model, tokenizer, prompt, max_new_tokens, today, search_fn, on_text=lambda piece: q.put(piece))
+        except Exception as exc:
+            final["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        finally:
+            q.put(done)
+
+    threading.Thread(target=work, daemon=True).start()
+    streamed = False
+    while True:
+        item = q.get()
+        if item is done:
+            break
+        streamed = True
+        yield item
+    if final.get("error"):
+        raise RuntimeError(final["error"])
+    if not streamed and final.get("text"):      # a path that is not a token stream (raw continuation, a retry): one piece
+        yield final["text"]
 
 
 def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: float = 0.0, think_tokens: int = 0) -> str:
@@ -253,7 +279,7 @@ def qwen3_chat(model, tokenizer, prompt: str, max_new_tokens: int, temperature: 
 _COMPUTER = None            # the embedded computer of this Studio process (created on first use)
 
 
-def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
+def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default", on_text=None) -> str:
     """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
     Two diagnostic prompts for the owner: «#info» reports which path is active; «#raw <text>» answers <text> with the old raw continuation, so the two
     ways can be compared on the same question."""
@@ -279,16 +305,19 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
         search_fn = web_search_text if _on("SHAM_STUDIO_SEARCH") else None
     ids = tokenizer.encode(build_user_text(prompt, today))[-MAX_PROMPT_TOKENS:]
     wrapped = torch.tensor([chat_prompt_ids(ids)], dtype=torch.long)
-    from sham_computer import enabled as _computer_on
-    if _computer_on():          # SHAM_INTERNAL_COMPUTER=1: Sham's own embedded computer (sham_computer.py); the learned search still works beside it
-        from sham_computer import Computer, chat_generate_with_computer
-        global _COMPUTER
+    from sham_computer import Computer, chat_generate_with_computer, enabled as _computer_on
+    global _COMPUTER
+    if _computer_on():          # Sham's own embedded computer (sham_computer.py, ON by default since 2026-11-08)
         _COMPUTER = _COMPUTER or Computer("studio")
-        answer, calls = chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer, _COMPUTER, search_fn=search_fn,
-                                                    temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9)
-        text = tokenizer.decode(answer).strip()
-        if text:
-            return ("[حاسوب: " + " | ".join(n for n, _, _ in calls) + "] " + text) if calls else text
+    # one token-by-token loop for every reply: a rolling window (the reply is not capped by the 2048-token context), the learned search, the computer
+    answer, calls = chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer, _COMPUTER if _computer_on() else None, search_fn=search_fn,
+                                                temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9, on_text=on_text)
+    queries = [a["query"] for n, a, _ in calls if n == "search"]
+    used = [n for n, _, _ in calls if n != "search"]
+    text = tokenizer.decode(answer).strip()
+    if text:
+        head = ("[بحث: " + " | ".join(queries) + "] " if queries else "") + ("[حاسوب: " + " | ".join(used) + "] " if used else "")
+        return head + text
     answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer, search_fn=search_fn,
                                                 temperature=modes.get("temp", 0.6), top_k=40, top_p=0.9)
     text = tokenizer.decode(answer).strip()
@@ -335,6 +364,9 @@ if __name__ == "__main__":
     import sham_decoding as _sd                      # empty first answer -> retry in chat layout (never raw), then the honest message
     _orig = _sd.chat_generate_with_search
     _sd.chat_generate_with_search = lambda *a, **k: ([], [])
+    import sham_computer as _sc
+    _orig_cc = _sc.chat_generate_with_computer
+    _sc.chat_generate_with_computer = lambda *a, **k: ([], [])
     calls = []
     _orig_raw = raw_continuation
     globals()["raw_continuation"] = lambda *a, **k: calls.append(1) or "RAW"
@@ -348,6 +380,7 @@ if __name__ == "__main__":
     os.environ.pop("SHAM_STUDIO_RAW_FALLBACK")
     assert _raw_fallback(), "raw generation must be ON by default (owner's order 2026-11-08)"
     globals()["_chat_retry"], globals()["raw_continuation"], _sd.chat_generate_with_search = _keep, _orig_raw, _orig
+    _sc.chat_generate_with_computer = _orig_cc
     assert len(_chat_retry(model, Tok(), "سؤال", 8, today=d)) >= 1
     # the engine's thinking / accuracy / speed header: read, removed, clamped; no header = nothing
     assert split_modes("[[sham temp=0.20 think=300]]\nسؤال") == ("سؤال", {"temp": 0.2, "think": 300})

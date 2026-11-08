@@ -339,19 +339,13 @@ def install_on_serve(serve_module, chat: bool, max_prompt_tokens: int = 384, sea
                 fn = agent_search(web_search_text) if search else None
             except Exception:
                 fn = web_search_text if search else None
-            try:
-                import sham_computer
-                use_computer = sham_computer.enabled()
-            except Exception:
-                use_computer = False
-            if use_computer:      # Sham's own embedded computer (sham_computer.py): part of the model's code, whatever platform serves it
-                answer, calls = sham_computer.chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer(), _shared_computer(), search_fn=fn, **kw)
-                if calls:
-                    return torch.cat([prompt_ids, torch.tensor([tokenizer().encode("[حاسوب: " + " | ".join(n for n, _, _ in calls) + "] ") + answer],
-                                                               dtype=torch.long, device=prompt_ids.device)], dim=1)
-                queries = []
-            else:
-                answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(), search_fn=fn, **kw)
+            import sham_computer      # one token-by-token loop for every reply: rolling window (no 2048 cap), the learned search, the embedded computer
+            answer, calls = sham_computer.chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer(),
+                                                                      _shared_computer() if sham_computer.enabled() else None, search_fn=fn, **kw)
+            queries = [a["query"] for n, a, _ in calls if n == "search"]
+            used = [n for n, _, _ in calls if n != "search"]
+            if used:
+                answer = tokenizer().encode("[حاسوب: " + " | ".join(used) + "] ") + answer
             if queries:
                 answer = tokenizer().encode("[بحث: " + " | ".join(queries) + "] ") + answer
             return torch.cat([prompt_ids, torch.tensor([answer], dtype=torch.long, device=prompt_ids.device)], dim=1)

@@ -296,54 +296,88 @@ def enabled() -> bool:
     return os.environ.get("SHAM_INTERNAL_COMPUTER", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
-def chat_generate_with_computer(model, wrapped, max_new_tokens: int, tokenizer, computer: Computer, max_calls: int = 6, chunk: int = 24,
-                                gen=None, eos_id: int | None = None, search_fn=None, max_searches: int = 2, **kw):
-    """Generate in short chunks; when the text produced so far ends a <tool_call>…</tool_call>, run it in `computer`, append the result in the
-    training layout and go on. Returns (answer ids after the last tool result, [(tool, arguments, result), ...]).
-    `gen(model, ids, n, **kw) -> tensor` defaults to sham_decoding.guarded_generate_tokens (a test can pass a scripted one)."""
+def chat_generate_with_computer(model, wrapped, max_new_tokens: int, tokenizer, computer: Computer | None = None, max_calls: int = 6, token_iter=None,
+                                eos_id: int | None = None, search_fn=None, max_searches: int = 2, on_text=None, **kw):
+    """The model's whole reply, token by token (sham_stream.iter_tokens: a rolling window, so the length is not capped by the 2048-token context).
+    When the text written so far ends a <tool_call>…</tool_call>, the call runs in `computer` and its result is pasted back in the training layout;
+    when the model writes <SEARCH_START> query <SEARCH_END>, `search_fn` runs and the result is pasted back; then it goes on. `on_text(piece)` receives the
+    reply text as it is written (never the tool-call JSON). `computer=None` and `search_fn=None` give plain streamed generation.
+    Returns (answer ids after the last tool / search result, [(tool, arguments, result), ...]).  `token_iter` is injectable for tests."""
     import torch
 
-    from sham_decoding import TEXT_VOCAB_SIZE, guarded_generate_tokens
-    from sham_native_tools import extract_tool_call
-    from sham_tools_data import result_text
     from model import SpecialTokens
-    gen = gen or guarded_generate_tokens
+    from sham_decoding import TEXT_VOCAB_SIZE
+    from sham_native_tools import extract_tool_call
+    from sham_stream import iter_tokens
+    from sham_tools_data import result_text
+    token_iter = token_iter or iter_tokens
     eos = SpecialTokens.EOS if eos_id is None else eos_id
-    ids, calls, produced, mark, searches = wrapped, [], 0, wrapped.shape[1], 0
+    ids = wrapped[0].tolist() if hasattr(wrapped, "tolist") else list(wrapped)
+    calls, produced, searches = [], 0, 0
+    seg: list[int] = []                         # text tokens written since the last pasted result
+    emitted = 0
     kw = dict(kw)
     kw.pop("allowed_ranges", None)
     stops = {eos} | ({SpecialTokens.SEARCH_END} if search_fn else set())
-    if search_fn:
-        kw["extra_allowed"] = (SpecialTokens.SEARCH_START, SpecialTokens.SEARCH_END)       # the learned web search keeps working beside the computer
+    extra = (SpecialTokens.SEARCH_START, SpecialTokens.SEARCH_END) if search_fn else ()
+
+    def stream_out():
+        nonlocal emitted
+        if on_text is None:
+            return
+        text = tokenizer.decode(seg)
+        cut = text.find("<tool_call>")
+        visible = text if cut < 0 else text[:cut]
+        if cut < 0:
+            if text.endswith("\ufffd"):
+                return                                              # half a character: wait for the next token
+            tag = "<tool_call>"
+            for k in range(min(len(tag) - 1, len(text)), 0, -1):    # hold back a tail that may be the start of a tool-call tag
+                if text.endswith(tag[:k]):
+                    visible = text[:len(text) - k]
+                    break
+        if len(visible) > emitted:
+            on_text(visible[emitted:])
+            emitted = len(visible)
+
     while produced < max_new_tokens:
-        n = min(chunk, max_new_tokens - produced)
-        out = gen(model, ids, n, stop_ids=stops, **kw)
-        new = out[0, ids.shape[1]:].tolist()
-        produced += max(1, len(new))
-        ids = out
-        if search_fn and new and new[-1] == SpecialTokens.SEARCH_END and searches < max_searches and SpecialTokens.SEARCH_START in out[0, mark:].tolist():
-            seq = out[0].tolist()
-            start = len(seq) - 1 - seq[::-1].index(SpecialTokens.SEARCH_START)
-            q = tokenizer.decode([t for t in seq[start + 1:-1] if t < TEXT_VOCAB_SIZE]).strip()
+        action = None
+        for t in token_iter(model, ids, max_new_tokens - produced, text_vocab=TEXT_VOCAB_SIZE, extra_allowed=extra, eos_id=eos, stop_ids=stops, **kw):
+            ids.append(t)
+            produced += 1
+            if t == eos:
+                action = "eos"
+                break
+            if search_fn and t == SpecialTokens.SEARCH_END:
+                action = "search"
+                break
+            if t < TEXT_VOCAB_SIZE:
+                seg.append(t)
+                stream_out()
+                if computer is not None and len(calls) < max_calls and len(seg) >= 4 and tokenizer.decode(seg[-24:]).rstrip().endswith("</tool_call>"):
+                    action = "tool"
+                    break
+        if action == "search" and searches < max_searches and SpecialTokens.SEARCH_START in ids[-(len(ids)):]:
+            start = len(ids) - 1 - ids[::-1].index(SpecialTokens.SEARCH_START)
+            q = tokenizer.decode([x for x in ids[start + 1:-1] if x < TEXT_VOCAB_SIZE]).strip()
             searches += 1
-            res = tokenizer.encode(search_fn(q) or "لا توجد نتائج.")[:200]
-            ids = torch.cat([ids, torch.tensor([[SpecialTokens.RESULT_START] + res + [SpecialTokens.RESULT_END]], dtype=torch.long, device=ids.device)], dim=1)
-            mark = ids.shape[1]
+            found = search_fn(q) or "لا توجد نتائج."
+            calls.append(("search", {"query": q}, found))               # recorded beside the tool calls (callers tell them apart by the name "search")
+            ids += [SpecialTokens.RESULT_START] + tokenizer.encode(found)[:200] + [SpecialTokens.RESULT_END]
+            seg, emitted = [], 0
             continue
-        text = tokenizer.decode([t for t in out[0, mark:].tolist() if t < TEXT_VOCAB_SIZE])
-        if "</tool_call>" in text and len(calls) < max_calls:
-            call = extract_tool_call(text, _TOOLS_PROMPT, list(TOOL_NAMES))
+        if action == "tool":
+            call = extract_tool_call(tokenizer.decode(seg), _TOOLS_PROMPT, list(TOOL_NAMES))
             if call:
                 result = computer.execute(call["name"], call.get("arguments") or {})
                 calls.append((call["name"], call.get("arguments") or {}, result))
-                back = tokenizer.encode(result_text(call["name"], result))[:200]
-                ids = torch.cat([ids, torch.tensor([back], dtype=torch.long, device=ids.device)], dim=1)
-                mark = ids.shape[1]
+                ids += tokenizer.encode(result_text(call["name"], result))[:200]
+                seg, emitted = [], 0
                 continue
-        if new and new[-1] == eos:
+            continue_after_bad_call = True            # an unparseable call: let the model go on (it sees nothing new, and may finish its answer)
+        if action in (None, "eos"):
             break
-    tail = [t for t in ids[0, mark:].tolist() if t < TEXT_VOCAB_SIZE]
-    return tail, calls
+    return [t for t in seg if t < TEXT_VOCAB_SIZE], calls
 
 
 # ---------------------------------------------------------------- self-test
@@ -412,18 +446,21 @@ def _selftest() -> None:
             enc.append(ids_s)
         state = {"k": 0}
 
-        def fake_gen(model, ids, n, stop_ids=None, **kw):
-            seq = enc[state["k"]] if state["k"] < len(enc) else [0]
+        def fake_iter(model, ids, n, **kw):
+            seq = enc[state["k"]] if state["k"] < len(enc) else []
             state["k"] += 1
-            return torch.cat([ids, torch.tensor([seq], dtype=torch.long)], dim=1)
+            yield from seq
 
         import sham_decoding
         sham_decoding.TEXT_VOCAB_SIZE = 10_000
         c2 = Computer("t2", root=td)
-        tail, calls = chat_generate_with_computer(None, torch.tensor([[1, 2, 3]]), 400, tok, c2, gen=fake_gen)
+        pieces = []
+        tail, calls = chat_generate_with_computer(None, torch.tensor([[1, 2, 3]]), 400, tok, c2, token_iter=fake_iter, on_text=pieces.append)
         assert calls and calls[0][0] == "computer_write" and calls[0][2].startswith("wrote x.txt"), calls
         assert (c2.home / "x.txt").read_text() == "hi"
-        assert tok.decode(tail) == ans_txt or len(tail) > 0
+        assert "tool_call" not in "".join(pieces), "the tool-call JSON must not be streamed to the user"
+        assert tok.decode(tail) == ans_txt, tok.decode(tail)
+        assert "".join(pieces).endswith(ans_txt)
         # the learned search still works beside the computer
         from model import SpecialTokens as ST
         seen = []
@@ -431,10 +468,13 @@ def _selftest() -> None:
         q_ids = [301 + i for i in range(3)]
         for i in q_ids:
             tok._m[i] = "q"
-        enc2 = [[ST.SEARCH_START] + q_ids + [ST.SEARCH_END], enc[1]]
-        enc[:] = enc2
-        tail2, calls2 = chat_generate_with_computer(None, torch.tensor([[1, 2, 3]]), 400, tok, c2, gen=fake_gen, search_fn=lambda q: seen.append(q) or "نتيجة")
-        assert seen == ["qqq"] and not calls2 and len(tail2) > 0, (seen, calls2)
+        enc[:] = [[ST.SEARCH_START] + q_ids + [ST.SEARCH_END], enc[1]]
+        tail2, calls2 = chat_generate_with_computer(None, torch.tensor([[1, 2, 3]]), 400, tok, c2, token_iter=fake_iter, search_fn=lambda q: seen.append(q) or "نتيجة")
+        assert seen == ["qqq"] and calls2 == [("search", {"query": "qqq"}, "نتيجة")] and len(tail2) > 0, (seen, calls2)
+        # plain streamed generation with no tools at all (computer=None)
+        state["k"] = 1
+        tail3, calls3 = chat_generate_with_computer(None, torch.tensor([[1, 2, 3]]), 400, tok, None, token_iter=fake_iter)
+        assert tok.decode(tail3) == ans_txt and not calls3
     print(f"sham_computer self-test OK  (isolation: {isolation()})")
 
 

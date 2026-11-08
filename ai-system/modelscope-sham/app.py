@@ -389,13 +389,33 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
 def generate_chat_stream(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0):
     """Token-by-token sibling of generate_chat for the Mini App's live view: yields decoded text pieces as the model
     writes them. A non-v2 body or a malformed request yields a single piece (the one-shot answer / a typed error)."""
-    if not _V2:
-        yield generate_chat(messages_json, max_new_tokens, temperature, think_tokens)
-        return
     if STATE["phase"] != "ready":
         yield _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
         return
     import serve
+    if not _V2:
+        # the legacy Sham streams too (owner 2026-11-08): its own chat path, token by token, no cap but the Studio's MAX_NEW_TOKENS and the rolling window
+        try:
+            msgs = json.loads(messages_json)
+            user = next(m["content"] for m in reversed(msgs) if m.get("role") == "user" and isinstance(m.get("content"), str))
+        except (TypeError, ValueError, StopIteration, KeyError):
+            yield json.dumps({"type": "error", "text": "generate_chat_stream needs a final user message."}, ensure_ascii=False)
+            return
+        n = int(max(1, min(MAX_NEW_TOKENS, max_new_tokens or MAX_NEW_TOKENS)))
+        if not _LOCK.acquire(timeout=_busy_wait()):
+            yield _busy()
+            return
+        try:
+            from sham_studio_chat import studio_generate_stream
+            for piece in studio_generate_stream(serve._state["model"], serve._state["text_tokenizer"], user, n):
+                if piece:
+                    yield piece
+        except Exception as exc:
+            print(f"generate_chat_stream (legacy) failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+            yield json.dumps({"type": "error", "text": "Sham streamed chat failed: " + str(exc)[:180]}, ensure_ascii=False)
+        finally:
+            _LOCK.release()
+        return
     try:
         clean, n, temp, _thought = _chat_params(messages_json, max_new_tokens, temperature, think_tokens)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -733,13 +753,14 @@ def build_ui():
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
-        chat_stream = gr.Interface(
-            generate_chat_stream,
-            [gr.Textbox(label="messages_json"), gr.Number(label="max_new_tokens", value=512),
-             gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0)],
-            gr.Textbox(label="native Qwen3 streamed chat"), api_name="generate_chat_stream", flagging_mode="never")
-        interfaces.insert(2, chat_stream)
-        labels.insert(2, "محادثة Qwen3 مباشرة")
+    # the live (token-by-token) chat is exposed by BOTH Shams now: v2 streams Qwen3, the legacy Sham streams its own chat path (owner 2026-11-08)
+    chat_stream = gr.Interface(
+        generate_chat_stream,
+        [gr.Textbox(label="messages_json"), gr.Number(label="max_new_tokens", value=512),
+         gr.Number(label="temperature", value=0.6), gr.Number(label="think_tokens", value=0)],
+        gr.Textbox(label="streamed chat"), api_name="generate_chat_stream", flagging_mode="never")
+    interfaces.insert(2 if _V2 else 1, chat_stream)
+    labels.insert(2 if _V2 else 1, "محادثة مباشرة (بث)")
     # Only the dedicated Sham v2 wrapper exposes this API; v1 keeps its existing Studio interface.
     if _V2 and os.environ.get("SHAM_NATIVE_TOOL_CALLS", "").strip() == "1":
         agent = gr.Interface(agent_step, [gr.Textbox(label="prompt"), gr.Textbox(label="active tool schemas JSON", value="[]"),
