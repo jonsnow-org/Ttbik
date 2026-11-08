@@ -48,6 +48,7 @@ class StagedShamV2Runtime(unittest.TestCase):
             studio = Path(folder)
             stage_sham_v2(studio)
             self.assertTrue((studio / "computer_box.py").is_file())
+            self.assertTrue((studio / "browser_computer.py").is_file())
             app = (studio / "sham_app.py").read_text(encoding="utf-8")
             self.assertIn('api_name="box_do"', app)
             self.assertIn("import computer_box", app)

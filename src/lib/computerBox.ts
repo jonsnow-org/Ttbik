@@ -1,12 +1,13 @@
 // Shared 16 GB computer-only Studio (ai-system/modelscope-media/computer_box.py): shell, persistent files and background jobs.
 // The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
-import { DEFAULT_V2_URL } from "@/lib/shamStudio";
+import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
-/** Where a model's terminal / files / jobs live. Sham v2 has its OWN embedded computer inside its own Studio (owner's order 2026-11-08: no outside dependency);
- *  every other model keeps the shared hub. */
+/** Where a model's terminal / files / jobs live. Sham and Sham v2 each have their OWN embedded computer inside their own Studio (owner's order 2026-11-08: no outside dependency);
+ *  the shared hub is Nova's only. */
 export function boxStudioFor(modelId: string | undefined): string | null {
   if (modelId === "sham_v2") return (process.env.SHAM_V2_URL || DEFAULT_V2_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
+  if (modelId === "sham") return (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "") || null;
   return browserStudioFor(modelId);
 }
 

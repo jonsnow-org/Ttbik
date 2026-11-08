@@ -78,8 +78,6 @@ def stage_sham_v2(studio: pathlib.Path) -> str:
     """Stage and patch only the target Sham v2 Studio clone."""
     result = s.stage_studio(studio)
     shutil.move(str(studio / "app.py"), str(studio / "sham_app.py"))
-    # Sham v2's embedded computer (terminal, files, jobs, git): the engine of the shared hub, shipped inside v2's own Studio (stdlib only).
-    shutil.copy2(ROOT / "ai-system" / "modelscope-media" / "computer_box.py", studio / "computer_box.py")
     patch_staged_sham_v2_download(studio)
     write_sham_v2_wrapper(studio)
     return result
