@@ -306,6 +306,17 @@ def chat_generate_with_search(model, wrapped: torch.Tensor, max_new_tokens: int,
     return [t for t in seq if t < TEXT_VOCAB_SIZE], queries
 
 
+_COMPUTER = None
+
+
+def _shared_computer():
+    global _COMPUTER
+    if _COMPUTER is None:
+        from sham_computer import Computer
+        _COMPUTER = Computer("serve")
+    return _COMPUTER
+
+
 def install_on_serve(serve_module, chat: bool, max_prompt_tokens: int = 384, search: bool = False,
                      guidance: float = 3.0) -> None:
     """Runtime wrap of serve.py's generation names (serve.py itself is not
@@ -328,7 +339,19 @@ def install_on_serve(serve_module, chat: bool, max_prompt_tokens: int = 384, sea
                 fn = agent_search(web_search_text) if search else None
             except Exception:
                 fn = web_search_text if search else None
-            answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(), search_fn=fn, **kw)
+            try:
+                import sham_computer
+                use_computer = sham_computer.enabled()
+            except Exception:
+                use_computer = False
+            if use_computer:      # Sham's own embedded computer (sham_computer.py): part of the model's code, whatever platform serves it
+                answer, calls = sham_computer.chat_generate_with_computer(model, wrapped, max_new_tokens, tokenizer(), _shared_computer(), search_fn=fn, **kw)
+                if calls:
+                    return torch.cat([prompt_ids, torch.tensor([tokenizer().encode("[حاسوب: " + " | ".join(n for n, _, _ in calls) + "] ") + answer],
+                                                               dtype=torch.long, device=prompt_ids.device)], dim=1)
+                queries = []
+            else:
+                answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(), search_fn=fn, **kw)
             if queries:
                 answer = tokenizer().encode("[بحث: " + " | ".join(queries) + "] ") + answer
             return torch.cat([prompt_ids, torch.tensor([answer], dtype=torch.long, device=prompt_ids.device)], dim=1)

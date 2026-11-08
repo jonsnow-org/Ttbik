@@ -105,7 +105,7 @@ export function ensureTables(db: Db): Promise<void> {
 }
 
 // 2026-10-15 (owner, repetition fix — additive): a weak checkpoint copies its own earlier replies from the window, and a repeated reply was
-// stored and sent back again. SHAM_MEMORY_DEDUPE=0 / SHAM_MEMORY_SEND_REPLIES=1 restore the old behaviour.
+// stored and sent back again. SHAM_MEMORY_DEDUPE=0 turns the dedupe off; SHAM_MEMORY_SEND_REPLIES=0 sends only the user side (that was the default 2026-10-15..2026-11-08).
 export function normReply(s: string): string {
   return (s || "").replace(/[\u064B-\u0652\u0640]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
 }
@@ -119,7 +119,7 @@ export function nearSameReply(a: string, b: string): boolean {
   return common / Math.max(wa.size, wb.size) >= 0.8;
 }
 const dedupeOn = () => process.env.SHAM_MEMORY_DEDUPE !== "0";
-const sendRepliesOn = () => process.env.SHAM_MEMORY_SEND_REPLIES === "1";
+const sendRepliesOn = () => process.env.SHAM_MEMORY_SEND_REPLIES !== "0";   // 2026-11-08 (owner): ON by default — without its own earlier replies Sham cannot follow a conversation; the dedupe above still drops repeated replies. SHAM_MEMORY_SEND_REPLIES=0 restores the user-side-only history.
 export function cleanHistory(turns: Turn[], withReplies = false): Turn[] {
   let out = turns;
   if (dedupeOn()) {

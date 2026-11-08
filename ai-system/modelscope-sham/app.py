@@ -37,11 +37,11 @@ import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 os.environ.setdefault("SHAM_SELF_LEARN_DIR", str(HERE / "_selflearn"))      # experiences from understand_media wait here (self_learn.py)
-# Limits that exist only because today's Sham is small and still training. SHAM_LIMITS=open lifts them to what the model itself can hold
-# (its max_seq_len), with no code change; each can also be set alone. Defaults = today's behaviour exactly.
-_OPEN = os.environ.get("SHAM_LIMITS", "").strip().lower() == "open"
+# Owner's order 2026-11-08: no reply-length limit; Sham decides how long the answer is from the task, and only its context window (max_seq_len) bounds it.
+# SHAM_LIMITS=closed brings the old small caps back; each cap can also be set alone.
+_OPEN = os.environ.get("SHAM_LIMITS", "open").strip().lower() != "closed"
 _V2 = "sham-v2" in MODEL_ID.lower()      # the new (Qwen3) body can write real answers: measured 2026-10-28, a code answer was cut mid-line at the 96-token default below
-MAX_NEW_TOKENS = int(os.environ.get("SHAM_MAX_NEW_TOKENS", "1024" if _OPEN and _V2 else "768" if _V2 else "400" if _OPEN else "200"))
+MAX_NEW_TOKENS = int(os.environ.get("SHAM_MAX_NEW_TOKENS", ("1024" if _OPEN else "768") if _V2 else ("2000" if _OPEN else "200")))
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}   # status() also names "model" (MODEL_ID): the bot only sends Sham v2 traffic to an overflow Studio that reports sham-v2
 _LOCK = threading.Lock()
@@ -319,9 +319,9 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
     try:
-        token_cap = max(32, int(os.environ.get("SHAM_GENERATE_ANY_MAX_TOKENS", "768" if _V2 else "96")))
+        token_cap = max(32, int(os.environ.get("SHAM_GENERATE_ANY_MAX_TOKENS", "768" if _V2 else ("2000" if _OPEN else "96"))))
     except (TypeError, ValueError):
-        token_cap = 96
+        token_cap = 768
     n = int(max(1, min(MAX_NEW_TOKENS, token_cap, max_new_tokens)))
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()

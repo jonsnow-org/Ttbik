@@ -23,7 +23,7 @@ import os
 import torch
 
 # Legacy one-prompt window. Native Qwen3 role chat budgets directly against the model's max_seq_len.
-MAX_PROMPT_TOKENS = int(os.environ.get("SHAM_MAX_PROMPT_TOKENS", "3072" if os.environ.get("SHAM_LIMITS", "").strip().lower() == "open" else "384"))
+MAX_PROMPT_TOKENS = int(os.environ.get("SHAM_MAX_PROMPT_TOKENS", "384" if os.environ.get("SHAM_LIMITS", "").strip().lower() == "closed" else "1024"))     # owner 2026-11-08: no small caps; the 2048-token window is shared with the reply
 
 
 def _on(name: str) -> bool:
@@ -58,7 +58,7 @@ RETRY_TEMPERATURES = (0.7, 0.9)
 
 
 def _raw_fallback() -> bool:
-    return os.environ.get("SHAM_STUDIO_RAW_FALLBACK", "0").strip().lower() in ("1", "on", "true", "yes")
+    return os.environ.get("SHAM_STUDIO_RAW_FALLBACK", "1").strip().lower() in ("1", "on", "true", "yes")      # owner 2026-11-08: raw generation is essential; ON
 
 
 def _chat_retry(model, tokenizer, prompt: str, max_new_tokens: int, today=None) -> str:
@@ -302,6 +302,7 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
 if __name__ == "__main__":
     import datetime as _dt
 
+    os.environ["SHAM_INTERNAL_COMPUTER"] = "0"       # these checks are about the chat / search / raw paths; the computer loop has its own self-test (sham_computer.py)
     from model import ShamSmall, ShamSmallConfig, SpecialTokens
 
     class Tok:                       # byte-ish tokenizer inside a small text range
@@ -337,6 +338,7 @@ if __name__ == "__main__":
     calls = []
     _orig_raw = raw_continuation
     globals()["raw_continuation"] = lambda *a, **k: calls.append(1) or "RAW"
+    os.environ["SHAM_STUDIO_RAW_FALLBACK"] = "0"      # the default is ON since 2026-11-08; the chat-retry branch is checked with it switched off
     r = studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None)
     assert r and r != "RAW" and not calls, r
     globals()["_chat_retry"], _keep = (lambda *a, **k: "نص النموذج"), _chat_retry
@@ -344,6 +346,7 @@ if __name__ == "__main__":
     os.environ["SHAM_STUDIO_RAW_FALLBACK"] = "1"
     assert studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None) == "RAW" and calls
     os.environ.pop("SHAM_STUDIO_RAW_FALLBACK")
+    assert _raw_fallback(), "raw generation must be ON by default (owner's order 2026-11-08)"
     globals()["_chat_retry"], globals()["raw_continuation"], _sd.chat_generate_with_search = _keep, _orig_raw, _orig
     assert len(_chat_retry(model, Tok(), "سؤال", 8, today=d)) >= 1
     # the engine's thinking / accuracy / speed header: read, removed, clamped; no header = nothing

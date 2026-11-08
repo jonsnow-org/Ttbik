@@ -11,17 +11,19 @@ the loop below stops at the closing tag, runs it here, pastes the result in the 
 model continues. No new tokens: the vocabulary (and so every checkpoint) is untouched.
 
 Tools (same names and result texts as the platform's computer, so what Sham learned transfers): computer_run, computer_write, computer_read,
-computer_edit, computer_search, computer_job. Network-dependent ones (clone / publish) are not here: this computer has NO network by default.
+computer_edit, computer_search, computer_job, computer_repo (git clone). Publishing to GitHub needs the user's approval and credentials, which stay in the app.
 
-SAFETY — model-written code runs on the host that serves the model, so it is contained, and it refuses to run a command when it cannot be:
-  - a private workspace folder per session; every file path is resolved inside it (no ../, no symlink escape);
-  - commands run in fresh Linux namespaces (`unshare -rpfn --mount-proc`): a new PID space (the server's own /proc, and its environment
-    variables with every token, are invisible), no network, the user mapped to an unprivileged one;
-  - an EMPTY environment (only PATH, HOME=workspace, LANG), CPU-time / memory / file-size / process-count / open-file limits, a wall-clock
-    timeout, the whole process group killed on timeout, output cut to a few thousand characters;
-  - if the namespaces are not available on the host, `computer_run` / `computer_job` answer with an error instead of running unisolated
-    (SHAM_COMPUTER_ALLOW_UNISOLATED=1 overrides that for a throw-away host you accept the risk on). File tools stay available.
-Switch: SHAM_INTERNAL_COMPUTER=1 turns the loop on in the Studio (default OFF). Workspace root: SHAM_COMPUTER_HOME.
+POLICY (owner's order, 2026-11-08): the model is NOT restricted — the computer is live, has the network, and runs what the model writes; the model is to be
+TAUGHT safe behaviour instead of being fenced in. The only thing kept apart is the host's own secrets (the tokens in the server's environment), because
+leaking those would not be the model's capability but the owner's loss:
+  - commands run with an EMPTY environment (PATH, HOME=workspace, LANG) and, where the host allows it, in a fresh PID space (`unshare -rpf --mount-proc`) so
+    the server's /proc/<pid>/environ is invisible; where it does not, the server process is made non-dumpable (prctl PR_SET_DUMPABLE=0) so a child of the
+    same user cannot read it either. The NETWORK is left as it is.
+  - every file tool resolves its path inside the session's workspace folder (a workspace is how a session keeps its files; the shell itself can go anywhere
+    the host user can);
+  - a wall-clock timeout per call (90 s; longer work goes to computer_job), generous memory / CPU-time limits so one runaway command cannot take the whole
+    Studio down, the process group killed on timeout, output cut to a few thousand characters.
+Switch: SHAM_INTERNAL_COMPUTER=0 turns the loop off (default ON). Workspace root: SHAM_COMPUTER_HOME.
 """
 from __future__ import annotations
 
@@ -36,28 +38,41 @@ import tempfile
 import time
 from pathlib import Path
 
-TOOL_NAMES = ("computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_job")
+TOOL_NAMES = ("computer_run", "computer_write", "computer_read", "computer_edit", "computer_search", "computer_job", "computer_repo")
 OUT_MAX = int(os.environ.get("SHAM_COMPUTER_OUT_MAX", "3000"))
 FILE_MAX = 200_000
 _ISOLATION: str | None = None
 
 
 def isolation() -> str:
-    """"namespace" when commands can run in fresh PID/net/user namespaces, else "none". Probed once."""
+    """"namespace" when commands can run in a fresh PID/user namespace (the network is NOT cut), else "none". Probed once."""
     global _ISOLATION
     if _ISOLATION is None:
         _ISOLATION = "none"
         if shutil.which("unshare"):
             try:
-                r = subprocess.run(["unshare", "-rpfn", "--mount-proc", "true"], capture_output=True, timeout=10)
+                r = subprocess.run(["unshare", "-rpf", "--mount-proc", "true"], capture_output=True, timeout=10)
                 _ISOLATION = "namespace" if r.returncode == 0 else "none"
             except Exception:
                 _ISOLATION = "none"
     return _ISOLATION
 
 
-def _limits(cpu_s: int, mem_mb: int):
+def _hide_server_environment() -> None:
+    """Make this process non-dumpable: a command started by it (same user) cannot read /proc/<this pid>/environ, where the server's tokens live."""
+    try:
+        import ctypes
+        ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)          # PR_SET_DUMPABLE = 4
+    except Exception:
+        pass
+
+
+def _limits(cpu_s: int, mem_mb: int, drop: bool = False):
     def apply():
+        if drop:                                         # root server, no namespaces: the command runs as "nobody", which cannot read the server's /proc/<pid>/environ
+            os.setgroups([])
+            os.setgid(65534)
+            os.setuid(65534)
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s))
         resource.setrlimit(resource.RLIMIT_AS, (mem_mb << 20, mem_mb << 20))
         resource.setrlimit(resource.RLIMIT_FSIZE, (64 << 20, 64 << 20))
@@ -72,12 +87,16 @@ def _clip(text: str, n: int = OUT_MAX) -> str:
 
 
 class Computer:
-    def __init__(self, session: str = "default", root: str | Path | None = None, mem_mb: int = 1536, cpu_s: int = 60):
+    def __init__(self, session: str = "default", root: str | Path | None = None, mem_mb: int = 3072, cpu_s: int = 300):
+        _hide_server_environment()
         base = Path(root or os.environ.get("SHAM_COMPUTER_HOME") or Path(tempfile.gettempdir()) / "sham_computer")
         self.home = (base / re.sub(r"[^A-Za-z0-9_.-]", "_", session)[:64]).resolve()
         self.home.mkdir(parents=True, exist_ok=True)
         self.mem_mb, self.cpu_s = mem_mb, cpu_s
         self.jobs: dict[str, dict] = {}
+        self.drop = hasattr(os, "geteuid") and os.geteuid() == 0 and isolation() != "namespace"
+        if self.drop:
+            os.chmod(self.home, 0o777)
 
     # ------------------------------------------------------------ paths
     def _path(self, p: str | None, default: str = ".") -> Path:
@@ -90,18 +109,14 @@ class Computer:
     # ------------------------------------------------------------ shell
     def _argv(self, command: str) -> list[str] | None:
         if isolation() == "namespace":
-            return ["unshare", "-rpfn", "--mount-proc", "bash", "-c", command]
-        if os.environ.get("SHAM_COMPUTER_ALLOW_UNISOLATED") == "1":
-            return ["bash", "-c", command]
-        return None
+            return ["unshare", "-rpf", "--mount-proc", "bash", "-c", command]
+        return ["bash", "-c", command]               # no namespaces on this host: still runs (env is empty and the server is non-dumpable)
 
     def _env(self) -> dict:
         return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(self.home), "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
 
     def run(self, command: str, cwd: str | None = None, timeout: float = 30) -> str:
         argv = self._argv(command)
-        if argv is None:
-            return "error: this host cannot isolate commands (no Linux namespaces), so computer_run is disabled; computer_write/read/edit/search still work"
         try:
             wd = self._path(cwd)
         except ValueError as e:
@@ -109,7 +124,7 @@ class Computer:
         timeout = max(1.0, min(float(timeout or 30), 90.0))
         try:
             p = subprocess.Popen(argv, cwd=wd, env=self._env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 preexec_fn=_limits(self.cpu_s, self.mem_mb))
+                                 preexec_fn=_limits(self.cpu_s, self.mem_mb, self.drop))
             try:
                 out, _ = p.communicate(timeout=timeout)
                 return f"exit code {p.returncode}\n" + _clip(out.decode("utf-8", "replace")).rstrip()
@@ -131,6 +146,12 @@ class Computer:
                 return "error: file too large"
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(content, encoding="utf-8")
+            if self.drop:
+                for d in [f.parent, *f.parents]:
+                    if d == self.home.parent:
+                        break
+                    os.chmod(d, 0o777)
+                os.chmod(f, 0o666)
             return f"wrote {f.relative_to(self.home)} ({len(content.encode('utf-8'))} bytes)"
         except (ValueError, OSError) as e:
             return f"error: {e}"
@@ -190,21 +211,35 @@ class Computer:
                 continue
         return "\n".join(hits) or "no matches"
 
+    def repo(self, url: str, ref: str | None = None) -> str:
+        m = re.match(r"^https://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", (url or "").strip())
+        if not m:
+            return "error: give a public repository URL like https://github.com/owner/repo"
+        name = f"repos/{m.group(1)}-{m.group(2)}"
+        dest = self._path(name)
+        if dest.exists():
+            return f"already cloned into {name}"
+        cmd = ["git", "clone", "--depth", "50"] + (["--branch", ref] if ref else []) + [f"https://github.com/{m.group(1)}/{m.group(2)}.git", str(dest)]
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=self._env(), preexec_fn=_limits(300, self.mem_mb, self.drop))
+        except Exception as e:
+            return f"error: {type(e).__name__}: {str(e)[:160]}"
+        return f"cloned into {name}" if r.returncode == 0 else "error: " + _clip((r.stderr or r.stdout).strip(), 400)
+
     # ------------------------------------------------------------ background jobs
     def job(self, action: str, command: str = "", name: str = "", id: str = "", tail: int = 60) -> str:
         if action == "list":
             return "\n".join(f"{j}: {v['name']} ({'running' if v['p'].poll() is None else 'exit ' + str(v['p'].returncode)})" for j, v in self.jobs.items()) or "no jobs"
         if action == "start":
             argv = self._argv(command)
-            if argv is None:
-                return "error: this host cannot isolate commands, so jobs are disabled"
             if sum(1 for v in self.jobs.values() if v["p"].poll() is None) >= 3:
                 return "error: at most 3 jobs run at once"
             jid = f"j{len(self.jobs) + 1}"
             logf = self.home / f".{jid}.log"
             fh = open(logf, "wb")
             p = subprocess.Popen(argv, cwd=self.home, env=self._env(), stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
-                                 preexec_fn=_limits(3600, self.mem_mb))
+                                 preexec_fn=_limits(7200, self.mem_mb, self.drop))
             self.jobs[jid] = {"p": p, "log": logf, "name": name or command[:30], "t": time.time()}
             return f"job {jid} started (name={name or command[:30]})"
         j = self.jobs.get(id)
@@ -243,6 +278,8 @@ class Computer:
                 return self.edit(str(a.get("path", "")), str(a.get("old", "")), str(a.get("new", "")), bool(a.get("replace_all")), a.get("edits"))
             if name == "computer_search":
                 return self.search(str(a.get("pattern", "")), a.get("path"), a.get("glob"))
+            if name == "computer_repo":
+                return self.repo(str(a.get("url", "")), a.get("ref"))
             if name == "computer_job":
                 return self.job(str(a.get("action", "")), str(a.get("command", "")), str(a.get("name", "")), str(a.get("id", "")), a.get("tail", 60))
         except Exception as e:
@@ -256,7 +293,7 @@ _TOOLS_PROMPT = "\n".join(f"- {n}(args) — x" for n in TOOL_NAMES)      # extra
 
 
 def enabled() -> bool:
-    return os.environ.get("SHAM_INTERNAL_COMPUTER", "0").strip().lower() in ("1", "true", "on", "yes")
+    return os.environ.get("SHAM_INTERNAL_COMPUTER", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
 def chat_generate_with_computer(model, wrapped, max_new_tokens: int, tokenizer, computer: Computer, max_calls: int = 6, chunk: int = 24,
@@ -327,14 +364,18 @@ def _selftest() -> None:
         assert c.execute("computer_edit", {"path": "a/hello.py", "old": "", "new": "x"}).startswith("error")
         assert c.execute("nope", {}).startswith("error: unknown tool")
         iso = isolation()
-        if iso == "namespace" or os.environ.get("SHAM_COMPUTER_ALLOW_UNISOLATED") == "1":
+        if True:
             r = c.execute("computer_run", {"command": "python3 a/hello.py"})
             assert r == "exit code 0\n42", r
             os.environ["SHAM_SECRET_PROBE"] = "TOPSECRET"
             r = c.execute("computer_run", {"command": "env | grep -c SHAM_SECRET_PROBE; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n' | grep -c SHAM_SECRET_PROBE; true"})
             assert "TOPSECRET" not in r and r.split("\n")[1].strip() == "0", r
-            r = c.execute("computer_run", {"command": "python3 -c \"import socket; socket.create_connection(('1.1.1.1', 53), 2)\""})
-            assert "exit code 1" in r, "the embedded computer must have no network: " + r
+            # the network is NOT cut (owner's order): a local server is reachable from inside
+            import socket, threading
+            srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1); port = srv.getsockname()[1]
+            threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True).start()
+            r = c.execute("computer_run", {"command": f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {port}), 3); print('connected')\""})
+            assert "connected" in r, "the embedded computer must keep the network: " + r
             r = c.execute("computer_run", {"command": "sleep 5", "timeout": 1})
             assert r.startswith("error: timed out"), r
             r = c.execute("computer_run", {"command": "exit 3"})
@@ -343,8 +384,6 @@ def _selftest() -> None:
             assert j.startswith("job j1 started"), j
             time.sleep(2.2)
             assert "done" in c.execute("computer_job", {"action": "log", "id": "j1"})
-        else:
-            assert c.execute("computer_run", {"command": "echo hi"}).startswith("error: this host cannot isolate")
         c.close()
 
         # the loop, with a scripted "model": it first emits a tool call, then (after the result) a final answer

@@ -646,9 +646,9 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     # session publishes must be trained THROUGH the compression it ships with, so the small model keeps
     # its quality instead of losing it when compressed afterwards. quantize_ shares the Parameters, so
     # the guard, the EMA and the saved state_dict are all unchanged. SHAM_QAT_BITS=4 turns it ON.
-    # DEFAULT OFF since 2026-11-07: measured on a real small trained model (sham_quant_recipes.py --lab) 4-bit costs +8..12% loss even with the best
-    # post-training recipe, QAT from the first step was never measured at full scale, and nothing serves 4-bit yet. Serve int8 (near-lossless) instead.
-    _qat_bits = int(os.environ.get("SHAM_QAT_BITS", "0") or 0)
+    # Restored to ON (4) on 2026-11-08 at the owner's order: a default is never switched off without his permission. (A 2026-11-07 change had turned it off on
+    # weak evidence: post-training 4-bit costs +8..12% loss, but QAT from the first step is what this switch is for and is measured in sham_qat_lab.py.)
+    _qat_bits = int(os.environ.get("SHAM_QAT_BITS", "4") or 0)
     if _qat_bits and _qat_bits < 32:
         import sham_qat
         _wrapped = sham_qat.quantize_(model, bits=_qat_bits)
