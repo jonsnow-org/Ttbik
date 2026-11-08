@@ -314,6 +314,7 @@ def chat_generate_with_computer(model, wrapped, max_new_tokens: int, tokenizer, 
     if model is not None and hasattr(model, "layers"):             # a real ShamSmall: decode with its llama.cpp copy when there is one (several times faster)
         try:
             from sham_gguf import fast_model
+            kw.setdefault("embed_weight", model.token_embedding.weight)      # the bank of scrolled-out chunks keys on Sham's own embeddings
             model = fast_model(model) or model
         except Exception:
             pass
