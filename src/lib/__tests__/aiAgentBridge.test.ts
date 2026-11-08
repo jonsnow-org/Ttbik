@@ -1,4 +1,4 @@
-import { parseAiCommand, aiAgentIssue, handleAiAgentUpdate } from "@/lib/aiAgentBridge";
+import { parseAiCommand, aiAgentIssue, handleAiAgentUpdate, redact } from "@/lib/aiAgentBridge";
 
 jest.mock("@/lib/prisma", () => ({ prisma: { $executeRawUnsafe: async () => 0, $queryRawUnsafe: async () => [] } }));
 jest.mock("@/lib/coderAuth", () => ({ tierFor: (id: number) => (id === 42 ? "owner" : "user") }));
@@ -55,6 +55,20 @@ describe("aiBridge", () => {
     expect(await handleAiAgentUpdate(bot, upd(3, 999, "x"), fake, async () => "freei")).toBe(false);          // not the owner
     expect(await handleAiAgentUpdate(bot, upd(4, 42, "/models"), fake, async () => "freei")).toBe(false);     // other commands pass through
     expect(calls).toHaveLength(1);
+    delete process.env.AI_GITHUB_TOKEN;
+  });
+  test("a secret never reaches the chat: the token is cleaned and error text is redacted", async () => {
+    expect(redact('Headers.append: "Bearer github_pat_ABC123_xyz-9 more" ok sk-or-v1-abcdef')).not.toMatch(/github_pat_|sk-or-v1-|ABC123/);
+    process.env.AI_GITHUB_TOKEN = '"github_pat_AAA\n"  ';                       // newline and quotes, as pasted
+    const sent: string[] = [];
+    const bot = { api: { sendMessage: async (_c: number, t: string) => { sent.push(t); } } };
+    let auth = "";
+    const fake = (async (_u: string, init: any) => { auth = init.headers.Authorization; return { ok: true, status: 201, json: async () => ({ number: 3 }) }; }) as unknown as typeof fetch;
+    expect(await handleAiAgentUpdate(bot, { update_id: 9, message: { text: "/ai x", chat: { id: 42 } } }, fake)).toBe(true);
+    expect(auth).toBe("Bearer github_pat_AAA");
+    const boom = (async () => { throw new TypeError('Headers.append: "Bearer github_pat_SECRET123" is an invalid header value'); }) as unknown as typeof fetch;
+    await handleAiAgentUpdate(bot, { update_id: 10, message: { text: "/ai y", chat: { id: 42 } } }, boom);
+    expect(sent[sent.length - 1]).not.toContain("SECRET123");
     delete process.env.AI_GITHUB_TOKEN;
   });
 });

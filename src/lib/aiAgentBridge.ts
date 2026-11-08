@@ -30,11 +30,15 @@ const HELP = "AI Agent:\n/build <ما تريد بناءه>\n/fix <ما تريد 
 
 type Api = { sendMessage: (chatId: number, text: string) => Promise<unknown> };
 
+/** Never let a secret reach a chat: tokens and Authorization values are cut out of any text first. */
+export const redact = (t: string): string => t.replace(/(github_pat_|ghp_|gho_|ghs_|sk-or-v1-)[\w-]+/g, "[مخفي]").replace(/Bearer\s+\S+/gi, "Bearer [مخفي]");
+
 type OpenResult = { ok: true; number?: number } | { ok: false; error: string };
 
 /** Opens the GitHub issue the AI Agent workflow answers. The answer comes back to the chat through ai-telegram-bridge.yml. */
 export async function openAiIssue(cmd: AICmd, body: string, chatId: number | string, updateId: number | string, fetchImpl: typeof fetch = fetch): Promise<OpenResult> {
-  const token = await getSecret("AI_GITHUB_TOKEN");
+  // a secret pasted into a chat or a server file often carries a newline or quotes: keep only the visible token characters
+  const token = String((await getSecret("AI_GITHUB_TOKEN")) || "").replace(/[^\x21-\x7E]/g, "").replace(/^["']+|["']+$/g, "");
   const repo = (await getSecret("AI_REPO")) || "jonsnow-org/Ttbik";
   if (!token) return { ok: false, error: "AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> في بوت أثر (انظر ai-agent/README.md)." };
   try {
@@ -47,7 +51,7 @@ export async function openAiIssue(cmd: AICmd, body: string, chatId: number | str
     if (!r.ok) return { ok: false, error: `تعذّر فتح القضية (HTTP ${r.status}).` };
     return { ok: true, number: ((await r.json()) as { number?: number }).number };
   } catch (e) {
-    return { ok: false, error: `تعذّر الوصول إلى جيتهوب: ${String((e as Error)?.message || e).slice(0, 120)}` };
+    return { ok: false, error: `تعذّر الوصول إلى جيتهوب: ${redact(String((e as Error)?.message || e)).slice(0, 120)}` };
   }
 }
 
