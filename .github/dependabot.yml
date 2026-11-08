@@ -1,0 +1,14 @@
+# Automatic, no-manual-step updates. Only GitHub Actions versions (touches .github/workflows only, so no Vercel app build),
+# one grouped PR per week at most. npm is deliberately NOT here: Next/webpack versions are pinned by the owner.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies]

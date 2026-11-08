@@ -1,0 +1,15 @@
+name: Dependency review (auto)
+# On every PR that touches package files: blocks newly added dependencies with known high/critical vulnerabilities.
+on:
+  pull_request:
+    paths: ["package.json", "package-lock.json", "athar/web/package.json", "athar/web/package-lock.json", "ai-agent/requirements.txt"]
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

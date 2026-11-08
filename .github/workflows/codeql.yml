@@ -1,0 +1,30 @@
+name: CodeQL (auto)
+# Free for public repositories. Weekly scan (no pushes, no PRs, nothing deployed); results appear under Security > Code scanning.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+concurrency:
+  group: codeql
+  cancel-in-progress: true
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python, actions]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
