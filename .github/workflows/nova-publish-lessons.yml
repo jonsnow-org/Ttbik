@@ -24,7 +24,7 @@ jobs:
           REPO_NAME: ${{ inputs.repo_name }}
         run: |
           if [ -z "$CRON_SECRET" ] || [ -z "$HF_TOKEN" ]; then echo "CRON_SECRET or HF_TOKEN missing"; exit 1; fi
-          BASE=$(jq -r '.vercelUrl // "https://ttbik.vercel.app"' deploy/hosting/site.json)
+          BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)   # the gate: Oracle first
           code=$(curl -s -o lessons.jsonl -D h.txt -w '%{http_code}' -m 90 -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/coder/lessons")
           echo "fetch -> $code, count $(grep -i x-lessons-count h.txt | tr -d '\r')"
           [ "$code" = "200" ] || { echo "endpoint not ready (is the latest commit deployed on the default branch?)"; exit 1; }

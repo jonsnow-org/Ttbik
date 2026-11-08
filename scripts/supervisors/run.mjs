@@ -23,7 +23,7 @@ export const SECTIONS = {
     errorWords: /palmyra|launch|coin|referral|stars/i, frozen: true,
   },
   "telegram-bots": {
-    site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200]],
+    site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200], ["Vercel standby (home)", "/", "standby", ok200, true]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
     errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i, botsHealth: true,
   },
@@ -132,7 +132,9 @@ async function main() {
   if (!cfg) { console.error(`unknown section: ${section}`); process.exit(2); }
   const repo = process.env.GITHUB_REPOSITORY || "jonsnow-org/Ttbik", token = process.env.GITHUB_TOKEN || "";
   const site = JSON.parse(fs.readFileSync(process.env.SITE_JSON || "deploy/hosting/site.json", "utf8"));
-  const base = { gate: site.gateUrl || site.engineUrl, vercel: site.vercelUrl, oracle: site.oracleUrl };
+  // "vercel" entries are checked through the GATE (the real public site: Oracle first, Vercel standby behind it). While Vercel answers 402 (free-plan limit) the old
+  // direct probes reported a healthy site as broken. "standby" is the direct Vercel address, informational only.
+  const base = { gate: site.gateUrl || site.engineUrl, vercel: site.gateUrl || site.engineUrl, standby: site.vercelUrl, oracle: site.oracleUrl };
   const gh = async (path, init = {}) => {
     const r = await fetch(`https://api.github.com${path}`, { ...init, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28", "content-type": "application/json", ...(init.headers || {}) }, signal: AbortSignal.timeout(30000) });
     return { status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null) };
@@ -142,7 +144,7 @@ async function main() {
   for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, error: `HTTP ${r.status}` }); }
   if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
     try {
-      const r = await fetch(`${base.vercel}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
+      const r = await fetch(`${base.gate}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
       data.bots = r.status === 200 ? await r.json() : { error: `HTTP ${r.status}` };
     } catch (e) { data.bots = { error: "no answer" }; }
   }

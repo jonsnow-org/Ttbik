@@ -8,10 +8,10 @@ import fs from "node:fs";
 export const WORKFLOWS = [
   // [file, name, max hours since the last successful run]  (schedules: see promo/README.md)
   ["channel-post.yml", "General channel posts", 13],
-  ["coins-channel-post.yml", "Coins channel posts", 16],
+  ["coins-channel-post.yml", "Coins channel posts", 30],   // 3 posts a day, GitHub throttles crons: 16 h gave false alarms
   ["promo-remotion.yml", "Promo videos (Remotion)", 100],
   ["promo-projects.yml", "Project videos", 192],
-  ["error-triage.yml", "Error triage", 3],
+  ["error-triage.yml", "Error triage", 12],   // hourly cron, GitHub delays it by hours
   ["referral-sync.yml", "Invite reward sync", 12],
 ];
 export const RERUN_OK = new Set(["promo-projects.yml", "error-triage.yml"]);   // idempotent: re-rendering / re-reading never posts anything
@@ -63,9 +63,9 @@ export function render(checks, date) {
   return `<!-- status:${st} -->\n# Promo supervisor report · ${date} (UTC)\n\nOverall: ${st === "ok" ? "✅ all good" : st === "warn" ? "⚠️ needs a look" : "❌ something is broken"}\n\n${lines.join("\n")}\n\n_Automatic report from \`scripts/promo/supervise.mjs\`. It only reads and reports; the supervisor session decides what to fix. Rules and what it may do: \`promo/README.md\`._\n`;
 }
 
-async function http(url, ms = 20000) {
+async function http(url, ms = 20000, headers = undefined) {
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: "follow" });
+    const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: "follow", headers });
     const text = await r.text().catch(() => "");
     return { status: r.status, text };
   } catch { return { status: 0, text: "" }; }
@@ -107,7 +107,7 @@ async function main() {
   const secret = process.env.CRON_SECRET || "";
   for (const [label, path, coins] of [["general channel", "telegram-post", false], ["coins channel", "coins-channel-post", true]]) {
     if (!secret) { data.previews.push({ label, skipped: "CRON_SECRET is not available to this job" }); continue; }
-    const r = await http(`${gate}/api/cron/${path}?secret=${encodeURIComponent(secret)}&dry=1`);
+    const r = await http(`${gate}/api/cron/${path}?dry=1`, 20000, { authorization: `Bearer ${secret}` });
     let j = {}; try { j = JSON.parse(r.text); } catch {}
     data.previews.push({ label, status: r.status, coins, text: j.text, topic: j.topic, reason: j.reason });
   }
