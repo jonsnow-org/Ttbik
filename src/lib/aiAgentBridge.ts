@@ -37,8 +37,11 @@ type OpenResult = { ok: true; number?: number } | { ok: false; error: string };
 
 /** Opens the GitHub issue the AI Agent workflow answers. The answer comes back to the chat through ai-telegram-bridge.yml. */
 export async function openAiIssue(cmd: AICmd, body: string, chatId: number | string, updateId: number | string, fetchImpl: typeof fetch = fetch): Promise<OpenResult> {
-  // a secret pasted into a chat or a server file often carries a newline or quotes: keep only the visible token characters
-  const token = String((await getSecret("AI_GITHUB_TOKEN")) || "").replace(/[^\x21-\x7E]/g, "").replace(/^["']+|["']+$/g, "");
+  // a secret pasted into a chat or a server file often carries a newline, quotes or stray characters after it (a leaked message showed "...YwEEUe" followed by "/s"):
+  // keep only the token itself. GitHub tokens are letters, digits and "_" after their prefix.
+  const rawToken = String((await getSecret("AI_GITHUB_TOKEN")) || "");
+  const found = /(github_pat_|ghp_|gho_|ghu_|ghs_)[A-Za-z0-9_]+/.exec(rawToken);
+  const token = found ? found[0] : rawToken.replace(/[^\x21-\x7E]/g, "").replace(/^["']+|["']+$/g, "");
   const repo = (await getSecret("AI_REPO")) || "jonsnow-org/Ttbik";
   if (!token) return { ok: false, error: "AI Agent غير مفعّل بعد: أرسل /secret AI_GITHUB_TOKEN <القيمة> في بوت أثر (انظر ai-agent/README.md)." };
   try {
