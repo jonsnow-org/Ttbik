@@ -71,4 +71,14 @@ describe("aiBridge", () => {
     expect(sent[sent.length - 1]).not.toContain("SECRET123");
     delete process.env.AI_GITHUB_TOKEN;
   });
+  test("a 401 from GitHub tells the owner how to fix the token", async () => {
+    process.env.AI_GITHUB_TOKEN = "github_pat_x";
+    const sent: string[] = [];
+    const bot = { api: { sendMessage: async (_c: number, t: string) => { sent.push(t); } } };
+    const f401 = (async () => ({ ok: false, status: 401, json: async () => ({}) })) as unknown as typeof fetch;
+    expect(await handleAiAgentUpdate(bot, { update_id: 11, message: { text: "/ai x", chat: { id: 42 } } }, f401)).toBe(true);
+    expect(sent[sent.length - 1]).toContain("/secret AI_GITHUB_TOKEN");
+    expect(sent[sent.length - 1]).not.toContain("github_pat_x");
+    delete process.env.AI_GITHUB_TOKEN;
+  });
 });

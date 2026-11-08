@@ -48,6 +48,8 @@ export async function openAiIssue(cmd: AICmd, body: string, chatId: number | str
       body: JSON.stringify(aiAgentIssue(cmd, body, chatId, updateId)),
       signal: AbortSignal.timeout(20000),
     });
+    if (r.status === 401) return { ok: false, error: "GitHub رفض التوكن (401): ملغى أو قيمته خاطئة. أنشئ توكنًا جديدًا (Issues: Read and write على المستودع فقط) وأرسل في بوت أثر: /secret AI_GITHUB_TOKEN <التوكن>. إن كان AI_GITHUB_TOKEN مضبوطًا في بيئة Oracle فهو يغلب المخزَّن: غيّره هناك أو أزله." };
+    if (r.status === 403 || r.status === 404) return { ok: false, error: `GitHub رفض الطلب (${r.status}): تأكد أن التوكن يملك صلاحية Issues على المستودع ${repo} وأن المنظمة وافقت على التوكن.` };
     if (!r.ok) return { ok: false, error: `تعذّر فتح القضية (HTTP ${r.status}).` };
     return { ok: true, number: ((await r.json()) as { number?: number }).number };
   } catch (e) {
