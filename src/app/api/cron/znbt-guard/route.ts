@@ -7,8 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const q = req.nextUrl.searchParams.get("secret");
-  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}` && q !== process.env.CRON_SECRET)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!process.env.CRON_SECRET || (auth !== `Bearer ${process.env.CRON_SECRET}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const r = await runGuard();
     return NextResponse.json({ status: r.findings.some((f) => f.level === "problem") ? "problem" : "ok", findings: r.findings, notified: r.notified });

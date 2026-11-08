@@ -10,8 +10,7 @@ const OWNER_FALLBACK = (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const q = req.nextUrl.searchParams.get("secret");
-  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || q === process.env.CRON_SECRET);
+  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}`);
   if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const res = await checkPayments();

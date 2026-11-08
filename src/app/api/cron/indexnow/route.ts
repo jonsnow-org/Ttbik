@@ -14,8 +14,7 @@ const ENDPOINTS = ["https://api.indexnow.org/indexnow", "https://www.bing.com/in
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  const querySecret = req.nextUrl.searchParams.get("secret");
-  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
+  const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}`);
   if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const urls = Array.from(new Set([...(await sitemap()).map((e) => e.url), ...newsSitemapEntries().map((n) => `${SITE_URL}${n.path}`)])).slice(0, 9000);
