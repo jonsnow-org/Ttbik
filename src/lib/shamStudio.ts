@@ -480,7 +480,7 @@ export async function shamGenerateMedia(
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
-  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500), raw_test: Boolean(opts.bypassQuality) };
+  const payload = { kind, prompt, backend_label: SHAM_BACKEND_LABELS[backend], scenes_json: JSON.stringify(scenes), narration: String(opts.narration || "").slice(0, 1500), raw_test: Boolean(opts.bypassQuality), seconds: kind === "video" ? Math.max(0, Math.min(300, Number(opts.seconds) || 0)) : 0 };
   const body = await shamCall(api, payload, timeoutMs);
   const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
   if (body && !reply) setFailure(api + ": unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");

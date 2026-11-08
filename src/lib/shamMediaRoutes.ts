@@ -31,7 +31,7 @@ export async function generateShamMediaThroughRoute(
     return { type: "error", route: "sham_v2_photo_weight", reason, text: generated.text };
   }
   const route = targetOf(modelId, await shamEngine(modelId)).route;
-  const timeoutMs = kind === "video" && model === "v2"
+  const timeoutMs = kind === "video"      // both Shams: a long clip (own motion-token video, 6 s … 5 min) is bounded by compute, not by a fixed 4 minutes
     ? Math.min(7_200_000, Math.max(Number(opts.timeoutMs) || 0, 300_000, shamVideoDeadlineMs(opts.seconds ?? pressureMedia().videoSeconds)))
     : Math.min(240_000, Math.max(8_000, opts.timeoutMs ?? 240_000));
   try {

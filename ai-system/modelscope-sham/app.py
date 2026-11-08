@@ -511,11 +511,13 @@ def _busy_wait() -> float:
 
 # Hugging Face generation implementation is preserved in quarantine/huggingface/modelscope-sham-app.py.disabled.
 
-def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "", raw_test: bool = False) -> str:
+def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "", raw_test: bool = False, seconds: float = 0) -> str:
     """Run exactly the selected Sham-owned path: internal tokens or packaged donor weights. No silent fallback."""
     selected = (backend or "internal").strip().lower()
     if selected not in ("internal", "ready"):
         return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
+    if selected == "ready" and not _V2:
+        return json.dumps({"type": "error", "reason": "no_donor_generator", "text": "شام يولّد بمولّده الأساسي فقط؛ المسار البديل (أوزان جاهزة) غير موجود في شام."}, ensure_ascii=False)
 
     # The donor-weight generator is self-contained and must remain usable even
     # while Sham's separate text checkpoint is loading or unavailable.
@@ -545,6 +547,7 @@ def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: l
                 serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
                 kind.strip().lower(), prompt,
                 motion_tokenizer=serve._state.get("motion_tokenizer"),
+                num_frames=(max(48, min(2400, int(round(seconds * 8)))) if seconds and kind.strip().lower() == "video" else None),   # 8 fps: 6 s = 48 frames … 300 s = 2400
             )
         result = _vet(result, raw_test=raw_test)
         if isinstance(result, dict):
@@ -563,10 +566,10 @@ def generate_media(kind: str, prompt: str) -> str:
     return _generate_media_with_backend(kind, prompt, backend)
 
 
-PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal", "المسار البديل (أوزان محلية جاهزة)": "ready"}     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
+PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal", **({"المسار البديل (أوزان محلية جاهزة)": "ready"} if _V2 else {})}      # owner 2026-11-08: Sham v1 has NO generator but its own; the donor "ready" route is gone from it     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
 
 
-def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "", raw_test: bool = False) -> str:
+def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "", raw_test: bool = False, seconds: float = 0) -> str:
     """Select one media backend and optionally provide video shots and spoken narration."""
     label = (backend_label or "").strip()
     # explicit enum: an unknown label is an error, never a silent "internal" (which would answer with the untrained decoder). The Hugging Face route no longer exists.
@@ -580,7 +583,7 @@ def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes
         scenes = [str(item).strip()[:300] for item in scenes if str(item).strip()][:6]
     except (TypeError, ValueError, json.JSONDecodeError):
         return json.dumps({"type": "error", "text": "مشاهد الفيديو يجب أن تكون قائمة JSON صحيحة."}, ensure_ascii=False)
-    return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500], raw_test=bool(raw_test))
+    return _generate_media_with_backend(kind, prompt, backend, scenes=scenes, narration=(narration or "")[:1500], raw_test=bool(raw_test), seconds=float(seconds or 0))
 
 
 def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
@@ -696,7 +699,7 @@ def build_ui():
             gr.Textbox(label="نوع الوسائط (image / audio / video)", value="image"),
             gr.Textbox(label="الوصف أو النص المطلوب"),
             gr.Radio(
-                choices=["شام الداخلي (الأساسي)", "المسار البديل (أوزان محلية جاهزة)"],
+                choices=["شام الداخلي (الأساسي)"] + (["المسار البديل (أوزان محلية جاهزة)"] if _V2 else []),
                 value="شام الداخلي (الأساسي)",
                 label="مسار وسائط شام — اختر المسار لكل طلب",
                 info="الأساسي يستخدم مفكك شام نفسه. البديل يعمل فقط إذا كانت أوزانه المحلية موجودة."
@@ -704,6 +707,7 @@ def build_ui():
             gr.Textbox(label="مشاهد الفيديو بصيغة JSON (اختياري)", value="[]"),
             gr.Textbox(label="التعليق الصوتي (اختياري)", value=""),
             gr.Checkbox(label="raw_test", value=False),
+            gr.Number(label="seconds (video length, 6-300; 0 = default 6 s)", value=0),
         ],
         gr.Textbox(label="النتيجة (JSON)"),
         api_name="generate_media_from_panel",
