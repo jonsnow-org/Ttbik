@@ -1,0 +1,64 @@
+name: Telegram Bridge (AI Agent)
+
+# Telegram -> GitHub issue -> AI Agent -> reply back to Telegram. See ai-agent/README.md.
+#   poll  (every 5 minutes, and by hand): takes new messages from the owner's Telegram chat and opens an issue "Telegram: [message]" for each.
+#   relay (when "AI Agent" finishes): sends AI's last comment on that issue to Telegram.
+# GitHub cannot receive a Telegram webhook, so the poll job listens (long polling) for most of the 5 minutes; the next run takes over.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+  workflow_run:
+    workflows: ["AI Agent"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  poll:
+    # AI_POLL=0 turns the listening off: use it when the messages arrive through the Nova bot instead (a bot with a webhook cannot also be polled)
+    if: ${{ github.event_name != 'workflow_run' && vars.AI_PAUSE != '1' && vars.AI_POLL != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: telegram-poll
+      cancel-in-progress: false
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ai-agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r ai-agent/requirements.txt
+      - name: Listen to Telegram and open issues
+        run: python ai-agent/telegram_bot.py poll --seconds 270
+
+  relay:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ai-agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r ai-agent/requirements.txt
+      - name: Send AI's reply to Telegram
+        run: python ai-agent/telegram_bot.py relay

@@ -1,0 +1,75 @@
+name: AI Agent
+
+# AI Agent (a FREE model through OpenRouter) as a GitHub issue assistant. See ai-agent/README.md.
+#   normal mode (no label)        : reads the issue and writes ONE comment. Changes nothing in the repository.
+#   full mode (label `ai-full`) : may create a NEW branch, commit, push that branch and open a pull request. The default branch is never written to directly.
+# Only trusted issues are processed (author = owner / member / collaborator, or the label `from-telegram`, which only someone with write access can add).
+# The same issue content is never processed twice: the key is cached (actions/cache, ai-cache.json).
+
+run-name: "AI #${{ github.event.issue.number || inputs.issue_number }}"
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to process"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: ai-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  ai:
+    # a comment only wakes it when a trusted person writes "/ai ..." (or "@ai"); labels other than the two AI ones are ignored; never answer a bot
+    if: >-
+      vars.AI_PAUSE != '1' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issues' && (github.event.action == 'opened' || github.event.label.name == 'ai-full' || github.event.label.name == 'from-telegram')) ||
+        (github.event_name == 'issue_comment' && !github.event.issue.pull_request && github.event.comment.user.type != 'Bot' &&
+         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+         (startsWith(github.event.comment.body, '/ai') || contains(github.event.comment.body, '@ai')))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      AI_MODEL: ${{ vars.AI_MODEL }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Cache key for this issue content
+        id: key
+        run: python ai-agent/ai_agent.py --key
+      - name: Already processed? (cache hit = same issue content seen before)
+        id: cache
+        if: steps.key.outputs.trusted == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ai-cache.json
+          key: ${{ steps.key.outputs.key }}
+      - name: AI Agent
+        if: steps.key.outputs.trusted == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: python ai-agent/ai_agent.py
+      - name: Skipped
+        if: steps.key.outputs.trusted != 'true' || steps.cache.outputs.cache-hit == 'true'
+        run: echo "nothing to do (trusted=${{ steps.key.outputs.trusted }}, cache-hit=${{ steps.cache.outputs.cache-hit }})"

@@ -1,4 +1,5 @@
 import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
+import { handleAiAgentUpdate } from "@/lib/aiAgentBridge";
 import { refreshPressure, pressureOn } from "@/lib/pressureMode";
 import type { ShamStepEvent } from "@/lib/shamAgent";
 import { openCard as openMsgCard, cardPhase, cardTool, cardStepDone, cardFinish, cardSay, cardDrop, cardRestore, cardRender, cardSnapshot, type Card } from "@/lib/singleMessage";
@@ -1284,6 +1285,8 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
 }
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
+  // The AI agent (a free model through OpenRouter, run by a GitHub workflow): its own path, before and apart from every model (owner only; /ai /build /fix /full). See src/lib/aiAgentBridge.ts.
+  if (await handleAiAgentUpdate(bot as never, update)) return;
   // A call made inside shamVariant.run (the bot route always does) is a Sham chat: it takes Sham's path whatever the legacy-backend flag says (B-09).
   if (NOVA_LEGACY_BACKEND_PAUSED || shamVariant.getStore()) {
     if (update.callback_query?.id && /^sham(ok|no)\|/.test(String(update.callback_query.data || ""))) {

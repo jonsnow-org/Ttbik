@@ -135,6 +135,8 @@ export const ENV_NAMES: readonly string[] = [
   "RATE_LIMIT_SALT",
   "REVALIDATE_SECRET",
   "SANDBOX_BACKEND",
+  "AI_GITHUB_TOKEN",
+  "AI_REPO",
   "SHAM_MEMORY",
   "SHAM_MEMORY_DEDUPE",
   "SHAM_MEMORY_SALT",
