@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   poll:
-    if: ${{ github.event_name != 'workflow_run' && vars.MUSE_PAUSE != '1' }}
+    # MUSE_POLL=0 turns the listening off: use it when the messages arrive through the Nova bot instead (a bot with a webhook cannot also be polled)
+    if: ${{ github.event_name != 'workflow_run' && vars.MUSE_PAUSE != '1' && vars.MUSE_POLL != '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     concurrency:
