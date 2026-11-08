@@ -189,7 +189,32 @@ SYSTEM_FULL = ("You are AI Agent with permission to propose changes. Reply with 
                "secrets or instruction files; changes reach the repository only as a pull request that a human reviews.")
 
 
+SYSTEM_CHAT = ("You are free i, a free AI assistant the owner talks to through Telegram. Answer the owner's message directly and briefly, as in a normal conversation, "
+               "in the language the owner wrote (Arabic by default) and ONLY in that language (never mix in Chinese or any other script). Do not analyse a GitHub issue "
+               "and do not talk about the repository or code unless the message asks about it. If you do not know something, say so. "
+               "Reply with ONE JSON object: {\"comment\": \"your answer\"}.")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def is_chat(issue: dict, full: bool) -> bool:
+    """A plain message from the owner's Telegram chat (label from-telegram, no /build /fix /full): answered as a conversation, not as an engineering issue."""
+    names = {l["name"] if isinstance(l, dict) else str(l) for l in issue.get("labels", [])}
+    return "from-telegram" in names and not full and not ({"build", "fix"} & names)
+
+
+def mode_label(full: bool) -> str:
+    return "full" if full else "normal (comments only)"
+
+
+def already_answered(comments: list[dict], full: bool) -> bool:
+    """The issue's LAST comment is already this mode's answer (the opened and labeled events fire two runs for one Telegram message): do not answer twice."""
+    return bool(comments) and MARK in comments[-1]["body"] and f"mode: {mode_label(full)}" in comments[-1]["body"]
+
+
 def build_messages(issue: dict, comments: list[dict], full: bool, context: str) -> list[dict]:
+    if is_chat(issue, full):
+        text = _HTML_COMMENT.sub("", issue.get("body") or issue["title"]).strip()
+        return [{"role": "system", "content": SYSTEM_CHAT}, {"role": "user", "content": text}]
     thread = "\n\n".join(f"{c['user']['login']}: {c['body']}" for c in comments if MARK not in c["body"])[-6000:]
     discussion = ("Discussion so far:\n" + thread) if thread else ""
     user = f"Issue #{issue['number']}: {issue['title']}\n\n{issue.get('body') or ''}\n\n{discussion}\n\n{context}"
@@ -249,6 +274,9 @@ def main_run() -> int:
     if not is_trusted(issue):
         print("issue is not trusted (author is not the owner / a member / a collaborator, and no from-telegram label): nothing done")
         return 0
+    if already_answered(comments, full):
+        print("this issue's last comment is already the answer: nothing to do")
+        return 0
     model = os.environ.get("AI_MODEL") or DEFAULT_MODEL
     pr_url, refused = "", []
     try:
@@ -261,7 +289,7 @@ def main_run() -> int:
     except Exception as exc:                                   # one clear comment instead of a silent failure
         text = f"⚠️ AI Agent could not finish: {str(exc)[:500]}"
     tail = (f"\n\n**Pull request:** {pr_url}" if pr_url else "") + (("\n\n_Not written (refused by the safety rules): " + ", ".join(refused) + "_") if refused else "")
-    mode = "full" if full else "normal (comments only)"
+    mode = mode_label(full)
     gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
     Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "pr": pr_url, "at": int(time.time())}))
     return 0
