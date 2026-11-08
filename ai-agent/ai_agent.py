@@ -33,8 +33,8 @@ import requests
 API = "https://api.github.com"
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openrouter/free"
-# the agent needs models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
-AGENT_MODELS = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
+# Groq first (its free quota is far larger than OpenRouter's ~50 requests a day, and an agent makes one request per step); then free OpenRouter models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
+AGENT_MODELS = "groq/auto,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
 FULL_LABEL = "ai-full"
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARK = "<!-- ai-reply -->"
@@ -132,23 +132,63 @@ def repo() -> str:
     return os.environ["GITHUB_REPOSITORY"]
 
 
+def groq_candidates(limit: int = 3) -> list[str]:
+    """Groq's live model list (GET /models with GROQ_API_KEY), chat models only, the best fit for tool work first. [] without a key or when Groq does not answer."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        return []
+    try:
+        r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)
+        ids = [m["id"] for m in r.json().get("data", []) if m.get("active", True)]
+    except Exception:
+        return []
+    skip = ("whisper", "guard", "tts", "playai", "orpheus", "embed", "allam", "compound", "safeguard")
+    pref = ("gpt-oss-120b", "llama-3.3-70b", "kimi", "llama-4", "qwen3-32b", "qwen", "gpt-oss-20b", "llama-3.1-8b")
+    rank = lambda i: next((k for k, p in enumerate(pref) if p in i.lower()), len(pref))   # noqa: E731
+    return sorted((i for i in ids if not any(b in i.lower() for b in skip)), key=rank)[:limit]
+
+
 def model_list(spec: str | None) -> list[str]:
-    """AI_MODEL may be one id or a comma list; empty means the free router."""
-    out = [m.strip() for m in (spec or "").split(",") if m.strip()]
+    """AI_MODEL may be one id or a comma list; empty means the free router. `groq/auto` expands to Groq's best live chat models."""
+    out: list[str] = []
+    for m in (x.strip() for x in (spec or "").split(",")):
+        if m == "groq/auto":
+            out += ["groq/" + i for i in groq_candidates()]
+        elif m:
+            out.append(m)
     return out or [DEFAULT_MODEL]
 
 
+GROQ = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def _provider(m: str) -> tuple[str, str, str, str]:
+    """(url, key, model id, name): a model written `groq/<id>` goes to Groq (free tier, GROQ_API_KEY); everything else to OpenRouter (OPENROUTER_API_KEY)."""
+    if m.startswith("groq/"):
+        return GROQ, os.environ.get("GROQ_API_KEY", "").strip(), m[5:], "Groq"
+    return OPENROUTER, os.environ.get("OPENROUTER_API_KEY", "").strip(), m, "OpenRouter"
+
+
 def call_model(messages: list[dict], model: str, max_tokens: int = 6000) -> str:
-    """Try each model of the list in order. A model that is gone (404), rate-limited (429), out of free quota (402) or failing (5xx) is skipped for the next one."""
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY is missing (add it in Settings -> Secrets and variables -> Actions).")
-    errors = []
+    """Try each model of the list in order (OpenRouter free models, or Groq's with the `groq/` prefix). A model that is gone (404), rate-limited (429), out of free
+    quota (402) or failing (5xx) is skipped for the next one; a provider whose key is missing is skipped too (an error only when no provider has a key)."""
+    errors, refused, any_key = [], [], False
     for m in model_list(model):
-        r = requests.post(OPENROUTER, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "ai-agent"},
-                          json={"model": m, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3}, timeout=600)
+        url, key, mid, name = _provider(m)
+        if not key:
+            errors.append(f"{m}: no {name} key")
+            continue
+        any_key = True
+        try:
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "ai-agent"},
+                              json={"model": mid, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3}, timeout=600)
+        except requests.RequestException as exc:
+            errors.append(f"{m}: {type(exc).__name__}")
+            continue
         if r.status_code in (401, 403):
-            raise RuntimeError("OpenRouter refused the key (OPENROUTER_API_KEY is wrong or revoked).")
+            refused.append(m)
+            errors.append(f"{m}: {name} refused the key")
+            continue
         if r.status_code >= 300:
             errors.append(f"{m}: HTTP {r.status_code}")
             continue
@@ -160,7 +200,11 @@ def call_model(messages: list[dict], model: str, max_tokens: int = 6000) -> str:
         if text and text.strip():
             return text
         errors.append(f"{m}: empty answer")
-    raise RuntimeError("no model answered (" + "; ".join(errors)[:400] + "). Free models and their daily limits change often: set AI_MODEL to a comma list of ids from https://openrouter.ai/models?q=free")
+    if not any_key:
+        raise RuntimeError("no key for any model: add OPENROUTER_API_KEY or GROQ_API_KEY (Settings -> Secrets and variables -> Actions).")
+    if refused and len(refused) == len([e for e in errors if "no " not in e.split(": ", 1)[-1][:3]]):
+        raise RuntimeError("the provider refused the key (OPENROUTER_API_KEY / GROQ_API_KEY is wrong or revoked).")
+    raise RuntimeError("no model answered (" + "; ".join(errors)[:500] + "). Free models and their daily limits change often: set AI_MODEL to a comma list of ids (OpenRouter ids, or groq/<id> for Groq).")
 
 
 def repo_context(issue_text: str) -> str:
@@ -209,9 +253,10 @@ def mode_label(full: bool, agent: bool = False) -> str:
 
 
 def uses_agent(issue: dict, full: bool) -> bool:
-    """A Telegram message (label from-telegram) or an ai-full request is a COMMAND the agent carries out (agent_loop.py). AI_AGENT_LOOP=0 turns that off."""
+    """A command from a trusted person carries it out (agent_loop.py), wherever it was written: a Telegram message (label from-telegram),
+    an issue by the owner / a member / a collaborator, or an ai-full request. AI_AGENT_LOOP=0 turns that off (comment-only analysis)."""
     names = {l["name"] if isinstance(l, dict) else str(l) for l in issue.get("labels", [])}
-    return os.environ.get("AI_AGENT_LOOP", "1") != "0" and ("from-telegram" in names or full)
+    return os.environ.get("AI_AGENT_LOOP", "1") != "0" and ("from-telegram" in names or full or is_trusted(issue))
 
 
 def already_answered(comments: list[dict], mode: str) -> bool:
@@ -284,14 +329,15 @@ def main_run() -> int:
         return 0
     agent = uses_agent(issue, full)
     mode = mode_label(full, agent)
-    if already_answered(comments, mode):
+    if not os.environ.get("AI_FORCE") and already_answered(comments, mode):
         print("this issue's last comment is already the answer: nothing to do")
         return 0
     model = os.environ.get("AI_MODEL") or DEFAULT_MODEL
     if agent:                                                      # a command: carry it out with tools (agent_loop.py)
         from agent_loop import run_agent
         text, trace = run_agent(issue, comments, os.environ.get("AI_MODEL") or AGENT_MODELS, default)
-        tail = f"\n\n_Steps: {', '.join(trace)}_" if trace else ""
+        from agent_loop import compact_trace
+        tail = f"\n\n_Steps: {compact_trace(trace)}_" if trace else ""
         gh("POST", f"/repos/{repo()}/issues/{number}/comments", json={"body": f"{MARK}\n{text}{tail}\n\n<sub>AI Agent · {model} · mode: {mode}</sub>"})
         Path("ai-cache.json").write_text(json.dumps({"issue": number, "key": content_key(issue, full), "agent": True, "at": int(time.time())}))
         return 0

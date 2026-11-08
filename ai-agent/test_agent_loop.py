@@ -179,10 +179,19 @@ class Loop(unittest.TestCase):
         self.assertIn("refused", seen[1][-1]["content"])
         self.assertEqual(msg, "رُفض")
 
-    def test_the_time_limit_stops_the_loop(self):
+    def test_the_time_limit_ends_with_an_answer_from_what_was_read(self):
         clock = iter([0, 0, 10 ** 6, 10 ** 6, 10 ** 6, 10 ** 6])
-        (msg, trace), _ = self.run_with(['{"tool": "list_files", "args": {}}'] * 3, now=lambda: next(clock))
+        (msg, trace), seen = self.run_with(['{"tool": "list_files", "args": {}}', "الخلاصة: الملف src/a.py يطبع hello."], now=lambda: next(clock))
+        self.assertIn("الخلاصة", msg)
         self.assertIn("حدّ الوقت", msg)
+        self.assertIn("FINAL answer", seen[-1][-1]["content"])
+
+    def test_the_step_limit_wraps_up_and_the_model_is_told_the_steps_left(self):
+        (msg, trace), seen = self.run_with(['{"tool": "list_files", "args": {}}'] * L.MAX_STEPS + ['{"tool": "final", "args": {"message": "هذه خلاصتي"}}'])
+        self.assertIn("هذه خلاصتي", msg)
+        self.assertIn("حدّ الخطوات", msg)
+        self.assertIn("Few steps left", seen[L.MAX_STEPS - 1][-1]["content"])
+        self.assertEqual(L.compact_trace(["read_file", "read_file", "search"]), "read_file ×2, search")
 
 
 if __name__ == "__main__":

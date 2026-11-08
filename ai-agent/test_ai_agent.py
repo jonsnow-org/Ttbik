@@ -184,6 +184,61 @@ class ModelCallTests(unittest.TestCase):
             M.call_model([], "a:free")
 
 
+class Providers(unittest.TestCase):
+    def setUp(self):
+        self.env = dict(os.environ)
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
+        os.environ["GROQ_API_KEY"] = "gsk_test"
+        self.calls = []
+        self.orig = M.requests.post
+
+    def tearDown(self):
+        M.requests.post = self.orig
+        os.environ.clear()
+        os.environ.update(self.env)
+
+    def test_groq_models_go_to_groq_with_its_own_key_and_fall_back_to_openrouter(self):
+        class R:
+            def __init__(self, code, text=""):
+                self.status_code, self._t = code, text
+
+            def json(self):
+                return {"choices": [{"message": {"content": self._t}}]}
+
+        def fake(url, headers=None, json=None, timeout=0):
+            self.calls.append((url, headers["Authorization"], json["model"]))
+            return R(429) if "groq.com" in url else R(200, "ok from openrouter")
+        M.requests.post = fake
+        self.assertEqual(M.call_model([], "groq/llama-3.3-70b-versatile,x/y:free"), "ok from openrouter")
+        self.assertEqual(self.calls[0], ("https://api.groq.com/openai/v1/chat/completions", "Bearer gsk_test", "llama-3.3-70b-versatile"))
+        self.assertEqual(self.calls[1][1:], ("Bearer sk-or-test", "x/y:free"))
+
+    def test_groq_auto_asks_groq_for_its_live_models_and_picks_chat_ones(self):
+        class G:
+            status_code = 200
+
+            def json(self):
+                return {"data": [{"id": "whisper-large-v3"}, {"id": "llama-3.1-8b-instant"}, {"id": "openai/gpt-oss-120b"}, {"id": "meta-llama/llama-guard-4-12b"},
+                                 {"id": "llama-3.3-70b-versatile"}, {"id": "qwen/qwen3-32b", "active": False}]}
+        orig = M.requests.get
+        M.requests.get = lambda *a, **k: G()
+        try:
+            self.assertEqual(M.model_list("groq/auto,x:free"), ["groq/openai/gpt-oss-120b", "groq/llama-3.3-70b-versatile", "groq/llama-3.1-8b-instant", "x:free"])
+            del os.environ["GROQ_API_KEY"]
+            self.assertEqual(M.model_list("groq/auto,x:free"), ["x:free"])             # no key: nothing from Groq
+        finally:
+            M.requests.get = orig
+
+    def test_a_missing_key_skips_that_provider_and_no_key_at_all_says_so(self):
+        del os.environ["GROQ_API_KEY"]
+        M.requests.post = lambda *a, **k: type("R", (), {"status_code": 200, "json": lambda self: {"choices": [{"message": {"content": "hi"}}]}})()
+        self.assertEqual(M.call_model([], "groq/a,b:free"), "hi")           # Groq skipped (no key), OpenRouter answers
+        del os.environ["OPENROUTER_API_KEY"]
+        with self.assertRaises(RuntimeError) as e:
+            M.call_model([], "groq/a,b:free")
+        self.assertIn("no key for any model", str(e.exception))
+
+
 class ChatMode(unittest.TestCase):
     def test_a_telegram_message_is_a_conversation_not_an_engineering_issue(self):
         issue = {"number": 5, "title": "Telegram: [كيف حالك]", "labels": [{"name": "from-telegram"}], "body": "كيف حالك\n\n<!-- tg-chat:42 -->\n<!-- tg-update:7 -->"}
@@ -194,6 +249,18 @@ class ChatMode(unittest.TestCase):
         self.assertFalse(M.is_chat(issue, True))                               # /full keeps the engineering mode
         self.assertFalse(M.is_chat({**issue, "labels": [{"name": "from-telegram"}, {"name": "build"}]}, False))   # /build and /fix too
         self.assertFalse(M.is_chat({**issue, "labels": []}, False))
+
+    def test_a_trusted_person_gets_the_agent_from_github_too(self):
+        member = {"number": 1, "title": "t", "labels": [], "author_association": "MEMBER", "body": "x"}
+        stranger = {**member, "author_association": "NONE"}
+        self.assertTrue(M.uses_agent(member, False))
+        self.assertFalse(M.uses_agent(stranger, False))                       # not trusted: never runs at all (is_trusted gate)
+        self.assertTrue(M.uses_agent({**stranger, "labels": [{"name": "from-telegram"}]}, False))
+        os.environ["AI_AGENT_LOOP"] = "0"
+        try:
+            self.assertFalse(M.uses_agent(member, False))
+        finally:
+            del os.environ["AI_AGENT_LOOP"]
 
     def test_the_same_message_is_answered_once(self):
         answer = {"body": M.MARK + "\nhi\n\n<sub>AI Agent · m · mode: normal (comments only)</sub>"}
