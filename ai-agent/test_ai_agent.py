@@ -213,6 +213,22 @@ class Providers(unittest.TestCase):
         self.assertEqual(self.calls[0], ("https://api.groq.com/openai/v1/chat/completions", "Bearer gsk_test", "llama-3.3-70b-versatile"))
         self.assertEqual(self.calls[1][1:], ("Bearer sk-or-test", "x/y:free"))
 
+    def test_groq_auto_asks_groq_for_its_live_models_and_picks_chat_ones(self):
+        class G:
+            status_code = 200
+
+            def json(self):
+                return {"data": [{"id": "whisper-large-v3"}, {"id": "llama-3.1-8b-instant"}, {"id": "openai/gpt-oss-120b"}, {"id": "meta-llama/llama-guard-4-12b"},
+                                 {"id": "llama-3.3-70b-versatile"}, {"id": "qwen/qwen3-32b", "active": False}]}
+        orig = M.requests.get
+        M.requests.get = lambda *a, **k: G()
+        try:
+            self.assertEqual(M.model_list("groq/auto,x:free"), ["groq/openai/gpt-oss-120b", "groq/llama-3.3-70b-versatile", "groq/llama-3.1-8b-instant", "x:free"])
+            del os.environ["GROQ_API_KEY"]
+            self.assertEqual(M.model_list("groq/auto,x:free"), ["x:free"])             # no key: nothing from Groq
+        finally:
+            M.requests.get = orig
+
     def test_a_missing_key_skips_that_provider_and_no_key_at_all_says_so(self):
         del os.environ["GROQ_API_KEY"]
         M.requests.post = lambda *a, **k: type("R", (), {"status_code": 200, "json": lambda self: {"choices": [{"message": {"content": "hi"}}]}})()

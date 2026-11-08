@@ -34,7 +34,7 @@ API = "https://api.github.com"
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openrouter/free"
 # Groq first (its free quota is far larger than OpenRouter's ~50 requests a day, and an agent makes one request per step); then free OpenRouter models that follow tool calls: these free ones list `tools` support on OpenRouter (checked 2026-11-08); the free router is the last resort. Override with AI_MODEL.
-AGENT_MODELS = "groq/llama-3.3-70b-versatile,groq/qwen/qwen3-32b,groq/llama-3.1-8b-instant,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
+AGENT_MODELS = "groq/auto,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,xingchen-agi/xing4.0-29b-a4b:free,cohere/north-mini-code:free,openrouter/free"
 FULL_LABEL = "ai-full"
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARK = "<!-- ai-reply -->"
@@ -132,9 +132,30 @@ def repo() -> str:
     return os.environ["GITHUB_REPOSITORY"]
 
 
+def groq_candidates(limit: int = 3) -> list[str]:
+    """Groq's live model list (GET /models with GROQ_API_KEY), chat models only, the best fit for tool work first. [] without a key or when Groq does not answer."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        return []
+    try:
+        r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)
+        ids = [m["id"] for m in r.json().get("data", []) if m.get("active", True)]
+    except Exception:
+        return []
+    skip = ("whisper", "guard", "tts", "playai", "orpheus", "embed", "allam", "compound", "safeguard")
+    pref = ("gpt-oss-120b", "llama-3.3-70b", "kimi", "llama-4", "qwen3-32b", "qwen", "gpt-oss-20b", "llama-3.1-8b")
+    rank = lambda i: next((k for k, p in enumerate(pref) if p in i.lower()), len(pref))   # noqa: E731
+    return sorted((i for i in ids if not any(b in i.lower() for b in skip)), key=rank)[:limit]
+
+
 def model_list(spec: str | None) -> list[str]:
-    """AI_MODEL may be one id or a comma list; empty means the free router."""
-    out = [m.strip() for m in (spec or "").split(",") if m.strip()]
+    """AI_MODEL may be one id or a comma list; empty means the free router. `groq/auto` expands to Groq's best live chat models."""
+    out: list[str] = []
+    for m in (x.strip() for x in (spec or "").split(",")):
+        if m == "groq/auto":
+            out += ["groq/" + i for i in groq_candidates()]
+        elif m:
+            out.append(m)
     return out or [DEFAULT_MODEL]
 
 
