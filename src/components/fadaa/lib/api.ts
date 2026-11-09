@@ -11,6 +11,8 @@ type FadaaPayload = {
   contributions?: Contribution[];
   session?: Session;
   contribution?: Contribution;
+  hasMore?: boolean;
+  nextOffset?: number;
 };
 
 type TelegramWebAppWindow = Window & {
@@ -42,14 +44,23 @@ async function request(url: string, initData: string, init?: RequestInit): Promi
   return payload;
 }
 
+function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  const records = new Map<string, T>();
+  for (const item of current) records.set(item.id, item);
+  for (const item of incoming) records.set(item.id, item);
+  return [...records.values()];
+}
+
 export function applyFadaaSnapshot(payload: FadaaPayload) {
   if (!payload.user || !Array.isArray(payload.sessions) || !Array.isArray(payload.contributions)) {
     throw new Error("استجابة فضاء غير مكتملة.");
   }
+  const current = useFadaa.getState();
+  const sameUser = current.user.id === payload.user.id;
   useFadaa.setState({
     user: payload.user,
-    sessions: payload.sessions,
-    contributions: payload.contributions,
+    sessions: (sameUser ? mergeById(current.sessions, payload.sessions) : payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
+    contributions: (sameUser ? mergeById(current.contributions, payload.contributions) : payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
     // Server-side actions still enforce ownership; this flag only controls navigation visibility.
     supervisor: Boolean(payload.isOwner),
   });
@@ -62,6 +73,28 @@ export async function refreshFadaaSnapshot() {
   const payload = await request(`/api/fadaa?bot=${encodeURIComponent(botId)}&status=all${sessionQuery}`, initData);
   applyFadaaSnapshot(payload);
   return payload;
+}
+
+export async function loadFadaaArchivePage(offset = 0) {
+  const { botId, initData } = context();
+  const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? Math.min(offset, 10000) : 0;
+  const url = "/api/fadaa?bot=" + encodeURIComponent(botId) + "&status=closed&offset=" + safeOffset;
+  const payload = await request(url, initData);
+  if (!Array.isArray(payload.sessions) || !Array.isArray(payload.contributions)) {
+    throw new Error("استجابة الأرشيف غير مكتملة.");
+  }
+  const current = useFadaa.getState();
+  const sameUser = Boolean(payload.user && current.user.id === payload.user.id);
+  useFadaa.setState({
+    sessions: (sameUser ? mergeById(current.sessions, payload.sessions) : payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
+    contributions: (sameUser ? mergeById(current.contributions, payload.contributions) : payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
+    ...(payload.user ? { user: payload.user } : {}),
+    ...(typeof payload.isOwner === "boolean" ? { supervisor: payload.isOwner } : {}),
+  });
+  return {
+    hasMore: Boolean(payload.hasMore),
+    nextOffset: typeof payload.nextOffset === "number" ? payload.nextOffset : safeOffset + payload.sessions.length,
+  };
 }
 
 export async function fadaaAction(action: string, data: Record<string, unknown> = {}) {

@@ -21,8 +21,19 @@ export function HomeScreen() {
   const go = useFadaa((s) => s.go)
   const setDraft = useFadaa((s) => s.setDraft)
   const sessions = useFadaa((s) => s.sessions)
+  const contributions = useFadaa((s) => s.contributions)
+  const currentUserId = useFadaa((s) => s.user.id)
   const openCount = sessions.filter((session) => session.status === 'open' && session.visibility === 'public').length
-  const peopleCount = sessions.reduce((total, session) => total + session.participantIds.length, 0)
+  const peopleCount = new Set(sessions.flatMap((session) => session.participantIds)).size
+  const activity = new Map<string, { count: number; latest: number }>()
+  for (const item of contributions) {
+    const current = activity.get(item.sessionId) || { count: 0, latest: 0 }
+    activity.set(item.sessionId, { count: current.count + 1, latest: Math.max(current.latest, item.createdAt) })
+  }
+  const recentSessions = [...sessions]
+    .filter((session) => session.status === 'open' && session.visibility === 'public')
+    .sort((a, b) => (activity.get(b.id)?.latest || b.createdAt) - (activity.get(a.id)?.latest || a.createdAt))
+    .slice(0, 3)
 
   return (
     <div className="space-y-5 pb-3">
@@ -100,7 +111,7 @@ export function HomeScreen() {
         </div>
         <div className="card flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]"><Users size={20} /></span>
-          <div><div className="text-xl font-extrabold tabular-nums">{peopleCount}</div><div className="text-[11px] text-[var(--color-ink-soft)]">{locale === 'ar' ? 'مشاركة في الجلسات' : 'Participants'}</div></div>
+          <div><div className="text-xl font-extrabold tabular-nums">{peopleCount}</div><div className="text-[11px] text-[var(--color-ink-soft)]">{locale === 'ar' ? 'أشخاص مختلفون' : locale === 'fr' ? 'Personnes distinctes' : 'Unique participants'}</div></div>
         </div>
       </div>
 
@@ -116,6 +127,41 @@ export function HomeScreen() {
       </div>
 
       <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="section-title !mb-1">{locale === 'ar' ? 'جلسات نشطة الآن' : locale === 'fr' ? 'Sessions actives' : 'Active sessions'}</h2>
+            <p className="text-[10px] text-[var(--color-ink-soft)]">{locale === 'ar' ? 'نقاشات مفتوحة يمكنك الإسهام فيها.' : locale === 'fr' ? 'Des discussions ouvertes auxquelles participer.' : 'Open discussions you can contribute to.'}</p>
+          </div>
+          <button type="button" className="btn btn-ghost !min-h-9 !px-2 !text-xs" onClick={() => go('sessions')}>
+            {locale === 'ar' ? 'عرض الكل' : locale === 'fr' ? 'Tout voir' : 'View all'}
+          </button>
+        </div>
+        {recentSessions.length === 0 ? (
+          <div className="card py-5 text-center text-xs leading-6 text-[var(--color-ink-soft)]">
+            {locale === 'ar' ? 'لا توجد جلسات عامة مفتوحة الآن. ابدأ جلسة جديدة أو عد لاحقاً.' : locale === 'fr' ? 'Aucune session publique ouverte. Créez-en une ou revenez plus tard.' : 'No public sessions are open now. Start one or check back later.'}
+          </div>
+        ) : (
+          <div className="grid gap-2.5">
+            {recentSessions.map((session) => {
+              const count = activity.get(session.id)?.count || 0
+              const alreadyJoined = Boolean(session.roles[currentUserId])
+              return (
+                <button key={session.id} type="button" className="card w-full text-start transition hover:border-[var(--color-primary)]" onClick={() => go(alreadyJoined ? 'room' : 'join', session.id)}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="badge">{t(locale, session.kind === 'knowledge' ? 'kind_knowledge' : session.kind === 'experience' ? 'kind_experience' : 'kind_decision')}</span>
+                    <span className="text-[10px] text-[var(--color-ink-soft)]">{count} {locale === 'ar' ? 'إسهامة' : 'contributions'}</span>
+                  </div>
+                  <span className="mt-2 block font-bold leading-6">{session.title}</span>
+                  <span className="mt-1 block text-xs leading-5 text-[var(--color-ink-muted)]">{session.purpose}</span>
+                  <span className="mt-2 block text-[10px] text-[var(--color-ink-soft)]">{session.participantIds.length} {locale === 'ar' ? 'مشارك' : 'participants'} · {alreadyJoined ? (locale === 'ar' ? 'تابع مشاركتك' : 'Continue') : (locale === 'ar' ? 'انضم' : 'Join')}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
         <div>
           <h2 className="section-title !mb-1">{locale === 'ar' ? 'ابدأ من نوع الجلسة' : locale === 'fr' ? 'Choisir un type' : 'Choose a session type'}</h2>
           <p className="text-xs text-[var(--color-ink-soft)]">{locale === 'ar' ? 'لكل جلسة هدف واضح وطريقة مساهمة مختلفة.' : 'Each session has a clear purpose and contribution style.'}</p>
@@ -128,7 +174,10 @@ export function HomeScreen() {
                 key={item.id}
                 type="button"
                 className="card flex w-full items-center gap-3 text-start transition active:scale-[0.99]"
-                onClick={() => go('create')}
+                onClick={() => {
+                  setDraft({ kind: item.id, title: '', purpose: '' })
+                  go('create')
+                }}
               >
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
                   <Icon size={22} />

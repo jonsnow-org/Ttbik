@@ -37,6 +37,7 @@ type ContributionRow = {
   role: string; kind: string; text: string; created_at: string; hidden?: boolean;
 };
 
+const PAGE_SIZE = 80;
 const SESSION_KINDS = new Set(["knowledge", "experience", "decision"]);
 const CONTRIBUTION_KINDS = new Set([
   "clarify", "example", "correct", "step", "precise_q", "stage_update",
@@ -142,10 +143,14 @@ export async function GET(req: NextRequest) {
     }
 
     const requestedStatus = req.nextUrl.searchParams.get("status") || "open";
+    const requestedOffset = Number(req.nextUrl.searchParams.get("offset") || "0");
+    const offset = Number.isSafeInteger(requestedOffset) && requestedOffset > 0
+      ? Math.min(requestedOffset, 10000)
+      : 0;
     let query = ctx.db.from("fadaa_sessions").select("*")
       .eq("bot_id", ctx.botId)
       .order("created_at", { ascending: false })
-      .limit(80);
+      .range(offset, offset + PAGE_SIZE - 1);
     if (requestedStatus === "open" || requestedStatus === "closed") {
       query = query.eq("status", requestedStatus);
     }
@@ -202,6 +207,8 @@ export async function GET(req: NextRequest) {
       isOwner: ctx.isOwner,
       sessions,
       contributions,
+      hasMore: (rawSessions || []).length === PAGE_SIZE,
+      nextOffset: offset + (rawSessions || []).length,
     });
   } catch (error) {
     console.error("[fadaa] GET failed", error);

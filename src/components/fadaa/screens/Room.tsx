@@ -40,6 +40,9 @@ export function RoomScreen() {
   const kinds = CONTRIB_KINDS[locale][session.kind] ?? CONTRIB_KINDS.ar[session.kind]
   const remaining = session.closesAt - now
   const isSessionOwner = session.ownerId === user.id
+  const contributionBreakdown = kinds
+    .map((item) => ({ ...item, count: contributions.filter((entry) => entry.kind === item.id).length }))
+    .filter((item) => item.count > 0)
 
   const submit = async () => {
     if (!kind || !text.trim() || busy) return
@@ -165,10 +168,30 @@ export function RoomScreen() {
         )}
       </section>
 
-      <section className="card space-y-2">
-        <h2 className="section-title">{t(locale, 'live_summary')}</h2>
-        <p className="text-sm text-[var(--color-ink-muted)]">
-          {contributions.length === 0 ? '—' : contributions.slice(-3).map((item) => item.text).join(' · ')}
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="section-title !mb-0">{locale === 'ar' ? 'محاور المشاركة' : locale === 'fr' ? 'Types de contributions' : 'Contribution topics'}</h2>
+          <span className="badge">{contributions.length}</span>
+        </div>
+        {contributionBreakdown.length === 0 ? (
+          <p className="text-sm text-[var(--color-ink-soft)]">{locale === 'ar' ? 'ستظهر هنا أنواع الإسهامات بعد بدء النقاش.' : locale === 'fr' ? 'Les contributions apparaîtront ici au début de la discussion.' : 'Contribution types will appear as the discussion develops.'}</p>
+        ) : (
+          <div className="space-y-3">
+            {contributionBreakdown.map((item) => (
+              <div key={item.id} className="space-y-1">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold">{item.label}</span>
+                  <strong className="tabular-nums text-[var(--color-primary)]">{item.count}</strong>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                  <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: String(Math.max(6, item.count / contributions.length * 100)) + '%' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] leading-5 text-[var(--color-ink-soft)]">
+          {locale === 'ar' ? 'هذه مؤشرات على ما طُرح في الجلسة، وليست حكماً على اتفاق أو نتيجة نهائية.' : locale === 'fr' ? 'Ces indicateurs décrivent les contributions, pas un accord ou un résultat final.' : 'These figures describe contributions, not consensus or a final outcome.'}
         </p>
       </section>
 
