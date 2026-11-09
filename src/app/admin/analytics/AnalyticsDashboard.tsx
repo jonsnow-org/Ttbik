@@ -43,6 +43,7 @@ export default function AnalyticsDashboard() {
     topPages: TopPage[];
     topReferrers: TopReferrer[];
     devices: DeviceRow[];
+    conversions?: { event: string; count: number }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -94,6 +95,23 @@ export default function AnalyticsDashboard() {
                       style={{ height: `${Math.max(4, (d.views / maxDaily) * 100)}%` }}
                     />
                     <span className="text-[9px] text-slate-400">{d.day.slice(5)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
+            <h2 className="mb-1 font-bold text-slate-900">التحويلات (30 يوماً)</h2>
+            <p className="mb-3 text-xs text-slate-400">ضغطات المشاركة والدعم والبوتات تحت الأدوات المجانية: أي أداة تجلب زوارًا ومالًا.</p>
+            {(data?.conversions ?? []).length === 0 ? (
+              <p className="text-sm text-slate-400">لا ضغطات بعد.</p>
+            ) : (
+              <div className="space-y-2">
+                {data!.conversions!.map((c) => (
+                  <div key={c.event} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate font-mono text-slate-600" dir="ltr">{c.event}</span>
+                    <span className="shrink-0 font-bold text-slate-900">{c.count}</span>
                   </div>
                 ))}
               </div>
