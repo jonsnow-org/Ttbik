@@ -67,6 +67,10 @@ def main() -> int:
                 time.sleep(0.12)
             time.sleep(wait)
             save(token, session, name)
+        # why a window did not appear: the launcher logs and what is running
+        r = m.box_call(API, token, {"action": "run", "session": session, "timeout": 20, "command":
+                       "for f in ~/.desktop/*.log; do echo \"== $f\"; tail -n 8 \"$f\"; done; echo == procs; ps -eo pid,args | grep -E 'pcmanfm|tint2|chrome --' | grep -v grep | cut -c1-150 | head -12"}, timeout=40)
+        print("LOGS", str(r.get("output", ""))[:3000], flush=True)
     finally:
         call(token, session, action="stop")
     return 0
