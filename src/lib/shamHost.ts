@@ -24,7 +24,7 @@ export const shamHost: ShamHost = {
       const p = await fetchPage(url, o);
       return { ok: p.ok, url: p.url, error: p.error, text: p.ok ? `${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}` : "" };
     },
-    research: async (q, o) => formatResearch(await deepResearch(q, o), 24000),
+    research: async (q, o) => formatResearch(await deepResearch(q, o), o.maxChars || 24000),
     request: async (method, url, o) => { const r = await safeRequest(method, url, o); return `HTTP ${r.status}${r.type ? ` ${r.type.split(";")[0]}` : ""}${r.location ? ` → ${r.location}` : ""}\n${r.body}`; },
   },
   bank: { add: (runId, chatKey, step, tool, label, body, db) => bankAdd(runId, chatKey, step, tool, label, body, d(db)), recall: (runId, chatKey, query, n, db) => bankRecall(runId, chatKey, query, n, d(db)) },
