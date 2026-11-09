@@ -139,9 +139,15 @@ def _load(model_dir: Path) -> None:
                  context_tokens=int(getattr(getattr(serve._state.get("model"), "cfg", None), "max_seq_len", 0)))
     _refresh_media_assets(model_dir)
     _say("ready: the model is loaded")
-    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no"):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
+    # Sham v2 (1.7B) builds its llama.cpp copy only when SHAM_GGUF_V2=1: on this 2-CPU Studio the export competes with the replies for minutes (owner's "مرحبا" went to the background leg right
+    # after the first GGUF-enabled deploy, 2026-11-09), so it stays off until it is measured on the live Studio. Sham v1 keeps its copy as before.
+    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or os.environ.get("SHAM_GGUF_V2", "0") == "1"):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
         def _prepare_fast():
             try:
+                try:
+                    os.nice(10)                    # the export yields the CPU to the replies (this thread only matters on Linux; harmless elsewhere)
+                except Exception:
+                    pass
                 from sham_gguf import fast_model
                 fast_model(serve._state["model"])
             except Exception as exc:
