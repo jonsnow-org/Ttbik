@@ -30,8 +30,8 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
+WIDTH = max(640, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
+HEIGHT = max(600, min(1500, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
 MAX_TYPE = 1200
 PANEL_HEIGHT = 44          # the taskbar inside the desktop (tint2)
 MAX_FRAME_BYTES = 560_000
@@ -222,7 +222,8 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 def _terminal_command() -> list[str]:
     """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
     # a window, not the whole screen: the desktop (wallpaper, taskbar, other windows) stays visible around it
-    cols, rows = max(80, int(WIDTH * 0.78) // 7 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * 0.74) // 15 - 1)
+    # one cell of "Monospace 12" measured on the live desktop: about 9 x 19 px
+    cols, rows = max(40, int(WIDTH * (0.92 if WIDTH < 1000 else 0.78)) // 9 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * (0.80 if HEIGHT > WIDTH else 0.74)) // 19 - 1)
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
     return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+28+24", "-title", "Model Computer", "-e", "bash", "-c", script]
 
@@ -232,7 +233,7 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
         "rounded = 0", "border_width = 0", "background_color = #111827 100", "border_color = #111827 0",
         "rounded = 6", "border_width = 1", "background_color = #1f2937 100", "border_color = #475569 100",
         "rounded = 6", "border_width = 1", "background_color = #0d9488 100", "border_color = #5eead4 100",
-        "panel_items = " + "B" * len(buttons) + "TC",
+        "panel_items = " + "P" * len(buttons) + "TC",
         f"panel_size = 100% {PANEL_HEIGHT}", "panel_margin = 0 0", "panel_padding = 6 5 6",
         "panel_background_id = 1", "wm_menu = 0", "panel_dock = 0", "panel_position = bottom center horizontal",
         "panel_layer = top", "strut_policy = minimum", "autohide = 0",
@@ -472,6 +473,19 @@ def _spawn_desktop(session: str) -> None:
                 _SESSION_RAW = ""
 
 
+def _set_size(width: object, height: object) -> None:
+    """The page may ask for a desktop shaped like its screen area (only while no desktop is up: Xvfb is created with this size)."""
+    global WIDTH, HEIGHT
+    try:
+        w, h = int(width), int(height)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return
+    with _LOCK:
+        if _PHASE in ("running", "starting", "installing", "busy"):
+            return
+        WIDTH, HEIGHT = max(640, min(1600, w)), max(600, min(1500, h))
+
+
 def _start_async(session: str) -> None:
     global _PHASE, _ERROR, _INSTALL_THREAD, _CANCEL_INSTALL
     with _LOCK:
@@ -661,6 +675,7 @@ def api_desktop_do(body: str) -> str:
             return json.dumps(_desktop_status(session), ensure_ascii=False)
         if action == "start":
             try:
+                _set_size(job.get("width"), job.get("height"))
                 _start_async(session)
             except Exception as exc:
                 return json.dumps({"ok": False, "phase": "stopped", "error": str(exc)[:280]}, ensure_ascii=False)

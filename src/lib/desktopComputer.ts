@@ -14,6 +14,8 @@ export type DesktopArgs = {
   key?: string;
   direction?: "up" | "down";
   amount?: number;
+  width?: number;
+  height?: number;
 };
 
 const ACTIONS = new Set([
@@ -25,6 +27,13 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   const action = String(input.action || "").toLowerCase();
   if (!ACTIONS.has(action)) return null;
   const out: Record<string, unknown> = { action };
+  if (action === "start") {
+    // the page asks for a desktop shaped like its own screen area (a phone is tall), so the picture fills it
+    if (Number.isFinite(Number(input.width)) && Number.isFinite(Number(input.height))) {
+      out.width = Math.max(640, Math.min(1600, Math.trunc(Number(input.width))));
+      out.height = Math.max(600, Math.min(1500, Math.trunc(Number(input.height))));
+    }
+  }
   if (action === "launch") {
     const app = String(input.app || "");
     if (!["browser", "terminal", "files"].includes(app)) return null;
