@@ -1,0 +1,44 @@
+name: Sham image diagnosis (read-only)
+
+# 2026-11-09 (owner chose option B: fix the INTERNAL image generator of Sham and Sham v2, no outside generator).
+# Measures where a picture goes wrong, on real captioned pictures: the tokenizer (pixels<->tokens), the model (caption->tokens), the sampling. Nothing is published or changed.
+# The result is in the log and in the artifact "sham-image-diag" (a PNG grid per checkpoint: real | its own tokens decoded | what the model writes).
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle six datasets soundfile imageio imageio-ffmpeg av
+      - name: Measure
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python ai-system/supervision/sham_image_diag.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sham-image-diag
+          path: /tmp/sham_image_diag/*.png
+          if-no-files-found: ignore

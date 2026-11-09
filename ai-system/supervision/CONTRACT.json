@@ -820,6 +820,18 @@
       "reads": [],
       "writes": []
     },
+    "sham_image_diag": {
+      "file": ".github/workflows/sham-image-diag.yml",
+      "title": "تشخيص صور شام للقراءة فقط: مرمّز الصور على صور حقيقية، خسارة النموذج مقابل جدول التكرار، وما يكتبه",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-chat-checkpoint"
+      ],
+      "writes": []
+    },
     "sham_v2_stage_queue": {
       "file": ".github/workflows/sham-v2-stage-queue.yml",
       "title": "طابور دفاتر شام v2 الأربعة: يبدأ التالي منها كل نصف ساعة حين لا يعمل أي منها وتقبل كاكل (حد 5 جلسات CPU)",
