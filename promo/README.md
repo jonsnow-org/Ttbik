@@ -22,7 +22,7 @@
 | إعلان لمرة واحدة | إعلان مُجهّز يُرسل مرة لكل قناة | يدوي (`announce.yml`) | `src/lib/announce.ts`, `src/app/api/cron/announce` | `dry` |
 | فيديوهات Remotion (احترافية) | تسجيل شاشة حقيقي + صوت + ترجمة، 16 حلقة | أحد/ثلاثاء/خميس 10:00 إسطنبول (`promo-remotion.yml`) | `promo/remotion/` (الحلقات في `episodes.json`) | Release باسم `promo-ep-N` |
 | نشر الفيديو إلى تلجرام | يرسل الفيديو المُنتَج إلى القناة | ضمن `promo-remotion` | `src/app/api/cron/promo-publish` | مفتاح التشغيل `promo/PUBLISH_ON` |
-| فيديوهات المشاريع (شرائح) | فيديو بسيط لكل مشروع | الاثنين 06:40 إسطنبول (`promo-projects.yml`) | `scripts/promo/make.mjs`, `projects.json` | Artifact |
+| فيديوهات وصور المشاريع | فيديو متحرك لكل مشروع (ظهور النص بالتتابع، توهج متحرك، شريط تقدم، هاتف يرتفع بلقطة حقيقية للصفحة) + صور ثابتة بثلاثة مقاسات (مربع، ستوري، معاينة رابط) ونسخ إنجليزية فقط لقناة العملات | الاثنين 06:40 إسطنبول (`promo-projects.yml`) | `scripts/promo/make.mjs`, `cards.mjs`, `common.mjs`, `projects.json` (+ `projects.test.mjs`) | Artifacts: `promo-videos` و`promo-images` |
 | فيديو الشرائح القديم | نسخة بسيطة لتلجرام/فيسبوك | يدوي | `promo/render.py`, `promo/build.sh` | Release `promo-N` |
 | أرشفة محركات البحث | IndexNow لكل صفحة عامة | لم أجد workflow يستدعيه؛ يُستدعى يدوياً بـ `?secret=` (للمنظِّم أن يتحقق من الجدولة) | `src/app/api/cron/indexnow` | — |
 | إعلانات الموقع | بانرات ومنع الظهور على صفحات المال | — | `src/lib/siteAds.ts`, `adsterraKeys.ts`, `monetagGate.ts` | **لا إعلانات** في `/admin /match-app /pay /order /service /fadaa /verify /api /zenobia` |

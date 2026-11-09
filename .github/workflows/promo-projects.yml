@@ -33,6 +33,15 @@ jobs:
           npx playwright-core install --with-deps chromium
       - name: make the videos
         run: node scripts/promo/make.mjs --out promo-out --format "${{ github.event.inputs.format || 'vertical' }}" ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - name: make the promo images (square, story, link preview; plus English-only versions for the coins channel)
+        run: |
+          node scripts/promo/cards.mjs --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+          node scripts/promo/cards.mjs --lang en --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-images
+          path: promo-cards/*.png
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
           name: promo-videos
