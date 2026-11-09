@@ -10,7 +10,7 @@ import desktop_computer as d  # noqa: E402
 class PanelTests(unittest.TestCase):
     def test_config_has_a_button_per_app_and_the_taskbar(self):
         text = d.panel_config([("Browser", "/h/browser.sh"), ("Terminal", "/h/terminal.sh"), ("Files", "/h/files.sh")])
-        self.assertIn("panel_items = BBBTC", text)
+        self.assertIn("panel_items = PPPTC", text)
         self.assertEqual(text.count("button = new"), 3)
         self.assertIn("button_lclick_command = /h/terminal.sh", text)
         self.assertIn(f"panel_size = 100% {d.PANEL_HEIGHT}", text)

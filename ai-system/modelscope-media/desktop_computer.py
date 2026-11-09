@@ -222,7 +222,7 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 def _terminal_command() -> list[str]:
     """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
     # a window, not the whole screen: the desktop (wallpaper, taskbar, other windows) stays visible around it
-    cols, rows = max(80, int(WIDTH * 0.78) // 7 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * 0.74) // 15 - 1)
+    cols, rows = max(80, int(WIDTH * 0.78) // 9 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * 0.74) // 19 - 1)      # measured on the live desktop: one cell of "Monospace 12" is about 9 x 19 px
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
     return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+28+24", "-title", "Model Computer", "-e", "bash", "-c", script]
 
@@ -232,7 +232,7 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
         "rounded = 0", "border_width = 0", "background_color = #111827 100", "border_color = #111827 0",
         "rounded = 6", "border_width = 1", "background_color = #1f2937 100", "border_color = #475569 100",
         "rounded = 6", "border_width = 1", "background_color = #0d9488 100", "border_color = #5eead4 100",
-        "panel_items = " + "B" * len(buttons) + "TC",
+        "panel_items = " + "P" * len(buttons) + "TC",
         f"panel_size = 100% {PANEL_HEIGHT}", "panel_margin = 0 0", "panel_padding = 6 5 6",
         "panel_background_id = 1", "wm_menu = 0", "panel_dock = 0", "panel_position = bottom center horizontal",
         "panel_layer = top", "strut_policy = minimum", "autohide = 0",
