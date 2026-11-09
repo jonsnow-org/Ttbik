@@ -820,6 +820,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_v2_stage_queue": {
+      "file": ".github/workflows/sham-v2-stage-queue.yml",
+      "title": "طابور دفاتر شام v2 الأربعة: يبدأ التالي منها كل نصف ساعة حين لا يعمل أي منها وتقبل كاكل (حد 5 جلسات CPU)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_v2_tools_train": {
       "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_v2_tools/sham_v2_tools_train.ipynb",
       "title": "شام v2 مرحلة الأدوات: الأدوات الـ49 ومسارات عملها (تُدفع يدويًا)",

@@ -1,0 +1,35 @@
+name: "Sham v2 stage queue (the four focused notebooks, one after another)"
+
+# 2026-11-09 (owner: push all the v2 notebooks and finish). Kaggle allows 5 CPU sessions at once and Sham v1's notebooks use most of them, so the four v2 stage notebooks run ONE AT A TIME:
+# every 30 minutes the next stage that has not completed is started, only when no v2 stage is running or waiting and Kaggle accepts the push. Sham v1's notebooks are never touched.
+# Stop it any time by disabling this workflow. Order: tools, media, candidate-tools, candidate (see ai-system/supervision/sham_v2_stage_queue.py).
+on:
+  schedule:
+    - cron: "11,41 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-v2-stage-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade kaggle six
+      - name: Rebuild the stage notebooks from the v2 one (no drift)
+        run: |
+          python3 ai-system/colab/sham_small/kaggle_notebooks/sham_v2/make_candidate.py
+          python3 ai-system/colab/sham_small/kaggle_notebooks/sham_v2/make_stage_notebooks.py
+      - name: Start the next stage when it is time
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python3 ai-system/supervision/sham_v2_stage_queue.py
