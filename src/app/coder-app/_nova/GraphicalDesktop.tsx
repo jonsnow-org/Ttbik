@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
@@ -9,7 +9,9 @@ import { hudLines } from "@/lib/computerHud";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
-export default function GraphicalDesktop({ model, ar }: { model: string; ar: boolean }) {
+// `dock` = extra taskbar buttons and `overlay` = a window drawn INSIDE the screen frame (owner's order 2026-11-09: the tools
+// live on the computer's screen like a real desktop, not as tabs beside it).
+export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: string; ar: boolean; dock?: ReactNode; overlay?: ReactNode }) {
   const [status, setStatus] = useState<any>(null);
   const [frame, setFrame] = useState("");
   const [error, setError] = useState("");
@@ -55,12 +57,26 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     return result;
   }, [model]);
 
+  // Opening the computer starts its desktop by itself (once per model): the owner used to see an empty box until he found
+  // the "Start" button, which looked like a dead picture. A failed start is not retried in a loop.
+  const autoStarted = useRef("");
   useEffect(() => {
+    let cancelled = false;
     setFrame("");
     setError("");
     setStatus(null);
-    void call({ action: "status" }).catch((e: any) => setError(String(e?.message || e)));
-  }, [call]);
+    void (async () => {
+      try {
+        const first = await call({ action: "status" });
+        const roomy = typeof first?.available_mb !== "number" || first.available_mb >= 3072;
+        if (!cancelled && first?.ok !== false && first?.phase === "stopped" && roomy && autoStarted.current !== model) {
+          autoStarted.current = model;
+          await call({ action: "start" });
+        }
+      } catch (e: any) { if (!cancelled) setError(String(e?.message || e)); }
+    })();
+    return () => { cancelled = true; };
+  }, [call, model]);
 
   // The model works through its persistent computer (terminal, jobs, files, its own browser), which is NOT the graphical
   // desktop. Poll that session's activity here too, so this tab shows what the model is doing even when no desktop is running.
@@ -266,9 +282,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             {ar ? "إيقاف سطح المكتب" : "Stop desktop"}
           </button>
         )}
-        <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("browser")}>{ar ? "المتصفح" : "Browser"}</button>
-        <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("terminal")}>{ar ? "طرفية" : "Terminal"}</button>
-        <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("files")}>{ar ? "الملفات" : "Files"}</button>
         <span className="n-meta" style={{ marginInlineStart: "auto" }}>
           {running ? (ar ? "متصل" : "Connected") : preparing ? (ar ? "يثبّت مكوّنات سطح المكتب" : "Installing desktop components") : status?.phase === "busy" ? (ar ? "الاستوديو مشغول بمستخدم آخر" : "Studio is busy") : (ar ? "متوقف" : "Stopped")}
         </span>
@@ -281,6 +294,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
+      <div style={{ position: "relative", minHeight: 320, background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden" }}>
       {frame && running ? (
         <img
           ref={imageRef}
@@ -316,6 +330,14 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           </div>
         </div>
       )}
+        {overlay ? <div style={{ position: "absolute", top: 8, left: 8, right: 8, bottom: 52, overflow: "auto", background: "#0b1220f2", color: "#e2e8f0", border: "1px solid #475569", borderRadius: 8, boxShadow: "0 8px 30px #0008" }}>{overlay}</div> : null}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "6px 8px", background: "#111a2e", borderTop: "1px solid #334155" }}>
+          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("browser")}>🌐 {ar ? "المتصفح" : "Browser"}</button>
+          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("terminal")}>▣ {ar ? "طرفية" : "Terminal"}</button>
+          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("files")}>📁 {ar ? "الملفات" : "Files"}</button>
+          {dock}
+        </div>
+      </div>
       {running ? (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <span className="n-meta">{ar ? "تكبير الشاشة" : "Screen zoom"}</span>
