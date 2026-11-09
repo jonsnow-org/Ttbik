@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { isEventPath, isMachineUserAgent } from "@/lib/botUserAgent";
 
 // Public endpoint every visitor's browser calls once per page view (see
 // src/components/AnalyticsTracker.tsx). Rate-limited like the site's other
@@ -29,9 +30,6 @@ function detectDeviceType(userAgent: string): "mobile" | "desktop" | "tablet" | 
   return "desktop";
 }
 
-function isBot(userAgent: string): boolean {
-  return /bot|crawl|spider|slurp|facebookexternalhit|telegrambot|whatsapp/i.test(userAgent);
-}
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
@@ -43,9 +41,11 @@ export async function POST(req: NextRequest) {
   if (typeof path !== "string" || !path.trim() || typeof sessionId !== "string" || !sessionId.trim()) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
+  // a page path, or a conversion event (evt:<name>:<page>) sent by src/lib/trackEvent.ts
+  if (!path.startsWith("/") && !isEventPath(path)) return NextResponse.json({ ok: false }, { status: 400 });
 
   const userAgent = req.headers.get("user-agent") || "";
-  if (isBot(userAgent)) {
+  if (isMachineUserAgent(userAgent)) {
     // Accept quietly (no error) so a crawler never sees an odd response —
     // it just doesn't get counted as a visitor.
     return NextResponse.json({ ok: true });

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 const STORAGE_KEY = "ttbik_sid";
 
-function getSessionId(): string {
+export function getSessionId(): string {
   try {
     let id = localStorage.getItem(STORAGE_KEY);
     if (!id) {
@@ -36,6 +36,8 @@ export default function AnalyticsTracker({ isOwner }: { isOwner: boolean }) {
 
   useEffect(() => {
     if (isOwner) return;
+    // automated browsers (Playwright/Puppeteer/Selenium, the repo's own probes) announce themselves: never count them as visitors
+    if (typeof navigator !== "undefined" && (navigator as Navigator & { webdriver?: boolean }).webdriver) return;
     const sessionId = getSessionId();
     fetch("/api/analytics/track", {
       method: "POST",

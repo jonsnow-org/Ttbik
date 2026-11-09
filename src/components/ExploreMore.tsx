@@ -20,6 +20,7 @@ const ITEMS: Item[] = [
   { href: "/bots", label: "🤖 منشئ البوتات", hint: "شغّل بوتك بتوكنك", section: "bots" },
   { href: "/watch-and-earn", label: "💵 اربح من الإعلانات", hint: "عبر بوت تليجرام", section: "bots" },
   { href: "https://t.me/ArabicAds_bot", label: "⬇️ بوت تحميل الوسائط", hint: "فيديو وصوت من أي منصة", external: true },
+  { href: "/coffee", label: "☕ ادعم الموقع", hint: "فنجان قهوة يبقي الأدوات مجانية" },
 ];
 
 export default function ExploreMore({ from }: { from: Section }) {
