@@ -119,6 +119,9 @@ export async function activateAd(code: string) {
 export async function creditBanner(code: string) {
   const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
   if (!ad || ad.paymentStatus !== "PAID" || ad.credited) return ad;
+  // Claim the credit atomically first, so two concurrent IPNs/approvals can never both add the revenue.
+  const claim = await prisma.siteBannerAd.updateMany({ where: { reservationCode: code, credited: false }, data: { credited: true } });
+  if (claim.count !== 1) return ad;
   const bot = await findAdmenBot();
   if (bot) {
     await prisma.bot.update({
@@ -126,7 +129,7 @@ export async function creditBanner(code: string) {
       data: { totalRevenue: { increment: ad.totalPrice }, ownerBalance: { increment: ad.totalPrice } },
     });
   }
-  return prisma.siteBannerAd.update({ where: { reservationCode: code }, data: { credited: true } });
+  return { ...ad, credited: true };
 }
 
 export async function bannerBalance() {
