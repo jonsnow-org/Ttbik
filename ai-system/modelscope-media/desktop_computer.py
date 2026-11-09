@@ -263,7 +263,10 @@ def _launcher_script(session: str, app: str) -> str | None:
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):
-        return "#!/bin/sh\nexec pcmanfm --new-window " + shlex.quote(str(box.session_home(session))) + "\n"
+        home = shlex.quote(str(box.session_home(session)))
+        log = shlex.quote(str(box.session_home(session) / ".desktop" / "files-launch.log"))
+        # the output goes to a log so a window that never appears can be diagnosed (a taskbar button has no terminal)
+        return f"#!/bin/sh\n(date; echo launching files) >> {log} 2>&1\nexec pcmanfm --new-window {home} >> {log} 2>&1\n"
     return None
 
 
