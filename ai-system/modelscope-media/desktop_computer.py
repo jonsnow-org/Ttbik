@@ -338,7 +338,7 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
         "[*]\nwallpaper_mode=color\nwallpaper_common=1\ndesktop_bg=#16324f\ndesktop_fg=#ffffff\ndesktop_shadow=#000000\n"
         "desktop_font=Sans 12\nshow_wm_menu=0\nsort=name;ascending;\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n",
         encoding="utf-8")
-    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\n", encoding="utf-8")
+    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\nsingle_click=1\n", encoding="utf-8")
     return desktop
 
 

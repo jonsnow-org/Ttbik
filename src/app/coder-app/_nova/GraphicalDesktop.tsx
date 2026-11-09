@@ -15,7 +15,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [frame, setFrame] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [typed, setTyped] = useState("");
   const [streaming, setStreaming] = useState(false);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -210,11 +209,11 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     finally { setBusy(false); }
   };
 
-  // Typing straight into the screen: a tap focuses a hidden field (so the phone's keyboard opens), and what is typed there goes to the
+  // Typing straight into the screen: the keyboard button focuses a hidden field (so the phone's keyboard opens), and what is typed there goes to the
   // desktop window under the pointer, in order. This is how a login form on a page the model opened can be filled in by hand.
   const kbRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
-  const queue = useRef<Array<{ type?: string; key?: string }>>([]);
+  const queue = useRef<Array<{ type?: string; key?: string; act?: Record<string, unknown> }>>([]);
   const draining = useRef(false);
   const drain = async () => {
     if (draining.current) return;
@@ -222,12 +221,12 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     try {
       while (queue.current.length) {
         const next = queue.current.shift()!;
-        await call(next.key ? { action: "key", key: next.key } : { action: "type", text: next.type });
+        await call(next.act ? next.act : next.key ? { action: "key", key: next.key } : { action: "type", text: next.type });
       }
     } catch (e: any) { setError(String(e?.message || e)); queue.current = []; }
     finally { draining.current = false; }
   };
-  const enqueue = (item: { type?: string; key?: string }) => {
+  const enqueue = (item: { type?: string; key?: string; act?: Record<string, unknown> }) => {
     const last = queue.current[queue.current.length - 1];
     if (item.type && last?.type !== undefined && (last.type + item.type).length <= 400) last.type += item.type;
     else queue.current.push(item);
@@ -244,7 +243,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     const mapped = keyName(event);
     if (mapped) { event.preventDefault(); enqueue({ key: mapped }); }
   };
-  const focusKeyboard = () => { try { kbRef.current?.focus({ preventScroll: true }); } catch { /* no keyboard field yet */ } };
+  const [kbOn, setKbOn] = useState(false);
+  const toggleKeyboard = () => { try { if (kbOn) kbRef.current?.blur(); else kbRef.current?.focus({ preventScroll: true }); setKbOn(!kbOn); } catch { /* no keyboard field yet */ } };
   const takeTyped = () => {
     const el = kbRef.current;
     if (!el || !el.value) return;
@@ -253,35 +253,105 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     enqueue({ type: text });
   };
 
-  const clickScreen = (event: React.MouseEvent<HTMLImageElement>, button: "left" | "right" = "left") => {
-    // A tap fires touchstart and then a synthetic click: without this guard every touch would click the desktop twice.
-    if (Date.now() - touchAt.current < 700) return;
+  // A tap (touch) or a click (mouse) on the picture is a real click on the desktop at the mapped point. Input is queued in order, never dropped.
+  const tapAt = (clientX: number, clientY: number, button: "left" | "right" = "left") => {
     const image = imageRef.current;
     if (!image) return;
-    focusKeyboard();
-    const rect = image.getBoundingClientRect();
-    const point = desktopPoint(rect, event, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
+    const rect = image.getBoundingClientRect();     // includes the pinch-zoom transform, so the mapping stays exact when zoomed
+    const point = desktopPoint(rect, { clientX, clientY }, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
     if (!point) return;
-    void perform({ action: "click", x: point.x, y: point.y, button });
+    enqueue({ act: { action: "click", x: point.x, y: point.y, button } });
   };
-  const sendText = async () => {
-    const value = typed;
-    if (!value.trim()) return;
-    setTyped("");
-    await perform({ action: "type", text: value });
+  const tapRef = useRef(tapAt);
+  tapRef.current = tapAt;
+  const clickScreen = (event: React.MouseEvent<HTMLImageElement>, button: "left" | "right" = "left") => {
+    // a touch ends with a synthetic click: the touch handler already sent it
+    if (Date.now() - touchAt.current < 700) return;
+    tapAt(event.clientX, event.clientY, button);
   };
-  // Touch: a tap on the screen is a real left click at the mapped point (the desktop is touchable, not just a picture).
-  const tapScreen = (event: React.TouchEvent<HTMLImageElement>) => {
-    const image = imageRef.current;
-    const touch = event.touches[0] || event.changedTouches[0];
-    if (!image || !touch) return;
-    touchAt.current = Date.now();
-    focusKeyboard();
-    const rect = image.getBoundingClientRect();
-    const point = desktopPoint(rect, { clientX: touch.clientX, clientY: touch.clientY }, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
-    if (!point) return;
-    void perform({ action: "click", x: point.x, y: point.y, button: "left" });
-  };
+  const scrollRef = useRef((_dir: "up" | "down", _amount: number) => {});
+  scrollRef.current = (dir, amount) => enqueue({ act: { action: "scroll", direction: dir, amount } });
+
+  // Pinch with two fingers zooms and pans the screen (the desktop itself is not touched); a tap clicks; a one-finger drag scrolls
+  // (or pans when zoomed). The phone's keyboard opens only from the keyboard button, never from a plain tap.
+  const [view, setView] = useState({ s: 1, x: 0, y: 0 });
+  const viewRef = useRef(view);
+  useEffect(() => {
+    const el = frameBox.current;
+    if (!el || !running) return;
+    let mode: "none" | "tap" | "pinch" = "none";
+    let start = { x: 0, y: 0, t: 0, vx: 0, vy: 0 };
+    let moved = false;
+    let pinch = { d: 1, cx: 0, cy: 0, s: 1, x: 0, y: 0 };
+    const dist = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const apply = (next: { s: number; x: number; y: number }) => {
+      const r = el.getBoundingClientRect();
+      const s = Math.max(1, Math.min(4, next.s));
+      const x = Math.max(r.width * (1 - s), Math.min(0, next.x));
+      const y = Math.max(r.height * (1 - s), Math.min(0, next.y));
+      viewRef.current = { s, x, y };
+      setView({ s, x, y });
+    };
+    const onButton = (e: TouchEvent) => Boolean((e.target as HTMLElement)?.closest?.("[data-kb]"));
+    const onStart = (e: TouchEvent) => {
+      if (onButton(e)) return;
+      if (e.touches.length === 2) {
+        mode = "pinch";
+        const r = el.getBoundingClientRect();
+        const [a, b] = [e.touches[0], e.touches[1]];
+        pinch = { d: dist(a, b) || 1, cx: (a.clientX + b.clientX) / 2 - r.left, cy: (a.clientY + b.clientY) / 2 - r.top, ...viewRef.current };
+        e.preventDefault();
+      } else if (e.touches.length === 1 && mode !== "pinch") {
+        mode = "tap";
+        moved = false;
+        start = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), vx: viewRef.current.x, vy: viewRef.current.y };
+      }
+    };
+    const onMove = (e: TouchEvent) => {
+      if (onButton(e)) return;
+      if (mode === "pinch" && e.touches.length === 2) {
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        const [a, b] = [e.touches[0], e.touches[1]];
+        const s = pinch.s * (dist(a, b) / pinch.d);
+        const cx = (a.clientX + b.clientX) / 2 - r.left;
+        const cy = (a.clientY + b.clientY) / 2 - r.top;
+        const px = (pinch.cx - pinch.x) / pinch.s;
+        const py = (pinch.cy - pinch.y) / pinch.s;
+        apply({ s, x: cx - px * Math.max(1, Math.min(4, s)), y: cy - py * Math.max(1, Math.min(4, s)) });
+      } else if (mode === "tap" && e.touches.length === 1) {
+        const dx = e.touches[0].clientX - start.x;
+        const dy = e.touches[0].clientY - start.y;
+        if (Math.hypot(dx, dy) > 12) moved = true;
+        if (moved && viewRef.current.s > 1) { e.preventDefault(); apply({ s: viewRef.current.s, x: start.vx + dx, y: start.vy + dy }); }
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (onButton(e)) return;
+      if (mode === "tap" && e.touches.length === 0) {
+        const touch = e.changedTouches[0];
+        if (!moved && Date.now() - start.t < 700) {
+          e.preventDefault();
+          touchAt.current = Date.now();
+          tapRef.current(start.x, start.y);
+        } else if (moved && viewRef.current.s === 1 && touch) {
+          const dy = touch.clientY - start.y;
+          if (Math.abs(dy) > 24) { touchAt.current = Date.now(); scrollRef.current(dy < 0 ? "down" : "up", Math.max(1, Math.min(8, Math.ceil(Math.abs(dy) / 70)))); }
+        }
+      }
+      if (e.touches.length === 0) mode = "none";
+    };
+    el.addEventListener("touchstart", onStart, { passive: false });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd, { passive: false });
+    el.addEventListener("touchcancel", onEnd, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+  }, [running]);
   // The model's own activity, BELOW the screen (owner's order: nothing is drawn over the screen): one readable line per
   // event, newest last, with the redundant raw fields the activity feed carries dropped.
 
@@ -309,23 +379,21 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
-      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}` } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden" }}>
+      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}` } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
       {frame && running ? (
+        <div style={{ position: "absolute", inset: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
         <img
           ref={imageRef}
           src={frame}
           alt={ar ? "شاشة سطح مكتب Linux" : "Linux desktop screen"}
           onClick={(event) => clickScreen(event)}
           onContextMenu={(event) => { event.preventDefault(); clickScreen(event, "right"); }}
-          onTouchStart={tapScreen}
-          onWheel={(event) => {
-            event.preventDefault();
-            void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
-          }}
+          onWheel={(event) => scrollRef.current(event.deltaY < 0 ? "up" : "down", Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))))}
           tabIndex={0}
           onKeyDown={(event) => screenKey(event)}
-          style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", objectFit: "fill", background: "#111827", cursor: "crosshair", touchAction: "manipulation" }}
+          style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", objectFit: "fill", background: "#111827", cursor: "crosshair", touchAction: "none" }}
         />
+        </div>
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>
           <div className="n-meta">
@@ -336,6 +404,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         </div>
       )}
         {running ? (
+          <button
+            type="button"
+            data-kb="1"
+            aria-label={ar ? "لوحة المفاتيح" : "Keyboard"}
+            onClick={toggleKeyboard}
+            style={{ position: "absolute", right: 10, bottom: "6%", width: 44, height: 44, borderRadius: 22, border: "1px solid #5eead4", background: kbOn ? "#0d9488" : "#111827cc", color: "#fff", fontSize: 20, lineHeight: "40px", zIndex: 3 }}
+          >⌨</button>
+        ) : null}
+        {running ? (
           <input
             ref={kbRef}
             aria-label={ar ? "لوحة المفاتيح للشاشة" : "Screen keyboard"}
@@ -343,6 +420,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             onInput={() => { if (!composing.current) takeTyped(); }}
             onCompositionStart={() => { composing.current = true; }}
             onCompositionEnd={() => { composing.current = false; takeTyped(); }}
+            onBlur={() => setKbOn(false)}
             onKeyDown={(event) => { if (event.key.length > 1 || event.ctrlKey || event.altKey) screenKey(event); }}
             style={{ position: "absolute", left: 0, bottom: 0, width: 1, height: 1, opacity: 0, border: 0, padding: 0, pointerEvents: "none" }}
           />
