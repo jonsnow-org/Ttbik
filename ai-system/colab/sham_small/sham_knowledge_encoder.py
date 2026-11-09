@@ -251,10 +251,13 @@ def evaluate(enc: Encoder, articles: list[dict], per_set: int = 300, seed: int =
     def hyb(q):
         return hybrid(bm.scores(q), enc_scores(q))
 
+    def hyb_light(q):                                  # the encoder only breaks ties and adds near-word evidence
+        return hybrid(bm.scores(q), enc_scores(q), 0.2)
+
     out = {"pool_chunks": len(chunks)}
     for name, qs in (("lexical", lexical), ("title", title), ("sentence", sentence)):
-        out[name] = {"BM25": recall(bm.scores, qs), "encoder": recall(enc_scores, qs), "hybrid": recall(hyb, qs), "n": len(qs)}
-        log(f"  {name:9s} n={len(qs)}  BM25 {out[name]['BM25']}  encoder {out[name]['encoder']}  hybrid {out[name]['hybrid']}")
+        out[name] = {"BM25": recall(bm.scores, qs), "encoder": recall(enc_scores, qs), "hybrid": recall(hyb, qs), "hybrid_0.2": recall(hyb_light, qs), "n": len(qs)}
+        log(f"  {name:9s} n={len(qs)}  BM25 {out[name]['BM25']}  encoder {out[name]['encoder']}  hybrid {out[name]['hybrid']}  hybrid0.2 {out[name]['hybrid_0.2']}")
     return out
 
 
