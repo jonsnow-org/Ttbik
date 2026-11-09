@@ -30,6 +30,25 @@ class PanelTests(unittest.TestCase):
         self.assertIsNone(d._launcher_script("s", "unknown"))
 
 
+class AssetsTests(unittest.TestCase):
+    def test_desktop_icons_wallpaper_and_quick_exec(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            scripts = {"browser": "/h/browser.sh", "terminal": "/h/terminal.sh", "files": "/h/files.sh"}
+            desktop = d.write_desktop_assets(home, scripts)
+            names = sorted(p.name for p in desktop.iterdir())
+            self.assertEqual(names, ["Browser.desktop", "Files.desktop", "Terminal.desktop"])
+            text = (desktop / "Terminal.desktop").read_text()
+            self.assertIn("Exec=/h/terminal.sh", text)
+            self.assertIn("Terminal=false", text)
+            self.assertTrue((home / ".desktop" / "icons" / "browser.png").exists())
+            conf = (home / ".config" / "pcmanfm" / "default" / "desktop-items-0.conf").read_text()
+            self.assertIn("wallpaper_mode=color", conf)
+            self.assertIn("quick_exec=1", (home / ".config" / "libfm" / "libfm.conf").read_text())
+
+
 class SizeTests(unittest.TestCase):
     def test_start_size_is_clamped_and_only_applies_to_a_stopped_desktop(self):
         old = (d.WIDTH, d.HEIGHT, d._PHASE)
