@@ -8,6 +8,7 @@ tokenizers
 numpy
 pillow
 soundfile
+imageio
 imageio-ffmpeg
 ddgs
 beautifulsoup4

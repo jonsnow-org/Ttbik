@@ -45,6 +45,23 @@ jobs:
             candidate-tools) D=$K/sham_v2_candidate_tools; F=sham_v2_candidate_tools_train.ipynb; SLUG=jonsnowjonsnow/sham-v2-candidate-tools-train ;;
           esac
           mkdir -p /tmp/k && cp "$D/$F" "$D/kernel-metadata.json" /tmp/k/
-          kaggle kernels push -p /tmp/k
+          # GPU first (the notebook's metadata says enable_gpu); when Kaggle's weekly GPU quota is out, the same notebook runs on CPU (as the restarter does) instead of not starting at all.
+          out=$(kaggle kernels push -p /tmp/k 2>&1) || true
+          echo "$out"
+          if echo "$out" | grep -qi "gpu quota"; then
+            echo "GPU quota is out: pushing the same notebook on CPU"
+            python3 - <<'PY'
+          import json
+          p = "/tmp/k/kernel-metadata.json"
+          m = json.load(open(p)); m["enable_gpu"] = False
+          json.dump(m, open(p, "w"), indent=2)
+          PY
+            out=$(kaggle kernels push -p /tmp/k 2>&1) || true
+            echo "$out"
+          fi
+          if echo "$out" | grep -qiE "error|denied|not found|quota"; then
+            echo "::error::Kaggle refused the push (see the message above); nothing was started"
+            exit 1
+          fi
           sleep 90
-          kaggle kernels status "$SLUG" || true
+          kaggle kernels status "$SLUG"

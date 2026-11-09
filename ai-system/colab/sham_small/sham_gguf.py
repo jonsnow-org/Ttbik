@@ -17,6 +17,7 @@ The tokenizer stays Sham's own (Python `tokenizers`); the GGUF only carries a pl
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -26,13 +27,47 @@ import numpy as np
 import torch
 
 
+def _eff(lin) -> torch.Tensor:
+    """The weight a projection really applies: a plain Linear's weight, or an adapter projection's frozen weight plus its low-rank residual (merged, so llama.cpp needs no adapter support)."""
+    if hasattr(lin, "adapter_down"):
+        return lin.base.weight.detach().float() + lin.scale * (lin.adapter_up.detach().float() @ lin.adapter_down.detach().float())
+    return lin.weight.detach().float()
+
+
+def _unpermute(w: torch.Tensor, heads: int, hd: int) -> torch.Tensor:
+    """Back from Sham's rotary layout (pairs 2i, 2i+1) to the donor's (pairs i, i + hd/2): the inverse of sham_transplant._permute_rows. Works for (heads*hd, in) weights and (hd,) per-head norm weights."""
+    half = hd // 2
+    perm = torch.tensor([(j // 2) if j % 2 == 0 else half + j // 2 for j in range(hd)])
+    inv = torch.argsort(perm)
+    if w.dim() == 1:                                   # a norm weight shared by every head: one permutation of its hd entries
+        return w[inv].clone()
+    return w.view(heads, hd, -1)[:, inv, :].reshape(heads * hd, -1).clone()
+
+
+def _arch(cfg) -> str:
+    """The llama.cpp architecture that computes exactly what this Sham computes. Plain Sham blocks = "llama" (rotates interleaved pairs, its native layout). A donor body with per-head q/k
+    normalisation = "qwen3" (rotates i / i + hd/2, so q/k rows are un-permuted on export). A donor with NoPE layers and no q/k norm = "smollm3"."""
+    if cfg.qkv_bias:
+        raise ValueError("this exporter does not handle q/k/v biases (Qwen2-style donors)")
+    if cfg.qk_norm:
+        if tuple(cfg.nope_layers):
+            raise ValueError("qk-norm together with NoPE layers has no llama.cpp architecture")
+        return "qwen3"
+    if tuple(cfg.nope_layers):
+        step = 4
+        if tuple(cfg.nope_layers) != tuple(i for i in range(cfg.n_layers) if (i + 1) % step == 0):
+            raise ValueError("llama.cpp's smollm3 knows only 'every 4th layer has no rotary embedding'")
+        return "smollm3"
+    return "llama"
+
+
 def write_gguf(model, path: str | Path, dtype: str = "f16") -> None:
-    """ShamSmall -> GGUF (llama architecture). dtype: f32 | f16."""
+    """ShamSmall -> GGUF. dtype: f32 | f16 | q8_0 (quantised while writing). Adapters are merged into the weights; the architecture follows _arch(cfg)."""
     import gguf
     cfg = model.cfg
-    if cfg.qkv_bias or cfg.qk_norm or cfg.adapter_rank:
-        raise ValueError("this exporter handles the plain Sham block (no qkv bias / qk-norm / adapters)")
-    w = gguf.GGUFWriter(str(path), "llama")
+    arch = _arch(cfg)
+    unperm = arch == "qwen3"                           # llama.cpp's "llama" and "smollm3" rotate interleaved pairs like Sham; qwen3 rotates half-split pairs
+    w = gguf.GGUFWriter(str(path), arch)
     w.add_name("sham")
     w.add_context_length(cfg.max_seq_len)
     w.add_embedding_length(cfg.d_model)
@@ -43,8 +78,10 @@ def write_gguf(model, path: str | Path, dtype: str = "f16") -> None:
     w.add_layer_norm_rms_eps(cfg.rms_norm_eps)
     w.add_rope_freq_base(cfg.rope_theta)
     w.add_rope_dimension_count(cfg.hd)
+    w.add_key_length(cfg.hd)
+    w.add_value_length(cfg.hd)
     w.add_vocab_size(cfg.vocab_size)
-    w.add_file_type(gguf.LlamaFileType.MOSTLY_F16 if dtype == "f16" else gguf.LlamaFileType.ALL_F32)
+    w.add_file_type({"f16": gguf.LlamaFileType.MOSTLY_F16, "q8_0": gguf.LlamaFileType.MOSTLY_Q8_0}.get(dtype, gguf.LlamaFileType.ALL_F32))
     # placeholder vocabulary (ids are fed directly; Sham's own tokenizer does the text)
     w.add_tokenizer_model("llama")
     w.add_token_list([f"<t{i}>".encode() for i in range(cfg.vocab_size)])
@@ -54,22 +91,33 @@ def write_gguf(model, path: str | Path, dtype: str = "f16") -> None:
 
     def put(name: str, t: torch.Tensor, keep32: bool = False):
         arr = t.detach().float().cpu().numpy()
-        w.add_tensor(name, arr.astype(np.float32 if keep32 or arr.ndim == 1 else np_t))
+        if dtype == "q8_0" and not keep32 and arr.ndim == 2 and arr.shape[-1] % 32 == 0:
+            # quantised while writing: a big model never needs the f16 file next to the quantised one (a free Studio has ~3 GB of disk)
+            w.add_tensor(name, gguf.quants.quantize(arr, gguf.GGMLQuantizationType.Q8_0), raw_dtype=gguf.GGMLQuantizationType.Q8_0)
+            return
+        w.add_tensor(name, arr.astype(np.float32 if keep32 or arr.ndim == 1 else (np.float16 if dtype == "q8_0" else np_t)))
 
     put("token_embd.weight", model.token_embedding.weight)
     put("output_norm.weight", model.final_norm.weight, keep32=True)
     if not cfg.tie_embeddings:
         put("output.weight", model.lm_head.weight)
     for i, b in enumerate(model.layers):
+        a = b.attention
+        q, k = _eff(a.q_proj), _eff(a.k_proj)
+        if unperm:
+            q, k = _unpermute(q, cfg.n_heads, cfg.hd), _unpermute(k, cfg.n_kv_heads, cfg.hd)
         put(f"blk.{i}.attn_norm.weight", b.input_norm.weight, keep32=True)
-        put(f"blk.{i}.attn_q.weight", b.attention.q_proj.weight)
-        put(f"blk.{i}.attn_k.weight", b.attention.k_proj.weight)
-        put(f"blk.{i}.attn_v.weight", b.attention.v_proj.weight)
-        put(f"blk.{i}.attn_output.weight", b.attention.o_proj.weight)
+        put(f"blk.{i}.attn_q.weight", q)
+        put(f"blk.{i}.attn_k.weight", k)
+        put(f"blk.{i}.attn_v.weight", _eff(a.v_proj))
+        put(f"blk.{i}.attn_output.weight", _eff(a.o_proj))
+        if cfg.qk_norm:
+            put(f"blk.{i}.attn_q_norm.weight", _unpermute(a.q_norm.weight.detach().float(), 1, cfg.hd), keep32=True)
+            put(f"blk.{i}.attn_k_norm.weight", _unpermute(a.k_norm.weight.detach().float(), 1, cfg.hd), keep32=True)
         put(f"blk.{i}.ffn_norm.weight", b.post_attention_norm.weight, keep32=True)
-        put(f"blk.{i}.ffn_gate.weight", b.mlp.gate_proj.weight)
-        put(f"blk.{i}.ffn_up.weight", b.mlp.up_proj.weight)
-        put(f"blk.{i}.ffn_down.weight", b.mlp.down_proj.weight)
+        put(f"blk.{i}.ffn_gate.weight", _eff(b.mlp.gate_proj))
+        put(f"blk.{i}.ffn_up.weight", _eff(b.mlp.up_proj))
+        put(f"blk.{i}.ffn_down.weight", _eff(b.mlp.down_proj))
     w.write_header_to_file()
     w.write_kv_data_to_file()
     w.write_tensors_to_file()
@@ -117,6 +165,25 @@ class LlamaCppModel:
 _FAST: dict = {}
 
 
+def _mem_available() -> int:
+    """Bytes of memory the machine can still hand out (Linux /proc/meminfo); a huge number where it cannot be read, so the guard never blocks on other systems."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except Exception:
+        pass
+    return 1 << 62
+
+
+def cached_fast(model):
+    """The llama.cpp copy of `model` if one was ALREADY built (by the Studio's background thread), else None. Never builds anything: a reply must not wait for a 1-2 minute export."""
+    for (mid, _kind), fm in list(_FAST.items()):
+        if mid == id(model) and fm is not None:
+            return fm
+    return None
+
+
 def fast_model(model, kind: str | None = None):
     """A llama.cpp copy of `model` for DECODING (several times more tokens/s on a CPU), or None when it cannot / should not be used: not a plain ShamSmall, llama-cpp-python
     missing (one background install attempt), no disk, or the copy does not agree with the PyTorch model. Built once per model and cached. SHAM_GGUF=0 turns it off;
@@ -144,13 +211,33 @@ def fast_model(model, kind: str | None = None):
             import gguf  # noqa: F401,F811
             import llama_cpp  # noqa: F401,F811
         td = tempfile.mkdtemp(prefix="sham_gguf_")
-        f16 = Path(td) / "sham-f16.gguf"
-        write_gguf(model, f16, "f16")
-        path = f16
-        if kind != "f16":
-            path = Path(td) / f"sham-{kind}.gguf"
-            quantize_gguf(f16, path, kind)
-            f16.unlink()
+        n_params = sum(p.numel() for p in model.parameters())
+        free = shutil.disk_usage(td).free
+        two_step = int(n_params * 2.0 + n_params * 0.7) + 200 * 2**20          # the f16 file and the quantised one side by side
+        direct = int(n_params * 1.07) + 200 * 2**20                            # Q8_0 written straight
+        if kind not in ("f16", "q8_0") and free < two_step and free >= direct:
+            print(f"sham_gguf: disk too small for f16 + {kind} ({free >> 20} MiB free); writing Q8_0 directly", flush=True)
+            kind = "q8_0"
+        need = n_params * 2 if kind == "f16" else direct if kind == "q8_0" else two_step
+        if free < need:
+            shutil.rmtree(td, ignore_errors=True)
+            print(f"sham_gguf: not used (only {free >> 20} MiB of disk free, {need >> 20} MiB needed)", flush=True)
+            return None
+        if _mem_available() < int(n_params * 1.1) + 1500 * 2**20:
+            shutil.rmtree(td, ignore_errors=True)
+            print("sham_gguf: not used (not enough free memory for a second copy of the weights)", flush=True)
+            return None
+        if kind == "q8_0":
+            path = Path(td) / "sham-q8_0.gguf"
+            write_gguf(model, path, "q8_0")
+        else:
+            f16 = Path(td) / "sham-f16.gguf"
+            write_gguf(model, f16, "f16")
+            path = f16
+            if kind != "f16":
+                path = Path(td) / f"sham-{kind}.gguf"
+                quantize_gguf(f16, path, kind)
+                f16.unlink()
         cand = LlamaCppModel(path, n_ctx=int(model.cfg.max_seq_len), threads=os.cpu_count() or 4)
         # it must agree with the PyTorch model on what it would write next (same top token on most test prompts)
         g = torch.Generator().manual_seed(0)
@@ -170,6 +257,52 @@ def fast_model(model, kind: str | None = None):
     except Exception as exc:
         print(f"sham_gguf: not used ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
         return None
+
+
+def _randomise(model, seed: int) -> None:
+    """Give every norm, q/k-norm and adapter residual a non-trivial value, so a layout or merge mistake cannot hide behind identity weights."""
+    g = torch.Generator().manual_seed(seed)
+    with torch.no_grad():
+        for name, p in model.named_parameters():
+            if name.endswith("adapter_up") or "norm" in name:
+                p.copy_(torch.randn(p.shape, generator=g) * (0.2 if name.endswith("adapter_up") else 0.3) + (1.0 if "norm" in name else 0.0))
+
+
+def _selftest_donor_bodies() -> None:
+    """Sham v2's bodies: a Qwen3-style donor (q/k norm, head_dim wider than d_model / n_heads, rank-8 adapters, half-split rotary reached by permuted rows) and a SmolLM3-style
+    donor (NoPE every 4th layer). llama.cpp must give the same logits as Sham's own PyTorch class, after the adapters are merged and the rows un-permuted."""
+    from model import ShamSmall, ShamSmallConfig
+    ids = torch.randint(5, 400, (1, 37))
+    cases = {
+        "qwen3 (qk-norm, head_dim 32 > 128/8, GQA, adapters)": dict(qk_norm=True, head_dim=32, adapter_rank=4),
+        "qwen3 without adapters": dict(qk_norm=True, head_dim=32),
+        "smollm3 (NoPE every 4th layer)": dict(nope_layers=(3,), adapter_rank=4),
+    }
+    for label, extra in cases.items():
+        torch.manual_seed(1)
+        cfg = ShamSmallConfig(vocab_size=500, d_model=128, n_layers=4, n_heads=8, n_kv_heads=4, mlp_hidden=256, max_seq_len=128, **extra)
+        model = ShamSmall(cfg).eval()
+        _randomise(model, 3)
+        with torch.no_grad():
+            ref = model(ids)[0][0, -1].float()
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "v2.gguf"
+            write_gguf(model, p, "f32")
+            m = LlamaCppModel(p, n_ctx=128, threads=2)
+            got = m(ids)[0][0, -1]
+            diff = (got - ref).abs().max().item()
+            assert torch.equal(got.argmax(), ref.argmax()) and diff < 1e-2, f"{label}: llama.cpp differs from PyTorch by {diff}"
+            m2 = LlamaCppModel(p, n_ctx=128, threads=2)
+            _, _, st = m2(ids[:, :30])
+            got2 = m2(ids[:, 30:], past_key_values=st)[0][0, -1]
+            assert (got2 - ref).abs().max().item() < 1e-2, f"{label}: cached decoding differs"
+            q8 = Path(td) / "v2-q8.gguf"
+            write_gguf(model, q8, "q8_0")
+            mq = LlamaCppModel(q8, n_ctx=128, threads=2)
+            gq = mq(ids)[0][0, -1]
+            assert torch.equal(gq.argmax(), ref.argmax()), f"{label}: Q8_0 written directly changed the top token"
+            assert q8.stat().st_size < p.stat().st_size / 2.5, "direct Q8_0 file should be far smaller than f32"
+        print(f"  donor body OK: {label} (max logit diff {diff:.1e}; Q8_0 written directly agrees)")
 
 
 def _selftest() -> None:
@@ -197,6 +330,7 @@ def _selftest() -> None:
         mq = LlamaCppModel(q, n_ctx=128, threads=2)
         gq = mq(ids)[0][0, -1]
         assert torch.equal(gq.argmax(), ref.argmax()), "Q8_0 changed the top token on a random model"
+    _selftest_donor_bodies()
     os.environ["SHAM_GGUF_INSTALL"] = "0"
     fm = fast_model(model, "q8_0")
     assert fm is not None and fast_model(model, "q8_0") is fm, "fast_model must build once and cache"

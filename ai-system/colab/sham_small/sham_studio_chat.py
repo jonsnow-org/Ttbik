@@ -214,7 +214,17 @@ def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature
     context, and the scrolled-out chunks come back through the bank. `ids` is the whole prompt; the sampling matches qwen3_chat_messages."""
     from sham_stream import iter_tokens
     sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
-    yield from iter_tokens(model, list(ids), n, text_vocab=tokenizer.vocab_size, eos_id=end, stop_ids={end}, repetition_penalty=1.05, **sample)
+    extra = {}
+    fast = None
+    if hasattr(model, "layers"):                       # a real ShamSmall: decode with its llama.cpp copy when the Studio has already built one (several times faster)
+        try:
+            from sham_gguf import cached_fast
+            fast = cached_fast(model)
+            if fast is not None:
+                extra["embed_weight"] = model.token_embedding.weight         # the bank of scrolled-out chunks keys on Sham's own embeddings
+        except Exception:
+            fast = None
+    yield from iter_tokens(fast or model, list(ids), n, text_vocab=tokenizer.vocab_size, eos_id=end, stop_ids={end}, repetition_penalty=1.05, **extra, **sample)
 
 
 def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: int, temperature: float = 0.0):
