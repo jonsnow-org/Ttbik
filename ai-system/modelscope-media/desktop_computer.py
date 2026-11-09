@@ -256,14 +256,14 @@ def _launcher_script(session: str, app: str) -> str | None:
         profile = box.session_home(session) / ".desktop" / "chrome-profile"
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
         flags = " ".join(shlex.quote(f) for f in [
-            "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+            "--no-sandbox", "--test-type", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - PANEL_HEIGHT - 50}", "about:blank"])
         return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):
-        return "#!/bin/sh\nexec pcmanfm --no-desktop --new-window " + shlex.quote(str(box.session_home(session))) + "\n"
+        return "#!/bin/sh\nexec pcmanfm --new-window " + shlex.quote(str(box.session_home(session))) + "\n"
     return None
 
 
@@ -338,7 +338,7 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
         "[*]\nwallpaper_mode=color\nwallpaper_common=1\ndesktop_bg=#16324f\ndesktop_fg=#ffffff\ndesktop_shadow=#000000\n"
         "desktop_font=Sans 12\nshow_wm_menu=0\nsort=name;ascending;\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n",
         encoding="utf-8")
-    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\n", encoding="utf-8")
+    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\nsingle_click=1\n", encoding="utf-8")
     return desktop
 
 
@@ -810,7 +810,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
         elif app == "files":
             if not shutil.which("pcmanfm"):
                 return {"ok": False, "error": "The file manager is not installed in this Studio."}
-            cmd = ["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))]
+            cmd = ["pcmanfm", "--new-window", str(box.session_home(session))]
         elif app == "browser":
             url = str(job.get("url") or "about:blank").strip()
             if url != "about:blank":
@@ -831,7 +831,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 os.chown(profile, box.session_uid(session), box.session_uid(session))
             os.chmod(profile, 0o700)
             cmd = [
-                str(executable), "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+                str(executable), "--no-sandbox", "--test-type", "--disable-gpu", "--disable-dev-shm-usage",
                 "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
                 "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,

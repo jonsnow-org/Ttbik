@@ -46,7 +46,9 @@ class AssetsTests(unittest.TestCase):
             self.assertTrue((home / ".desktop" / "icons" / "browser.png").exists())
             conf = (home / ".config" / "pcmanfm" / "default" / "desktop-items-0.conf").read_text()
             self.assertIn("wallpaper_mode=color", conf)
-            self.assertIn("quick_exec=1", (home / ".config" / "libfm" / "libfm.conf").read_text())
+            libfm = (home / ".config" / "libfm" / "libfm.conf").read_text()
+            self.assertIn("quick_exec=1", libfm)
+            self.assertIn("single_click=1", libfm)
 
 
 class SizeTests(unittest.TestCase):

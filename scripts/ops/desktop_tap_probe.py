@@ -56,18 +56,16 @@ def main() -> int:
         time.sleep(3)
         save(token, session, "0-start")
         steps = [
-            ("1-taskbar-terminal", [("click", 141, H - 22)]),
-            ("2-taskbar-browser", [("click", 49, H - 22)]),
-            ("3-taskbar-files", [("click", 220, H - 22)]),
-            ("4-icon-terminal-single", [("click", 60, 247)]),
-            ("5-icon-files-double", [("click", 60, 137), ("click", 60, 137)]),
+            ("1-icon-browser-single", [("click", 60, 40)], 8),
+            ("2-taskbar-terminal", [("click", 141, H - 22)], 4),
+            ("3-taskbar-files", [("click", 220, H - 22)], 8),
         ]
-        for name, clicks in steps:
+        for name, clicks, wait in steps:
             for kind, x, y in clicks:
                 r = call(token, session, action=kind, x=x, y=y)
                 print(name, kind, x, y, "ok" if r.get("ok", True) else r.get("error"), flush=True)
                 time.sleep(0.12)
-            time.sleep(3.5)
+            time.sleep(wait)
             save(token, session, name)
     finally:
         call(token, session, action="stop")
