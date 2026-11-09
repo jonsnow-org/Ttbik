@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
@@ -9,14 +9,13 @@ import { hudLines } from "@/lib/computerHud";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
-// `dock` = extra taskbar buttons and `overlay` = a window drawn INSIDE the screen frame (owner's order 2026-11-09: the tools
-// live on the computer's screen like a real desktop, not as tabs beside it).
-export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: string; ar: boolean; dock?: ReactNode; overlay?: ReactNode }) {
+// The page draws only the screen. The apps are a real taskbar INSIDE the Linux desktop (tint2 on the hub), so tapping them is
+// tapping the screen; nothing here sits beside it (owner's order 2026-11-09).
+export default function GraphicalDesktop({ model, ar }: { model: string; ar: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [frame, setFrame] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [address, setAddress] = useState("https://example.com");
   const [typed, setTyped] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [activity, setActivity] = useState<any[]>([]);
@@ -236,14 +235,55 @@ export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: 
     finally { setBusy(false); }
   };
 
-  const launch = (app: "browser" | "terminal" | "files") => {
-    void perform({ action: "launch", app, ...(app === "browser" ? { url: address } : {}) });
+  // Typing straight into the screen: a tap focuses a hidden field (so the phone's keyboard opens), and what is typed there goes to the
+  // desktop window under the pointer, in order. This is how a login form on a page the model opened can be filled in by hand.
+  const kbRef = useRef<HTMLInputElement>(null);
+  const composing = useRef(false);
+  const queue = useRef<Array<{ type?: string; key?: string }>>([]);
+  const draining = useRef(false);
+  const drain = async () => {
+    if (draining.current) return;
+    draining.current = true;
+    try {
+      while (queue.current.length) {
+        const next = queue.current.shift()!;
+        await call(next.key ? { action: "key", key: next.key } : { action: "type", text: next.type });
+      }
+    } catch (e: any) { setError(String(e?.message || e)); queue.current = []; }
+    finally { draining.current = false; }
   };
+  const enqueue = (item: { type?: string; key?: string }) => {
+    const last = queue.current[queue.current.length - 1];
+    if (item.type && last?.type !== undefined && (last.type + item.type).length <= 400) last.type += item.type;
+    else queue.current.push(item);
+    void drain();
+  };
+  const keyName = (event: React.KeyboardEvent): string | null => {
+    const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
+    const key = names[event.key] || event.key;
+    const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
+    const mapped = [...modifiers, key].join("+");
+    return /^[A-Za-z0-9_+ -]{1,40}$/.test(mapped) ? mapped.replace(/ /g, "") : null;
+  };
+  const screenKey = (event: React.KeyboardEvent) => {
+    const mapped = keyName(event);
+    if (mapped) { event.preventDefault(); enqueue({ key: mapped }); }
+  };
+  const focusKeyboard = () => { try { kbRef.current?.focus({ preventScroll: true }); } catch { /* no keyboard field yet */ } };
+  const takeTyped = () => {
+    const el = kbRef.current;
+    if (!el || !el.value) return;
+    const text = el.value;
+    el.value = "";
+    enqueue({ type: text });
+  };
+
   const clickScreen = (event: React.MouseEvent<HTMLImageElement>, button: "left" | "right" = "left") => {
     // A tap fires touchstart and then a synthetic click: without this guard every touch would click the desktop twice.
     if (Date.now() - touchAt.current < 700) return;
     const image = imageRef.current;
     if (!image) return;
+    focusKeyboard();
     const rect = image.getBoundingClientRect();
     const point = desktopPoint(rect, event, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
     if (!point) return;
@@ -261,6 +301,7 @@ export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: 
     const touch = event.touches[0] || event.changedTouches[0];
     if (!image || !touch) return;
     touchAt.current = Date.now();
+    focusKeyboard();
     const rect = image.getBoundingClientRect();
     const point = desktopPoint(rect, { clientX: touch.clientX, clientY: touch.clientY }, { width: image.naturalWidth, height: image.naturalHeight }, screenRef.current);
     if (!point) return;
@@ -308,17 +349,7 @@ export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: 
             void perform({ action: "scroll", direction: event.deltaY < 0 ? "up" : "down", amount: Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))) });
           }}
           tabIndex={0}
-          onKeyDown={(event) => {
-            if (["INPUT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName || "")) return;
-            const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
-            const key = names[event.key] || event.key;
-            const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
-            const mapped = [...modifiers, key].join("+");
-            if (/^[A-Za-z0-9_+ -]{1,40}$/.test(mapped)) {
-              event.preventDefault();
-              void perform({ action: "key", key: mapped.replace(/ /g, "") });
-            }
-          }}
+          onKeyDown={(event) => screenKey(event)}
           style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", transform: `scale(${zoom})`, transformOrigin: "top center", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "manipulation" }}
         />
       ) : (
@@ -330,13 +361,18 @@ export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: 
           </div>
         </div>
       )}
-        {overlay ? <div style={{ position: "absolute", top: 8, left: 8, right: 8, bottom: 52, overflow: "auto", background: "#0b1220f2", color: "#e2e8f0", border: "1px solid #475569", borderRadius: 8, boxShadow: "0 8px 30px #0008" }}>{overlay}</div> : null}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "6px 8px", background: "#111a2e", borderTop: "1px solid #334155" }}>
-          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("browser")}>🌐 {ar ? "المتصفح" : "Browser"}</button>
-          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("terminal")}>▣ {ar ? "طرفية" : "Terminal"}</button>
-          <button type="button" className="n-btn n-ghost" disabled={!running || busy} onClick={() => launch("files")}>📁 {ar ? "الملفات" : "Files"}</button>
-          {dock}
-        </div>
+        {running ? (
+          <input
+            ref={kbRef}
+            aria-label={ar ? "لوحة المفاتيح للشاشة" : "Screen keyboard"}
+            autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false}
+            onInput={() => { if (!composing.current) takeTyped(); }}
+            onCompositionStart={() => { composing.current = true; }}
+            onCompositionEnd={() => { composing.current = false; takeTyped(); }}
+            onKeyDown={(event) => { if (event.key.length > 1 || event.ctrlKey || event.altKey) screenKey(event); }}
+            style={{ position: "absolute", left: 0, bottom: 0, width: 1, height: 1, opacity: 0, border: 0, padding: 0, pointerEvents: "none" }}
+          />
+        ) : null}
       </div>
       {running ? (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -350,12 +386,6 @@ export default function GraphicalDesktop({ model, ar, dock, overlay }: { model: 
         <div className="n-note" style={{ marginTop: 8, maxHeight: 150, overflow: "auto" }}>
           <strong>{ar ? "نشاط الحاسوب" : "Computer activity"}</strong>
           {consoleLines.map((line, index) => <div key={index} style={mono}>{line}</div>)}
-        </div>
-      ) : null}
-      {running ? (
-        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-          <input value={address} dir="ltr" onChange={(event) => setAddress(event.target.value)} placeholder="https://example.com" style={{ ...mono, minWidth: 140, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }} />
-          <button type="button" className="n-btn n-ghost" disabled={busy} onClick={() => launch("browser")}>{ar ? "فتح العنوان" : "Open URL"}</button>
         </div>
       ) : null}
       {running ? (
