@@ -4,7 +4,9 @@ import { ImageResponse } from "next/og";
 // installable "Add to Home Screen" prompt) — same brand mark as
 // src/app/icon.tsx, just a size the manifest spec actually requires,
 // which the existing 32x32 favicon route doesn't cover.
-export const runtime = "edge";
+
+// Built once at build time on the Node.js runtime (the Edge runtime is deprecated in this Next.js and kept the icon from being prerendered).
+export const dynamic = "force-static";
 
 export async function GET() {
   return new ImageResponse(

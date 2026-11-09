@@ -2,7 +2,9 @@ import { ImageResponse } from "next/og";
 
 // PWA manifest icon (512x512) — see pwa-icon-192/route.tsx for why this
 // exists alongside the 32x32 favicon route.
-export const runtime = "edge";
+
+// Built once at build time on the Node.js runtime (the Edge runtime is deprecated in this Next.js and kept the icon from being prerendered).
+export const dynamic = "force-static";
 
 export async function GET() {
   return new ImageResponse(
