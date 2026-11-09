@@ -414,6 +414,24 @@ def forget_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     return f"انسَ ما قلته لك عن تفضيلي: {topic}.", steps, f"حذفت من ذاكرتي ما يخص {topic}."
 
 
+def knowledge_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """Knowledge kept outside the weights (owner 2026-11-09): ask the library of what was read before FIRST and say where the answer came from; when it is not there, search the web
+    (the result is then kept automatically) instead of guessing."""
+    topic, found, web, src = rng.choice([
+        ("معركة حطين", "[1] (fetch_page · حطين · https://ar.wikipedia.org/wiki/معركة_حطين · saved 2026-11-02)\nوقعت معركة حطين سنة 1187م بين صلاح الدين الأيوبي والصليبيين قرب طبريا.", "معركة حطين 1187 صلاح الدين", "ar.wikipedia.org"),
+        ("the Antikythera mechanism", "[1] (web_search · Antikythera · saved 2026-11-05)\nThe Antikythera mechanism is an ancient Greek hand-powered orrery, about 2000 years old.", "Antikythera mechanism", "web_search"),
+        ("سقوط غرناطة", "[1] (deep_research · سقوط غرناطة · saved 2026-10-30)\nسقطت غرناطة آخر معاقل المسلمين في الأندلس سنة 1492م.", "سقوط غرناطة 1492", "deep_research"),
+    ])
+    if rng.random() < 0.6:
+        steps = [("knowledge_search", {"query": topic}, found)]
+        ans = f"حسب ما قرأته سابقاً ({src}): " + found.split("\n", 1)[1][:160]
+    else:
+        steps = [("knowledge_search", {"query": topic}, "no saved text matches: it was not read yet, or it is worded differently; search the web for it"),
+                 ("web_search", {"query": web}, found.split("\n", 1)[1][:200])]
+        ans = "لم يكن عندي شيء محفوظ عنها، فبحثت في الويب ووجدت: " + found.split("\n", 1)[1][:160] + " (وحُفظ ما قرأته لأستعين به لاحقاً)."
+    return f"ماذا تعرف عن {topic}؟", steps, ans
+
+
 def any_spec(rng: random.Random) -> tuple[str, list, str]:
     """One teaching case: the fix flow, code written-run-fixed, a missing detail asked once, or a single catalog call (same shares as synthetic_examples)."""
     r = rng.random()
@@ -433,6 +451,8 @@ def any_spec(rng: random.Random) -> tuple[str, list, str]:
         return patch_flow_spec(rng)
     if r < 0.69:
         return forget_flow_spec(rng)
+    if r < 0.75:
+        return knowledge_flow_spec(rng)
     return catalog_spec(rng)
 
 
@@ -460,6 +480,7 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "mcp_call": ("server, tool, arguments?", "Call an MCP tool; the app asks for confirmation"),
     "delegate": ("tasks", "Run independent read-only investigations in parallel"),
     "http_request": ("url, method?, headers?, body?", "Read a public HTTP API; write methods require confirmation"),
+    "knowledge_search": ("query, count?", "Search everything you read before, with its source and date"),
     "recall": ("query, count?", "Retrieve information already read during this task"),
     "send_file": ("path, caption?, cwd?", "Send a file created in the task VM to the user"),
     "sandbox_clone": ("repo, branch?, dir?, depth?", "Copy a repository into this task's private computer"),

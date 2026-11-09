@@ -5,6 +5,7 @@
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
 import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
 import { prismaDb, type Db } from "@/lib/shamDb";
+import { knowledgeSave, knowledgeSearch } from "@/lib/shamKnowledge";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
 
@@ -92,6 +93,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Name `base` (the branch the user said); head must already hold the changes. The user is asked first.", obj({ repo: REPO, head: s("source branch"), base: s("target branch (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request. The user is asked first.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
   tool("http_request", "Call a public HTTP API (GET / HEAD run at once; POST / PUT / PATCH / DELETE wait for the user's tap) and read the answer. For a plain page use fetch_page; for the user's linked services use connector_api. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers" }, body: s("request body text (JSON as a string)") }, ["url"])),
+  tool("knowledge_search", "Search the library of EVERYTHING you have read before in earlier tasks and chats (pages, search results, research reports, each with its source and date). Use it BEFORE searching the web again, and say where the answer came from.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, include the exact requested seconds (6/10/15/30/60/120); optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), seconds: { type: "integer", enum: [6, 10, 15, 30, 60, 120], description: "Optional requested video duration in seconds." }, scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
@@ -313,6 +315,12 @@ export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = 
     const label = `${call.function.name} ${String(a.path || a.url || a.query || a.repo || a.command || "").slice(0, 80)}`.trim();
     void (async () => { try { await (await host()).bank.add(ctx.runId, ctx.chatKey, 0, call.function.name, label, out, ctx.db); } catch { /* the notes are best effort */ } })();
   }
+  // AUTOMATIC KNOWLEDGE (owner 2026-11-09): what Sham read while searching is kept for good, with its source and date, outside the weights (src/lib/shamKnowledge.ts).
+  if ((call.function.name === "web_search" || call.function.name === "fetch_page" || call.function.name === "deep_research") && !/^error/i.test(out) && ctx.chatKey) {
+    const a = parse(call);
+    const title = /^# (.+)$/m.exec(out)?.[1] || String(a.query || a.question || "");
+    void knowledgeSave(ctx.db, ctx.chatKey, { source: call.function.name, url: call.function.name === "fetch_page" ? String(a.url || "") : "", title, text: out });
+  }
   return out;
 }
 /** Each Sham (v1 and v2) has ONE embedded computer inside its own Studio (owner's order 2026-11-08; the shared hub is Nova's only), so the tools of the separate task workspace are the same computer:
@@ -353,6 +361,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       await H.limits.add(ctx.chatId, "research", 1, ctx.db);
       return await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Number(a.max_sources) || 10 });
     }
+    if (name === "knowledge_search") return clip(await knowledgeSearch(ctx.db, ctx.chatKey, String(a.query || ""), Number(a.count) || 4));
     if (name === "recall") return clip(await (await host()).bank.recall(ctx.runId, ctx.chatKey, String(a.query || ""), Number(a.count) || 3, ctx.db));
     if (name === "http_request") {
       if (!/^(GET|HEAD)$/i.test(String(a.method || "GET")) && !approved) return "error: this writes to an outside service: it runs only after the user taps «نفّذ».";
