@@ -40,6 +40,11 @@ def main() -> int:
             got[name] = frozenset()
             print(f"{name}: unreachable ({type(e).__name__})")
         print(f"{name}: {len(got[name])} texts")
+    if not got["oracle"] or not got["vercel"]:
+        # One side cannot be read (Vercel paused on the free plan, Oracle restarting): nothing can be compared, so this is not a stale build.
+        # Failing here e-mailed the owner every 2 hours; the hosting supervisor and the gate already alert on a real Oracle outage.
+        print("::warning::one origin is unreachable; the freshness comparison was skipped")
+        return 0
     ok = same_build(got["oracle"], got["vercel"])
     print(f"texts only on Oracle: {len(got['oracle'] - got['vercel'])}, only on Vercel: {len(got['vercel'] - got['oracle'])}")
     print("SAME BUILD" if ok else "DIFFERENT BUILDS: the primary (Oracle) is not serving what Vercel serves")

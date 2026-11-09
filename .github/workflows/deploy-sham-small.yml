@@ -54,7 +54,7 @@ jobs:
       - name: Install backend dependencies (+ requests, test-only)
         run: |
           pip install -r requirements.txt
-          pip install requests
+          pip install requests imageio
 
       - name: Run the real end-to-end serving verification
         run: python3 verify_serve.py
