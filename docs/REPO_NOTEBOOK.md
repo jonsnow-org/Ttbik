@@ -54,7 +54,7 @@ Telegram / browsers / Mini Apps / GitHub schedules
      └────────┬─────────┘
    one Postgres (Supabase) — DATABASE_URL shared
 ```
-- **Branches and deploys (corrected 2026-10-10):** `main` → Oracle (Athar web app + site engine) and is only a Vercel *preview*. The **default branch** `claude/free-services-marketplace-h6rwk2` → Vercel production (site, bots, `/api/athar/*` mirror). A change reaches users **only after `main` is merged into the default branch** (a "sync PR", merge commit). `claude/athar-work` belongs to the Athar session: never push/merge/delete it.
+- **Branches and deploys (updated 2026-11-09):** `claude/free-services-marketplace-h6rwk2` is the protected canonical code branch; reviewed PRs target it. After successful CI, `.github/workflows/sync-main.yml` fast-forwards `main` to the exact same SHA. Oracle and the Cloudflare `site-gate` Worker consume `main`; Vercel follows the default branch as a standby when available. Do not develop directly on `main` or create routine manual sync PRs. If `main` has unique commits, the mirror workflow fails without altering refs and requires a recovery PR from `main` into the canonical branch. `claude/athar-work` belongs to the Athar session: never push/merge/delete it.
 - **Vercel free plan is rate-limited** (a 24 h lock when too many deployments). `vercel.json` → `scripts/vercel-ignore.sh` skips builds for Athar-only, docs, SQL, cloudflare, deploy/oracle, ai-system and `sham-*` workflow changes; preview deployments are not built. Batch work; one sync per day (`docs/agents/COMMON.md` §2). Standing order: in a fixes session collect fixes and merge once when the owner says the session is over.
 - Hosting notes and the Cloudflare gate: `docs/HOSTING.md`. Env var **names**: `docs/ENV-VARS.md` (values never in the repo; a `deploy/hosting/check-env.sh` audits).
 - **Webhooks** all point at the gate. Telegram webhook per bot: `/api/telegram/[botId]` (secret header = `Bot.webhookSecret`).
@@ -104,7 +104,7 @@ Runs entirely in the browser. `engine.ts`: Delaunay triangle-mesh warp of MediaP
 - GitHub **schedules are throttled**: a `*/5` workflow may run every few hours; judge freshness in hours, not minutes. Don't "fix" it.
 - Vercel connector shows no teams (needs re-linking by the owner); read production state via public pages, `gh api repos/jonsnow-org/Ttbik/commits/<sha>/status` (Vercel context) and `get_pull_request`/Actions tools.
 - GitHub access is through the GitHub MCP tools (or `gh api` for reads); the Actions *secrets* API is blocked — you cannot see secret names.
-- Merge flow used everywhere: branch from `origin/main` → push → PR → squash-merge → one sync PR `main → claude/free-services-marketplace-h6rwk2` (merge commit). If a feature branch was already squash-merged, start a fresh branch from `origin/main`.
+- Merge flow: branch from `origin/claude/free-services-marketplace-h6rwk2` → PR back to that protected branch → CI → squash merge → automatic strict fast-forward mirror to `main` → Oracle build/health confirmation. If `main` has unique commits, recover them through a PR into the canonical branch; never force-push or create one-sided sync merges.
 - Auto-mode permission classifiers may block hot-wallet/real-money commands regardless of what you write; stop and report, don't work around.
 - Arabic RTL text breaks URLs when copied from chat: give URLs alone in a code block with an ASCII placeholder.
 - A secret pasted into chat is compromised: tell the owner to rotate it; never reuse it in code or commands.

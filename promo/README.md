@@ -57,7 +57,7 @@
 - تشغيل أي workflow ترويجي بوضع المعاينة `dry` (لا ينشر شيئاً).
 - إعادة تشغيل المهام الفاشلة **مرة واحدة** للأنظمة آمنة التكرار فقط (فيديوهات المشاريع، فرز الأخطاء). المشرف الآلي يفعل ذلك وحده؛ أما `channel-post` و`coins-channel-post` و`promo-remotion` فلا تُعاد تلقائياً لأن إعادتها قد تكرر منشوراً.
 - فتح وتحديث وإغلاق Issues (تقرير المشرف، `auto-error`).
-- إصلاح الأخطاء البرمجية الصغيرة في ملفات الترويج (`src/lib/channel*.ts` و`coinsChannel.ts` و`announce.ts` و`promo/**` و`scripts/promo/**` وworkflows الترويج) عبر PR مع اختبار ودمج في `main`؛ والدفع إلى الفرع الافتراضي دفعة واحدة (حدّ Vercel).
+- إصلاح الأخطاء البرمجية الصغيرة في ملفات الترويج (`src/lib/channel*.ts` و`coinsChannel.ts` و`announce.ts` و`promo/**` و`scripts/promo/**` وworkflows الترويج) عبر PR مع اختبار ودمج في فرع الإنتاج المحمي `claude/free-services-marketplace-h6rwk2`؛ بعد نجاح CI تنسخ مهمة `sync-main.yml` الالتزام نفسه إلى `main` وتتحقق من Oracle. لا تُفتح مزامنة يدوية منفصلة.
 
 **يحتاج موافقة المالك أولاً:**
 - أي نشر يدوي فعلي (`announce` بلا `dry`)، تفعيل `COINS_LAUNCH_FEED`، إنشاء أو حذف `promo/PUBLISH_ON`.

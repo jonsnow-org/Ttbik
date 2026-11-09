@@ -3,19 +3,6 @@ import { t } from '../lib/i18n'
 import { useFadaa } from '../lib/store'
 import { BottomNav } from './BottomNav'
 
-function closeTelegram() {
-  try {
-    const tg = (window as unknown as { Telegram?: { WebApp?: { close?: () => void } } }).Telegram?.WebApp
-    if (tg?.close) {
-      tg.close()
-      return
-    }
-  } catch { /* ignore */ }
-  try {
-    window.history.back()
-  } catch { /* ignore */ }
-}
-
 export function Shell({ children }: { children: import('react').ReactNode }) {
   const locale = useFadaa((s) => s.locale)
   const toast = useFadaa((s) => s.toast)
@@ -35,16 +22,6 @@ export function Shell({ children }: { children: import('react').ReactNode }) {
   return (
     <div className="fadaa-shell">
       <header className="fadaa-header">
-        <button
-          type="button"
-          onClick={closeTelegram}
-          className="flex h-9 items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-3 text-xs font-bold text-[var(--color-ink)]"
-          aria-label={locale === 'ar' ? 'إغلاق' : 'Close'}
-        >
-          <span className="text-base leading-none">×</span>
-          <span>{locale === 'ar' ? 'إغلاق' : 'Close'}</span>
-        </button>
-
         <div className="min-w-0 flex-1 text-center">
           <div className="truncate font-[family-name:var(--font-display)] text-lg font-bold text-[var(--color-ink)]">
             فضاء
