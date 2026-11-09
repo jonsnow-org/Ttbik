@@ -1273,8 +1273,17 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
     const paidAlready = !!state(key) && key !== "photos" && key !== "verify";
     if (paidAlready && key !== "boost" && !(key === "anonFilters" && !me?.anonFilters?.viaVip)) return;
     if (key === "anonFilters" && me?.anonFilters?.viaVip) return;
+    // No balance yet (everyone starts at $0): one confirm, straight to a Stars invoice for the exact price — no
+    // "pay from balance?" step that can only fail. The feature activates automatically once Telegram confirms.
+    const effective = key === "vipTrial" || !me?.firstDiscount ? price : Math.round(price * (1 - me.firstDiscount) * 100) / 100;
+    if ((me?.buyNowKeys || []).includes(key) && Number(ent.balance ?? 0) < effective) {
+      const stars = Math.max(1, Math.ceil((effective - Number(ent.balance ?? 0)) * 100));
+      void api("track", { event: "paywall_stars_offer", detail: key });
+      if (await confirmTg(`⚡ ادفع ${stars} نجمة وتُفعَّل الميزة فوراً؟`)) await buyStars(key);
+      return;
+    }
     const ok = key === "verify" || key === "photos" && ent.extraPhotos ? true
-      : await confirmTg(`تأكيد الشراء بـ $${price} من رصيدك؟`);
+      : await confirmTg(`تأكيد الشراء بـ $${effective} من رصيدك؟`);
     if (!ok) return;
     setBuying(key); haptic("medium");
     const r = await api("upgrade", { key });
@@ -1338,7 +1347,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
               <div className="flex items-center gap-3">
                 <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl ${isVipCard ? "bg-gradient-to-br from-amber-300 to-amber-600" : "bg-white/10"}`}>{c.icon}</div>
                 <div className="flex-1">
-                  <p className="font-bold">{c.title} <span className="text-xs font-normal text-white/45">· {me?.firstDiscount && c.key !== "verify" ? <><s>${c.price}</s> <b className="text-[#f3cbbd]">${(Math.round(c.price * (1 - me.firstDiscount) * 100) / 100).toFixed(2)}</b></> : `$${c.price}`} / {c.unit}</span></p>
+                  <p className="font-bold">{c.title} <span className="text-[10px] font-normal text-amber-200/80">⭐ {Math.max(1, Math.ceil((me?.firstDiscount && c.key !== "verify" && c.key !== "vipTrial" ? c.price * (1 - me.firstDiscount) : c.price) * 100))}</span> <span className="text-xs font-normal text-white/45">· {me?.firstDiscount && c.key !== "verify" && c.key !== "vipTrial" ? <><s>${c.price}</s> <b className="text-[#f3cbbd]">${(Math.round(c.price * (1 - me.firstDiscount) * 100) / 100).toFixed(2)}</b></> : `$${c.price}`} / {c.unit}</span></p>
                   <p className="text-[11px] leading-5 text-white/50">{c.desc}</p>
                   {st && <p className="mt-0.5 text-[11px] text-emerald-300">✓ {st}</p>}
                 </div>
@@ -1394,7 +1403,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
       {me?.referral?.link && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <p className="font-bold">🔗 ادعُ أصدقاءك</p>
-          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل على رفع مجاني لملفك 24 ساعة، بحد أقصى {me.referral.cap ?? 3} مكافآت كل 30 يوماً (استخدمت {me.referral.rewardsLast30d ?? 0}). حصلت عليه إجمالاً {me.referral.rewarded} مرة.</p>
+          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل على يوم ذهبي مجاني 👑 (كل المزايا)، بحد أقصى {me.referral.cap ?? 3} مكافآت كل 30 يوماً (استخدمت {me.referral.rewardsLast30d ?? 0}). حصلت عليه إجمالاً {me.referral.rewarded} مرة.</p>
           <button onClick={() => { haptic("medium"); const u = `https://t.me/share/url?url=${encodeURIComponent(me.referral.link)}&text=${encodeURIComponent("انضم معي لبوت التعارف بغرض الزواج 💍")}`; tg()?.openTelegramLink ? tg().openTelegramLink(u) : window.open(u); }}
             className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>
         </div>
