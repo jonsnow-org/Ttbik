@@ -15,7 +15,7 @@ import { ensureMatchAppTables, extendAnonPaidUntilAtomic, getAnonFilterRow } fro
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 
 export * from "@/lib/match/entitlementRules";
-import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey, PRICE_CARD_GENDER, CARD_GENDER_DAYS, hasCardGenderFilter } from "@/lib/match/entitlementRules";
+import { PRICE_VIP_TRIAL, VIP_TRIAL_DAYS, REFERRAL_VIP_HOURS, vipTrialEligible, BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey, PRICE_CARD_GENDER, CARD_GENDER_DAYS, hasCardGenderFilter } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
@@ -56,7 +56,7 @@ class NotCharged extends Error {}
 
 /** Eligible = never bought anything from balance AND never claimed the discount. */
 async function firstPurchaseEligibleTx(tx: any, userId: string): Promise<boolean> {
-  const prior = await tx.matchTransaction.count({ where: { userId, currency: "internal" } });
+  const prior = await tx.matchTransaction.count({ where: { userId, currency: "internal", type: { not: "VIP_TRIAL" } } }); // the cheap trial keeps the 20% first-purchase discount for the real upgrade
   if (prior > 0) return false;
   const used = await tx.$queryRaw`SELECT 1 FROM match_first_discount WHERE user_id = ${userId}`.catch(() => [] as unknown[]);
   return !(used as unknown[]).length;
@@ -74,6 +74,7 @@ export async function effectivePrice(userId: string, price: number, type: string
 /** One-tap purchase by key (shared by the app's buy flow and the bot's Stars buy-now handler). */
 export async function purchaseByKey(userId: string, key: BuyNowKey): Promise<{ ok: true; message: string } | { ok: false; reason: string; needed?: number; balance?: number }> {
   const done = (m: string) => ({ ok: true as const, message: m });
+  if (key === "vipTrial") { const r = await purchaseVipTrial(userId); return r.ok ? done(`✨ تم تفعيل الذهبية التجريبية حتى ${r.vipUntil.toLocaleString("ar")} — استمتع بكل المزايا!`) : r; }
   if (key === "boost") { const r = await purchaseBoost(userId); return r.ok ? done(`🚀 تم رفع ملفك حتى ${r.boostedUntil.toLocaleString("ar")}`) : r; }
   if (key === "vip") { const r = await purchaseVip(userId); return r.ok ? done(`👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}`) : r; }
   if (key === "visitors") { const r = await unlockProfileVisitors(userId); return r.ok ? done("👀 تم تفعيل «من زار ملفي»") : r; }
@@ -136,6 +137,34 @@ export async function purchaseVip(userId: string): Promise<Purchase<{ vipUntil: 
   const vipUntil = new Date(base.getTime() + VIP_DAYS * 24 * 3600 * 1000);
   await prisma.matchUser.update({ where: { id: userId }, data: { vipUntil } });
   return { ok: true, vipUntil };
+}
+
+/** ✨ Golden trial — $0.5 / 3 days, once per account, only for people who never had paid golden time. */
+export async function hasUsedVipTrial(userId: string): Promise<number> {
+  return prisma.matchTransaction.count({ where: { userId, type: { in: ["VIP_TRIAL", "VIP_MEMBERSHIP", "VIP_MEMBERSHIP_FIRST20"] } } }).catch(() => 1);
+}
+export async function vipTrialAvailable(userId: string): Promise<boolean> {
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId }, select: { vipUntil: true } });
+  if (!dbUser) return false;
+  return vipTrialEligible({ vipActive: isVipActive(dbUser), priorTrialOrVip: await hasUsedVipTrial(userId) });
+}
+export async function purchaseVipTrial(userId: string): Promise<Purchase<{ vipUntil: Date }> | { ok: false; reason: "trial_used" }> {
+  if (!(await vipTrialAvailable(userId))) return { ok: false, reason: "trial_used" };
+  const charge = await chargeMatchUser(userId, PRICE_VIP_TRIAL, "VIP_TRIAL");
+  if (!charge.ok) return insufficient(PRICE_VIP_TRIAL, charge.balance);
+  const vipUntil = new Date(Date.now() + VIP_TRIAL_DAYS * 24 * 3600 * 1000);
+  await prisma.matchUser.update({ where: { id: userId }, data: { vipUntil } });
+  return { ok: true, vipUntil };
+}
+
+/** Referral reward: REFERRAL_VIP_HOURS of golden time, stacked on any remaining time. */
+export async function grantReferralVip(userId: string): Promise<Date | null> {
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId }, select: { vipUntil: true } });
+  if (!dbUser) return null;
+  const base = dbUser.vipUntil && dbUser.vipUntil > new Date() ? dbUser.vipUntil : new Date();
+  const vipUntil = new Date(base.getTime() + REFERRAL_VIP_HOURS * 3600 * 1000);
+  await prisma.matchUser.update({ where: { id: userId }, data: { vipUntil } });
+  return vipUntil;
 }
 
 /** 👀 من زار ملفي — $2 one-time permanent unlock (free while VIP). */
