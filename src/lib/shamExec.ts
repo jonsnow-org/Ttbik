@@ -15,7 +15,7 @@ export interface ShamHost {
   web: {
     search(q: string, o: { fetchImpl?: typeof fetch; limit: number }): Promise<string>;
     page(url: string, o: { fetchImpl?: typeof fetch; maxChars: number }): Promise<{ ok: boolean; text: string; error?: string; url: string }>;
-    research(q: string, o: { fetchImpl?: typeof fetch; maxSources: number }): Promise<string>;
+    research(q: string, o: { fetchImpl?: typeof fetch; maxSources: number; maxChars?: number; deadlineMs?: number }): Promise<string>;
     request(method: string, url: string, o: { fetchImpl?: typeof fetch; headers?: Record<string, string>; body?: string }): Promise<string>;
   };
   /** What this run already read (a file, a scan, CI logs, a page): kept per run so a later step can look it up again. Sham's own rows (`sham-<chat>` / `sham:<chat>`). */
@@ -38,7 +38,9 @@ const host = async (): Promise<ShamHost> => hostImpl || (hostImpl = (await impor
 
 export type ShamCtx = { sendFile?: (name: string, bytes: Buffer, caption?: string) => Promise<void>; chatId: number; botId?: string; db: Db; githubToken: string | null; connectors?: string[]; chatKey: string; runId: string; modelId: string; owner: boolean; fetchImpl?: typeof fetch };
 
-const RESULT_MAX = 7000;
+// What a tool result may cost the model: Sham reads on a CPU (a 2048-4096 token window, tens of tokens a second), so every extra character is seconds of waiting before the answer starts.
+// 2026-11-09: 7000 -> 4500 (the research result is also built to fit, instead of being built at 24000 and cut).
+const RESULT_MAX = 4500;
 const clip = (x: unknown, max = RESULT_MAX) => { const t = typeof x === "string" ? x : JSON.stringify(x, null, 1); return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars]` : t; };
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
 const s = (description: string) => ({ type: "string", description });
@@ -48,9 +50,9 @@ const REPO = { type: "string", description: "owner/name, e.g. octocat/Hello-Worl
 
 /** Every tool Sham has, by name. Writes to the user's repositories are the ones in SHAM_NEEDS_OK. */
 export const SHAM_TOOLS: CoderTool[] = [
-  tool("web_search", "Search the web. Returns titles, URLs and snippets.", obj({ query: s("search words"), limit: n("results, default 8") }, ["query"])),
+  tool("web_search", "Search the web. Returns titles, URLs and snippets.", obj({ query: s("search words"), limit: n("results, default 6") }, ["query"])),
   tool("fetch_page", "Read one web page as clean text, or a raw text / JSON file.", obj({ url: s("http(s) URL"), max_chars: n("default 20000") }, ["url"])),
-  tool("deep_research", "Research a question: several searches, many sources read, the best passages returned with numbered sources [n].", obj({ question: s("the question"), max_sources: n("default 10") }, ["question"])),
+  tool("deep_research", "Research a question: several searches, many sources read, the best passages returned with numbered sources [n].", obj({ question: s("the question"), max_sources: n("default 6, at most 8") }, ["question"])),
   tool("github_list_files", "List a repository's files (or one folder when `path` is given).", obj({ repo: REPO, path: s("folder, empty = all files"), ref: s("branch, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a file from a repository (line window for big files).", obj({ repo: REPO, path: s("file path"), ref: s("branch"), start_line: n("1-based"), end_line: n("last line") }, ["repo", "path"])),
   tool("github_read_files", "Read up to four files from a repository in parallel in one tool call; useful for code review and multi-file debugging.", obj({ repo: REPO, paths: { type: "array", items: s("repository-relative file path"), description: "1 to 4 file paths" }, ref: s("branch or commit, optional"), max_chars_per_file: n("each file excerpt, default 450, max 600") }, ["repo", "paths"])),
@@ -347,7 +349,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     }
     if (name === "web_search") {
       const q = String(a.query || "").trim();
-      return q ? clip(await (await host()).web.search(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 8 })) : "error: query is required";
+      return q ? clip(await (await host()).web.search(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 6 })) : "error: query is required";
     }
     if (name === "fetch_page") {
       const p = await (await host()).web.page(String(a.url || ""), { fetchImpl: ctx.fetchImpl, maxChars: Number(a.max_chars) || 20000 });
@@ -359,7 +361,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       const H = await host();
       if (!(await H.limits.ok(ctx.chatId, "research", 1, ctx.db))) return "error: the weekly deep-research allowance is used up. Use web_search + fetch_page instead.";
       await H.limits.add(ctx.chatId, "research", 1, ctx.db);
-      return await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Number(a.max_sources) || 10 });
+      return clip(await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Math.min(8, Number(a.max_sources) || 6), maxChars: RESULT_MAX - 200, deadlineMs: 15000 }));
     }
     if (name === "knowledge_search") return clip(await knowledgeSearch(ctx.db, ctx.chatKey, String(a.query || ""), Number(a.count) || 4));
     if (name === "recall") return clip(await (await host()).bank.recall(ctx.runId, ctx.chatKey, String(a.query || ""), Number(a.count) || 3, ctx.db));

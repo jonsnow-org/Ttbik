@@ -176,8 +176,38 @@ def run_session(model, step: int, batches: list, device: str, hours: float, lr: 
 
 
 # ---------------------------------------------------------------- Sham v1's other data, in the Qwen3 layout (parity with v1's chat stage: general text + code, worked reasoning, reading evidence)
-def text_mix_batches(tokenizer, documents: int = 400, batch_size: int = 2, window: int = 384, seed: int = 0, files: list[str] | None = None):
-    """General text + multi-language code from v1's own mixture (sham_text_mix.stream_mix), as plain language-model windows (loss on every token)."""
+def crawl_share() -> float:
+    """Share of the v2 text windows that comes from what the collectors published (SHAM_CRAWL_SHARE, default 0.09 as in Sham v1's mix; 0 turns it off)."""
+    try:
+        return min(0.5, max(0.0, float(os.environ.get("SHAM_CRAWL_SHARE", "0.09"))))
+    except ValueError:
+        return 0.09
+
+
+def crawl_files() -> list[str]:
+    """The text files of every sham-crawl-*-corpus dataset (the collectors' output); [] when none can be fetched (offline, dry run): the mix is then exactly what it was."""
+    try:
+        import sham_merge
+        return sham_merge.research_corpus_files(None, crawl=True)
+    except Exception:
+        return []
+
+
+def _windows(tokenizer, path, window: int, limit: int | None = None) -> list:
+    ids = tokenizer.encode(Path(path).read_text(encoding="utf-8", errors="ignore"))
+    out = []
+    for i in range(0, max(0, len(ids) - window + 1), window):
+        w = ids[i:i + window]
+        out.append((w, list(w)))
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def text_mix_batches(tokenizer, documents: int = 400, batch_size: int = 2, window: int = 384, seed: int = 0, files: list[str] | None = None,
+                     crawl: list[str] | None = None, share: float | None = None):
+    """General text + multi-language code from v1's own mixture (sham_text_mix.stream_mix), as plain language-model windows (loss on every token), plus the collectors' text as
+    `share` of the windows (what the crawlers published must not sit unused: it was 3.5% of v1's reading, now about 9% in both Shams)."""
     from sham_chat import batch_examples
     if files is None:
         import sham_text_mix
@@ -186,10 +216,21 @@ def text_mix_batches(tokenizer, documents: int = 400, batch_size: int = 2, windo
     for f in files:
         if not str(f).endswith(".txt"):
             continue
-        ids = tokenizer.encode(Path(f).read_text(encoding="utf-8"))
-        for i in range(0, max(0, len(ids) - window + 1), window):
-            w = ids[i:i + window]
-            ex.append((w, list(w)))
+        ex.extend(_windows(tokenizer, f, window))
+    share = crawl_share() if share is None else share
+    pool = crawl_files() if crawl is None else list(crawl)
+    if share > 0 and pool and ex:
+        rng = random.Random(seed)
+        want = int(len(ex) * share / (1 - share))
+        added: list = []
+        for f in rng.sample(pool, len(pool)):
+            if len(added) >= want:
+                break
+            try:
+                added.extend(_windows(tokenizer, f, window, limit=max(1, want - len(added))))
+            except Exception:
+                continue
+        ex.extend(added)
     return batch_examples(ex, batch_size, seed=seed)
 
 

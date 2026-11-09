@@ -247,7 +247,14 @@ class Stream:
         self.sources = list(sources or mix.SOURCES)
         if sources is None and not os.environ.get("SHAM_NO_CRAWL_CORPORA"):
             # what the collection notebooks published must not be lost: it joins the mixture as one more source
-            self.sources.append(("crawl-corpora", "@crawl", None, "text", 5, 6000))
+            # 2026-11-09 (owner): the crawlers' text was only 5 of 141 weight points (3.5% of what a session read). SHAM_CRAWL_WEIGHT (default 14 = about 9%) lets the data the
+            # collectors already paid for reach the model; the collector caps any single source at 20% of its text, so the share stays varied.
+            try:
+                crawl_weight = max(0, int(os.environ.get("SHAM_CRAWL_WEIGHT", "14")))
+            except ValueError:
+                crawl_weight = 14
+            if crawl_weight:
+                self.sources.append(("crawl-corpora", "@crawl", None, "text", crawl_weight, 6000))
         self.seed = int(time.time()) % 1_000_000 if seed is None else seed
         self.make_stream = make_stream
         self.stop = threading.Event()
