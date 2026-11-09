@@ -1,13 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "./prisma";
-
-function salt() {
-  return process.env.CRON_SECRET || "sham-youtube-public-link";
-}
-
-function sign(payload: string) {
-  return crypto.createHmac("sha256", salt()).update(payload).digest("base64url");
-}
+import { signLink, verifyLink } from "./linkSigning";
 
 export function youtubeConfigured() {
   return true;
@@ -15,16 +8,16 @@ export function youtubeConfigured() {
 
 export function youtubeStartUrl(site: string, tgUserId: string) {
   const exp = Date.now() + 30 * 60 * 1000;
-  const code = `SHAM${tgUserId.slice(-4)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const code = `SHAM${tgUserId.slice(-4)}${crypto.randomBytes(3).toString("hex").slice(0, 4).toUpperCase()}`;
   const body = `${tgUserId}.${exp}.${code}`;
-  return `${site}/youtube/link?state=${body}.${sign(body)}`;
+  return `${site}/youtube/link?state=${body}.${signLink("youtube", body)}`;
 }
 
 export function readYoutubeState(state: string) {
   const parts = state.split(".");
   if (parts.length !== 4) return null;
   const [tgUserId, exp, code, mac] = parts;
-  if (sign(`${tgUserId}.${exp}.${code}`) !== mac) return null;
+  if (!verifyLink("youtube", `${tgUserId}.${exp}.${code}`, mac)) return null;
   if (Number(exp) < Date.now()) return null;
   if (!/^\d+$/.test(tgUserId)) return null;
   return { tgUserId, code };
