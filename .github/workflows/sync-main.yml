@@ -72,6 +72,12 @@ jobs:
               age="${status[1]:-}"
               site="${status[2]:-}"
               echo "Oracle report: commit=$got report_age_min=$age site_status=$site (attempt $attempt/45)"
+              if [ -n "$age" ] && [ "$age" -gt 180 ]; then
+                # Oracle's own status reporter has been silent for hours (its reports are posted to the Vercel site, which answers 402 while paused).
+                # The sync itself already succeeded above; waiting 15 minutes and failing only e-mailed the owner on every run.
+                echo "::warning::Oracle status report is ${age} min old: the reporter is silent, so the build cannot be confirmed from here. The sync of main is done."
+                exit 0
+              fi
               if [ "$got" = "$EXPECTED" ] && [ -n "$age" ] && [ "$age" -le 10 ] && [[ "$site" == *" OK "* ]]; then
                 echo "Oracle is serving the synced main commit and reports a successful site build."
                 exit 0
