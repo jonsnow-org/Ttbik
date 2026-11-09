@@ -290,7 +290,15 @@ def tools_stage_batches(tokenizer, seed: int, n: int = 4000, batch_size: int = 2
     skills, plans, patch+test, fix flows, asks ...), the identity facts repeated, and a small replay of Arabic chat so the language does not fade."""
     from sham_chat import batch_examples
     from sham_tools_data import qwen3_tool_examples
-    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, "", max_len=1400)
+    # Without a GPU (the weekly quota was 0 h) the 1.7B body trains on the CPU in float32: one batch of two 1,400-token examples
+    # already needs ~7 GB of logits alone over the 151k vocabulary, and the kernel died with "tried to allocate more memory than
+    # is available" (Kaggle log of sham-v2-tools-train). Short examples, one at a time, keep it inside the ~29 GB.
+    import torch
+    if not torch.cuda.is_available() and os.environ.get("SHAM_V2_CPU_FULL") != "1":
+        batch_size, max_len = 1, 640
+    else:
+        max_len = 1400
+    ex = qwen3_tool_examples(tokenizer, random.Random(seed), n, "", max_len=max_len)
     batches = batch_examples(ex, batch_size, seed=seed)
     batches += arabic_pairs_to_batches(tokenizer, identity_grounding_pairs() * 8, batch_size)
     if replay_pairs:
