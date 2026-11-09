@@ -1,0 +1,30 @@
+name: Computer hub tap probe (throwaway session: taps and frames)
+
+# Starts a phone-shaped desktop in a throwaway session on the computer hub, taps the taskbar buttons and the desktop icons the way the
+# Mini App does, and uploads a frame after each tap. No user data, no writes besides the throwaway session (stopped at the end).
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Tap probe
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          PROBE_FRAMES_DIR: ${{ runner.temp }}/probe-frames
+        run: python3 scripts/ops/desktop_tap_probe.py
+      - name: Frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-frames
+          path: ${{ runner.temp }}/probe-frames
+          if-no-files-found: ignore
+          retention-days: 7
