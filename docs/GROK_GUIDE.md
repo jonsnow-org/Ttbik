@@ -12,13 +12,14 @@ You are welcome to supervise this project. This page tells you how to do it **wi
 2. **Contracts and Athar**: `contracts/**`, `athar/**`, `athar/build/**` — live or future on-chain code with real money. Read-only for you.
 3. **Money switches and secrets**: payout hot wallet (`src/lib/znbtPayout.ts`, `/referrals on`), silk/passport sales, `*_ON` flag files, any key/token/word list. Never read, print, move or use them.
 4. **Servers and the gate**: `deploy/oracle/**`, `cloudflare/**`, `deploy/hosting/site.json`, Oracle must follow `main`.
-5. **Workflow cadence**: Vercel's free plan locks for 24 h if flooded with builds. One PR per coherent change, one sync PR (`main` → `claude/free-services-marketplace-h6rwk2`) per day, never per fix. Don't edit `.github/workflows/**`, `vercel.json`, `package.json` pins without a clear need and a review.
+5. **Workflow cadence**: Vercel's free plan can pause builds if flooded. Batch one coherent change into one PR targeting `claude/free-services-marketplace-h6rwk2`; after CI, `sync-main.yml` mirrors it to `main` and checks Oracle. Never open a routine manual sync PR. Don't edit `.github/workflows/**`, `vercel.json`, `package.json` pins without a clear need and a review.
 
-Run `node scripts/agent-guard.mjs --base origin/main` before every push. CI repeats it on each PR; a blocked path means "ask the owner" (he labels the PR `owner-approved` if he agrees). You cannot weaken the guard: its files are on the protected list.
+Run `node scripts/agent-guard.mjs --base origin/claude/free-services-marketplace-h6rwk2` before every push. CI repeats it on each PR; a blocked path means "ask the owner" (he labels the PR `owner-approved` if he agrees). You cannot weaken the guard: its files are on the protected list.
 
 ## Mechanics you need
-- Branch from `origin/main`; open a PR to `main`; squash-merge when checks are green; never push to `main` or `claude/athar-work`; never force-push.
-- Production = the default branch `claude/free-services-marketplace-h6rwk2`: changes reach users only after the sync PR.
+- Branch from `origin/claude/free-services-marketplace-h6rwk2`; open a PR to that protected default branch; squash-merge when checks are green. CI then mirrors the exact commit to `main` and waits for Oracle health.
+- Never push directly to `main` or the protected default branch, never force-push, and never merge a routine manual sync PR. `main` is a deployment mirror, not a development branch.
+- Vercel's default-branch deployment is a standby when available; Oracle is primary behind the Cloudflare gate.
 - Verify before claiming: `npx tsc --noEmit -p .`, jest (`cd athar && npx jest --config ../jest.media.config.js --rootDir .. <pattern>`), `scripts/agent/render-check.mjs` for pages. Details: `docs/REPO_NOTEBOOK.md` §7.
 - Language: coins channel and coins platform users are **English only**; public texts English first; reports to the owner in short Arabic. Never promise profit.
 - When a decision, payment, secret, mainnet action or launch is needed: stop, comment on an issue, label `needs-owner`.

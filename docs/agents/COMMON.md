@@ -9,29 +9,33 @@ You are one supervisor of one section of the owner's project. You analyse, decid
 1. **Secrets**: never read, print, copy, log, move or commit tokens, keys, wallet words, `.env` values, `CRON_SECRET`, bot tokens, OAuth credentials. If a task needs one, say which *name* is needed and stop.
 2. **Money**: never spend, send, sign, fund, withdraw, buy, bid, mint, burn, deploy a contract, change a price/fee/limit that moves money, or turn on/off a payout/sale switch (`/referrals on`, `/silk on`, `/passports on`, `CRONS_ON`, `*_ON` flag files, hot-wallet code paths) — those are the owner's. Paying services are not used at all.
 3. **Chain-bound frozen things** (see `deploy/hosting/znbt-frozen.json`, `deploy/hosting/protected-paths.json`, and your charter): the coin's on-chain image address, master/owner/salt, contract sources, collection URI, the coin and stage **images**, the gate, `athar/build/**`. A change that could alter an address or live contract behaviour does not happen from here.
-4. **History**: never force-push, rebase shared branches, delete branches you did not create, push to `main` or `claude/athar-work` directly, or merge another session's branch.
+4. **History**: never force-push, rebase shared branches, delete branches you did not create, push directly to either deployment ref (`main` or `claude/free-services-marketplace-h6rwk2`), or merge another session's branch.
 5. **Sham AI model**: the owner's order of 2026-11-06 removed every hands-off rule except Athar, so the Sham AI model (`ai-system/**`, `sham-*` and ai-system deploy workflows, Kaggle/ModelScope/Lightning/Modal/HF notebooks and spaces, `docs/*SHAM*`, Oracle `install-sham.sh`/`SHAM_ON`) is **open to work** — it is no longer another session's. Keep the safety rules: never print secrets, and check a notebook that is running before you change it. (The old rule `sham-model` was deleted from `protected-paths.json`.)
 6. **Hands-off list** in `CLAUDE.md` (Athar, cloudflare, deploy/oracle, framework pins …): follow it exactly; your charter says what, if anything, is allowed on top.
 7. **No promises of profit/returns/yield** in any public text. Coins channel: English only. Public texts: English first.
 8. **Never skip, disable or delete a test to get green.** Never `--no-verify`.
 9. When in doubt about a decision, payment, secret, mainnet action, launch, or legal/claim wording: **do not act** — comment on an issue with label `needs-owner` and move on.
 
-## 2. How work reaches production (important, rate-limited)
-- `main` → the Oracle server (Athar web app + site engine) and is only a Vercel *preview*.
-- The **default branch** `claude/free-services-marketplace-h6rwk2` → Vercel production (site, bots, mirrors). A change reaches users only after `main` is merged into it.
-- Vercel's free plan is **rate limited** (24 h lock when exceeded). Therefore:
-  - one PR per coherent change → squash-merge into `main`;
-  - **at most ONE sync PR `main → default branch` per 24 h per supervisor, and only if production-relevant files changed** (`src/**`, `public/**`, `prisma/**`, package files). Docs-only/Athar-only changes do not need a sync. Before syncing, list recent PRs: if another sync merged < 6 h ago, wait for the next run.
+## 2. How work reaches production (one canonical branch)
+- The protected default branch `claude/free-services-marketplace-h6rwk2` is the canonical code source. Feature PRs target this branch.
+- `main` is an automatically maintained deployment mirror consumed by Oracle and the Cloudflare `site-gate` Worker. It is not a development branch.
+- After successful CI on the default branch, `.github/workflows/sync-main.yml` fast-forwards `main` to the exact same SHA, verifies parity, and waits for Oracle to report that commit and a healthy site build.
+- Vercel follows the default branch as a standby when available; do not create a separate manual sync PR for it.
+- Therefore:
+  - one PR per coherent change → squash-merge into the protected default branch;
+  - do not push directly to either deployment ref;
+  - do not land ordinary work directly on `main`;
+  - if `main` has unique commits, the mirror workflow fails without changing refs. Recover them with a reviewed PR from `main` into the canonical branch; after CI, the mirror retries.
   - never open a PR per tiny fix: batch what you found in this run.
 - Never merge a PR whose checks are red; read the failure, fix the cause (never a retry-until-green).
 
 ## 3. Run protocol (every run)
-1. `git fetch origin main && git checkout -B claude/<section>-<short-topic> origin/main`.
+1. `git fetch origin claude/free-services-marketplace-h6rwk2 && git checkout -b claude/<section>-<short-topic> origin/claude/free-services-marketplace-h6rwk2`.
 2. Read `docs/REPO_NOTEBOOK.md` sections you need, your charter, and the last supervisor report issue of your section (label `supervisor-<section>`).
 3. **Observe** (read-only): your charter's health checks. If everything is healthy and no improvement is due → **stop; say nothing**. Do not create noise.
 4. **Decide** the smallest valuable set of actions for this run (max 3 changes per run unless the charter says otherwise).
 5. **Act** inside your territory only. Add or update unit tests for every behaviour change. Run `npx tsc --noEmit -p .` and the relevant jest tests (see `docs/REPO_NOTEBOOK.md` §Testing) before every push.
-6. `node scripts/agent-guard.mjs --base origin/main` must pass (it lists protected paths you touched). If it flags something, you are outside your territory: revert that part. **Never add the label `owner-approved` to your own PR** — only the owner (or the main session acting on his explicit order in that session) may; the label is the owner's signature, and faking it is the worst violation there is.
+6. `node scripts/agent-guard.mjs --base origin/claude/free-services-marketplace-h6rwk2` must pass (it lists protected paths you touched). If it flags something, you are outside your territory: revert that part. **Never add the label `owner-approved` to your own PR** — only the owner (or the main session acting on his explicit order in that session) may; the label is the owner's signature, and faking it is the worst violation there is.
 7. PR → squash-merge (rules in §2). Then **report**: one comment on your section's rolling issue `Supervisor report: <section>` (create it once, label `supervisor-<section>`): what you saw, what you changed (PR links), what needs the owner (`needs-owner`). Keep it under 15 lines.
 8. End your session with a 5-line Arabic summary.
 
