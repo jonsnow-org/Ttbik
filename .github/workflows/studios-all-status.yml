@@ -35,7 +35,7 @@ jobs:
                           line = [l for l in b.splitlines() if l.startswith("data:")][0][5:].strip()
                           v = json.loads(line)[0]
                           v = v if isinstance(v, dict) else json.loads(v)
-                          return n, "UP phase=" + str(v.get("phase")) + " " + str(v.get("error") or "")[:120]
+                          return n, "UP phase=" + str(v.get("phase")) + " ctx=" + str(v.get("context_tokens")) + " loaded_at=" + str(v.get("loaded_at")) + " code=" + str(v.get("code"))[:40] + " " + str(v.get("error") or "")[:120]
                   return n, "NO_COMPLETE " + text[:100].replace("\n", " ")
               except urllib.error.HTTPError as e:
                   return n, f"HTTP {e.code}"
