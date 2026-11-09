@@ -55,7 +55,11 @@ def _kaggle(args: list[str]) -> str:
 
 
 def main(plan_only: bool = False) -> int:
-    statuses = {name: parse_status(_kaggle(["kernels", "status", f"{OWNER}/{slug}"])) for name, _d, _f, slug in STAGES}
+    raw = {name: _kaggle(["kernels", "status", f"{OWNER}/{slug}"]) for name, _d, _f, slug in STAGES}
+    statuses = {name: parse_status(text) for name, text in raw.items()}
+    for name, text in raw.items():
+        if statuses[name] == "unknown":
+            print(f"  (unread status of {name}: {text.strip()[:240]!r})")
     print("status:", json.dumps(statuses, ensure_ascii=False))
     todo = decide(statuses)
     if todo is None:
