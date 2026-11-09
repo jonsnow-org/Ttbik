@@ -166,6 +166,10 @@ jobs:
               echo "Studio $kind logs:"
               echo "$body" | tail -c 4000 || true
               echo
+              # The tail is often only the previous container's request lines: also show every line that names a failure (what the NEW app printed if it could not start).
+              echo "Studio $kind log lines that name a failure:"
+              echo "$body" | sed 's/\\n/\n/g; s/","/\n/g' | grep -Ei 'Traceback|Error|error:|failed|Exception|ModuleNotFound|No module|killed|out of memory|exit code|crash' | grep -v 'Layer already exists' | tail -n 40 | cut -c1-300 || true
+              echo
             done
           }
 
