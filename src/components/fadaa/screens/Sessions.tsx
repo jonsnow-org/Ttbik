@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, Users, Clock3 } from 'lucide-react'
+import { Search, Users, Clock3, MessageCircle } from 'lucide-react'
 import { t } from '../lib/i18n'
 import { formatRemaining, peopleCount, useFadaa } from '../lib/store'
 import type { SessionKind } from '../lib/types'
@@ -16,11 +16,17 @@ function kindLabel(kind: SessionKind, locale: 'ar' | 'en' | 'fr') {
 export function SessionsScreen() {
   const locale = useFadaa((s) => s.locale)
   const sessions = useFadaa((s) => s.sessions)
+  const contributions = useFadaa((s) => s.contributions)
   const go = useFadaa((s) => s.go)
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<KindFilter>('all')
   const [sort, setSort] = useState<SortMode>('newest')
   const now = Date.now()
+  const activity = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const item of contributions) map.set(item.sessionId, (map.get(item.sessionId) || 0) + 1)
+    return map
+  }, [contributions])
 
   const open = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
@@ -32,9 +38,11 @@ export function SessionsScreen() {
         || session.purpose.toLocaleLowerCase().includes(normalized)
         || session.ownerName.toLocaleLowerCase().includes(normalized))
       .sort((a, b) => sort === 'active'
-        ? b.participantIds.length - a.participantIds.length || b.createdAt - a.createdAt
+        ? (activity.get(b.id) || 0) - (activity.get(a.id) || 0)
+          || b.participantIds.length - a.participantIds.length
+          || b.createdAt - a.createdAt
         : b.createdAt - a.createdAt)
-  }, [sessions, query, kind, sort])
+  }, [sessions, query, kind, sort, activity])
 
   const filters: { id: KindFilter; label: string }[] = [
     { id: 'all', label: locale === 'ar' ? 'الكل' : locale === 'fr' ? 'Tout' : 'All' },
@@ -123,7 +131,7 @@ export function SessionsScreen() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="badge">{kindLabel(session.kind, locale)}</span>
                 <span className="countdown">{t(locale, 'remaining')}: {formatRemaining(session.closesAt - now, locale)}</span>
-                {sort === 'active' && session.participantIds.length >= 3 ? (
+                {sort === 'active' && (activity.get(session.id) || 0) >= 3 ? (
                   <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400">
                     {locale === 'ar' ? 'نقاش نشط' : 'Active'}
                   </span>
@@ -134,6 +142,7 @@ export function SessionsScreen() {
               <div className="flex items-center justify-between gap-2 border-t border-[var(--color-border)] pt-2">
                 <div className="flex items-center gap-3 text-[11px] text-[var(--color-ink-soft)]">
                   <span className="inline-flex items-center gap-1"><Users size={14} />{peopleCount(session.participantIds.length, locale)}</span>
+                  <span className="inline-flex items-center gap-1"><MessageCircle size={13} />{activity.get(session.id) || 0} {locale === 'ar' ? 'إسهامة' : 'contributions'}</span>
                   <span className="inline-flex items-center gap-1"><Clock3 size={13} />{new Date(session.createdAt).toLocaleDateString(locale === 'ar' ? 'ar' : locale, { month: 'short', day: 'numeric' })}</span>
                 </div>
                 <button
