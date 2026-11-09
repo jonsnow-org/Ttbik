@@ -48,8 +48,11 @@ def decide(statuses: dict[str, str]) -> str | None:
     return None
 
 
-def _kaggle(args: list[str]) -> str:
-    p = subprocess.run(["kaggle", *args], capture_output=True, text=True, timeout=180)
+def _kaggle(args: list[str], timeout: int = 180) -> str:
+    try:
+        p = subprocess.run(["kaggle", *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"timeout after {timeout}s: kaggle {' '.join(args[:2])}"
     return (p.stdout or "") + (p.stderr or "")
 
 
@@ -64,7 +67,8 @@ def main(plan_only: bool = False) -> int:
         if st == "error":                                   # what went wrong: the last lines of the kernel's own log
             slug = next(x[3] for x in STAGES if x[0] == name)
             with tempfile.TemporaryDirectory() as ld:
-                _kaggle(["kernels", "output", f"{OWNER}/{slug}", "-p", ld])
+                # only the text log (the kernel's output folder can hold gigabytes of checkpoints); a slow download never stops the queue
+                _kaggle(["kernels", "output", f"{OWNER}/{slug}", "-p", ld, "--file-pattern", r".*\.log$"], timeout=120)
                 for lf in sorted(Path(ld).glob("*.log"))[:1]:
                     tail = lf.read_text(encoding="utf-8", errors="replace")[-2500:]
                     print(f"--- {name} ended in ERROR; the end of its log:\n{tail}\n---")
