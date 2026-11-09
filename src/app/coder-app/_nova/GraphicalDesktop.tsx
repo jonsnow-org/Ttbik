@@ -5,7 +5,6 @@ import { api } from "./parts";
 import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
 import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
-import { hudLines } from "@/lib/computerHud";
 
 const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
@@ -18,11 +17,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [activity, setActivity] = useState<any[]>([]);
-  const [runningJobs, setRunningJobs] = useState<any[]>([]);
-  const [zoom, setZoom] = useState(1);
   const frameBusy = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  const frameBox = useRef<HTMLDivElement>(null);
   // when the last tap landed: the browser fires a synthetic click right after touchstart, and without this the desktop
   // would receive two clicks per tap (a double-click opens folders and selects text on a real desktop).
   const touchAt = useRef(0);
@@ -44,6 +41,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     const timer = setInterval(refresh, 1_000);
     return () => clearInterval(timer);
   }, [running, streaming]);
+
+  // The desktop is created in the shape of the page's own screen area (a phone is tall), so the picture fills it
+  // instead of leaving a black band below a short landscape screen.
+  const desktopSize = () => {
+    const width = 900;
+    const frameWidth = frameBox.current?.getBoundingClientRect().width || 340;
+    const room = Math.max(420, (typeof window !== "undefined" ? window.innerHeight : 800) - 230);
+    return { width, height: Math.max(700, Math.min(1300, Math.round((width * room) / frameWidth))) };
+  };
 
   const call = useCallback(async (args: Record<string, unknown>) => {
     const result = await api<any>("desktop", { model, args });
@@ -70,41 +76,12 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         const roomy = typeof first?.available_mb !== "number" || first.available_mb >= 3072;
         if (!cancelled && first?.ok !== false && first?.phase === "stopped" && roomy && autoStarted.current !== model) {
           autoStarted.current = model;
-          await call({ action: "start" });
+          await call({ action: "start", ...desktopSize() });
         }
       } catch (e: any) { if (!cancelled) setError(String(e?.message || e)); }
     })();
     return () => { cancelled = true; };
   }, [call, model]);
-
-  // The model works through its persistent computer (terminal, jobs, files, its own browser), which is NOT the graphical
-  // desktop. Poll that session's activity here too, so this tab shows what the model is doing even when no desktop is running.
-  useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let seq = 0;
-    const tick = async () => {
-      if (!stopped && document.visibilityState === "visible") {
-        try {
-          const r = await api<any>("box", { model, args: { action: "activity", since: seq, limit: 40 } });
-          if (!stopped && r?.ok) {
-            seq = Math.max(seq, Number(r.seq) || 0);
-            if (Array.isArray(r.activity) && r.activity.length) {
-              setActivity((current) => {
-                const bySeq = new Map(current.map((item: any) => [item?.seq, item]));
-                for (const item of r.activity) bySeq.set(item?.seq, item);
-                return [...bySeq.values()].sort((a: any, b: any) => (a?.seq || 0) - (b?.seq || 0)).slice(-40);
-              });
-            }
-            if (Array.isArray(r.running_jobs)) setRunningJobs(r.running_jobs);
-          }
-        } catch { /* the next tick retries */ }
-      }
-      if (!stopped) timer = setTimeout(tick, 2500);
-    };
-    void tick();
-    return () => { stopped = true; clearTimeout(timer); };
-  }, [model]);
 
   useEffect(() => {
     const phase = String(status?.phase || "");
@@ -188,8 +165,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             if (size) screenRef.current = size;
             if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
             if (event.phase) setStatus((prior: any) => ({ ...(prior || {}), phase: event.phase }));
-            if (Array.isArray(event.activity)) setActivity(event.activity);
-            if (Array.isArray(event.running_jobs)) setRunningJobs(event.running_jobs);
             if (event.frame_error) setError(String(event.frame_error));
             else if (event.ok !== false) setError("");
           };
@@ -309,13 +284,12 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   };
   // The model's own activity, BELOW the screen (owner's order: nothing is drawn over the screen): one readable line per
   // event, newest last, with the redundant raw fields the activity feed carries dropped.
-  const consoleLines = hudLines(activity, runningJobs, 6);
 
   return (
     <div className="n-card" style={{ padding: 12 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
         {!running ? (
-          <button type="button" className="n-btn" disabled={busy || preparing || status?.phase === "busy"} onClick={() => void perform({ action: "start" })}>
+          <button type="button" className="n-btn" disabled={busy || preparing || status?.phase === "busy"} onClick={() => void perform({ action: "start", ...desktopSize() })}>
             {busy || preparing ? (ar ? "جارٍ التجهيز…" : "Preparing…") : (ar ? "تشغيل سطح المكتب" : "Start desktop")}
           </button>
         ) : (
@@ -335,7 +309,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
-      <div style={{ position: "relative", minHeight: 320, background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden" }}>
+      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}` } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden" }}>
       {frame && running ? (
         <img
           ref={imageRef}
@@ -350,7 +324,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           }}
           tabIndex={0}
           onKeyDown={(event) => screenKey(event)}
-          style={{ display: "block", width: "100%", maxHeight: "82vh", height: "auto", objectFit: "contain", transform: `scale(${zoom})`, transformOrigin: "top center", background: "#111827", border: "1px solid #8885", borderRadius: 8, cursor: "crosshair", touchAction: "manipulation" }}
+          style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", objectFit: "fill", background: "#111827", cursor: "crosshair", touchAction: "manipulation" }}
         />
       ) : (
         <div style={{ minHeight: 220, display: "grid", placeItems: "center", border: "1px dashed #8887", borderRadius: 8, textAlign: "center", padding: 20 }}>
@@ -374,35 +348,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           />
         ) : null}
       </div>
-      {running ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-          <span className="n-meta">{ar ? "تكبير الشاشة" : "Screen zoom"}</span>
-          <button type="button" className="n-btn n-ghost" disabled={zoom <= 0.7} onClick={() => setZoom((v) => Math.max(0.7, Math.round((v - 0.1) * 10) / 10))}>−</button>
-          <span className="n-meta">{Math.round(zoom * 100)}%</span>
-          <button type="button" className="n-btn n-ghost" disabled={zoom >= 1.5} onClick={() => setZoom((v) => Math.min(1.5, Math.round((v + 0.1) * 10) / 10))}>＋</button>
-        </div>
-      ) : null}
-      {consoleLines.length > 0 ? (
-        <div className="n-note" style={{ marginTop: 8, maxHeight: 150, overflow: "auto" }}>
-          <strong>{ar ? "نشاط الحاسوب" : "Computer activity"}</strong>
-          {consoleLines.map((line, index) => <div key={index} style={mono}>{line}</div>)}
-        </div>
-      ) : null}
-      {running ? (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          <input
-            value={typed}
-            dir="auto"
-            onChange={(event) => setTyped(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void sendText(); } }}
-            placeholder={ar ? "اكتب إلى النافذة المحددة ثم اضغط إرسال…" : "Type into the focused desktop window…"}
-            style={{ flex: 1, minWidth: 0, border: "1px solid #8884", borderRadius: 8, padding: 8 }}
-          />
-          <button type="button" className="n-btn" disabled={busy || !typed.trim()} onClick={() => void sendText()}>{ar ? "إرسال" : "Send"}</button>
-          <button type="button" className="n-btn n-ghost" disabled={busy} onClick={() => void perform({ action: "key", key: "Return" })}>↵</button>
-          <button type="button" className="n-btn n-ghost" disabled={busy} onClick={() => void perform({ action: "key", key: "alt+Tab" })}>Alt+Tab</button>
-        </div>
-      ) : null}
     </div>
   );
 }

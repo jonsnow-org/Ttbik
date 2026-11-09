@@ -30,8 +30,8 @@ import computer_box as box
 
 MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "3072")))
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
-WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
-HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
+WIDTH = max(640, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
+HEIGHT = max(600, min(1500, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
 MAX_TYPE = 1200
 PANEL_HEIGHT = 44          # the taskbar inside the desktop (tint2)
 MAX_FRAME_BYTES = 560_000
@@ -222,7 +222,8 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 def _terminal_command() -> list[str]:
     """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
     # a window, not the whole screen: the desktop (wallpaper, taskbar, other windows) stays visible around it
-    cols, rows = max(80, int(WIDTH * 0.78) // 7 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * 0.74) // 15 - 1)
+    # one cell of "Monospace 12" measured on the live desktop: about 9 x 19 px
+    cols, rows = max(40, int(WIDTH * (0.92 if WIDTH < 1000 else 0.78)) // 9 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * (0.80 if HEIGHT > WIDTH else 0.74)) // 19 - 1)
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
     return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+28+24", "-title", "Model Computer", "-e", "bash", "-c", script]
 
@@ -232,7 +233,7 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
         "rounded = 0", "border_width = 0", "background_color = #111827 100", "border_color = #111827 0",
         "rounded = 6", "border_width = 1", "background_color = #1f2937 100", "border_color = #475569 100",
         "rounded = 6", "border_width = 1", "background_color = #0d9488 100", "border_color = #5eead4 100",
-        "panel_items = " + "B" * len(buttons) + "TC",
+        "panel_items = " + "P" * len(buttons) + "TC",
         f"panel_size = 100% {PANEL_HEIGHT}", "panel_margin = 0 0", "panel_padding = 6 5 6",
         "panel_background_id = 1", "wm_menu = 0", "panel_dock = 0", "panel_position = bottom center horizontal",
         "panel_layer = top", "strut_policy = minimum", "autohide = 0",
@@ -266,26 +267,101 @@ def _launcher_script(session: str, app: str) -> str | None:
     return None
 
 
-def _start_panel(session: str, env: dict[str, str], uid: int) -> subprocess.Popen | None:
-    """Write the launcher scripts and the tint2 configuration into the session's home and start the taskbar. None when tint2 is not installed."""
-    if not shutil.which("tint2"):
-        return None
+APPS = (("browser", "Browser"), ("terminal", "Terminal"), ("files", "Files"))
+
+
+def _write_launchers(session: str, uid: int) -> dict[str, str]:
+    """The scripts that start each app, written into the session's home (the taskbar buttons and the desktop icons both run them)."""
     folder = box.session_home(session) / ".desktop" / "panel"
     folder.mkdir(parents=True, exist_ok=True)
-    buttons: list[tuple[str, str]] = []
-    for app, label in (("browser", "Browser"), ("terminal", "Terminal"), ("files", "Files")):
+    out: dict[str, str] = {}
+    for app, _label in APPS:
         script = _launcher_script(session, app)
         if not script:
             continue
         path = folder / (app + ".sh")
         path.write_text(script, encoding="utf-8")
         os.chmod(path, 0o755)
-        buttons.append((label, str(path)))
+        out[app] = str(path)
+    if box.is_root():
+        for item in [folder.parent, folder, *(Path(v) for v in out.values())]:
+            os.chown(item, uid, uid)
+    return out
+
+
+def _make_icon(kind: str, path: Path) -> None:
+    """A 64 px icon drawn with Pillow (no icon theme is needed): a globe, a terminal or a folder."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    if kind == "browser":
+        d.ellipse((6, 6, 58, 58), fill=(37, 99, 235, 255), outline=(255, 255, 255, 255), width=3)
+        d.ellipse((20, 6, 44, 58), outline=(255, 255, 255, 255), width=2)
+        d.line((6, 32, 58, 32), fill=(255, 255, 255, 255), width=2)
+        d.arc((10, 14, 54, 50), 200, 340, fill=(255, 255, 255, 255), width=2)
+    elif kind == "terminal":
+        d.rounded_rectangle((4, 8, 60, 56), radius=7, fill=(17, 24, 39, 255), outline=(94, 234, 212, 255), width=3)
+        d.line((14, 22, 26, 32, 14, 42), fill=(94, 234, 212, 255), width=4)
+        d.line((30, 44, 46, 44), fill=(255, 255, 255, 255), width=4)
+    else:   # files
+        d.rounded_rectangle((4, 14, 60, 54), radius=6, fill=(245, 180, 40, 255))
+        d.rounded_rectangle((4, 8, 28, 22), radius=4, fill=(235, 160, 20, 255))
+        d.rounded_rectangle((4, 22, 60, 54), radius=6, fill=(252, 211, 77, 255))
+    img.save(path)
+
+
+def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
+    """What makes the screen a real desktop and not a terminal: a wallpaper colour, icons for the apps on it (pcmanfm in desktop mode shows
+    ~/Desktop), and no confirmation prompt when an icon is opened. Returns the Desktop folder."""
+    desktop = home / "Desktop"
+    icons = home / ".desktop" / "icons"
+    desktop.mkdir(parents=True, exist_ok=True)
+    icons.mkdir(parents=True, exist_ok=True)
+    for app, label in APPS:
+        if app not in scripts:
+            continue
+        icon = icons / (app + ".png")
+        try:
+            _make_icon(app, icon)
+        except Exception:  # noqa: BLE001 - a missing icon is not worth a failed desktop
+            pass
+        entry = desktop / (label + ".desktop")
+        entry.write_text(
+            f"[Desktop Entry]\nType=Application\nName={label}\nExec={scripts[app]}\nIcon={icon}\nTerminal=false\n",
+            encoding="utf-8",
+        )
+        os.chmod(entry, 0o755)
+    conf = home / ".config"
+    (conf / "pcmanfm" / "default").mkdir(parents=True, exist_ok=True)
+    (conf / "libfm").mkdir(parents=True, exist_ok=True)
+    (conf / "pcmanfm" / "default" / "desktop-items-0.conf").write_text(
+        "[*]\nwallpaper_mode=color\nwallpaper_common=1\ndesktop_bg=#16324f\ndesktop_fg=#ffffff\ndesktop_shadow=#000000\n"
+        "desktop_font=Sans 12\nshow_wm_menu=0\nsort=name;ascending;\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n",
+        encoding="utf-8")
+    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\n", encoding="utf-8")
+    return desktop
+
+
+def _chown_tree(root: Path, uid: int) -> None:
+    if not box.is_root():
+        return
+    for path in [root, *root.rglob("*")]:
+        try:
+            os.chown(path, uid, uid)
+        except OSError:
+            pass
+
+
+def _start_panel(session: str, env: dict[str, str], uid: int, scripts: dict[str, str]) -> subprocess.Popen | None:
+    """Write the tint2 configuration into the session's home and start the taskbar. None when tint2 is not installed."""
+    if not shutil.which("tint2"):
+        return None
+    folder = box.session_home(session) / ".desktop" / "panel"
+    buttons = [(label, scripts[app]) for app, label in APPS if app in scripts]
     config = folder / "tint2rc"
     config.write_text(panel_config(buttons), encoding="utf-8")
     if box.is_root():
-        for item in [folder.parent, folder, config, *(folder / (a + ".sh") for a in ("browser", "terminal", "files") if (folder / (a + ".sh")).exists())]:
-            os.chown(item, uid, uid)
+        os.chown(config, uid, uid)
     return _spawn(["tint2", "-c", str(config)], env, "tint2")
 
 
@@ -420,22 +496,35 @@ def _spawn_desktop(session: str) -> None:
             return
 
         try:
-            panel = _start_panel(session, env, uid)
+            scripts = _write_launchers(session, uid)
+        except Exception:  # noqa: BLE001
+            scripts = {}
+        icons_started = False
+        if scripts and shutil.which("pcmanfm"):
+            try:
+                home = box.session_home(session)
+                desktop_dir = write_desktop_assets(home, scripts)
+                _chown_tree(desktop_dir, uid)
+                _chown_tree(home / ".config" / "pcmanfm", uid)
+                _chown_tree(home / ".config" / "libfm", uid)
+                _chown_tree(home / ".desktop" / "icons", uid)
+                env["XDG_DESKTOP_DIR"] = str(desktop_dir)
+                processes.append(_spawn(["pcmanfm", "--desktop", "--profile", "default"], env, "desktop-icons"))
+                icons_started = True
+                time.sleep(0.8)
+            except Exception:  # noqa: BLE001 - without the icons the taskbar and the terminal below still work
+                icons_started = False
+        try:
+            panel = _start_panel(session, env, uid, scripts)
         except Exception:  # noqa: BLE001 - the desktop is useful without its taskbar
             panel = None
         if panel is not None:
             processes.append(panel)
             time.sleep(0.4)
 
-        terminal = _spawn(
-            _terminal_command(),
-            env,
-            "terminal",
-        )
-        processes.append(terminal)
-        if shutil.which("pcmanfm"):
-            files = _spawn(["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))], env, "files")
-            processes.append(files)
+        if not icons_started:
+            # no desktop icons (pcmanfm missing): fall back to the old start screen, a terminal showing what the model does
+            processes.append(_spawn(_terminal_command(), env, "terminal"))
 
         # A stop may arrive while packages or X11 are starting. Publish the
         # process handles only if the caller still owns this exact session.
@@ -470,6 +559,19 @@ def _spawn_desktop(session: str) -> None:
                 _ERROR = f"{type(exc).__name__}: {str(exc)[:280]}"
                 _SESSION_HASH = ""
                 _SESSION_RAW = ""
+
+
+def _set_size(width: object, height: object) -> None:
+    """The page may ask for a desktop shaped like its screen area (only while no desktop is up: Xvfb is created with this size)."""
+    global WIDTH, HEIGHT
+    try:
+        w, h = int(width), int(height)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return
+    with _LOCK:
+        if _PHASE in ("running", "starting", "installing", "busy"):
+            return
+        WIDTH, HEIGHT = max(640, min(1600, w)), max(600, min(1500, h))
 
 
 def _start_async(session: str) -> None:
@@ -661,6 +763,7 @@ def api_desktop_do(body: str) -> str:
             return json.dumps(_desktop_status(session), ensure_ascii=False)
         if action == "start":
             try:
+                _set_size(job.get("width"), job.get("height"))
                 _start_async(session)
             except Exception as exc:
                 return json.dumps({"ok": False, "phase": "stopped", "error": str(exc)[:280]}, ensure_ascii=False)
