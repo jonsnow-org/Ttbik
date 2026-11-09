@@ -79,8 +79,8 @@ describe("a media request is a durable job, not work inside the 60 s webhook", (
 
     await handleCoderSections(bot, botRow, say("قم بتوليد فيديو اسد يركض في الصحراء"), d);
     expect(await until(() => (api as any).sendVideo.mock.calls.length === 1)).toBe(true);
-    const st = await loadState(OWNER, d);
-    expect(st.run).toBeNull();
+    // the run is cleared just after sendVideo resolves: wait for it instead of reading once (this raced and failed under a loaded full run)
+    expect(await until(async () => (await loadState(OWNER, d)).run == null)).toBe(true);
     expect(sent.some((s) => /تعذّر/.test(s.text))).toBe(false);
   }, 30000);
 

@@ -600,6 +600,11 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
 
 // ---------------------------------------------------------------------------------------------
 // 🛡 Admin dashboard — every call is re-checked server-side (isMatchAdmin); actions = the bot's own.
+// Declared once at module level (it used to be re-created inside AdminTab on every render, so React unmounted and remounted every
+// admin button on each state change; a tap that landed during a re-render could be lost).
+function AdminBtn({ children, onClick, tone = "", busy }: { children: React.ReactNode; onClick: () => void; tone?: string; busy?: boolean }) {
+  return <button disabled={busy} onClick={onClick} className={`rounded-xl px-3 py-1.5 text-xs disabled:opacity-50 ${tone || "bg-white/10"}`}>{children}</button>;
+}
 function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => void }) {
   type Sec = "overview" | "profiles" | "verify" | "rsearch" | "rchat" | "inbox" | "users" | "broadcast" | "audit" | "funnel";
   const [sec, setSec] = useState<Sec>("overview");
@@ -641,9 +646,6 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
     ["rsearch", "🚩 بلاغات المطابقة", b.reportsSearch], ["rchat", "🚩 بلاغات العشوائية", b.reportsChat], ["inbox", "📥 الوارد", b.inbox],
     ["users", "🔎 مستخدم / رفع حظر"], ["broadcast", "📢 بث"], ["audit", "🧾 السجل"], ["funnel", "📈 التحويل"],
   ];
-  const Btn = ({ children, onClick, tone = "" }: { children: React.ReactNode; onClick: () => void; tone?: string }) => (
-    <button disabled={busy} onClick={onClick} className={`rounded-xl px-3 py-1.5 text-xs disabled:opacity-50 ${tone || "bg-white/10"}`}>{children}</button>
-  );
   const when = (d: string) => new Date(d).toLocaleString("ar", { dateStyle: "short", timeStyle: "short" });
 
   return (
@@ -669,8 +671,8 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
           <p className="font-bold">{p.name} · {p.age} · {p.gender === "MALE" ? "ذكر" : "أنثى"} <span className="text-white/40">#{p.shortId}</span></p>
           <p className="text-[12px] text-white/60">{[p.country, p.city, p.job, p.education, p.maritalStatus].filter(Boolean).join(" · ")}{p.hasPhoto ? " · 📷 (الصورة في البوت)" : ""}</p>
           <div className="mt-2 flex gap-2">
-            <Btn tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: true })}>✅ قبول</Btn>
-            <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: false }, "رفض هذا الملف؟")}>❌ رفض</Btn>
+            <AdminBtn busy={busy} tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: true })}>✅ قبول</AdminBtn>
+            <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: false }, "رفض هذا الملف؟")}>❌ رفض</AdminBtn>
           </div>
         </div>
       )) : data && <Empty icon="✅" text="لا توجد ملفات بانتظار المراجعة." />)}
@@ -681,8 +683,8 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
           <div key={p.userId} className={`flex items-center justify-between rounded-3xl p-4 text-sm ${GLASS}`}>
             <span>{p.name} <span className="text-white/40">#{p.shortId}</span></span>
             <span className="flex gap-2">
-              <Btn tone="bg-emerald-500/80" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: true })}>☑️ توثيق</Btn>
-              <Btn tone="bg-red-500/70" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: false }, "رفض طلب التوثيق؟")}>رفض</Btn>
+              <AdminBtn busy={busy} tone="bg-emerald-500/80" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: true })}>☑️ توثيق</AdminBtn>
+              <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: false }, "رفض طلب التوثيق؟")}>رفض</AdminBtn>
             </span>
           </div>
         )) : data && <Empty icon="☑️" text="لا توجد طلبات توثيق معلقة." />}
@@ -695,9 +697,9 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
           {r.reason && <p className="text-[12px] text-white/50">{r.reason}</p>}
           <p className="text-[11px] text-white/40">{when(r.at)}</p>
           <div className="mt-2 flex gap-2">
-            <Btn onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ignore" })}>🙈 تجاهل</Btn>
-            <Btn tone="bg-amber-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "mute" })}>🔇 كتم 24س</Btn>
-            <Btn tone="bg-red-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ban" }, "حظر نهائي لهذا المستخدم؟")}>⛔ حظر نهائي</Btn>
+            <AdminBtn busy={busy} onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ignore" })}>🙈 تجاهل</AdminBtn>
+            <AdminBtn busy={busy} tone="bg-amber-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "mute" })}>🔇 كتم 24س</AdminBtn>
+            <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ban" }, "حظر نهائي لهذا المستخدم؟")}>⛔ حظر نهائي</AdminBtn>
           </div>
         </div>
       )) : data && <Empty icon="✅" text="لا توجد بلاغات بانتظار المراجعة في هذا القسم." />)}
@@ -709,12 +711,12 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
           <p className="text-[11px] text-white/40">{when(m.at)}</p>
           <div className="mt-2 flex gap-2">
             <input value={reply[m.id] || ""} onChange={(e) => setReply({ ...reply, [m.id]: e.target.value })} placeholder="↩️ اكتب ردك" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs outline-none" />
-            <Btn tone={GRAD} onClick={() => act("admin_inbox_reply", { messageId: m.id, text: reply[m.id] || "" })}>إرسال</Btn>
+            <AdminBtn busy={busy} tone={GRAD} onClick={() => act("admin_inbox_reply", { messageId: m.id, text: reply[m.id] || "" })}>إرسال</AdminBtn>
           </div>
           <div className="mt-2 flex gap-2">
-            <Btn onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "read" })}>✅ مقروء</Btn>
-            <Btn tone="bg-amber-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "mute" })}>🔇 كتم المرسل</Btn>
-            <Btn tone="bg-red-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "ban" }, "حظر المرسل نهائياً؟")}>⛔ حظر المرسل</Btn>
+            <AdminBtn busy={busy} onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "read" })}>✅ مقروء</AdminBtn>
+            <AdminBtn busy={busy} tone="bg-amber-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "mute" })}>🔇 كتم المرسل</AdminBtn>
+            <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "ban" }, "حظر المرسل نهائياً؟")}>⛔ حظر المرسل</AdminBtn>
           </div>
         </div>
       )) : data && <Empty icon="📭" text="لا توجد رسائل واردة جديدة." />)}
@@ -723,7 +725,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         <div className={`rounded-3xl p-4 text-sm ${GLASS}`}>
           <div className="flex gap-2">
             <input value={q} onChange={(e) => setQ(e.target.value)} inputMode="numeric" placeholder="آيدي المستخدم (Telegram ID)" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 outline-none" />
-            <Btn tone={GRAD} onClick={async () => { const r = await api("admin_lookup", { userId: q }); if (r.ok) setLookup(r); else { setLookup(null); say(r.error, "error"); } }}>🔎 بحث</Btn>
+            <AdminBtn busy={busy} tone={GRAD} onClick={async () => { const r = await api("admin_lookup", { userId: q }); if (r.ok) setLookup(r); else { setLookup(null); say(r.error, "error"); } }}>🔎 بحث</AdminBtn>
           </div>
           {lookup && (
             <div className="mt-3 space-y-1 text-[13px]">
@@ -732,12 +734,12 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
               <p>❤️ {lookup.user.likesReceived} · 🚩 ضده {lookup.user.reportsReceived} · 🚩 قدّمها {lookup.user.reportsGiven}</p>
               <p>👤 {lookup.profile ? `${lookup.profile.name} · ${lookup.profile.status} · توثيق ${lookup.profile.verification}${lookup.profile.isHidden ? " · مخفي" : ""}` : "لا يوجد ملف"}</p>
               <div className="flex gap-2 pt-1">
-                {(lookup.user.isBanned || lookup.user.mutedUntil) && <Btn tone="bg-emerald-500/80" onClick={() => act("admin_unban", { userId: lookup.user.id }, "رفع الحظر/الكتم؟")}>🔓 رفع حظر/كتم</Btn>}
+                {(lookup.user.isBanned || lookup.user.mutedUntil) && <AdminBtn busy={busy} tone="bg-emerald-500/80" onClick={() => act("admin_unban", { userId: lookup.user.id }, "رفع الحظر/الكتم؟")}>🔓 رفع حظر/كتم</AdminBtn>}
                 {lookup.profile?.status === "PENDING" && <>
-                  <Btn tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: true })}>✅ قبول الملف</Btn>
-                  <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false })}>❌ رفض الملف</Btn>
+                  <AdminBtn busy={busy} tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: true })}>✅ قبول الملف</AdminBtn>
+                  <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false })}>❌ رفض الملف</AdminBtn>
                 </>}
-                {lookup.profile?.status === "APPROVED" && <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false }, "رفض ملف معتمد؟")}>❌ رفض الملف</Btn>}
+                {lookup.profile?.status === "APPROVED" && <AdminBtn busy={busy} tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false }, "رفض ملف معتمد؟")}>❌ رفض الملف</AdminBtn>}
               </div>
             </div>
           )}

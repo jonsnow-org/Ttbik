@@ -117,8 +117,9 @@ jobs:
         run: npm ci
       - name: Install the repository's existing Jest test toolchain
         run: npm ci --prefix athar
-      - name: Run Sham v2 routing and model-access regression tests
-        run: cd athar && npx jest --config ../jest.media.config.js --rootDir .. --runInBand --runTestsByPath ../src/lib/__tests__/thinkAndVideoDeadline.test.ts ../src/lib/__tests__/mediaTranslateAccuracy.test.ts ../src/lib/__tests__/coderOrphans.test.ts ../src/lib/__tests__/coderPrefsCron.test.ts ../src/lib/__tests__/shamAgent.test.ts ../src/lib/__tests__/coderModels.test.ts ../src/lib/__tests__/shamContinuation.test.ts ../src/lib/__tests__/shamStudio.test.ts ../src/lib/__tests__/perModelSettings.test.ts ../src/lib/__tests__/openCoderStudio.test.ts ../src/lib/__tests__/coderSections.test.ts ../src/lib/__tests__/photoWeightMedia.test.ts ../src/lib/__tests__/coderApp.test.ts ../src/lib/__tests__/coderFailover.test.ts ../src/lib/__tests__/coderSandboxRunner.test.ts ../src/lib/__tests__/coderSandbox.test.ts ../src/lib/__tests__/shamAgentTools.test.ts ../src/lib/__tests__/shamRuntimeIsolation.test.ts ../src/lib/__tests__/coderPlans.test.ts ../src/lib/__tests__/browserComputer.test.ts ../src/lib/__tests__/desktopComputer.test.ts ../src/lib/__tests__/computerBox.test.ts ../src/lib/__tests__/coderMediaFast.test.ts ../src/lib/__tests__/shamMediaFastLane.test.ts ../src/lib/__tests__/shamMediaRouting.test.ts ../src/lib/__tests__/lfmIndependence.test.ts ../src/lib/__tests__/lfmSessionIsolation.test.ts ../src/lib/__tests__/studioIsolation.test.ts ../src/lib/__tests__/coderChatsAndFastMedia.test.ts ../src/lib/__tests__/scriptGuard.test.ts ../src/lib/__tests__/liveFeedScroll.test.ts
+      - name: Run every src/lib regression test (Sham v2 routing, Nova/Sham boundary, mini apps, bots, tools)
+        # all suites, not a hand-picked list: 116 of 147 suites (incl. the Nova<->Sham boundary guard) never ran in CI before
+        run: cd athar && npx jest --config ../jest.media.config.js --rootDir .. --runInBand
   oracle-runner-policy-tests:
     runs-on: ubuntu-latest
     steps:
