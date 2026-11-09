@@ -290,8 +290,8 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
       "أبقِ البطاقة التي فيها مصدر، ولا تعد نشر الصيغ المتقاربة.",
     ],
     sources: [
-      { href: "https://ttbik.vercel.app/news", label: "مركز الأخبار — شام AI" },
-      { href: "https://ttbik.vercel.app/events", label: "الأحداث العالمية — شام AI" },
+      { href: "https://ttbik-gate.jonsnowx1r.workers.dev/news", label: "مركز الأخبار — شام AI" },
+      { href: "https://ttbik-gate.jonsnowx1r.workers.dev/events", label: "الأحداث العالمية — شام AI" },
     ],
   },
   {
@@ -320,7 +320,7 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
     ],
     sources: [
       {
-        href: "https://ttbik.vercel.app/free-tools/image-optimizer",
+        href: "https://ttbik-gate.jonsnowx1r.workers.dev/free-tools/image-optimizer",
         label: "أداة ضغط الصور — شام AI",
       },
     ],

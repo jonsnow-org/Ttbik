@@ -5,7 +5,7 @@ import { keepLastGood } from "@/lib/lastGood";
 // RSS headlines (title + source + link out to the publisher; no article text
 // is copied) and the global-markets ticker.
 
-const UA = "ShamAI/1.0 (https://ttbik.vercel.app; contact via site)";
+const UA = "ShamAI/1.0 (https://ttbik-gate.jonsnowx1r.workers.dev; contact via site)";
 
 async function getJson<T>(url: string, revalidate: number): Promise<T | null> {
   try {

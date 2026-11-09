@@ -60,7 +60,7 @@ export default function ShareCard({
     ctx.font = "700 36px sans-serif";
     ctx.fillText("شام AI", w / 2, 1680);
     ctx.font = "500 28px sans-serif";
-    ctx.fillText(`ttbik.vercel.app${path}`, w / 2, 1740);
+    ctx.fillText(`ttbik-gate.jonsnowx1r.workers.dev${path}`, w / 2, 1740);
     if (note) {
       ctx.font = "500 24px sans-serif";
       ctx.fillText(note, w / 2, 1800);
@@ -86,7 +86,7 @@ export default function ShareCard({
         await navigator.share({
           files: [file],
           title: title || "بطاقة شام",
-          text: `ttbik.vercel.app${path}`,
+          text: `ttbik-gate.jonsnowx1r.workers.dev${path}`,
         });
         return;
       }
@@ -94,7 +94,7 @@ export default function ShareCard({
       // fall through
     }
     // Fallback: share URL via Web Share or copy
-    const url = `https://ttbik.vercel.app${path}`;
+    const url = `https://ttbik-gate.jonsnowx1r.workers.dev${path}`;
     if (navigator.share) {
       try {
         await navigator.share({ title: title || "بطاقة شام", text: title, url });

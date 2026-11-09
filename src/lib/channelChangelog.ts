@@ -26,7 +26,7 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
     date: "2026-09-24",
     title: "🎯 لعبة جديدة: خمّن الكلمة",
     body: "كلمة عربية جديدة كل يوم وست محاولات لتخمينها، مع ألوان تدلّك على الحروف الصحيحة. شارك نتيجتك مع أصدقائك!",
-    url: "https://ttbik.vercel.app/guess-word",
+    url: "https://ttbik-gate.jonsnowx1r.workers.dev/guess-word",
   },
   {
     id: "2026-09-25-blood-bank",
@@ -62,7 +62,7 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
     body:
       "اكتب تاريخ ميلادك وشاهد عمرك يعدّ بالثواني لحظة بلحظة، مع نبضات قلبك وبرجك وموعد عيد ميلادك القادم.\n" +
       "ثم شارك بطاقتك مع أصدقائك!",
-    url: "https://ttbik.vercel.app/free-tools/life-counter",
+    url: "https://ttbik-gate.jonsnowx1r.workers.dev/free-tools/life-counter",
   },
   {
     id: "2026-10-19-talking-photo",
@@ -71,6 +71,6 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
     body:
       "ارفع صورة شخصية أو رسماً، ثم أضف صوتك أو ملفاً صوتياً، فتتحرك الشفاه والرأس مع الصوت، ويمكنك تغيير الصوت (أنثى، طفلة، روبوت…).\n" +
       "كل شيء داخل متصفحك دون رفع ملفاتك، وتنزّل فيديو قصيراً. استعمل صوراً تملكها أو بإذن أصحابها.",
-    url: "https://ttbik.vercel.app/free-tools/talking-photo",
+    url: "https://ttbik-gate.jonsnowx1r.workers.dev/free-tools/talking-photo",
   },
 ];
