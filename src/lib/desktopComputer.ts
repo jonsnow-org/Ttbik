@@ -83,8 +83,8 @@ export async function desktopLive(
     session,
     seconds: duration,
     interval: 0.5,
-    quality: 50,
-    scale: 0.75,
+    quality: 55,
+    scale: 1,
   }, fetchImpl, (duration + 15) * 1000);
 }
 

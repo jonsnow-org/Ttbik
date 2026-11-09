@@ -44,10 +44,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   // The desktop is created in the shape of the page's own screen area (a phone is tall), so the picture fills it
   // instead of leaving a black band below a short landscape screen.
   const desktopSize = () => {
-    const width = 900;
+    const width = 640;       // phone-sized: the picture is shown at about half size, so the hub draws everything bigger and a fingertip can hit it
     const frameWidth = frameBox.current?.getBoundingClientRect().width || 340;
     const room = Math.max(420, (typeof window !== "undefined" ? window.innerHeight : 800) - 230);
-    return { width, height: Math.max(700, Math.min(1300, Math.round((width * room) / frameWidth))) };
+    return { width, height: Math.max(700, Math.min(1200, Math.round((width * room) / frameWidth))) };
   };
 
   const call = useCallback(async (args: Record<string, unknown>) => {

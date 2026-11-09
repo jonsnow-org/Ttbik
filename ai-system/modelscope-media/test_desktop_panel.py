@@ -60,13 +60,31 @@ class SizeTests(unittest.TestCase):
             self.assertEqual((d.WIDTH, d.HEIGHT), (900, 1300))
             d._set_size(99999, 5)
             self.assertEqual((d.WIDTH, d.HEIGHT), (1600, 600))
-            d._set_size("x", None)
-            self.assertEqual((d.WIDTH, d.HEIGHT), (1600, 600))
+            d._set_size("x", None)                       # no usable size -> the default landscape screen
+            self.assertEqual((d.WIDTH, d.HEIGHT), d.DEFAULT_SIZE)
+            d._set_size(99999, 5)
             d._PHASE = "running"
             d._set_size(700, 700)
             self.assertEqual((d.WIDTH, d.HEIGHT), (1600, 600))
         finally:
             d.WIDTH, d.HEIGHT, d._PHASE = old
+
+    def test_small_screens_get_bigger_ui(self):
+        old = (d.WIDTH, d.HEIGHT)
+        try:
+            d.WIDTH, d.HEIGHT = 640, 1070
+            small = d.ui()
+            d.WIDTH, d.HEIGHT = 1344, 840
+            big = d.ui()
+        finally:
+            d.WIDTH, d.HEIGHT = old
+        self.assertGreater(small["fs"], big["fs"])
+        self.assertGreater(small["panel"], big["panel"])
+        self.assertGreater(small["icon"], big["icon"])
+
+    def test_input_actions_settle_so_their_reply_can_carry_a_picture(self):
+        for action in ("click", "key", "type", "scroll", "launch"):
+            self.assertIn(action, d.SETTLE)
 
 
 if __name__ == "__main__":
