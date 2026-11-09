@@ -1,9 +1,14 @@
-name: Computer hub tap probe (throwaway session: taps and frames)
+name: Computer hub tap probe (throwaway session, taps and frames)
 
 # Starts a phone-shaped desktop in a throwaway session on the computer hub, taps the taskbar buttons and the desktop icons the way the
 # Mini App does, and uploads a frame after each tap. No user data, no writes besides the throwaway session (stopped at the end).
 on:
   workflow_dispatch:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - ".github/workflows/computer-hub-tap-probe.yml"
+      - "scripts/ops/desktop_tap_probe.py"
 permissions:
   contents: read
 jobs:
