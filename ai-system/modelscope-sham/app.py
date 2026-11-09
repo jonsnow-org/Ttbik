@@ -49,6 +49,76 @@ HOT = HERE / "_hot"            # signed code synced from the model repo (studio_
 _PROC = {"p": None, "sig": ""}
 
 
+# The CENTRAL KNOWLEDGE BANK (sham_bank.py): what the crawlers and notebooks collected, compressed and indexed, published by .github/workflows/sham-bank.yml to the private ModelScope repo
+# SHAM_BANK_REPO. The v1 Studio holds it (the v2 Studio's RAM belongs to the 1.7B model; SHAM_BANK=1 turns it on there) and answers `bank_search` for BOTH Shams and Nova.
+BANK_ID = os.environ.get("SHAM_BANK_REPO", "novaai2026/sham-bank")
+BANK_MAX_BYTES = int(os.environ.get("SHAM_BANK_MAX_MB", "1200")) * 2**20
+_BANK = {"bank": None, "sha": "", "error": "", "checked": 0}
+
+
+def _bank_enabled() -> bool:
+    return os.environ.get("SHAM_BANK", "0" if _V2 else "1").strip().lower() not in ("0", "off", "false", "no")
+
+
+def _bank_refresh() -> None:
+    """Fetch the bank when its manifest changed (a small file read first), then open it (memory-mapped: little RAM). Never raises: the Studio must not depend on the bank."""
+    if not _bank_enabled():
+        return
+    try:
+        os.environ["TQDM_DISABLE"] = "1"
+        from modelscope.hub.api import HubApi
+        from modelscope.hub.file_download import model_file_download
+        from modelscope import snapshot_download
+        token = next((v for v in (os.environ.get("MODELSCOPE_TOKEN", "").strip(), os.environ.get("MODELSCOPE_API_TOKEN", "").strip()) if v), "")
+        if token:
+            HubApi().login(token)
+        cache = HERE / "_bank_cache"
+        manifest = json.loads(Path(model_file_download(BANK_ID, "bank_manifest.json", cache_dir=str(cache))).read_text(encoding="utf-8"))
+        _BANK["checked"] = int(time.time())
+        if manifest.get("sha") == _BANK["sha"]:
+            return
+        if int(manifest.get("bytes", 0)) > BANK_MAX_BYTES:
+            _BANK["error"] = f"bank too large for this Studio ({int(manifest.get('bytes', 0)) >> 20} MB > {BANK_MAX_BYTES >> 20} MB)"
+            return
+        path = snapshot_download(BANK_ID, cache_dir=str(cache))
+        _hot_path()
+        import sham_bank
+        bank = sham_bank.Bank(path)
+        _BANK.update(bank=bank, sha=manifest["sha"], error="")
+        _say(f"knowledge bank loaded: {len(bank):,} passages ({manifest.get('built', '')})")
+    except Exception as exc:  # noqa: BLE001
+        _BANK["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+
+
+def _hot_path() -> None:
+    """sham_bank / sham_kb / sham_encoder_np live in sham_small/ next to the deployed code; make sure that folder is importable."""
+    for cand in (HERE / "sham_small", HOT / "sham_small"):
+        if cand.exists() and str(cand) not in sys.path:
+            sys.path.append(str(cand))
+
+
+def _bank_worker() -> None:
+    time.sleep(90)                                       # let the model load first
+    while True:
+        _bank_refresh()
+        time.sleep(600 if _BANK["bank"] is None else 1800)
+
+
+def bank_search(query: str = "", k: float = 4) -> str:
+    """Search the central knowledge bank (BM25 fused 80/20 with the small encoder). Read-only. -> JSON {ok, results:[{text, source, score, approx}], passages, sha}."""
+    bank = _BANK["bank"]
+    if bank is None:
+        return json.dumps({"ok": False, "error": _BANK["error"] or "the knowledge bank is not loaded yet", "enabled": _bank_enabled()}, ensure_ascii=False)
+    try:
+        q = str(query or "").strip()
+        if not q:
+            return json.dumps({"ok": False, "error": "give a question or keywords"}, ensure_ascii=False)
+        res = bank.search(q[:600], max(1, min(8, int(k or 4))))
+        return json.dumps({"ok": True, "passages": len(bank), "sha": _BANK["sha"][:12], "results": res}, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}, ensure_ascii=False)
+
+
 def _say(msg: str) -> None:
     """One clear line per phase in the run log (the download progress bars are switched off: they filled the 10,000-line log by themselves)."""
     try:
@@ -286,6 +356,9 @@ def status() -> str:
     w = _worker_status()
     if w:
         msg["worker"] = w
+    if _bank_enabled():
+        b = _BANK["bank"]
+        msg["bank"] = {"passages": len(b) if b is not None else 0, "sha": _BANK["sha"][:12], "built": (b.manifest.get("built") if b is not None else ""), "error": _BANK["error"], "repo": BANK_ID}
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
     if not msg.get("media_assets", {}).get("ready"):
@@ -841,10 +914,13 @@ def build_ui():
                                    api_name="computer_changes", flagging_mode="never"))
     labels.append("تغييرات الحاسوب المدمج (قراءة فقط)")
     interfaces.append(gr.Interface(computer_view, gr.Textbox(label="body"), gr.Textbox(label="view"), api_name="computer_view", flagging_mode="never"))
+    interfaces.append(gr.Interface(bank_search, [gr.Textbox(label="query"), gr.Number(label="k", value=4)], gr.Textbox(label="results"), api_name="bank_search", flagging_mode="never"))
+    labels.append("مخزن المعرفة المركزي (قراءة فقط)")
     labels.append("شاشة الحاسوب المدمج (قراءة فقط)")
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 
 if __name__ == "__main__":
     threading.Thread(target=_worker, daemon=True).start()
+    threading.Thread(target=_bank_worker, daemon=True).start()
     build_ui().queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))

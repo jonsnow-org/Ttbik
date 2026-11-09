@@ -820,6 +820,16 @@
       "reads": [],
       "writes": []
     },
+    "sham_bank": {
+      "file": ".github/workflows/sham-bank.yml",
+      "title": "مخزن شام المركزي: يبني فهرساً مضغوطاً من كل مجموعات sham-crawl-*-corpus ويدفعه إلى ModelScope ليخدمه Studio شام القديم",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [
+        "sham-crawl-gh-collect-corpus"
+      ],
+      "writes": []
+    },
     "sham_image_diag": {
       "file": ".github/workflows/sham-image-diag.yml",
       "title": "تشخيص صور شام للقراءة فقط: مرمّز الصور على صور حقيقية، خسارة النموذج مقابل جدول التكرار، وما يكتبه",

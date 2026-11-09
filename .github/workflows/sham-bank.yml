@@ -1,0 +1,44 @@
+name: Sham knowledge bank (build from the crawlers' data, push to ModelScope)
+
+# 2026-11-09 (owner: use what the crawlers collect, with the memory systems Sham already has). Builds ai-system/colab/sham_small/sham_bank.py's bank from every `sham-crawl-*-corpus`
+# dataset (the GitHub collector's and the Kaggle crawl notebooks'), and pushes it to the private ModelScope repo novaai2026/sham-bank ONLY when its sha changed. The v1 Studio
+# (sham-v1-server) fetches it by itself and answers `bank_search` for Sham, Sham v2 and Nova (app.py `_bank_refresh`). Nothing in the corpora is deleted or changed.
+# Secrets used: KAGGLE_API_TOKEN, MODELSCOPE_TOKEN (both exist already). Stop it with the repository variable SHAM_PAUSE_ALL=1 or SHAM_PAUSE_BANK=1.
+on:
+  schedule:
+    - cron: "40 4 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-bank
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bank:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_BANK != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install numpy requests kaggle six modelscope
+      - name: Self-test
+        run: python3 ai-system/supervision/sham_bank_publish.py --selftest
+      - name: Build and push the bank
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: python3 ai-system/supervision/sham_bank_publish.py

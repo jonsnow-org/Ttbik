@@ -160,6 +160,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("plan", "Write or UPDATE the task's TODO list (call it first for any non-trivial task, and again when a step is done or the plan changes). Each item: a short step and its status. The list is kept for the whole task and shown back to you.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
+  tool("knowledge_search", "Search the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions; each passage with its source). Use it BEFORE searching the web for a fact or an explanation, and cite the source.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
@@ -218,7 +219,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
-    memory: by(["recall", "plan", "skill", "memory_note", "memory_save", "memory_search", "memory_forget"]),
+    memory: by(["recall", "plan", "skill", "knowledge_search", "memory_note", "memory_save", "memory_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
@@ -667,6 +668,11 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       if (!ok.length) return `error: no such tool group (${want.join(", ") || "none given"}); groups: ${known.join(", ")}`;
       const playbook = ok.includes("computer") ? `\n${COMPUTER_PLAYBOOK}` : "";
       return `loaded: ${ok.join(", ")}. Their tools are ready now.${playbook}${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
+    }
+    if (name === "knowledge_search") {
+      const { bankSection } = await import("@/lib/shamBank");
+      const out = await bankSection(String(a.query || ""), Number(a.count) || 4);
+      return out ? `From the shared knowledge bank (cite the source):\n${out}` : "the shared knowledge bank has nothing on this (or is not reachable): use web_search / deep_research";
     }
     if (name === "skill") return agentSkillText(String(a.name || ""));
     if (name === "plan") {

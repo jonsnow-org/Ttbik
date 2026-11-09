@@ -95,7 +95,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Name `base` (the branch the user said); head must already hold the changes. The user is asked first.", obj({ repo: REPO, head: s("source branch"), base: s("target branch (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request. The user is asked first.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
   tool("http_request", "Call a public HTTP API (GET / HEAD run at once; POST / PUT / PATCH / DELETE wait for the user's tap) and read the answer. For a plain page use fetch_page; for the user's linked services use connector_api. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers" }, body: s("request body text (JSON as a string)") }, ["url"])),
-  tool("knowledge_search", "Search the library of EVERYTHING you have read before in earlier tasks and chats (pages, search results, research reports, each with its source and date). Use it BEFORE searching the web again, and say where the answer came from.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
+  tool("knowledge_search", "Search your library of EVERYTHING you have read before in earlier tasks and chats (pages, search results, research reports, each with its source and date) AND the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions). Use it BEFORE searching the web again, and say where the answer came from.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, include the exact requested seconds (6/10/15/30/60/120); optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), seconds: { type: "integer", enum: [6, 10, 15, 30, 60, 120], description: "Optional requested video duration in seconds." }, scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
@@ -363,7 +363,13 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       await H.limits.add(ctx.chatId, "research", 1, ctx.db);
       return clip(await H.web.research(q, { fetchImpl: ctx.fetchImpl, maxSources: Math.min(8, Number(a.max_sources) || 6), maxChars: RESULT_MAX - 200, deadlineMs: 15000 }));
     }
-    if (name === "knowledge_search") return clip(await knowledgeSearch(ctx.db, ctx.chatKey, String(a.query || ""), Number(a.count) || 4));
+    if (name === "knowledge_search") {
+      const q = String(a.query || ""), n = Number(a.count) || 4;
+      const [mine, bank] = await Promise.all([knowledgeSearch(ctx.db, ctx.chatKey, q, n), (await import("@/lib/shamBank")).bankSection(q, n, { fetchImpl: ctx.fetchImpl })]);
+      const have = mine.startsWith("[");
+      if (!have && !bank) return clip(mine);
+      return clip([have ? `From what you read before (your library):\n${mine}` : "", bank ? `From the shared knowledge bank (collected by the crawlers; cite the source):\n${bank}` : ""].filter(Boolean).join("\n\n"));
+    }
     if (name === "recall") return clip(await (await host()).bank.recall(ctx.runId, ctx.chatKey, String(a.query || ""), Number(a.count) || 3, ctx.db));
     if (name === "http_request") {
       if (!/^(GET|HEAD)$/i.test(String(a.method || "GET")) && !approved) return "error: this writes to an outside service: it runs only after the user taps «نفّذ».";
