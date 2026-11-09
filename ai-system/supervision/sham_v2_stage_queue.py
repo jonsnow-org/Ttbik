@@ -31,7 +31,7 @@ STAGES = [
 def parse_status(text: str) -> str:
     """'running' | 'queued' | 'complete' | 'error' | 'cancelled' | 'missing' | 'unknown' from the kaggle CLI's words."""
     t = (text or "").lower()
-    if "404" in t or "not found" in t or "was not found" in t or "no such" in t:
+    if "404" in t or "not found" in t or "was not found" in t or "no such" in t or "cannot access kernel" in t:      # Kaggle words a kernel that was never pushed as "Cannot access kernel ... (Permission 'kernels.get' was denied)"
         return "missing"
     m = re.search(r"kernelworkerstatus\.(\w+)", t)
     word = m.group(1) if m else ""
@@ -91,6 +91,7 @@ def _selftest() -> None:
     assert parse_status('x has status "KernelWorkerStatus.RUNNING"') == "running"
     assert parse_status('x has status "KernelWorkerStatus.COMPLETE"') == "complete"
     assert parse_status("404 Client Error: Not Found for url") == "missing"
+    assert parse_status("Cannot access kernel 'jonsnowjonsnow/x' (Permission 'kernels.get' was denied). The most likely cause is a wrong kernel slug.") == "missing"
     assert parse_status("weird") == "unknown"
     names = [s[0] for s in STAGES]
     assert decide({n: "missing" for n in names}) == "tools"
