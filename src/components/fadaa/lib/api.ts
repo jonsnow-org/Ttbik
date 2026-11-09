@@ -45,7 +45,8 @@ async function request(url: string, initData: string, init?: RequestInit): Promi
 }
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
-  const records = new Map(current.map((item) => [item.id, item]));
+  const records = new Map<string, T>();
+  for (const item of current) records.set(item.id, item);
   for (const item of incoming) records.set(item.id, item);
   return [...records.values()];
 }
@@ -55,10 +56,11 @@ export function applyFadaaSnapshot(payload: FadaaPayload) {
     throw new Error("استجابة فضاء غير مكتملة.");
   }
   const current = useFadaa.getState();
+  const sameUser = current.user.id === payload.user.id;
   useFadaa.setState({
     user: payload.user,
-    sessions: mergeById(current.sessions, payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
-    contributions: mergeById(current.contributions, payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
+    sessions: (sameUser ? mergeById(current.sessions, payload.sessions) : payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
+    contributions: (sameUser ? mergeById(current.contributions, payload.contributions) : payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
     // Server-side actions still enforce ownership; this flag only controls navigation visibility.
     supervisor: Boolean(payload.isOwner),
   });
@@ -82,9 +84,10 @@ export async function loadFadaaArchivePage(offset = 0) {
     throw new Error("استجابة الأرشيف غير مكتملة.");
   }
   const current = useFadaa.getState();
+  const sameUser = Boolean(payload.user && current.user.id === payload.user.id);
   useFadaa.setState({
-    sessions: mergeById(current.sessions, payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
-    contributions: mergeById(current.contributions, payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
+    sessions: (sameUser ? mergeById(current.sessions, payload.sessions) : payload.sessions).sort((a, b) => b.createdAt - a.createdAt),
+    contributions: (sameUser ? mergeById(current.contributions, payload.contributions) : payload.contributions).sort((a, b) => a.createdAt - b.createdAt),
     ...(payload.user ? { user: payload.user } : {}),
     ...(typeof payload.isOwner === "boolean" ? { supervisor: payload.isOwner } : {}),
   });
