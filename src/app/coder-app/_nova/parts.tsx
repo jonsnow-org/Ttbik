@@ -1,7 +1,7 @@
 "use client";
 // Nova AI Mini App (the Mira-structured redesign, Fadaa colours): the working sub-screens it shares with the telegram-ui screens in
-// ../_native/NativeApp.tsx (events timeline, confirmations, schedule form, memory, connectors, confirmation policy, billing, owner panel),
-// copied here unchanged in behaviour so NativeApp stays untouched (still reachable at ?ui=native). Same server API, every call signed with
+// the earlier native screens (events timeline, confirmations, schedule form, memory, connectors, confirmation policy, billing, owner panel),
+// kept here in the Nova interface (the earlier native screens were removed 2026-11-09). Same server API, every call signed with
 // initData and checked on the server. They render inside Nova's AppRoot, so telegram-ui picks up Nova's palette from the --tgui--* variables.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

@@ -5,7 +5,7 @@
 // text to the model (no "skills", no canned prompts) and nothing shows made-up numbers. Regular users see their plan and one usage
 // percentage; the owner sees "∞" and never a limit. Same server API (/api/coder/app, signed initData, checked on the server).
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
-// The previous screens stay reachable: ?ui=native (telegram-ui lists) and ?ui=classic.
+// The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
 import { threadBubbles } from "@/lib/chatBubbles";

@@ -5,9 +5,9 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { terminalAllowed } from "@/lib/coderPlans";
-import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
+import { connectionInfo, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
-import { archiveFinishedTasks, listTasks, taskEvents, type TaskModelFilter } from "@/lib/coderTasks";
+import { listTasks, taskEvents, type TaskModelFilter } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { normalizePref, normalizeThinkPolicy } from "@/lib/modes";
@@ -205,10 +205,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { archiveTask } = await import("@/lib/coderTasks");
       if (!(await archiveTask(chatId, String(body.runId), db))) throw new AppError(409, "the task is still running or does not exist");
       return { ok: true };
-    }
-    case "tasks_clear": {
-      const archived = await archiveFinishedTasks(chatId, db);
-      return { ok: true, archived };
     }
     case "events": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
@@ -453,10 +449,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await saveConnection(chatId, "github", token, u.login, db);
       return { ok: true, login: u.login };
     }
-    case "github_unlink": {
-      await deleteConnection(chatId, "github", db);
-      return { ok: true };
-    }
     case "plans":
     case "billing": {
       // regular users: plan name, one overall percentage and the plans on sale (no meters, no counts — owner's rule 2026-10-21).
@@ -567,29 +559,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!(await deleteMemory(chatId, Number(body.id), db))) throw new AppError(404, "no such memory");
       return { ok: true };
     }
-    case "new_conversation": {
-      const { newConversation } = await import("@/lib/coderSections");
-      return { ok: true, id: await newConversation(chatId, await loadState(chatId, db), db) };
-    }
     // ---------------------------------------------------------------- owner control panel (src/lib/coderPanel.ts)
     case "panel": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { panel } = await import("@/lib/coderPanel");
       return await panel(db, deps.fetchImpl || globalThis.fetch);
-    }
-    case "sham_media": {                       // owner's isolated Sham route selector + per-route enable switches
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const S = await import("@/lib/shamExec");
-      const validRoute = (v: unknown) => v === "sham_v1" || v === "sham_v2_internal";
-      if (validRoute(body.route)) {
-        await S.setShamMediaRoute(body.route, db);
-      } else if (body.enabledRoute && validRoute(body.enabledRoute) && typeof body.enabled === "boolean") {
-        await S.setShamMediaRouteEnabled(body.enabledRoute, body.enabled, db);
-      } else if (body.order === "own_first" || body.order === "reserve_first") {
-        // Compatibility with clients that still send the old binary switch.
-        await S.setShamMediaOrder(body.order, db);
-      }
-      return { route: await S.shamMediaRoute(db), enabled: await S.shamMediaRouteEnabledMap(db), order: await S.shamMediaOrder(db) };
     }
     // the owner's media engine view: which engine makes image / speech / video for each model, and whether each Studio behind it is alive (src/lib/mediaEngines.ts)
     case "media_status": {
@@ -605,12 +579,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!model) throw new AppError(400, "model must be sham or sham_v2");
       try { await E.setShamEngine(model, body.engine as never, db); } catch (e) { throw new AppError(400, String((e as Error).message)); }
       return { model, engine: await E.shamEngine(model, db) };
-    }
-    case "hf_media_route": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      // Quarantined by owner request: external media routes are disabled.
-      // Keep this response only for older Mini App clients; never persist or enable HF.
-      return { order: "fallback_first" as const };
     }
     case "panel_action": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
