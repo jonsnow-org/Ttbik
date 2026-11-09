@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
@@ -32,6 +33,7 @@ IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
 WIDTH = max(800, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
 HEIGHT = max(600, min(1000, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
 MAX_TYPE = 1200
+PANEL_HEIGHT = 44          # the taskbar inside the desktop (tint2)
 MAX_FRAME_BYTES = 560_000
 INPUT_ACTIONS = {"click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "clipboard_get", "clipboard_set"}
 PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm", "xclip")   # xclip: copy / paste between the Mini App and the desktop (optional)
@@ -89,9 +91,20 @@ def _package_status() -> dict:
     }
 
 
+def _install_panel_package() -> None:
+    """tint2 draws the taskbar INSIDE the desktop (owner 2026-11-09: the apps must be on the computer's own screen, not buttons in the page). Best effort: a failed install leaves the desktop without a panel, never without a desktop."""
+    if shutil.which("tint2") or not box.is_root() or not shutil.which("apt-get"):
+        return
+    try:
+        box.apt_install(["tint2"], timeout=420)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _install_packages() -> None:
     missing = [name for name in PACKAGES if not shutil.which(name)]
     if not missing:
+        _install_panel_package()
         return
     if not box.is_root() or not shutil.which("apt-get"):
         raise RuntimeError("This Studio image has no X11 desktop packages and cannot install them without root.")
@@ -108,6 +121,7 @@ def _install_packages() -> None:
     still_missing = [name for name in ("Xvfb", "xauth", "openbox", "xterm", "xdotool") if not shutil.which(name)]
     if still_missing:
         raise RuntimeError("Desktop packages remain unavailable: " + ", ".join(still_missing))
+    _install_panel_package()
 
 
 def _display_number() -> int:
@@ -207,9 +221,72 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 
 def _terminal_command() -> list[str]:
     """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
-    cols, rows = max(80, WIDTH // 7 - 1), max(24, HEIGHT // 15 - 1)
+    cols, rows = max(80, WIDTH // 7 - 1), max(24, (HEIGHT - PANEL_HEIGHT) // 15 - 1)
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
     return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+0+0", "-title", "Model Computer", "-e", "bash", "-c", script]
+
+def panel_config(buttons: list[tuple[str, str]]) -> str:
+    """The tint2 configuration: a taskbar along the bottom of the desktop with one button per app (label, command) and the open windows."""
+    lines = [
+        "rounded = 0", "border_width = 0", "background_color = #111827 100", "border_color = #111827 0",
+        "rounded = 6", "border_width = 1", "background_color = #1f2937 100", "border_color = #475569 100",
+        "rounded = 6", "border_width = 1", "background_color = #0d9488 100", "border_color = #5eead4 100",
+        "panel_items = " + "B" * len(buttons) + "TC",
+        f"panel_size = 100% {PANEL_HEIGHT}", "panel_margin = 0 0", "panel_padding = 6 5 6",
+        "panel_background_id = 1", "wm_menu = 0", "panel_dock = 0", "panel_position = bottom center horizontal",
+        "panel_layer = top", "strut_policy = minimum", "autohide = 0",
+        "taskbar_mode = single_desktop", "taskbar_padding = 2 0 2", "taskbar_background_id = 0",
+        "task_text = 1", "task_maximum_size = 170 34", "task_padding = 6 3 6", "task_font = Sans 10",
+        "task_font_color = #ffffff 100", "task_background_id = 2", "task_active_background_id = 3",
+        "time1_format = %H:%M", "time1_font = Sans 11", "clock_font_color = #ffffff 100",
+        "clock_padding = 8 0", "clock_background_id = 0",
+    ]
+    for label, command in buttons:
+        lines += ["button = new", "button_text = " + label, "button_font = Sans 11", "button_font_color = #ffffff 100",
+                  "button_padding = 12 4 8", "button_background_id = 2", "button_lclick_command = " + command]
+    return "\n".join(lines) + "\n"
+
+
+def _launcher_script(session: str, app: str) -> str | None:
+    """The shell script a taskbar button runs: the same command the Mini App's launch action uses (the browser is looked up when clicked, because Chromium may be installed after the desktop started)."""
+    if app == "browser":
+        import browser_computer
+        profile = box.session_home(session) / ".desktop" / "chrome-profile"
+        find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
+        flags = " ".join(shlex.quote(f) for f in [
+            "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+            "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
+            f"--window-size={WIDTH - 24},{HEIGHT - PANEL_HEIGHT - 50}", "about:blank"])
+        return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
+    if app == "terminal":
+        return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
+    if app == "files" and shutil.which("pcmanfm"):
+        return "#!/bin/sh\nexec pcmanfm --no-desktop --new-window " + shlex.quote(str(box.session_home(session))) + "\n"
+    return None
+
+
+def _start_panel(session: str, env: dict[str, str], uid: int) -> subprocess.Popen | None:
+    """Write the launcher scripts and the tint2 configuration into the session's home and start the taskbar. None when tint2 is not installed."""
+    if not shutil.which("tint2"):
+        return None
+    folder = box.session_home(session) / ".desktop" / "panel"
+    folder.mkdir(parents=True, exist_ok=True)
+    buttons: list[tuple[str, str]] = []
+    for app, label in (("browser", "Browser"), ("terminal", "Terminal"), ("files", "Files")):
+        script = _launcher_script(session, app)
+        if not script:
+            continue
+        path = folder / (app + ".sh")
+        path.write_text(script, encoding="utf-8")
+        os.chmod(path, 0o755)
+        buttons.append((label, str(path)))
+    config = folder / "tint2rc"
+    config.write_text(panel_config(buttons), encoding="utf-8")
+    if box.is_root():
+        for item in [folder.parent, folder, config, *(folder / (a + ".sh") for a in ("browser", "terminal", "files") if (folder / (a + ".sh")).exists())]:
+            os.chown(item, uid, uid)
+    return _spawn(["tint2", "-c", str(config)], env, "tint2")
+
 
 def _spawn(command: list[str], env: dict[str, str], label: str, timeout_cpu: int = 7200) -> subprocess.Popen:
     log_dir = Path(env["HOME"]) / ".desktop"
@@ -335,6 +412,14 @@ def _spawn_desktop(session: str) -> None:
         if cancelled():
             cleanup_cancelled()
             return
+
+        try:
+            panel = _start_panel(session, env, uid)
+        except Exception:  # noqa: BLE001 - the desktop is useful without its taskbar
+            panel = None
+        if panel is not None:
+            processes.append(panel)
+            time.sleep(0.4)
 
         terminal = _spawn(
             _terminal_command(),
