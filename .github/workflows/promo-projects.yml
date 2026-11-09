@@ -1,5 +1,5 @@
 name: promo-projects
-# Professional promo videos for the owner's projects (Athar, Zenobia, Palmyra Launch, Sham AI).
+# Professional promo videos for the owner's projects (Athar, Zenobia, Palmyra Launch, Sham AI, Literium).
 # Built from the live pages: Chromium renders each scene (so Arabic shapes properly) and ffmpeg joins them. English first, Arabic under it.
 # Download the mp4 files from the run's "promo-videos" artifact. Add or edit a project in scripts/promo/projects.json.
 on:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "one project id (athar, zenobia, palmyra-launch, sham-ai), empty = all"
+        description: "one project id (athar, zenobia, palmyra-launch, sham-ai, literium), empty = all"
         default: ""
       format:
         description: "vertical (stories, shorts) or wide"
