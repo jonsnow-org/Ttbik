@@ -10,7 +10,7 @@
 1. Create a feature branch from the current `claude/free-services-marketplace-h6rwk2`.
 2. Open one focused PR targeting that branch. Merge only after CI passes.
 3. After CI succeeds on the protected default branch, `.github/workflows/sync-main.yml` automatically fast-forwards `main` to the exact same commit.
-4. The workflow verifies exact SHA parity, then waits for Oracle to report that commit and a healthy site build. Cloudflare Workers Builds also consume `main`.
+4. The workflow verifies exact SHA parity, then waits for Oracle to report that commit and a healthy site build. The Cloudflare Workers Build follows the branch set in its Cloudflare settings (the default branch when last checked).
 5. Verify the sync workflow result and compare both refs. A successful mirror run means the code branches are aligned; Oracle confirmation means the primary site picked up the commit.
 
 There is no routine manual `main -> production` sync PR. Do not land ordinary feature work directly on `main`.
@@ -51,4 +51,4 @@ There is no routine manual `main -> production` sync PR. Do not land ordinary fe
 3. **Down for more than 15 minutes**: open `/admin` -> «🌐 الاستضافة» and choose Vercel only (the standby carries everything), then look at the server: `docker compose ps`, `docker compose logs --tail 100 site caddy` and the files `site_status` / `update.log` in the agent state folder. A failed build leaves the previous container running; the bot message says so.
 4. **Disk**: the watchdog prunes Docker build cache at 75% and tells the owner at 90%; a full disk is the usual reason a rebuild fails.
 5. After the cause is fixed, switch the gate back to Auto («تلقائي») so Oracle is tried first again.
-6. The gate worker deploys from `main` (Workers Builds on `cloudflare/site-gate`); run `node cloudflare/site-gate/selftest.mjs` before merging a change to it.
+6. The gate worker is deployed by Cloudflare Workers Builds on `cloudflare/site-gate`; it follows the branch set in its Cloudflare settings (checked on 2026-11-08: the default branch), not necessarily `main`; run `node cloudflare/site-gate/selftest.mjs` before merging a change to it.
