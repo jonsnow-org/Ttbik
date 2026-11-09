@@ -29,6 +29,7 @@ jobs:
           python -m unittest discover -s ai-system/supervision -p 'test_media_video_jobs.py' -v
           python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
+          python -m unittest discover -s ai-system/modelscope-sham -p 'test_bank_search.py' -v       # the Studio's bank_search over the central knowledge bank
           python -m py_compile ai-system/modelscope-media/desktop_computer.py ai-system/supervision/test_desktop_computer.py scripts/ops/modelscope_computer_smoke.py scripts/transplant/stage_sham_v2_studio.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py
           python -m py_compile ai-system/supervision/sham_v2_media_smoke.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_media_ready.py ai-system/colab/sham_small/sham_toolcall.py
           python -m unittest discover -s scripts/transplant -p 'test_sham_v2_*.py' -v
