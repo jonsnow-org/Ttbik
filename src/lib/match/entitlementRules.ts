@@ -13,6 +13,12 @@ export const PRICE_ADVANCED_FILTERS = 2;
 export const PRICE_SUPER_LIKE = 1;
 export const PRICE_VIP_30D = 8;
 export const VIP_DAYS = 30;
+/** ✨ Cheap entry offer (2026-11-10): 12 users opened the upgrades screen and none bought at $2–$8. The golden membership for
+ *  3 days at $0.5 (= 50 Stars), once per account, lets people try premium for less than the price of one boost. */
+export const PRICE_VIP_TRIAL = 0.5;
+export const VIP_TRIAL_DAYS = 3;
+/** Referral reward (2026-11-10): one golden day (all premium features, boost included) instead of a bare 24h boost. */
+export const REFERRAL_VIP_HOURS = 24;
 /** 🎛 فلاتر الدردشة العشوائية (الجنس/الدولة/العمر) — $2 لكل 30 يوماً، مشمولة في العضوية الذهبية.
  *  نفس سعر «🎯 فلاتر متقدمة» وأقل من ربع الذهبية ($8)، ومدة 30 يوماً مثل الذهبية لأنها خدمة مطابقة مستمرة. */
 export const PRICE_ANON_FILTERS = 2;
@@ -35,10 +41,11 @@ export function discountedPrice(price: number, eligible: boolean): number {
   return eligible ? Math.round(price * (1 - FIRST_PURCHASE_DISCOUNT) * 100) / 100 : price;
 }
 /** Upgrades that can be bought in one tap with Stars (shortfall top-up, then auto-activation). */
-export const BUY_NOW_KEYS = ["boost", "vip", "visitors", "filters", "anonFilters", "cardGender"] as const;
+export const BUY_NOW_KEYS = ["vipTrial", "boost", "vip", "visitors", "filters", "anonFilters", "cardGender"] as const;
 export type BuyNowKey = (typeof BUY_NOW_KEYS)[number];
 export function isBuyNowKey(k: string): k is BuyNowKey { return (BUY_NOW_KEYS as readonly string[]).includes(k); }
 export const BUY_NOW_PRICE: Record<BuyNowKey, { price: number; type: string }> = {
+  vipTrial: { price: PRICE_VIP_TRIAL, type: "VIP_TRIAL" },
   boost: { price: PRICE_BOOST_24H, type: "BOOST" },
   vip: { price: PRICE_VIP_30D, type: "VIP_MEMBERSHIP" },
   visitors: { price: PRICE_PROFILE_VISITORS, type: "PROFILE_VISITORS" },
@@ -52,6 +59,15 @@ export function shortfallUsd(price: number, balance: number): number {
 }
 /** Days before expiry when the renewal reminder is sent. */
 export const EXPIRY_REMINDER_DAYS = 2;
+
+/** The trial is for people who never had paid golden time: not now VIP, never bought VIP, never used the trial. */
+export function vipTrialEligible(o: { vipActive: boolean; priorTrialOrVip: number }): boolean {
+  return !o.vipActive && o.priorTrialOrVip === 0;
+}
+/** Telegram users think in Stars: the Stars a USD price costs at the bot's rate (100 Stars = $1). */
+export function starsLabel(usd: number): number {
+  return Math.max(1, Math.ceil(usd * 100));
+}
 
 export function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
   return !!user.vipUntil && user.vipUntil > new Date();
@@ -118,6 +134,7 @@ export function entitlementSummary(user: EntitlementUser, profile: EntitlementPr
 
 /** Catalogue mirroring the bot's «⭐ الترقيات والمزايا» keyboard, for the app's Upgrade screen. */
 export const UPGRADE_CATALOGUE = [
+  { key: "vipTrial", icon: "✨", title: "جرّب الذهبية 3 أيام", price: PRICE_VIP_TRIAL, unit: "مرة واحدة", desc: "كل مزايا العضوية الذهبية لمدة 3 أيام بـ50 نجمة فقط: رفع مستمر، من زار ملفي، فلاتر، تخفٍّ، ومراسلة بلا حدود." },
   { key: "boost", icon: "🚀", title: "رفع ملفي", price: PRICE_BOOST_24H, unit: "24 ساعة", desc: "يظهر ملفك أولاً في نتائج البحث لمدة 24 ساعة." },
   { key: "verify", icon: "☑️", title: "طلب التوثيق", price: PRICE_VERIFIED_BADGE, unit: "مرة واحدة", desc: "شارة ☑️ بعد مراجعة صورة هويتك (تُرسل داخل البوت، للإدارة فقط)." },
   { key: "photos", icon: "🖼", title: "صور إضافية", price: PRICE_EXTRA_PHOTOS, unit: "دائم", desc: "صورتان إضافيتان لملفك (الرفع داخل البوت)." },

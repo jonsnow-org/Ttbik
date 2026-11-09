@@ -18,7 +18,7 @@ import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/li
 import { trackFunnel } from "@/lib/match/growth";
 import { atharClientConfig, atharDateLink, atharDay, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
 import { chargeMatchUser } from "@/lib/match/entitlements";
-import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
+import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, vipTrialAvailable, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart, anonVoiceGet, anonVoiceSend } from "@/lib/match/anon";
@@ -50,7 +50,7 @@ function insufficientMsg(needed: number, balance: number): string {
 }
 function purchaseError(r: Exclude<Purchase, { ok: true }>): string {
   if (r.reason === "insufficient") return `رصيدك $${r.balance.toFixed(2)} لا يكفي (المطلوب $${r.needed.toFixed(2)}). اشحن رصيدك من الأسفل.`;
-  return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً." } as const)[r.reason];
+  return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً.", trial_used: "✨ التجربة متاحة مرة واحدة لكل حساب — العضوية الذهبية الكاملة متاحة دائماً." } as const)[r.reason as "no_user"];
 }
 
 
@@ -137,10 +137,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         dmUnread: await dmUnreadCount(tg.id).catch(() => 0),
         reportReasons: REPORT_REASONS,
         buyNowKeys: BUY_NOW_KEYS,
-        catalogue: UPGRADE_CATALOGUE,
+        // the ✨ 3-day trial is listed only while this account can still take it
+        catalogue: (await vipTrialAvailable(tg.id).catch(() => false)) ? UPGRADE_CATALOGUE : UPGRADE_CATALOGUE.filter((c) => c.key !== "vipTrial"),
         deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
         complimentsLeft: daily ? Math.max(0, COMPLIMENTS_PER_DAY - daily.compliments) : COMPLIMENTS_PER_DAY,
-        // Bot's own referral reward: 24h boost per invited friend whose profile goes live.
+        // Bot's own referral reward: one golden day per invited friend whose profile goes live.
         referral: { link: username ? `https://t.me/${username}?start=ref_${tg.id}` : null, rewarded: referralsRewarded, ...(await inviteStats(tg.id).catch(() => null)) },
         identity: (await identityOf(tg.id).catch(() => null))?.method ?? (user.phoneNumber ? "phone" : null),
         gifts: GIFTS,
@@ -221,6 +222,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       // credits it (idempotent on the Stars charge id) and activates the feature from balance.
       const key = String(body.key);
       if (!isBuyNowKey(key)) return err("ميزة غير معروفة");
+      if (key === "vipTrial" && !(await vipTrialAvailable(tg.id))) return err(purchaseError({ ok: false, reason: "trial_used" } as any));
       if (!(await pgRateLimit(`buystars:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
       const price = await effectivePrice(tg.id, BUY_NOW_PRICE[key].price, BUY_NOW_PRICE[key].type);
       const balance = Number(user.balance || 0);
@@ -260,6 +262,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     if (action === "track") {
       const ev = String(body.event);
       if (ev === "upgrades_view") void trackFunnel(tg.id, "upgrades_view");
+      if (ev === "paywall_stars_offer") void trackFunnel(tg.id, "paywall_stars_offer", String(body.detail || "").slice(0, 20));
       return NextResponse.json({ ok: true });
     }
     if (action === "notifications") {

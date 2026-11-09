@@ -102,3 +102,9 @@ Owner steps:
 - Fix: per-user active surface (match_app_presence, touched by every app poll/send/start; active ≤ 30s). `deliverToUser` (surface.ts) sends to Telegram only when the app is not active; the history table + realtime ping always carry the message. Used for relay, connect/offer/contact/end notices, fake partner lines, hybrid accept.
 - Fake-partner chats are recorded under session "fake:<uid>" and rendered in the app with the same script (handleFakeBotReply run via after()).
 - UI: optimistic send (⏳ → ✓, failed + retry), auto-scroll, unread badge on 🔀 while on other tabs, reconnect (realtime resubscribe + "⚠️ إعادة الاتصال").
+
+## v-next — Entry offer, one-tap Stars, golden-day referral (2026-11-10)
+- Funnel data: 12 users opened upgrades, 0 even tried to buy at $2–$8, and every balance starts at $0.
+- ✨ **Gold trial** (`vipTrial`): $0.5 = 50 Stars for 3 days, once per account. It is available only if the user is not VIP and has no prior `VIP_TRIAL`/`VIP_MEMBERSHIP*` row. It appears in both the bot menu (`VIP_TRIAL_BUTTON`) and the app catalogue, which lists it only while the user is eligible. Payment goes through the same `MATCH_BUY_<key>` Stars path. The trial does not use up the 20% first-purchase discount.
+- **One-tap Stars:** when the balance is short, the app skips the "pay from balance?" step and offers the exact Stars amount at once (funnel event `paywall_stars_offer`). Every card shows its ⭐ price.
+- **Referral:** a 24h golden day (all features, boost included) replaces the 24h boost. It stacks on remaining VIP time and keeps the same `referralRewardAllowed` cap (`grantReferralVip`). This is server-side and identical in the bot and the app.

@@ -26,10 +26,10 @@ import { pushNotification } from "@/lib/match/social";
 import { pingAnonSession } from "@/lib/match/realtime";
 import { deliverToUser } from "@/lib/match/surface";
 import {
-  PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
+  PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D, PRICE_VIP_TRIAL, VIP_TRIAL_DAYS,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
   purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
-  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
+  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, grantReferralVip, purchaseVipTrial, vipTrialAvailable, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
@@ -183,8 +183,11 @@ export function upgradeLabel(k: keyof typeof UPGRADE_LABELS, discount = false): 
 export function isUpgradeLabel(text: string, k: keyof typeof UPGRADE_LABELS): boolean {
   return text === upgradeLabel(k, false) || text === upgradeLabel(k, true);
 }
+// ✨ Cheap entry offer, mirrored in the Mini App catalogue (key "vipTrial"): one Stars invoice, activates on payment.
+export const VIP_TRIAL_BUTTON = `✨ جرّب الذهبية ${VIP_TRIAL_DAYS} أيام (${Math.round(PRICE_VIP_TRIAL * 100)} ⭐)`;
 function upgradesMenu(discount = false): Keyboard {
   const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
+  kb.text(VIP_TRIAL_BUTTON).row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb
     .text(upgradeLabel("boost", discount)).row()
@@ -2078,7 +2081,7 @@ export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionI
 // ---------------------------------------------------------------------
 // SUPER_ADMIN moderation (text commands, same convention as adBotLogic)
 // ---------------------------------------------------------------------
-// Referral reward (owner spec, 2026-09-05) — 24h free Boost for the referrer,
+// Referral reward (owner spec, 2026-09-05; golden day since 2026-11-10) — 24h of golden membership for the referrer,
 // granted exactly once per referred person, only when the referred profile goes
 // live (never on rejection).
 export async function grantReferralReward(bot: TelegramBot, profileUserId: string) {
@@ -2090,12 +2093,10 @@ export async function grantReferralReward(bot: TelegramBot, profileUserId: strin
       await bot.api.sendMessage(Number(referredUser.referredBy), "🎁 اعتُمد ملف صديق دعوته! بلغتَ حد المكافآت لهذا الشهر، وستعود المكافآت بعد انقضائه.").catch(() => null);
       return;
     }
-    const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
-    await prisma.matchProfile
-      .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
-      .catch(() => null);
+    // One golden day (all premium features, boost included): a taste of premium converts better than a bare boost.
+    const vipUntil = await grantReferralVip(referredUser.referredBy).catch(() => null);
     await bot.api
-      .sendMessage(Number(referredUser.referredBy), "🎁 اعتُمد ملف صديق دعوته! حصلت على رفع مجاني لملفك لمدة 24 ساعة.")
+      .sendMessage(Number(referredUser.referredBy), vipUntil ? `🎁 اعتُمد ملف صديق دعوته! حصلت على يوم ذهبي مجاني 👑 (كل المزايا) حتى ${vipUntil.toLocaleString("ar")}.` : "🎁 اعتُمد ملف صديق دعوته!")
       .catch(() => null);
   }
 }
@@ -3180,6 +3181,27 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     }
     await setPending(tgUserId, { mode: "advanced_filter_wizard", step: "city", data: {} });
     await bot.api.sendMessage(chatId, "🎯 المدينة المطلوبة للشريك:", { reply_markup: skipMenu() });
+    return;
+  }
+  if (text === VIP_TRIAL_BUTTON) {
+    if (!(await vipTrialAvailable(tgUserId))) {
+      await bot.api.sendMessage(chatId, "✨ التجربة متاحة مرة واحدة لكل حساب — العضوية الذهبية الكاملة متاحة من الزر 👑.", { reply_markup: upgradesMenu() });
+      return;
+    }
+    const r = await purchaseVipTrial(tgUserId);
+    if (r.ok) {
+      await bot.api.sendMessage(chatId, `✨ تم تفعيل الذهبية التجريبية حتى ${r.vipUntil.toLocaleString("ar")}!\nتشمل: رفع مستمر للملف، فلاتر متقدمة، من زار ملفي، ووضع التخفي.`, { reply_markup: upgradesMenu() });
+      return;
+    }
+    if (r.reason === "insufficient") {
+      const stars = Math.max(1, Math.ceil((r.needed - r.balance) * 100));
+      await sendStarsInvoice(bot, chatId, {
+        title: `✨ الذهبية ${VIP_TRIAL_DAYS} أيام`,
+        description: `تجربة كل مزايا العضوية الذهبية ${VIP_TRIAL_DAYS} أيام — تُفعَّل تلقائياً بعد الدفع`,
+        payload: starsPayload("MATCH_BUY_vipTrial", tgUserId),
+        stars,
+      });
+    }
     return;
   }
   if (isUpgradeLabel(text, "vip")) {
