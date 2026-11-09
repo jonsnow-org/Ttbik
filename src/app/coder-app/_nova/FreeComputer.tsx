@@ -2,7 +2,7 @@
 // The Mini App Computer tab: the reserved private 16 GB computer hub exposes isolated user+model sessions for terminal, files, browser and background jobs.
 // It is the same private session the model works in (files the model made are here; files you make here, the model sees). Replaces the old fake "NOVA / TERMINAL"
 // log box in the Chats tab. Owner only (the server refuses everyone else).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "./parts";
 import GraphicalDesktop from "./GraphicalDesktop";
 import { useStickToBottom } from "../_tma/scroll";
@@ -24,7 +24,7 @@ function joinPath(cwd: string, arg: string): string {
 export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defaultModel: string }) {
   const ar = lang === "ar";
   const [model, setModel] = useState(MODELS.some((m) => m.id === defaultModel) ? defaultModel : "coder");
-  const [tab, setTab] = useState<"desktop" | "desk" | "term" | "files" | "jobs">("desktop");
+  const [tab, setTab] = useState<"term" | "files" | "jobs" | null>(null);
   const [status, setStatus] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [cmd, setCmd] = useState("");
@@ -73,77 +73,31 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
   useEffect(() => { if (tab === "files" && !folder && !file) void openFolder("."); }, [tab, folder, file, openFolder]);
   const saveFile = async () => { if (!file) return; const r = await box(model, { action: "write", path: file.path, content: file.text }).catch((e) => ({ ok: false, error: String(e?.message || e) })); if (r.ok) setFile({ ...file, dirty: false }); else setErr(String(r.error)); };
 
-  // desktop: the model's own headless browser with a live screenshot; click on the picture, type, scroll
-  const [page, setPage] = useState<{ url: string; title: string; shot: string; text: string; elements: string; error: string } | null>(null);
-  const [addr, setAddr] = useState("https://example.com");
-  const [deskBusy, setDeskBusy] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const browse = async (args: Record<string, unknown>) => {
-    setDeskBusy(true);
-    try {
-      const r = await api<any>("browser", { model, args });
-      setPage({ url: String(r.url || ""), title: String(r.title || ""), shot: r.screenshot_b64 ? "data:image/jpeg;base64," + r.screenshot_b64 : (page?.shot || ""), text: String(r.text || ""), elements: String(r.elements || ""), error: r.ok === false ? String(r.error || "") : "" });
-      if (r.url) setAddr(String(r.url));
-    } catch (e: any) { setPage((p) => ({ url: p?.url || "", title: p?.title || "", shot: p?.shot || "", text: "", elements: "", error: String(e?.message || e) })); }
-    finally { setDeskBusy(false); }
-  };
-  const tapPicture = (e: React.MouseEvent<HTMLImageElement>) => {
-    const el = imgRef.current; if (!el || !el.naturalWidth) return;
-    const rect = el.getBoundingClientRect();
-    void browse({ action: "click", x: Math.round(((e.clientX - rect.left) / rect.width) * el.naturalWidth), y: Math.round(((e.clientY - rect.top) / rect.height) * el.naturalHeight) });
-  };
   const loadJobs = useCallback(async () => { try { const r = await box(model, { action: "job_list" }); setJobs(r.jobs || []); } catch { /* shown on the next refresh */ } }, [model]);
   const [jobLog, setJobLog] = useState<{ id: string; text: string } | null>(null);
   const showJob = async (id: string) => { const r = await box(model, { action: "job_log", id, tail: 80 }).catch(() => null); setJobLog({ id, text: r ? [r.output, r.running ? (ar ? "… ما زال يعمل" : "… still running") : `exit ${r.exit_code}`].filter(Boolean).join("\n") : "?" }); };
   useEffect(() => { if (tab !== "jobs") return; void loadJobs(); const t = setInterval(() => { void loadJobs(); if (jobLog) void showJob(jobLog.id); }, 4000); return () => clearInterval(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loadJobs, jobLog?.id]);
 
   const chip = (on: boolean) => ({ borderRadius: 999, padding: "6px 12px", border: "1px solid var(--n-line, #8883)", background: on ? "var(--n-accent, #0d9488)" : "transparent", color: on ? "#fff" : "inherit", font: "600 13px system-ui" });
-  const tabs: [typeof tab, string][] = [["desktop", ar ? "الحاسوب الرسومي" : "Graphical desktop"], ["term", ar ? "الطرفية" : "Terminal"], ["files", ar ? "الملفات" : "Files"], ["jobs", ar ? "المهام الخلفية" : "Jobs"], ["desk", ar ? "المتصفح" : "Browser"]];
   const okStatus = status?.ok;
-  return (
-    <div className="n-page">
-      <div className="n-card" style={{ padding: 12 }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          {MODELS.map((m) => <button key={m.id} type="button" style={chip(model === m.id)} onClick={() => setModel(m.id)}>{m.label}</button>)}
-        </div>
-        <div className="n-meta" style={{ ...mono, fontSize: 12 }}>
-          {status == null ? "…" : okStatus
-            ? `${ar ? "الحاسوب متصل" : "computer online"} · ${status.your_disk_mb ?? 0} MB`
-            : `⚠ ${String(status.error || (ar ? "الحاسوب غير متاح الآن (الاستوديو يعمل أو يعيد التشغيل)" : "computer unavailable now"))}`}
-        </div>
+  const winBtn = (id: "term" | "files" | "jobs", label: string) => (
+    <button key={id} type="button" className={tab === id ? "n-btn" : "n-btn n-ghost"} onClick={() => setTab(tab === id ? null : id)}>{label}</button>
+  );
+  const dock = (
+    <>
+      {winBtn("term", "⌨ " + (ar ? "صدفة النموذج" : "Shell"))}
+      {winBtn("files", "🗂 " + (ar ? "ملفات النموذج" : "Model files"))}
+      {winBtn("jobs", "⚙ " + (ar ? "المهام" : "Jobs"))}
+    </>
+  );
+  const overlay = tab ? (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 6px", position: "sticky", top: 0, background: "#0b1220", zIndex: 1 }}>
+        <button type="button" className="n-btn n-ghost" aria-label={ar ? "إغلاق النافذة" : "Close window"} onClick={() => setTab(null)}>✕</button>
       </div>
-      <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
-        {tabs.map(([id, label]) => <button key={id} type="button" style={chip(tab === id)} onClick={() => setTab(id)}>{label}</button>)}
-      </div>
-
-      {tab === "desktop" && <GraphicalDesktop key={model} model={model} ar={ar} />}
-
-      {tab === "desk" && (
-        <div className="n-card" style={{ padding: 12 }}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            <input value={addr} dir="ltr" onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void browse({ action: "open", url: addr }); }} style={{ ...mono, flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }} />
-            <button type="button" className="n-btn" disabled={deskBusy} onClick={() => void browse({ action: "open", url: addr })}>{ar ? "فتح" : "Go"}</button>
-          </div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "back" })}>←</button>
-            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "look" })}>⟳</button>
-            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "scroll", dy: 600 })}>↓</button>
-            <button type="button" className="n-btn n-ghost" disabled={deskBusy} onClick={() => void browse({ action: "scroll", dy: -600 })}>↑</button>
-          </div>
-          {deskBusy && <div className="n-meta">{ar ? "… يعمل" : "… working"}</div>}
-          {page?.error && <div className="n-note" role="alert">{page.error}</div>}
-          {page?.shot ? <img ref={imgRef} src={page.shot} alt={page.title} onClick={tapPicture} style={{ width: "100%", maxHeight: "72vh", height: "auto", objectFit: "contain", borderRadius: 8, border: "1px solid #8884", cursor: "pointer" }} /> : <div className="n-meta">{ar ? "المتصفح الخاص بحاسوب هذا النموذج: اكتب عنواناً واضغط «فتح». المتصفح نفسه الذي يستخدمه النموذج." : "This model's own browser: type an address and press Go. It is the same browser the model uses."}</div>}
-          {page?.title && <div className="n-meta" style={{ marginTop: 6 }}>{page.title}</div>}
-          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-            <input id="deskType" dir="auto" placeholder={ar ? "اكتب نصاً في الحقل المحدد…" : "type into the focused field…"} style={{ flex: 1, border: "1px solid #8884", borderRadius: 8, padding: 8 }}
-              onKeyDown={(e) => { if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value; (e.target as HTMLInputElement).value = ""; void browse({ action: "type", text: v, enter: true }); } }} />
-          </div>
-        </div>
-      )}
-
       {tab === "term" && (
-        <div className="n-card" style={{ padding: 0, overflow: "hidden", background: "#0b1220", color: "#d1fae5" }}>
-          <div style={{ ...mono, padding: 12, minHeight: "52vh", maxHeight: "68vh", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ background: "#0b1220", color: "#d1fae5" }}>
+          <div style={{ ...mono, padding: 12, minHeight: 120, maxHeight: "40vh", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {lines.length === 0 && <div style={{ color: "#94a3b8" }}>{ar ? "طرفية حقيقية على حاسوب النموذج (bash). جرّب: ls  ·  python3 -V  ·  git --version" : "A real shell on the model's computer (bash). Try: ls · python3 -V · git --version"}</div>}
             {lines.map((l, i) => (
               <div key={i} style={{ marginBottom: 8 }}>
@@ -172,7 +126,7 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
       )}
 
       {tab === "files" && (
-        <div className="n-card" style={{ padding: 12 }}>
+        <div style={{ padding: 12 }}>
           {err && <div className="n-note" role="alert">{err}</div>}
           {file ? (
             <>
@@ -200,7 +154,7 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
       )}
 
       {tab === "jobs" && (
-        <div className="n-card" style={{ padding: 12 }}>
+        <div style={{ padding: 12 }}>
           {jobs.length === 0 && <div className="n-meta">{ar ? "لا مهام خلفية. اكتب أمراً طويلاً في الطرفية واضغط «خلفية»." : "No background jobs. Type a long command in the terminal and press BG."}</div>}
           {jobs.map((j) => (
             <div key={j.id} style={{ padding: "8px 0", borderBottom: "1px solid #8882" }}>
@@ -215,6 +169,21 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
           {jobLog && <pre style={{ ...mono, whiteSpace: "pre-wrap", marginTop: 10, background: "#0b1220", color: "#e2e8f0", padding: 10, borderRadius: 8, maxHeight: 260, overflow: "auto" }}>{jobLog.text}</pre>}
         </div>
       )}
+    </>
+  ) : null;
+  return (
+    <div className="n-page">
+      <div className="n-card" style={{ padding: 12 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {MODELS.map((m) => <button key={m.id} type="button" style={chip(model === m.id)} onClick={() => setModel(m.id)}>{m.label}</button>)}
+        </div>
+        <div className="n-meta" style={{ ...mono, fontSize: 12 }}>
+          {status == null ? "…" : okStatus
+            ? `${ar ? "الحاسوب متصل" : "computer online"} · ${status.your_disk_mb ?? 0} MB`
+            : `⚠ ${String(status.error || (ar ? "الحاسوب غير متاح الآن (الاستوديو يعمل أو يعيد التشغيل)" : "computer unavailable now"))}`}
+        </div>
+      </div>
+      <GraphicalDesktop key={model} model={model} ar={ar} dock={dock} overlay={overlay} />
     </div>
   );
 }
