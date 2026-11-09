@@ -93,10 +93,10 @@ def _package_status() -> dict:
 
 def _install_panel_package() -> None:
     """tint2 draws the taskbar INSIDE the desktop (owner 2026-11-09: the apps must be on the computer's own screen, not buttons in the page). Best effort: a failed install leaves the desktop without a panel, never without a desktop."""
-    if shutil.which("tint2") or not box.is_root() or not shutil.which("apt-get"):
+    if (shutil.which("tint2") and shutil.which("xsetroot")) or not box.is_root() or not shutil.which("apt-get"):
         return
     try:
-        box.apt_install(["tint2"], timeout=420)
+        box.apt_install(["tint2", "x11-xserver-utils"], timeout=420)      # x11-xserver-utils provides xsetroot (the wallpaper colour)
     except Exception:  # noqa: BLE001
         pass
 
@@ -221,9 +221,10 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 
 def _terminal_command() -> list[str]:
     """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
-    cols, rows = max(80, WIDTH // 7 - 1), max(24, (HEIGHT - PANEL_HEIGHT) // 15 - 1)
+    # a window, not the whole screen: the desktop (wallpaper, taskbar, other windows) stays visible around it
+    cols, rows = max(80, int(WIDTH * 0.78) // 7 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * 0.74) // 15 - 1)
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
-    return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+0+0", "-title", "Model Computer", "-e", "bash", "-c", script]
+    return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+28+24", "-title", "Model Computer", "-e", "bash", "-c", script]
 
 def panel_config(buttons: list[tuple[str, str]]) -> str:
     """The tint2 configuration: a taskbar along the bottom of the desktop with one button per app (label, command) and the open windows."""
@@ -406,6 +407,11 @@ def _spawn_desktop(session: str) -> None:
             cleanup_cancelled()
             return
 
+        if shutil.which("xsetroot"):                                  # a wallpaper colour instead of the bare X11 grey
+            try:
+                subprocess.run(["xsetroot", "-solid", "#16324f"], env=env, timeout=5, capture_output=True)
+            except Exception:  # noqa: BLE001
+                pass
         wm = _spawn(["openbox", "--sm-disable"], env, "openbox")
         processes.append(wm)
         time.sleep(0.5)
