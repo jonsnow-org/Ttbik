@@ -48,6 +48,18 @@
       "shots": [{"path": "/", "caption": ["Everything in one place", "كل شيء في مكان واحد"]}, {"path": "/free-tools", "caption": ["Free tools", "أدوات مجانية"]}],
       "cta": ["Visit the site", "زر الموقع"],
       "handle": "t.me/ttbik5"
+    },
+    {
+      "id": "literium",
+      "accent": "#c9a36a",
+      "bg": ["#14100c", "#3a2b1c"],
+      "logo": "public/literium-icon.png",
+      "name": "Literium · ليتيريوم",
+      "tagline": ["An Arabic home for writing and reading", "منزل عربي للكتابة والقراءة"],
+      "points": [["Publish articles and short posts", "انشر مقالاتك وتغريداتك القصيرة"], ["Follow the writers you love", "تابع الكتّاب الذين تحبهم"], ["Read on the web or in the Android app", "اقرأ على الويب أو في تطبيق أندرويد"]],
+      "shots": [{"url": "https://literium.ai.studio/", "caption": ["Read and write", "اقرأ واكتب"]}],
+      "cta": ["Open Literium", "افتح ليتيريوم"],
+      "handle": "literium.ai.studio"
     }
   ]
 }
