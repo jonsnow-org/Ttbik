@@ -39,12 +39,11 @@ def parse_status(text: str) -> str:
 
 
 def decide(statuses: dict[str, str]) -> str | None:
-    """The stage to push now, or None. Nothing starts while any stage is running / queued / unreadable; a stage that is missing or ended in error / cancelled is (re)started, in order;
-    complete stages are skipped. If every stage is complete the queue is finished."""
+    """The stage to push now, or None. Nothing starts while any stage is running / queued / unreadable; a stage that was never pushed is started, in order; complete / error / cancelled stages are skipped (an errored one is reported with the tail of its log, never retried blindly). If every stage is complete the queue is finished."""
     if any(s in ("running", "queued", "unknown") for s in statuses.values()):
         return None
     for name, *_ in STAGES:
-        if statuses.get(name, "missing") in ("missing", "error", "cancelled"):
+        if statuses.get(name, "missing") == "missing":          # a stage that ended in error / cancelled is NOT started again by the queue (it would loop on a real bug): it is reported, and the queue moves on
             return name
     return None
 
@@ -61,6 +60,14 @@ def main(plan_only: bool = False) -> int:
         if statuses[name] == "unknown":
             print(f"  (unread status of {name}: {text.strip()[:240]!r})")
     print("status:", json.dumps(statuses, ensure_ascii=False))
+    for name, st in statuses.items():
+        if st == "error":                                   # what went wrong: the last lines of the kernel's own log
+            slug = next(x[3] for x in STAGES if x[0] == name)
+            with tempfile.TemporaryDirectory() as ld:
+                _kaggle(["kernels", "output", f"{OWNER}/{slug}", "-p", ld])
+                for lf in sorted(Path(ld).glob("*.log"))[:1]:
+                    tail = lf.read_text(encoding="utf-8", errors="replace")[-2500:]
+                    print(f"--- {name} ended in ERROR; the end of its log:\n{tail}\n---")
     todo = decide(statuses)
     if todo is None:
         print("nothing to start (a stage is running / waiting, or every stage is complete)")
@@ -97,7 +104,8 @@ def _selftest() -> None:
     assert decide({n: "missing" for n in names}) == "tools"
     assert decide({"tools": "complete", "media": "missing", "candidate-tools": "missing", "candidate": "missing"}) == "media"
     assert decide({"tools": "running", "media": "missing", "candidate-tools": "missing", "candidate": "missing"}) is None
-    assert decide({"tools": "complete", "media": "error", "candidate-tools": "missing", "candidate": "missing"}) == "media"
+    assert decide({"tools": "complete", "media": "error", "candidate-tools": "missing", "candidate": "missing"}) == "candidate-tools"
+    assert decide({"tools": "error", "media": "missing", "candidate-tools": "missing", "candidate": "missing"}) == "media"
     assert decide({n: "complete" for n in names}) is None
     assert decide({"tools": "complete", "media": "complete", "candidate-tools": "unknown", "candidate": "missing"}) is None
     for _n, d, f, _s in STAGES:
