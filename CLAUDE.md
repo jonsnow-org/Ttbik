@@ -4,6 +4,17 @@
 > **اقرأ [`docs/START_HERE.md`](./docs/START_HERE.md) أولًا** (محدَّث 2026-11-08): كيف يعمل كل شيء، حالة شام وNova وfree i، الأسرار، ما ينتظر المالك، ودروس تعلّمناها. ثم هذا الملف (أوامر المالك الثابتة).
 > قواعد قصيرة: **أثر ممنوع اللمس** · لا أسرار في المستودع ولا في الرسائل · CPU فقط ومجاني · ردود عربية قصيرة وصادقة ولا «تم» قبل التحقق.
 
+## Branch model (owner's order, 2026-11-09: this replaces every older statement below about `main` and sync PRs)
+- The protected default branch `claude/free-services-marketplace-h6rwk2` is the **canonical code branch**: every PR (any session) targets it and is squash-merged there after green CI.
+- `main` is an **automatic deployment mirror** (Oracle's updater and the gate follow it). `.github/workflows/sync-main.yml` fast-forwards it to the same commit after CI passes on the canonical branch. Nobody pushes to `main`, nobody opens a routine `main → canonical` sync PR. If `main` ever holds a commit the canonical branch lacks, the workflow fails without changing anything: recover with one reviewed PR from `main` into the canonical branch.
+- Never push directly to either deployment ref, never force-push. `claude/athar-work` stays the Athar session's. Details: `docs/BRANCH_FLOW.md`.
+- Older lines below that say "merge into `main`", "sync PR" or "only after `main` is merged into that branch" are history; where they conflict, this section wins.
+
+## نموذج الفروع (أمر المالك 2026-11-09، يحلّ محلّ كل ما سبق عن `main` وطلبات المزامنة)
+- الفرع الافتراضي المحمي `claude/free-services-marketplace-h6rwk2` هو **فرع الكود الأصلي**: كل طلب دمج من أي جلسة يستهدفه ويُدمج فيه (squash) بعد نجاح CI.
+- `main` **مرآة نشر آلية** (يتبعها Oracle والبوابة). مهمة `sync-main.yml` تقدّمها بالتقديم السريع إلى الالتزام نفسه بعد نجاح CI. لا أحد يدفع إلى `main` ولا يفتح طلب مزامنة اعتياديًا. وإن ظهر في `main` التزام ليس في الأصلي تفشل المهمة دون تغيير أي فرع، ويُعالَج بطلب دمج واحد من `main` إلى الأصلي.
+- لا دفع مباشر لأي من الفرعين ولا force-push. فرع `claude/athar-work` يبقى لجلسة أثر. التفاصيل: `docs/BRANCH_FLOW.md`.
+
 ## Who is who
 - **Claude — Athar session** ("جلسة كلود أثر"): the Claude Code session that builds and runs **Athar**, the owner's real TON NFT project
   (token per calendar date, tagline «شام AI»). It works on the branch `claude/athar-work` and merges into `main`
@@ -40,7 +51,7 @@ Oracle `install-sham.sh`/`SHAM_ON`), the coins' non-frozen tooling, and this not
 ## Rules of the shared repository
 1. The Athar contracts are **live on TON mainnet with real money**. Never touch anything that could change their addresses or behaviour
    (admin address, collection URI / META_BASE, contract sources, `athar/build/**`).
-2. Never push or force-push to `claude/athar-work`, and never delete it. Never push to `main` directly. Never merge another session's branch into Athar's work or into `main` on the Athar session's behalf.
+2. Never push or force-push to `claude/athar-work`, and never delete it. Never push to `main` or to the canonical branch directly (PRs only; see the Branch model). Never merge another session's branch into Athar's work or into either deployment branch on the Athar session's behalf.
 3. Do not read, print or move secrets (bot tokens, `ATHAR_ADMIN_PATH`, the reveal secret, wallet words, env values).
 4. If your task seems to need a change in the Athar list above, **stop and ask the owner** (he reads Arabic); do not work around it.
 5. Questions for the Athar session: leave a PR comment tagged `🤖 GROK:` or `🔵 CLAUDE:` on the coordination PR (#2); the owner relays it.
@@ -61,9 +72,9 @@ Oracle `install-sham.sh`/`SHAM_ON`), the coins' non-frozen tooling, and this not
 - **كل ما يخص تدريب نموذج شام للذكاء (`ai-system/**` وسير عمل `sham-*` وسير العمل التي تنشر ai-system ودفاتر ومساحات Kaggle وModelScope وLightning وModal وHugging Face، وملفات `docs/*SHAM*` و`docs/FOR_SHAM_*` و`docs/sham-*`، وعلى Oracle الملفان `install-sham.sh` و`SHAM_ON`) مفتوح للعمل (أمر المالك 2026-11-06: لا محمي إلا أثر).** أي جلسة هنا تعدّله وتصلحه وتعيد تشغيله دون طلب إذن جديد، مع بقاء قواعد الأمان (لا تُطبع الأسرار، ولا تُكسر الدفاتر العاملة: تُفحص أولاً).
 
 ## Fix-rounds rule (owner's standing order, 2026-10-05)
-In a fixes session: **collect all fixes locally and merge to `main` ONCE, when the owner says the session is over.** No merge, PR or push per fix:
+In a fixes session: **collect all fixes locally and merge to the canonical branch ONCE, when the owner says the session is over.** No merge, PR or push per fix:
 every push/merge triggers Vercel builds and the free plan hit its deployment rate limit ("retry in 24 hours"). `vercel.json` has an `ignoreCommand`
 that skips builds for Athar-only changes (athar app/tests/docs, cloudflare, deploy); changes to `src`, `public`, `prisma`, package files and `athar/web/lib` still build.
 
 ## قاعدة جولات الإصلاح (أمر المالك الدائم)
-في جلسة الإصلاحات: **اجمع الإصلاحات محلياً ثم ادمجها في `main` مرة واحدة فقط عندما يقول المالك إن الجلسة انتهت.** لا دمج ولا دفع مع كل إصلاح (حدّ نشر فيرسل المجاني).
+في جلسة الإصلاحات: **اجمع الإصلاحات محلياً ثم ادمجها في الفرع الأصلي مرة واحدة فقط عندما يقول المالك إن الجلسة انتهت.** لا دمج ولا دفع مع كل إصلاح (حدّ نشر فيرسل المجاني).
