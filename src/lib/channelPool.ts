@@ -28,6 +28,8 @@ export type PoolItem = {
 const ZENOBIA_BUY = "https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD";
 const ZENOBIA_BOT = "https://t.me/Zenobia_Palmyrabot";
 const ZENOBIA_CHANNEL = "https://t.me/Zenobiaton";
+const LITERIUM = (process.env.NEXT_PUBLIC_LITERIUM_URL || "https://literium.ai.studio/").trim();
+const LITERIUM_APK = `${LITERIUM.replace(/\/$/, "")}/downloads/Literium.apk`;
 const ATHAR_BOT = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot").trim();
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -181,9 +183,19 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
       url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 5,
     },
     {
-      kind: "project", id: "project:literium", title: "ليتيريوم",
-      blurb: "منصة عربية للأدب والمقالات: اقرأ نصوصاً وأفكاراً، وانشر مقالاتك وتغريداتك القصيرة.",
-      url: "https://literium.ai.studio/", cta: "📚 افتح ليتيريوم", tags: ["#ليتيريوم", "#أدب"], repeatDays: 6,
+      kind: "project", id: "project:literium", title: "ليتيريوم · منصة الأدب العربي",
+      blurb: "منصة عربية للأدب والمقالات: اقرأ نصوصاً وأفكاراً، وانشر مقالاتك وتغريداتك القصيرة، وتابع كتّابك المفضلين. Literium: an Arabic home for writing and reading.",
+      url: LITERIUM, cta: "📚 افتح ليتيريوم", tags: ["#ليتيريوم", "#أدب"], repeatDays: 6,
+    },
+    {
+      kind: "project", id: "project:literium-write", title: "اكتب ونشر في ليتيريوم",
+      blurb: "عندك مقال أو خاطرة؟ افتح حساباً في ليتيريوم وانشر نصّك، وتواصل مع قرّاء يحبون الكلمة العربية. Write, publish and be read.",
+      url: LITERIUM, cta: "✍️ ابدأ الكتابة", tags: ["#ليتيريوم", "#كتابة"], repeatDays: 9,
+    },
+    {
+      kind: "project", id: "project:literium-app", title: "تطبيق ليتيريوم للأندرويد",
+      blurb: "ليتيريوم على هاتفك: المقالات والتغريدات والرسائل في تطبيق واحد. حمّل التطبيق من الرابط. The Literium Android app.",
+      url: LITERIUM_APK, cta: "📲 حمّل التطبيق", tags: ["#ليتيريوم", "#أندرويد"], repeatDays: 12,
     },
   ];
   return { tool: tools, bot: bots, news, event: events, article: articles, project: [...projects, ...platformPosts(flags)], coin: coinPosts };
