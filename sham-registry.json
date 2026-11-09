@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-09 06:52 UTC",
+  "generated_at": "2026-11-09 19:59 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -66,6 +66,15 @@
       "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service.\nقبل الفشل: 0.00s - to python to disable frozen modules. | 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this"
     },
     {
+      "alias": "المرحلة الأولى 4",
+      "track": "text_stage1",
+      "status": "queued",
+      "role": "duplicate",
+      "last_run": "2026-11-09",
+      "gpu": false,
+      "failure": ""
+    },
+    {
       "alias": "المرحلة الأولى 3",
       "track": "text_stage1",
       "status": "error",
@@ -75,7 +84,7 @@
       "failure": ""
     },
     {
-      "alias": "المرحلة الأولى 4",
+      "alias": "المرحلة الأولى 5",
       "track": "text_stage1",
       "status": "running",
       "role": "primary",
@@ -242,7 +251,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 792.9,
+      "size_mb": 0.0,
       "last_updated": "2026-11-09",
       "progress": {},
       "has_key_files": true
@@ -250,7 +259,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 719.1,
       "last_updated": "2026-11-09",
       "progress": {},
       "has_key_files": true
@@ -290,8 +299,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4243.5,
-      "last_updated": "2026-11-08",
+      "size_mb": 0.0,
+      "last_updated": "2026-11-09",
       "progress": {},
       "has_key_files": true
     },
@@ -306,8 +315,8 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4243.3,
-      "last_updated": "2026-11-08",
+      "size_mb": 4238.6,
+      "last_updated": "2026-11-09",
       "progress": {},
       "has_key_files": true
     },
@@ -322,7 +331,7 @@
     {
       "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
-      "size_mb": 0.0,
+      "size_mb": 794.2,
       "last_updated": "2026-11-09",
       "progress": {},
       "has_key_files": true
