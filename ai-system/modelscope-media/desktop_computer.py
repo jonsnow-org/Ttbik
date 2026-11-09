@@ -713,7 +713,9 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             if url != "about:blank":
                 import browser_computer
                 url = browser_computer.safe_url(url)
-            if box.STATE.get("egress", "").startswith("partly blocked"):
+            # Owner's order 2026-11-09: the desktop browser runs even though this Studio cannot apply the private-network firewall ("partly blocked"),
+            # so a real browser can be tried. DESKTOP_BROWSER_STRICT=1 brings the refusal back.
+            if os.environ.get("DESKTOP_BROWSER_STRICT") == "1" and box.STATE.get("egress", "").startswith("partly blocked"):
                 raise RuntimeError("The browser is disabled because this Studio could not confirm its private-network egress block.")
             import browser_computer
             executable = next((p for p in browser_computer.STORE.rglob("chrome") if p.is_file() and "headless" not in str(p).lower()), None)
