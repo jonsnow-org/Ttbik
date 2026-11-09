@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const kind = ["image", "video", "code", "sponsor", "embed", "bulk"].includes(body.kind) ? body.kind : "image";
   const bannerUrl = String(body.bannerUrl || "").trim();
-  const targetUrl = String(body.targetUrl || "https://ttbik.vercel.app").trim();
+  const targetUrl = String(body.targetUrl || "https://ttbik-gate.jonsnowx1r.workers.dev").trim();
   const altText = String(body.altText || "").trim().slice(0, 180);
   const placement = TOOLS.has(body.placement) ? body.placement : "sitewide";
   const days = Number(body.days);

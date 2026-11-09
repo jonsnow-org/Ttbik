@@ -35,7 +35,7 @@ const T = {
 
 export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const t = T[lang];
-  const [text, setText] = useState("https://ttbik.vercel.app");
+  const [text, setText] = useState("https://ttbik-gate.jonsnowx1r.workers.dev");
   const [size, setSize] = useState<(typeof SIZES)[number]>(256);
   const [fg, setFg] = useState("#0f172a");
   const [bg, setBg] = useState("#ffffff");

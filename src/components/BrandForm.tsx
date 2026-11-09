@@ -6,7 +6,7 @@ export default function BrandForm() {
   const [placement, setPlacement] = useState("qr-generator");
   const [name, setName] = useState("");
   const [color, setColor] = useState("#0f766e");
-  const [url, setUrl] = useState("https://ttbik.vercel.app");
+  const [url, setUrl] = useState("https://ttbik-gate.jonsnowx1r.workers.dev");
   const [code, setCode] = useState("");
   const [msg, setMsg] = useState("");
 
