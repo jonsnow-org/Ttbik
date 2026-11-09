@@ -125,7 +125,9 @@ def measure(model, text_tok, image_tok, imgs, caps, label: str, out_dir: Path, g
     res["gen_distinct_per_image"] = float(sum(int(x.unique().numel()) for x in g) / len(g))
     res["gen_adjacent_repeat"] = runs
     real_runs = float((ids[:, 1:] == ids[:, :-1]).float().mean())
-    print(f"  [{label}] ما يكتبه: رموز مختلفة في الصورة {res['gen_distinct_per_image']:.0f} من {c.tokens_per_image} (الصور الحقيقية {float(sum(int(x.unique().numel()) for x in ids) / len(ids)):.0f}) | تكرار الجار {runs:.2f} (الحقيقية {real_runs:.2f})")
+    real_distinct = float(sum(int(x.unique().numel()) for x in ids) / len(ids))
+    per_image = c.tokens_per_image
+    print(f"  [{label}] ما يكتبه: رموز مختلفة في الصورة {res['gen_distinct_per_image']:.0f} من {per_image} (الصور الحقيقية {real_distinct:.0f}) | تكرار الجار {runs:.2f} (الحقيقية {real_runs:.2f})")
     try:
         from PIL import Image
         with torch.no_grad():
@@ -215,7 +217,8 @@ def main() -> int:
             continue
         size = image_tok.cfg.image_size
         imgs = imgs256 if size == 256 else torch.nn.functional.interpolate(imgs256, size=(size, size), mode="area")
-        print(f"نقطة الحفظ {ckpt.name} خطوة {step:,} | مرمّز الصور خطوة {istep:,} ({size}px، {image_tok.cfg.tokens_per_image} رمزاً)")
+        per_image = image_tok.cfg.tokens_per_image
+        print(f"نقطة الحفظ {ckpt.name} خطوة {step:,} | مرمّز الصور خطوة {istep:,} ({size}px، {per_image} رمزاً)")
         measure(model, text_tok, image_tok, imgs, caps, name, OUT)
         del model
     return 0
