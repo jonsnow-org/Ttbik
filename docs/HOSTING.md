@@ -81,9 +81,23 @@
 | `NEXT_PUBLIC_*` تُخبز وقت البناء | أي تغيير لها يتطلب إعادة بناء الخادمين |
 | نسيان متغير بيئة على Oracle | `check-env.sh` و`env-audit.mjs` |
 
-## 9) One line of history (2026-10-24, owner's order: Oracle is primary, everything else is backup)
-Oracle builds `main`; Vercel builds the default branch `claude/free-services-marketplace-h6rwk2`. They had drifted (the same coder work landed on both as different commits, and Oracle served a build without the 10-23 terminal/stream routes). They were merged into one history on 2026-10-24 (both point at the same commit).
-Rule from now on: **land every change on `main` first** (that is what the primary serves), then move the default branch to the same commit (`git push origin main:claude/free-services-marketplace-h6rwk2`, fast-forward only) so the Vercel backup is never behind. Never commit to only one of them. Check: `curl -s -o /dev/null -w '%{http_code}' https://<gate>/api/coder/terminal` must answer 401 on both Oracle and Vercel (404 = that server is on an old build).
+## 9) Branch and deployment source of truth (updated 2026-11-09)
+
+Oracle is the primary site behind the Cloudflare gate. The code source and deployment mirror have distinct roles:
+
+- `claude/free-services-marketplace-h6rwk2` is the protected default branch and the **canonical code source**. PRs for normal product work target this branch.
+- `main` is an automatically maintained deployment mirror. The Oracle updater and the Cloudflare `site-gate` Workers Build follow `main`.
+- Vercel follows the default branch as a standby when that service is available. It is not the primary, and its deployment status does not determine whether Oracle is current.
+
+After CI succeeds on the default branch, `.github/workflows/sync-main.yml` fast-forwards `main` to the exact same SHA, verifies branch parity, and waits for Oracle to report that SHA plus a healthy site build. There is no routine manual sync PR in either direction.
+
+The mirror is strict: if `main` contains commits not present in the default branch, the workflow fails without changing either ref. Recover by reviewing those main-only commits and opening a PR from `main` into `claude/free-services-marketplace-h6rwk2`; after that PR passes CI, the mirror workflow can restore exact equality. Never force-push either deployment ref or create an automatic one-sided merge commit to conceal a mismatch.
+
+For each release, verify these separately:
+1. The protected default branch contains the reviewed feature commit.
+2. `main` and the default branch compare as `identical`.
+3. The sync workflow confirms Oracle is serving the mirrored commit with a healthy site build.
+
 
 ## Database connections (2026-11-07)
 `src/lib/dbUrl.ts` reshapes `DATABASE_URL` at runtime: a Supabase **session-mode** pooler URL (`*.pooler.supabase.com`, port 5432) is used on the **transaction-mode** port 6543 with `pgbouncer=true`, one connection per instance. Reason: in session mode every warm serverless instance, Oracle container and script keeps one of only 15 sessions, so `EMAXCONNSESSION` (2026-10-18, 2026-11-03) happened with no customers at all. Nothing to change in Vercel/Oracle settings. To go back, set `PRISMA_SESSION_MODE=1`. Migrations and `pg_dump`/`psql` on Oracle (`deploy/oracle/agent/common.sh`) keep their own direct/session URLs.

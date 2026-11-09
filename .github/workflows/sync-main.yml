@@ -1,9 +1,9 @@
-name: Sync the production branch into main (so Oracle, which follows main, is never stale)
-# Why: the Cloudflare gate (cloudflare/site-gate) sends every Telegram webhook and Mini App request to the ORACLE server FIRST, and Oracle follows `main`
-# (deploy/oracle/agent/updater.sh); Vercel (the standby) follows this branch. Until 2026-10-28 `main` was 162 commits behind, so the live bot ran old code
-# (old make_media, "owners only" prompt) while Vercel had the fixes. After a green CI on this branch, `main` is moved forward to the same commit,
-# by a fast-forward when possible, otherwise by a plain merge commit of this branch into main (never a force-push). On a merge conflict the job fails visibly and
-# nothing is changed. Protected files that only `main` has changed (deploy/oracle/**, athar/**, cloudflare/**) stay as main has them: a merge never rewrites them.
+name: Mirror production into main and verify Oracle
+
+# The protected default branch is the canonical code source.
+# Oracle and the Cloudflare gate consume main as a deployment mirror.
+# Only fast-forward main when its complete history is already contained in production.
+# A main-only commit is branch divergence: fail visibly rather than create a hidden merge history.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -25,27 +25,29 @@ jobs:
         with:
           ref: claude/free-services-marketplace-h6rwk2
           fetch-depth: 0
-      - name: Fast-forward main
+      - name: Fast-forward main only when histories are aligned
         run: |
           set -eu
           git fetch -q origin main
           HEAD_SHA=$(git rev-parse HEAD)
-          if [ "$(git rev-parse origin/main)" = "$HEAD_SHA" ]; then echo "main is already at $HEAD_SHA"; exit 0; fi
-          if git merge-base --is-ancestor origin/main "$HEAD_SHA"; then
-            git push origin "$HEAD_SHA:refs/heads/main"
-            echo "main fast-forwarded to $HEAD_SHA"
-          else
-            git config user.name "sync-main"; git config user.email "sync-main@users.noreply.github.com"
-            git checkout -q -B main origin/main
-            if git merge --no-edit -m "Merge the production branch into main (sync, $HEAD_SHA)" "$HEAD_SHA"; then
-              git push origin main
-              echo "main now contains $HEAD_SHA (merge commit)"
-            else
-              git merge --abort || true
-              echo "::error::merge conflict between main and the production branch: nothing was changed. Merge main into the production branch by a PR."
+          MAIN_SHA=$(git rev-parse origin/main)
+          if [ "$MAIN_SHA" != "$HEAD_SHA" ]; then
+            if ! git merge-base --is-ancestor "$MAIN_SHA" "$HEAD_SHA"; then
+              echo "::error::Branch divergence detected: main contains commits that are not in the production branch."
+              echo "::error::No branch was changed. Open a recovery PR from main into claude/free-services-marketplace-h6rwk2, run CI, then let this mirror workflow retry."
               exit 1
             fi
+            git push origin "$HEAD_SHA:refs/heads/main"
+            echo "main fast-forwarded from $MAIN_SHA to $HEAD_SHA"
+          else
+            echo "main already matches production at $HEAD_SHA"
           fi
+          REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+          if [ "$REMOTE_MAIN" != "$HEAD_SHA" ]; then
+            echo "::error::Branch mirror verification failed: production=$HEAD_SHA main=$REMOTE_MAIN"
+            exit 1
+          fi
+          echo "Branch parity verified: production and main both point to $HEAD_SHA"
       - name: Wait for Oracle to report the synced main commit and a healthy site build
         shell: bash
         run: |

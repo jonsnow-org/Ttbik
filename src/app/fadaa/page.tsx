@@ -7,7 +7,7 @@ import "./fadaa-client.css";
 const FadaaApp = dynamic(() => import("@/components/fadaa/App"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-[100dvh] place-items-center bg-[#081b2b] text-[#f4fafb]">
+    <div className="grid min-h-[var(--tg-viewport-height,100dvh)] place-items-center bg-[#081b2b] text-[#f4fafb]">
       <div className="text-3xl font-bold" style={{ fontFamily: "Amiri, serif" }}>
         فضاء
       </div>
@@ -22,7 +22,6 @@ declare global {
         ready: () => void;
         expand: () => void;
         close?: () => void;
-        requestFullscreen?: () => void;
         disableVerticalSwipes?: () => void;
         setHeaderColor?: (c: string) => void;
         setBackgroundColor?: (c: string) => void;
@@ -44,11 +43,7 @@ export default function FadaaPage() {
       tg?.setBackgroundColor?.("#081b2b");
       tg?.setBottomBarColor?.("#102a3c");
       tg?.disableVerticalSwipes?.();
-      try {
-        tg?.requestFullscreen?.();
-      } catch {
-        /* older clients */
-      }
+      // Keep Telegram's native top bar visible and use its viewport CSS variables instead.
     } catch {
       /* outside Telegram */
     }
