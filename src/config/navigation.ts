@@ -62,6 +62,24 @@ export function chainsBotLink(id: string, username: string = CHAINS_BOT_USERNAME
   return payload ? `https://t.me/${(username || CHAINS_BOT_USERNAME).replace(/^@/, "")}?start=${payload}` : null;
 }
 
+/**
+ * Remittances and the channel exchange live inside the platform bot (@Sham_test0_bot) and its own Mini App (owner, phase 5):
+ * the site bot links there with a t.me deep link (/start remit, /start exchange open that Mini App section).
+ */
+export const REMIT_BOT_USERNAME = "Sham_test0_bot";
+export const IN_REMIT_BOT: Partial<Record<(typeof SERVICE_LINKS)[number]["id"], string>> = { remit: "remit", channels: "exchange" };
+/**
+ * The site bot's (@Admen10bot) «🧭 خدمات وأرباح» (owner, phase 5): every entry opens the bot that hosts it; the free channel audit
+ * is dropped. «📣 أعلن على الموقع» is the site bot's own service (the site Mini App), so it stays a site page.
+ */
+export const SITE_BOT_SERVICE_IDS = ["remit", "channels", "advertise", "khatma", "contests", "shop"] as const;
+/** Deep link into the bot that hosts a service (khatma/contests → chains bot, shops → store bot, remit/channels → platform bot), else null. */
+export function serviceBotLink(id: string, chainsBot: string = CHAINS_BOT_USERNAME): string | null {
+  const remit = IN_REMIT_BOT[id as keyof typeof IN_REMIT_BOT];
+  if (remit) return `https://t.me/${REMIT_BOT_USERNAME}?start=${remit}`;
+  return chainsBotLink(id, chainsBot);
+}
+
 export const SIDEBAR_SERVICES_SECTION: NavSection = {
   label: "خدمات وأرباح",
   links: SERVICE_LINKS.map((s) => ({ id: s.id, href: s.href, label: s.label })),

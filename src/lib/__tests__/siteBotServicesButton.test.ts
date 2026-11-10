@@ -25,19 +25,26 @@ const sent = () => tg.filter((c) => c.method === "sendMessage").map((c) => c.bod
 beforeEach(() => { tg.length = 0; delete process.env.TELEGRAM_WEBHOOK_SECRET; process.env.SITE_BOT_TOKEN = "t"; });
 
 describe("site bot services entry point", () => {
-  it.each([SERVICES_BUTTON, "/services", "/services@Admen10bot"])("%s → one message: web_app buttons for the services, khatma & contests → @Slaselbot, shops → @Saragptbotbot", async (text) => {
+  it.each([SERVICES_BUTTON, "/services", "/services@Admen10bot"])("%s → one message: every entry opens the bot that hosts it (phase 5)", async (text) => {
     await hook(text);
     const msgs = sent();
     expect(msgs).toHaveLength(1);
     const buttons = msgs[0].reply_markup.inline_keyboard.flat();
-    expect(buttons).toHaveLength(SERVICE_LINKS.length);
     const links = buttons.filter((b: any) => b.url).map((b: any) => b.url).sort();
-    expect(links).toEqual(["https://t.me/Saragptbotbot?start=shops", "https://t.me/Slaselbot?start=contest", "https://t.me/Slaselbot?start=khatma"]);
+    expect(links).toEqual([
+      "https://t.me/Saragptbotbot?start=shops",
+      "https://t.me/Sham_test0_bot?start=exchange",
+      "https://t.me/Sham_test0_bot?start=remit",
+      "https://t.me/Slaselbot?start=contest",
+      "https://t.me/Slaselbot?start=khatma",
+    ]);
+    // the only site page left is the site bot's own «📣 أعلن على الموقع» (its site Mini App); the free channel audit is gone
     const urls = buttons.filter((b: any) => b.web_app).map((b: any) => b.web_app.url);
-    expect(urls).toHaveLength(SERVICE_LINKS.length - 3);
-    expect(urls.some((u: string) => u.includes("/shop"))).toBe(false);
-    for (const u of urls) expect(u).toMatch(/^https:\/\/.+\?src=tg$/);
-    for (const u of urls.slice(0, 4)) expect(u).toMatch(/\/(advertise|channels|channel-audit|remit)\?/);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^https:\/\/.+\/advertise\?src=tg$/);
+    expect(JSON.stringify(buttons)).not.toMatch(/channel-audit|فحص قناة|\/remit\?|\/channels\?|\/khatma\?|\/contests\?|\/shop\?/);
+    expect(JSON.stringify(buttons)).not.toContain(GETBOT_BUTTON);
+    expect(buttons[0].url).toBe("https://t.me/Sham_test0_bot?start=remit");
     expect(msgs[0].text).toContain("المنصة");
   });
   it("/start: help text with the services button in the reply keyboard, then the services", async () => {
@@ -45,7 +52,7 @@ describe("site bot services entry point", () => {
     const [help, services] = sent();
     expect(help.text).toContain(SERVICES_BUTTON);
     expect(help.reply_markup.keyboard.flat().map((b: any) => b.text)).toContain(SERVICES_BUTTON);
-    expect(services.reply_markup.inline_keyboard.flat().length).toBe(SERVICE_LINKS.length);
+    expect(services.reply_markup.inline_keyboard.flat().length).toBe(SERVICE_LINKS.length - 1); // no channel audit
   });
   it("any other text keeps the reply keyboard (now with the button) and names it", async () => {
     await hook("مرحبا");
