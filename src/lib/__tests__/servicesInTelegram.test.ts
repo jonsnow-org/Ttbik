@@ -34,11 +34,19 @@ describe("services keyboard", () => {
 
 describe("entry points in the existing bots and the media Mini App", () => {
   const lib = (f: string) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
-  it.each([["streakBotLogic.ts", "khatma"], ["jobsBotLogic.ts", "shop"], ["adBotLogic.ts", "advertise"]])("%s: menu button + handler", (f, first) => {
+  it.each([["streakBotLogic.ts", "khatma"], ["jobsBotLogic.ts", "shop"]])("%s: menu button + handler", (f, first) => {
     const src = lib(f);
     expect(src).toMatch(/\.text\(SERVICES_BUTTON\)/);
     expect(src).toMatch(/if \(isServicesRequest\(text\)\)/);
     expect(src).toContain(`sendServices(bot, chatId, ["${first}"`);
+  });
+  it("ads & earn bots: no site-services button in the menu; /services opens the bot's own Mini App", () => {
+    const src = lib("adBotLogic.ts");
+    expect(src).not.toMatch(/\.text\(SERVICES_BUTTON\)/);
+    expect(src).not.toMatch(/\.text\(GETBOT_BUTTON\)/);
+    expect(src).not.toContain("sendServices(");
+    expect(src).toMatch(/if \(isServicesRequest\(text\)\)/);
+    expect(src).toContain('botAppUrl(gateUrl(), botRow.id)');
   });
   it("media Mini App profile lists the services", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "..", "app", "mini-app", "page.tsx"), "utf8");

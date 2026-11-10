@@ -1,35 +1,18 @@
-import type { Metadata } from "next";
-import { SERVICE_LINKS } from "@/config/navigation";
-import { botParam } from "@/lib/remit/remit";
-import { ownerBotGetbotLink } from "@/lib/builderOwnerBot";
+import type { Metadata, Viewport } from "next";
+import { appSection, remitPayPayload } from "@/lib/botApp/buttons";
+import BotMiniApp from "./BotMiniApp";
 
-// The Mini App of the ads & earn builder's bots (AD_BOT template: the owner bot and supervisor bots), open to every user. It lists the platform's services (remittances, channel exchange and audit, advertising, khatma,
-// group contests, shops) as in-app pages; each one is tagged with the bot that opened it (?bot=<id>, e.g. remittance commission stats).
+// The Mini App of the ads & earn builder's bots (AD_BOT template: the owner bot and supervisor bots). A standalone Telegram app:
+// the bot's own ad system (watch & earn, create an ad, my ads, wallet, referrals, stats) plus USDT remittances and the channels &
+// groups exchange. Every call goes to /api/bot-app/<botId>, which proves the user with initData signed by THIS bot's token.
+// No site header, nav or footer (see the /bot-app branch in src/app/layout.tsx) and no links into the website.
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "خدمات وأرباح المنصة", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "التطبيق", robots: { index: false, follow: false } };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1, userScalable: false, viewportFit: "cover" };
 
-export default async function BotAppPage({ params }: { params: Promise<{ botId: string }> }) {
+export default async function BotAppPage({ params, searchParams }: { params: Promise<{ botId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { botId } = await params;
-  const bot = botParam(botId);
-  const getbot = await ownerBotGetbotLink().catch(() => null);
-  const tag = (href: string) => `${href}?${bot ? `bot=${encodeURIComponent(bot)}&` : ""}src=tg`;
-  return (
-    <main className="mx-auto max-w-xl px-3 py-5 text-slate-700" dir="rtl" lang="ar">
-      <h1 className="text-xl font-extrabold text-slate-900">🧭 خدمات وأرباح المنصة</h1>
-      <p className="mt-1 text-sm leading-7">كل خدمات المنصة تفتح هنا داخل تيليجرام.</p>
-      <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {SERVICE_LINKS.map((s) => (
-          <li key={s.id}>
-            <a href={tag(s.href)} className="block rounded-2xl border bg-white p-4 shadow-sm hover:border-indigo-400">
-              <div className="font-extrabold text-slate-900">{s.label}</div>
-              <div className="mt-1 text-xs leading-6 text-slate-500">{s.desc}</div>
-            </a>
-          </li>
-        ))}
-      </ul>
-      {getbot && (
-        <a href={getbot} className="mt-4 block rounded-2xl bg-slate-900 p-4 text-center font-extrabold text-white">🤖 احصل على بوت مشابه</a>
-      )}
-    </main>
-  );
+  const sp = await searchParams;
+  const pay = typeof sp.pay === "string" ? remitPayPayload(`pay_${sp.pay}`) : null;
+  return <BotMiniApp botId={botId} section={appSection(sp.s)} pay={pay} />;
 }
