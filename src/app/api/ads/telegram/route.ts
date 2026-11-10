@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { activateAd, bannerBalance, findAdmenBot } from "@/lib/siteAds";
+import { activateAd, adStars, bannerBalance, findAdmenBot, markSiteAdPaid, SITE_AD_STARS_PREFIX, siteAdStarsEnabled } from "@/lib/siteAds";
 import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
 
@@ -32,6 +32,36 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ callback_query_id: id, text }),
     });
   };
+
+  // ⭐ Stars checkout for site ads: approve only a live, unpaid order at its full price…
+  const pcq = update?.pre_checkout_query;
+  if (pcq) {
+    const payload = String(pcq.invoice_payload || "");
+    let ok = false;
+    if (payload.startsWith(SITE_AD_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
+      const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: payload.slice(SITE_AD_STARS_PREFIX.length) } }).catch(() => null);
+      ok = !!ad && ad.paymentStatus !== "PAID" && ad.adStatus !== "REJECTED" && Number(pcq.total_amount) >= adStars(ad.totalPrice);
+    }
+    await fetch(`https://api.telegram.org/bot${bot.token}/answerPreCheckoutQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(ok ? { pre_checkout_query_id: pcq.id, ok: true } : { pre_checkout_query_id: pcq.id, ok: false, error_message: "الطلب غير متاح للدفع (مدفوع مسبقاً أو غير موجود)." }),
+    }).catch(() => null);
+    return NextResponse.json({ ok: true });
+  }
+  // …and credit it when Telegram confirms (only on a webhook verified by the secret token).
+  const sp = update?.message?.successful_payment;
+  if (sp && String(sp.invoice_payload || "").startsWith(SITE_AD_STARS_PREFIX)) {
+    if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
+    const code = String(sp.invoice_payload).slice(SITE_AD_STARS_PREFIX.length);
+    const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } }).catch(() => null);
+    if (ad && Number(sp.total_amount) >= adStars(ad.totalPrice)) {
+      const r = await markSiteAdPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
+      const report = adReportUrl(code);
+      await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐) للإعلان ${code}.${r.first ? " يُراجع الآن ثم يُفعَّل." : ""}${report ? `\n📊 تقرير المشاهدات والنقرات:\n${report}` : ""}`).catch(() => null);
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   if (!callback) {
     const text = String(update?.message?.text || "");

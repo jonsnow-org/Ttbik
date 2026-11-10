@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
+import { siteAdStarsInvoice } from "@/lib/siteAds";
+import { gateUrl } from "@/lib/hostingOps";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const code = String(body.code || "").trim().toUpperCase();
-  const method = body.method === "usdt" ? "usdt" : "nowpayments";
+  const method = body.method === "usdt" ? "usdt" : body.method === "stars" ? "stars" : "nowpayments";
   const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
   if (!ad) return NextResponse.json({ error: "الكود غير موجود." }, { status: 404 });
   if (ad.paymentStatus === "PAID") return NextResponse.json({ error: "هذا الحجز مدفوع." }, { status: 400 });
 
+  if (method === "stars") {
+    // ⭐ opens in Telegram; the Admen bot confirms the payment and the ad goes to review automatically
+    const r = await siteAdStarsInvoice(ad);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json({ invoiceUrl: r.link, stars: r.stars, code });
+  }
   if (method === "usdt") {
     return NextResponse.json({
       manual: true,
@@ -23,7 +31,8 @@ export async function POST(req: NextRequest) {
   if (!isNowPaymentsConfigured()) {
     return NextResponse.json({ error: "فاتورة العملات غير مفعّلة. اختر تحويل USDT." }, { status: 400 });
   }
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  // the IPN must reach the live engine: never the paused vercel.app address
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || gateUrl()).replace(/\/$/, "");
   const result = await createInvoice({
     priceAmount: ad.totalPrice,
     orderId: code,

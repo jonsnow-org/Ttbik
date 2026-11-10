@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { makeCode, planFor } from "@/lib/siteAds";
+import { SPONSOR_TOOL_IDS as TOOLS } from "@/lib/sponsorTools";
 
-const TOOLS = new Set(["qr-generator", "bmi-calculator", "guess-word"]);
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));

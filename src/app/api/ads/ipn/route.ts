@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
-import { creditBanner, notifyAdmin } from "@/lib/siteAds";
+import { markSiteAdPaid } from "@/lib/siteAds";
 
 // NOWPayments IPN for site banners (ADV-…).
 // Hardened 2026-11-10:
@@ -24,14 +24,6 @@ export async function POST(req: NextRequest) {
   if (!ad) return NextResponse.json({ ok: true, ignored: "unknown order" });
   const paid = Number(body.price_amount);
   if (Number.isFinite(paid) && paid + 0.01 < ad.totalPrice) return NextResponse.json({ ok: true, ignored: "underpaid" });
-  // Only the first PENDING → PAID transition moves the ad to review and notifies the admin.
-  const moved = await prisma.siteBannerAd.updateMany({
-    where: { reservationCode: code, paymentStatus: { not: "PAID" } },
-    data: { paymentStatus: "PAID", adStatus: "PENDING_APPROVAL" },
-  });
-  await creditBanner(code).catch(() => null);
-  if (moved.count === 1) {
-    await notifyAdmin(`دُفع بنر ${code}\n${ad.totalPrice}$ لمدة ${ad.durationDays} يوم\n${ad.targetUrl}`, code).catch(() => null);
-  }
-  return NextResponse.json({ ok: true, duplicate: moved.count === 0 });
+  const r = await markSiteAdPaid(code, "NOWPayments");
+  return NextResponse.json({ ok: true, duplicate: !r.first });
 }

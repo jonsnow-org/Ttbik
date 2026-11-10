@@ -19,7 +19,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
   const [code, setCode] = useState("");
   const [report, setReport] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [method, setMethod] = useState<"nowpayments" | "usdt">("nowpayments");
+  const [method, setMethod] = useState<"nowpayments" | "usdt" | "stars">("nowpayments");
   const [msg, setMsg] = useState("");
   const price = useMemo(() => PLANS.find((p) => p.days === days)?.price || 0, [days]);
 
@@ -75,7 +75,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-4">
+    <div id="order" className="mx-auto max-w-xl space-y-4">
       <div className="flex flex-wrap gap-2">
         {([["image", ar ? "صورة" : "Image"], ["video", ar ? "فيديو قصير" : "Short video"], ["code", ar ? "نص وكود" : "Text"]] as const).map(([id, label]) => (
           <button key={id} type="button" onClick={() => setKind(id)} className={`rounded-full px-3 py-1 text-sm font-bold ${kind === id ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{label}</button>
@@ -109,6 +109,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
           <p className="font-extrabold">{code}</p>
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={() => setMethod("nowpayments")} className={`rounded-full px-3 py-1 text-sm font-bold ${method === "nowpayments" ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{ar ? "عملات رقمية" : "Crypto"}</button>
+            <button type="button" onClick={() => setMethod("stars")} className={`rounded-full px-3 py-1 text-sm font-bold ${method === "stars" ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{ar ? `⭐ نجوم تيليجرام (${Math.ceil(price * 100)})` : `⭐ Telegram Stars (${Math.ceil(price * 100)})`}</button>
             <button type="button" onClick={() => setMethod("usdt")} className={`rounded-full px-3 py-1 text-sm font-bold ${method === "usdt" ? "bg-slate-900 text-white" : "bg-slate-100"}`}>USDT</button>
           </div>
           <button type="button" onClick={pay} className="mt-3 rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white">{ar ? "متابعة الدفع" : "Continue"}</button>
