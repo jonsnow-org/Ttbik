@@ -13,7 +13,7 @@ const db: any = {
     findMany: jest.fn(async ({ where }: any) => profiles.filter((p) => p.gender === where.gender && p.userId !== where.userId.not)),
   },
   partnerPreference: { findUnique: jest.fn(async () => ({ country: "الأردن", ageMin: 24, ageMax: 30 })) },
-  matchBlock: { findMany: jest.fn(async () => []) },
+  matchBlock: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
   $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...v: unknown[]) => {
     const q = strings.join("?");
     if (q.includes("FROM match_matchmaker_sent")) return [...sent].filter((k) => k.startsWith(`${v[0]}:`)).map((k) => ({ profile_id: k.split(":")[1] }));
@@ -117,7 +117,7 @@ describe("a new request reaches the admin with ready profiles", () => {
     const bot = mkBot();
     await consumeMatchmakerNote(bot, 123, "123", "7", "أبحث عن شريكة من الأردن بين 24 و30");
     const toAdmin = bot.api.sendMessage.mock.calls.filter((c: any[]) => c[0] === 999).map((c: any[]) => c[1]);
-    expect(toAdmin.some((t: string) => t.includes("لا يوجد الآن أي ملف") && t.includes("استرداد"))).toBe(true);
+    expect(toAdmin.some((t: string) => t.includes("لا يوجد الآن ملف معتمد مناسب") && t.includes("استرداد"))).toBe(true);
   });
   it("only the admin can send a suggestion", async () => {
     profiles.push(female("11111111-1111-4111-8111-111111111111", 27, "الأردن", 1));

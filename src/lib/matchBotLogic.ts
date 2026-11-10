@@ -29,11 +29,12 @@ import {
   PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D, PRICE_VIP_TRIAL, VIP_TRIAL_DAYS,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
   purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
-  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, grantReferralVip, purchaseVipTrial, vipTrialAvailable, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
+  purchaseByKey, purchaseRewind, recordPass, submitVerificationPhoto, isBuyNowKey, grantReferralVip, purchaseVipTrial, vipTrialAvailable, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
 import { sendOwnCard, ownCardInlineResults, cardReferrer, parseCardStart, showMatchmaker, buyMatchmaker, consumeMatchmakerNote, sendMatchmakerReply, listMatchmakerRequests, handleTrustCallback } from "@/lib/match/trust";
-import { CARD_BUTTON, MATCHMAKER_BUTTON, MATCHMAKER_STARS_KIND, isCardInlineQuery } from "@/lib/match/trustRules";
+import { CARD_BUTTON, MATCHMAKER_BUTTON, MATCHMAKER_STARS_KIND, affinityFactor, isCardInlineQuery, reciprocalFit } from "@/lib/match/trustRules";
+import { nextProfileStatus } from "@/lib/match/guardRules";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
@@ -165,14 +166,22 @@ const SKIP_LABEL = "⏭ غير محدد / لا يهم";
 function backLabel() {
   return "🔙 القائمة الرئيسية";
 }
+const MAIN_MENU_ROWS = [
+  ["👤 ملفي الشخصي", "💍 مواصفات الشريك"],
+  ["🔍 البحث عن شريك", "🔀 مراسلة عشوائية"],
+  ["💌 من أعجب بي", "ℹ️ معلومات"],
+  ["⭐ الترقيات والمزايا", CARD_BUTTON],
+  [MATCHMAKER_BUTTON],
+];
+/** Every main-menu label: a tap on one is navigation, never free text (e.g. the matchmaker note). */
+export const MAIN_MENU_LABELS: ReadonlySet<string> = new Set(MAIN_MENU_ROWS.flat());
 function mainMenu(): Keyboard {
-  return new Keyboard()
-    .text("👤 ملفي الشخصي").text("💍 مواصفات الشريك").row()
-    .text("🔍 البحث عن شريك").text("🔀 مراسلة عشوائية").row()
-    .text("💌 من أعجب بي").text("ℹ️ معلومات").row()
-    .text("⭐ الترقيات والمزايا").text(CARD_BUTTON).row()
-    .text(MATCHMAKER_BUTTON)
-    .resized();
+  const kb = new Keyboard();
+  MAIN_MENU_ROWS.forEach((row, i) => {
+    row.forEach((label) => kb.text(label));
+    if (i < MAIN_MENU_ROWS.length - 1) kb.row();
+  });
+  return kb.resized();
 }
 // Upgrade button labels. With the first-purchase discount (server-checked) the label shows the
 // discounted price; handlers accept BOTH variants (isUpgradeLabel), so old keyboards keep working.
@@ -454,7 +463,7 @@ async function saveProfile(bot: TelegramBot, chatId: number, userId: string, dat
   // an approved profile approved; only a previously REJECTED profile goes back
   // to manual review (so a rejection cannot be bypassed by re-saving).
   const existing = await prisma.matchProfile.findUnique({ where: { userId } });
-  const status = existing?.status === "REJECTED" ? "PENDING" : "APPROVED";
+  const status = nextProfileStatus(existing?.status);
   const sensitiveChanged =
     !existing || existing.name !== shared.name || (existing.attributes ?? null) !== shared.attributes || !!data.photoFileId || !!data.voiceFileId;
   await prisma.matchProfile.upsert({
@@ -689,6 +698,14 @@ function ageDistance(age: number, min: number | null | undefined, max: number | 
   if (max != null && age > max) return age - max;
   return 0;
 }
+async function safeRows<T>(q: () => Promise<T[]>): Promise<T[]> {
+  try {
+    const r = await q();
+    return Array.isArray(r) ? r : [];
+  } catch {
+    return [];
+  }
+}
 const SEARCH_POOL_LIMIT = 1500;
 const SEARCH_QUEUE_LIMIT = 300;
 
@@ -711,7 +728,8 @@ async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
 // The bot never passes it, so its search stays opposite-gender exactly as before.
 export async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false, genderMode?: "all" | Gender): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
-  const where = { status: "APPROVED", isHidden: false, ...(genderMode === "all" ? {} : { gender: genderMode ?? oppositeGender }), userId: { not: selfId }, user: { botId } };
+  // Banned members' profiles are excluded (they were still dealt into search and the Mini App deck).
+  const where = { status: "APPROVED", isHidden: false, ...(genderMode === "all" ? {} : { gender: genderMode ?? oppositeGender }), userId: { not: selfId }, user: { botId, isBanned: false } };
 
   const total = await prisma.matchProfile.count({ where });
   const candidates = await prisma.matchProfile.findMany({
@@ -742,6 +760,16 @@ export async function buildSearchQueue(botId: string, selfId: string, selfProfil
   ]);
   const seenSet = new Set(recentSeen.map((v) => v.ownerId));
   const countryOnly = await countryOnlyOwners(ids);
+  // What already happened between the two, and the candidates' own wishes (two-way fit). Read defensively:
+  // a failure here only drops the extra weighting, never the search.
+  const [likesOut, likesIn, theirPrefs] = await Promise.all([
+    safeRows(() => prisma.matchLike.findMany({ where: { fromUserId: selfId, toUserId: { in: ids } }, select: { toUserId: true } })),
+    safeRows(() => prisma.matchLike.findMany({ where: { toUserId: selfId, fromUserId: { in: ids } }, select: { fromUserId: true } })),
+    safeRows(() => prisma.partnerPreference.findMany({ where: { userId: { in: ids } }, select: { userId: true, country: true, ageMin: true, ageMax: true } })),
+  ]);
+  const likedByMe = new Set(likesOut.map((l) => l.toUserId));
+  const likedMe = new Set(likesIn.map((l) => l.fromUserId));
+  const prefOf = new Map(theirPrefs.map((p) => [p.userId, p]));
   const selfCountry = norm(selfProfile.country);
   const exposureOf = new Map(exposure.map((e) => [e.ownerId, e._count._all]));
 
@@ -776,6 +804,7 @@ export async function buildSearchQueue(botId: string, selfId: string, selfProfil
     // Recently refreshed profiles get a small lift so stale ones don't crowd the top.
     if (c.updated_at && now - new Date(c.updated_at).getTime() < 14 * 86400000) w *= 1.2;
     if (seenSet.has(c.userId)) w *= 0.35;
+    w *= affinityFactor({ likedByMe: likedByMe.has(c.userId), likedMe: likedMe.has(c.userId), fit: reciprocalFit(selfProfile, prefOf.get(c.userId)) });
     w *= Math.max(0.6, Math.min(1.6, 1.6 / (1 + (exposureOf.get(c.userId) || 0) / 25)));
 
     ranked.push({ id: c.userId, key: Math.pow(Math.random(), 1 / w) });
@@ -2860,14 +2889,15 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (msg.photo && pending?.mode === "verify_badge_photo") {
-    const charge = await chargeMatchUser(tgUserId, PRICE_VERIFIED_BADGE, "VERIFIED_BADGE");
-    if (!charge.ok) {
-      await setPending(tgUserId, null);
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_VERIFIED_BADGE, charge.balance), { reply_markup: upgradesMenu() });
-      return;
-    }
     const fileId = msg.photo[msg.photo.length - 1].file_id;
-    await prisma.matchProfile.update({ where: { userId: tgUserId }, data: { verificationStatus: "PENDING", verificationPhotoFileId: fileId } });
+    // Claim-then-charge: a second photo (album / double send) finds the review slot taken and is not charged again.
+    const sub = await submitVerificationPhoto(tgUserId, fileId);
+    if (!sub.ok) {
+      await setPending(tgUserId, null);
+      if (sub.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_VERIFIED_BADGE, sub.balance), { reply_markup: upgradesMenu() });
+      else if (sub.reason === "no_profile") await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: mainMenu() });
+      return; // "already": the first photo is already under review (its own confirmation was sent)
+    }
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "✅ تم استلام طلب التوثيق، سيصلك إشعار خلال 48 ساعة.", { reply_markup: mainMenu() });
     if (SUPER_ADMIN_ID) {
@@ -2929,8 +2959,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
 
   // «زواج بثقة» (2026-11-10): own shareable card + paid human matchmaker.
   if (pending?.mode === "mm_note") {
-    await consumeMatchmakerNote(bot, chatId, tgUserId, pending.reqId, text);
-    return;
+    if (!MAIN_MENU_LABELS.has(text)) {
+      await consumeMatchmakerNote(bot, chatId, tgUserId, pending.reqId, text);
+      return;
+    }
+    // A menu tap while the note is awaited used to be saved as the note itself ("👤 ملفي الشخصي" passes the
+    // 10-letter check) and sent to the admin as the request. Treat it as navigation: the paid request keeps
+    // waiting for its note, and «💍 خاطبة شخصية» asks for it again.
+    await setPending(tgUserId, null);
   }
   if (text === CARD_BUTTON || text === "/card") {
     await sendOwnCard(bot, botRow, chatId, tgUserId);

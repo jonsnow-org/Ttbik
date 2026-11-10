@@ -15,8 +15,10 @@ import { trackFunnel } from "@/lib/match/growth";
 import { sendStarsInvoice, starsPayload } from "@/lib/starsPayment";
 import {
   CARD_INLINE_QUERY, MATCHMAKER_INTRO, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER,
-  MATCHMAKER_CANDIDATES, cardLink, cardShareText, checkMatchmakerNote, parseCardStart, rankMatchmakerCandidates, shortfallStars, suggestCallback,
+  MATCHMAKER_CANDIDATES, cardLink, cardShareText, checkMatchmakerNote, parseCardStart, rankMatchmakerScored, shortfallStars, suggestCallback,
+  candidateWhyLine, emptyCandidatesText,
 } from "@/lib/match/trustRules";
+import { withShortLock, BUSY } from "@/lib/match/shortLock";
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
@@ -116,55 +118,102 @@ async function askForNote(bot: TelegramBot, chatId: number, userId: string, reqI
   ).catch(() => null);
 }
 
+export type MatchmakerBuy =
+  | { status: "no_profile" }
+  | { status: "open"; reqId: string; awaitingNote: boolean }
+  | { status: "created"; reqId: string }
+  | { status: "insufficient"; balance: number; stars: number }
+  | { status: "busy" };
+
+/**
+ * Shared by the bot («✅ اطلب الخاطبة», the Stars payment) and the Mini App: reuse an open request, or charge the
+ * balance and open a new one. Runs under a short per-user lock: two parallel taps (or a tap racing the Stars
+ * payment) used to both pass the «no open request» check and charge $5 twice for two requests.
+ */
+export async function buyMatchmakerCore(userId: string, botId: string): Promise<MatchmakerBuy> {
+  const r = await withShortLock(`mm:${userId}`, async (): Promise<MatchmakerBuy> => {
+    if (!(await approvedProfile(userId))) return { status: "no_profile" };
+    const open = await openRequestFor(userId);
+    if (open) return { status: "open", reqId: open.id, awaitingNote: open.status === "AWAITING_NOTE" };
+    const charge = await chargeMatchUser(userId, PRICE_MATCHMAKER, "MATCHMAKER");
+    if (!charge.ok) return { status: "insufficient", balance: charge.balance, stars: shortfallStars(PRICE_MATCHMAKER, charge.balance) };
+    await ensureTrustTables();
+    const paid = charge.charged ?? PRICE_MATCHMAKER;
+    const rows = await prisma.$queryRaw<{ id: bigint }[]>`
+      INSERT INTO match_matchmaker (user_id, bot_id, paid) VALUES (${userId}, ${botId}, ${paid}) RETURNING id`;
+    return { status: "created", reqId: String(rows[0].id) };
+  });
+  return r === BUSY ? { status: "busy" } : r;
+}
+
 /** «✅ اطلب الخاطبة»: charge the balance, or send a Stars invoice for the shortfall (MATCH_MM:<uid>). */
 export async function buyMatchmaker(bot: TelegramBot, botRow: BotRow, chatId: number, userId: string): Promise<void> {
-  if (!(await approvedProfile(userId))) {
+  void trackFunnel(userId, "purchase_attempt", "matchmaker", "bot");
+  const r = await buyMatchmakerCore(userId, botRow.id);
+  if (r.status === "busy") return; // the first tap is answering
+  if (r.status === "no_profile") {
     await bot.api.sendMessage(chatId, "⚠️ الخاطبة تحتاج ملفاً معتمداً حتى تعرف من تقترح له. أنشئ ملفك من «👤 ملفي الشخصي».").catch(() => null);
     return;
   }
-  const open = await openRequestFor(userId);
-  if (open) {
-    if (open.status === "AWAITING_NOTE") await askForNote(bot, chatId, userId, open.id);
-    else await bot.api.sendMessage(chatId, `⏳ عندك طلب خاطبة مفتوح (#${open.id}). سيصلك الرد خلال ${MATCHMAKER_SLA_HOURS} ساعة.`).catch(() => null);
+  if (r.status === "open") {
+    if (r.awaitingNote) await askForNote(bot, chatId, userId, r.reqId);
+    else await bot.api.sendMessage(chatId, `⏳ عندك طلب خاطبة مفتوح (#${r.reqId}). سيصلك الرد خلال ${MATCHMAKER_SLA_HOURS} ساعة.`).catch(() => null);
     return;
   }
-  void trackFunnel(userId, "purchase_attempt", "matchmaker", "bot");
-  const charge = await chargeMatchUser(userId, PRICE_MATCHMAKER, "MATCHMAKER");
-  if (!charge.ok) {
+  if (r.status === "insufficient") {
     await sendStarsInvoice(bot, chatId, {
       title: "💍 خاطبة شخصية",
       description: `إنسان من الفريق يقترح لك حتى 3 ملفات مناسبة خلال ${MATCHMAKER_SLA_HOURS} ساعة. يُعاد المبلغ إن لم نجد ملفاً مناسباً.`,
       payload: starsPayload(MATCHMAKER_STARS_KIND, userId),
-      stars: shortfallStars(PRICE_MATCHMAKER, charge.balance),
+      stars: r.stars,
     });
     return;
   }
-  await ensureTrustTables();
-  const paid = charge.charged ?? PRICE_MATCHMAKER;
-  const rows = await prisma.$queryRaw<{ id: bigint }[]>`
-    INSERT INTO match_matchmaker (user_id, bot_id, paid) VALUES (${userId}, ${botRow.id}, ${paid}) RETURNING id`;
   void trackFunnel(userId, "purchase_success", "matchmaker", "bot");
-  await askForNote(bot, chatId, userId, String(rows[0].id));
+  await askForNote(bot, chatId, userId, r.reqId);
 }
 
-/** The member's note (pending mode mm_note). Returns true when the message was consumed. */
-export async function consumeMatchmakerNote(bot: TelegramBot, chatId: number, userId: string, reqId: string, text: string): Promise<boolean> {
+/** The member's open request for the Mini App screen (null when none). */
+export async function matchmakerStatus(userId: string): Promise<{ reqId: string; status: string } | null> {
+  const open = await openRequestFor(userId);
+  return open ? { reqId: open.id, status: open.status } : null;
+}
+
+export type MatchmakerNoteResult = { status: "invalid"; message: string } | { status: "saved"; reqId: string } | { status: "stale" };
+/**
+ * Saves the note of an AWAITING_NOTE request and hands it to the admin with ready candidates. Only the call
+ * that actually moves the request to OPEN notifies the admin: a repeated note (double send, bot + app) used to
+ * re-announce the same request and resend its candidates.
+ */
+export async function submitMatchmakerNote(bot: TelegramBot, userId: string, reqId: string, text: string): Promise<MatchmakerNoteResult> {
   const check = checkMatchmakerNote(text, containsContactInfo);
   if (!check.ok) {
-    const why = check.reason === "contact" ? "⚠️ لا تضع أرقاماً أو حسابات تواصل في الطلب." : check.reason === "long" ? `⚠️ الحد ${MATCHMAKER_NOTE_MAX} حرف.` : "⚠️ اكتب وصفاً أوضح (10 أحرف على الأقل).";
-    await bot.api.sendMessage(chatId, why).catch(() => null);
-    return true;
+    const message = check.reason === "contact" ? "⚠️ لا تضع أرقاماً أو حسابات تواصل في الطلب." : check.reason === "long" ? `⚠️ الحد ${MATCHMAKER_NOTE_MAX} حرف.` : "⚠️ اكتب وصفاً أوضح (10 أحرف على الأقل).";
+    return { status: "invalid", message };
   }
   await ensureTrustTables();
-  await prisma.$executeRaw`UPDATE match_matchmaker SET note = ${check.note}, status = 'OPEN' WHERE id = ${BigInt(reqId)} AND user_id = ${userId} AND status = 'AWAITING_NOTE'`;
+  const n = await prisma.$executeRaw`UPDATE match_matchmaker SET note = ${check.note}, status = 'OPEN' WHERE id = ${BigInt(reqId)} AND user_id = ${userId} AND status = 'AWAITING_NOTE'`;
   await setUserPending(userId, null);
-  await bot.api.sendMessage(chatId, `✅ وصل طلبك (#${reqId}). ستصلك اقتراحات الخاطبة هنا خلال ${MATCHMAKER_SLA_HOURS} ساعة.`).catch(() => null);
+  if (n !== 1) return { status: "stale" };
   if (SUPER_ADMIN_ID) {
     const p = await prisma.matchProfile.findUnique({ where: { userId } });
     const card = p ? publicCardText(toPublicProfile(p)) : `#${userId.slice(-6)}`;
     await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `💍 طلب خاطبة جديد #${reqId}\n\n${card}\n\n📝 يبحث عن:\n${check.note}`, { reply_markup: adminKeyboard(reqId) }).catch(() => null);
     await sendCandidates(bot, Number(SUPER_ADMIN_ID), reqId);
   }
+  return { status: "saved", reqId };
+}
+
+/** The member's note (pending mode mm_note). Returns true when the message was consumed. */
+export async function consumeMatchmakerNote(bot: TelegramBot, chatId: number, userId: string, reqId: string, text: string): Promise<boolean> {
+  const r = await submitMatchmakerNote(bot, userId, reqId, text);
+  if (r.status === "invalid") {
+    await bot.api.sendMessage(chatId, r.message).catch(() => null);
+    return true;
+  }
+  await bot.api.sendMessage(chatId, r.status === "saved"
+    ? `✅ وصل طلبك (#${reqId}). ستصلك اقتراحات الخاطبة هنا خلال ${MATCHMAKER_SLA_HOURS} ساعة.`
+    : `✅ طلبك (#${reqId}) وصل من قبل، والخاطبة تعمل عليه. ستصلك الاقتراحات هنا.`).catch(() => null);
   return true;
 }
 
@@ -182,15 +231,36 @@ async function requestRow(reqId: string) {
   return r[0] ?? null;
 }
 
+/** Owners who chose «🌍 إظهار ملفي لدولتي فقط» (read defensively, like the bot's search). */
+async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  try {
+    const rows = await prisma.matchProfilePrivacy.findMany({ where: { userId: { in: ids }, countryOnly: true }, select: { userId: true } });
+    return new Set(rows.map((r) => r.userId));
+  } catch {
+    return new Set();
+  }
+}
+const sameCountry = (a: string | null | undefined, b: string | null | undefined) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+async function rows<T>(q: Promise<T[]> | undefined): Promise<T[]> {
+  try {
+    const r = await q;
+    return Array.isArray(r) ? r : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * The best approved profiles for one request (opposite gender, same bot, visible, not banned, no block either way,
- * not already suggested), ranked by the requester's partner preferences, the note and recent activity.
+ * not already suggested, not hidden from the requester's country by «لدولتي فقط», not already liked by the requester),
+ * ranked by both sides' partner preferences, the note, an earlier like from the candidate, the ☑️ badge and recent activity.
  */
 export async function findMatchmakerCandidates(reqId: string) {
   const row = await requestRow(reqId);
   if (!row) return null;
   const me = await prisma.matchProfile.findUnique({ where: { userId: row.user_id }, include: { user: { select: { botId: true } } } });
-  if (!me) return { row, list: [] };
+  if (!me) return { row, list: [], why: new Map<string, string>(), alreadySent: 0, counts: { pool: 0, sent: 0, liked: 0, hidden: 0 } };
   const want = me.gender === "MALE" ? "FEMALE" : "MALE";
   const [pref, pool, blocks, sent] = await Promise.all([
     prisma.partnerPreference.findUnique({ where: { userId: row.user_id } }),
@@ -203,15 +273,37 @@ export async function findMatchmakerCandidates(reqId: string) {
     prisma.matchBlock.findMany({ where: { OR: [{ blockerId: row.user_id }, { blockedId: row.user_id }] }, select: { blockerId: true, blockedId: true } }),
     prisma.$queryRaw<{ profile_id: string }[]>`SELECT profile_id FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)}`,
   ]);
+  const ids = pool.map((p) => p.userId);
+  const [countryOnly, likesOut, likesIn, passes, prefs] = await Promise.all([
+    countryOnlyOwners(ids),
+    rows(prisma.matchLike?.findMany({ where: { fromUserId: row.user_id, toUserId: { in: ids } }, select: { toUserId: true } })),
+    rows(prisma.matchLike?.findMany({ where: { toUserId: row.user_id, fromUserId: { in: ids } }, select: { fromUserId: true } })),
+    rows(prisma.$queryRaw<{ target_id: string }[]>`SELECT target_id FROM match_app_passes_log WHERE user_id = ${row.user_id}`),
+    rows(prisma.partnerPreference.findMany?.({ where: { userId: { in: ids } }, select: { userId: true, country: true, ageMin: true, ageMax: true } })),
+  ]);
   const blocked = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
   const done = new Set(sent.map((x) => x.profile_id));
-  const fresh = pool.filter((p) => !blocked.has(p.userId) && !done.has(p.id));
-  const ranked = rankMatchmakerCandidates(
-    { userId: row.user_id, gender: me.gender, pref, note: row.note },
-    fresh.map((p) => ({ ...p, lastActiveAt: p.user.lastActiveAt })),
+  const liked = new Set(likesOut.map((l) => l.toUserId));
+  const likedMe = new Set(likesIn.map((l) => l.fromUserId));
+  const passed = new Set(passes.map((p) => p.target_id));
+  const prefOf = new Map(prefs.map((p) => [p.userId, p]));
+  const counts = { pool: pool.length, sent: 0, liked: 0, hidden: 0 };
+  const fresh = pool.filter((p) => {
+    if (done.has(p.id)) { counts.sent++; return false; }
+    if (blocked.has(p.userId) || (countryOnly.has(p.userId) && !sameCountry(p.country, me.country))) { counts.hidden++; return false; }
+    if (liked.has(p.userId)) { counts.liked++; return false; } // the requester already reached out — not news to them
+    return true;
+  });
+  const ranked = rankMatchmakerScored(
+    { userId: row.user_id, gender: me.gender, age: me.age, country: me.country, pref, note: row.note },
+    fresh.map((p) => ({
+      ...p, lastActiveAt: p.user.lastActiveAt, verified: p.verificationStatus === "VERIFIED",
+      pref: prefOf.get(p.userId) ?? null, likedRequester: likedMe.has(p.userId), passedByRequester: passed.has(p.userId),
+    })),
   );
   const byId = new Map(fresh.map((p) => [p.id, p]));
-  return { row, list: ranked.map((c) => byId.get(c.id)!).filter(Boolean), alreadySent: done.size };
+  const why = new Map(ranked.map((x) => [x.c.id, candidateWhyLine(x.why)]));
+  return { row, list: ranked.map((x) => byId.get(x.c.id)!).filter(Boolean), why, alreadySent: done.size, counts };
 }
 
 /** Admin: the ranked candidates as cards, each with a one-tap «📤 اقترح» that sends it to the requester. */
@@ -222,16 +314,15 @@ export async function sendCandidates(bot: TelegramBot, adminChatId: number, reqI
     return;
   }
   if (!found.list.length) {
-    await bot.api.sendMessage(adminChatId,
-      `⚠️ لا يوجد الآن أي ملف معتمد مناسب لطلب #${reqId}${found.alreadySent ? ` (أُرسل له ${found.alreadySent} من قبل)` : ""}.\nإن لم تجد يدوياً، اضغط «↩️ استرداد» ليعود المبلغ لرصيده.`,
-      { reply_markup: adminKeyboard(reqId) }).catch(() => null);
+    await bot.api.sendMessage(adminChatId, emptyCandidatesText(reqId, { ...found.counts, sent: Math.max(found.counts.sent, found.alreadySent) }), { reply_markup: adminKeyboard(reqId) }).catch(() => null);
     return;
   }
-  await bot.api.sendMessage(adminChatId, `🔎 أفضل ${found.list.length} ملفات لطلب #${reqId} (حسب مواصفاته وطلبه ونشاط الملف). اضغط «📤 اقترح» تحت الملف ليصل إليه فوراً:`).catch(() => null);
+  await bot.api.sendMessage(adminChatId, `🔎 أفضل ${found.list.length} ملفات لطلب #${reqId} (حسب مواصفات الطرفين وطلبه ونشاط الملف)${found.alreadySent ? ` — أُرسل له ${found.alreadySent} من قبل ولن تتكرر` : ""}. اضغط «📤 اقترح» تحت الملف ليصل إليه فوراً:`).catch(() => null);
   for (const p of found.list.slice(0, MATCHMAKER_CANDIDATES)) {
     const days = p.user.lastActiveAt ? Math.floor((Date.now() - p.user.lastActiveAt.getTime()) / 86400_000) : null;
     const active = days === null ? "" : days <= 0 ? "\n🟢 نشط اليوم" : `\n🕒 آخر نشاط قبل ${days} يوم`;
-    await bot.api.sendMessage(adminChatId, `${publicCardText(toPublicProfile(p))}${active}`, {
+    const why = found.why.get(p.id);
+    await bot.api.sendMessage(adminChatId, `${publicCardText(toPublicProfile(p))}${active}${why ? `\n${why}` : ""}`, {
       reply_markup: new InlineKeyboard().text(`📤 اقترح هذا الملف لطلب #${reqId}`, suggestCallback(reqId, p.id)),
     }).catch(() => null);
   }
@@ -243,6 +334,16 @@ export async function sendSuggestion(bot: TelegramBot, botRow: BotRow, reqId: st
   if (!row || row.status !== "OPEN") return "closed";
   const p = await prisma.matchProfile.findUnique({ where: { id: profileId }, include: { user: { select: { botId: true, isBanned: true } } } });
   if (!p || p.status !== "APPROVED" || p.isHidden || p.user.isBanned || p.user.botId !== botRow.id || p.userId === row.user_id) return "gone";
+  // Re-checked at send time (the list may be hours old): a block either way, a banned requester, or
+  // «لدولتي فقط» set since then must stop the card, exactly like the bot's own search.
+  const [requester, block, privateToCountry] = await Promise.all([
+    prisma.matchProfile.findUnique({ where: { userId: row.user_id }, include: { user: { select: { isBanned: true } } } }),
+    prisma.matchBlock.findFirst({ where: { OR: [{ blockerId: row.user_id, blockedId: p.userId }, { blockerId: p.userId, blockedId: row.user_id }] } }).catch(() => "unknown" as const),
+    countryOnlyOwners([p.userId]),
+  ]);
+  if (block === "unknown") return "failed"; // fail closed: never send a card when the block check could not run
+  if (!requester || requester.user?.isBanned || block) return "gone";
+  if (privateToCountry.has(p.userId) && !sameCountry(p.country, requester.country)) return "gone";
   const n = await prisma.$executeRaw`INSERT INTO match_matchmaker_sent (req_id, profile_id) VALUES (${BigInt(reqId)}, ${profileId}) ON CONFLICT DO NOTHING`;
   if (n !== 1) return "dup";
   const sent = await bot.api.sendMessage(Number(row.user_id), `💍 اقتراح من الخاطبة (طلب #${reqId}):\n\n${publicCardText(toPublicProfile(p))}\n\nإن أعجبك، اطلب دردشة مجهولة أو أرسل إعجاباً من الأزرار.`, {
@@ -254,6 +355,11 @@ export async function sendSuggestion(bot: TelegramBot, botRow: BotRow, reqId: st
   }
   await prisma.$executeRaw`UPDATE match_matchmaker SET replies = replies + 1 WHERE id = ${BigInt(reqId)}`;
   return "sent";
+}
+
+async function suggestedCount(reqId: string): Promise<number> {
+  const r = await rows(prisma.$queryRaw<{ n: unknown }[]>`SELECT count(*)::int AS n FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)}`);
+  return Number(r[0]?.n ?? 0) || 0;
 }
 
 /** Admin text after «📨 أرسل اقتراحاً» (admin pending mode mm_reply). */
@@ -308,7 +414,8 @@ export async function handleTrustCallback(bot: TelegramBot, botRow: BotRow, cq: 
   }
   if (kind === "mm_sug") {
     const r = /^[0-9a-fA-F-]{36}$/.test(extra || "") ? await sendSuggestion(bot, botRow, reqId, extra.toLowerCase()) : "gone";
-    await ack({ sent: "✅ وصل الاقتراح", closed: "الطلب مغلق", gone: "الملف لم يعد متاحاً", dup: "أُرسل هذا الملف من قبل", failed: "تعذّر الإرسال" }[r]);
+    const count = r === "sent" ? await suggestedCount(reqId) : 0;
+    await ack(r === "sent" && count ? `✅ وصل الاقتراح (${count} حتى الآن)${count >= 3 ? " — اضغط «✅ أُنجز» عند الانتهاء" : ""}` : { sent: "✅ وصل الاقتراح", closed: "الطلب مغلق", gone: "الملف لم يعد متاحاً لهذا الطلب", dup: "أُرسل هذا الملف من قبل", failed: "تعذّر الإرسال" }[r]);
     return true;
   }
   if (kind === "mm_msg") {

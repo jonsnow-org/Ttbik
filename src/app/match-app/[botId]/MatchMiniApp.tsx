@@ -799,6 +799,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     onUsed();
   };
   const [deck, setDeck] = useState<Card[] | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const [strict, setStrict] = useState(false);
   const [gender, setGender] = useState<"" | "MALE" | "FEMALE">(me?.cardGender?.gender || "");
   const [photos, setPhotos] = useState<Record<string, string>>({});
@@ -815,6 +816,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     setDeck(null);
     const r = await api("discover", { strict });
     if (!r.ok) { say(r.error, "error"); setDeck([]); return; }
+    setHint(r.hint ?? null);
     setDeck(r.items);
   }, [api, say, strict, gender]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
@@ -877,10 +879,12 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   if (!deck) return <div>{strictBar}<DeckSkeleton /></div>;
   if (deck.length === 0) return (
     <div>{strictBar}
-      <Empty icon="✨" text="شاهدت كل المطابقات الحالية. جرّب أحد هذه الخيارات:" action="🔄 تحديث" onAction={load} />
+      <Empty icon="✨" text={hint === "strict" ? "🎯 البحث الدقيق لم يجد ملفاً يطابق كل مواصفاتك الآن. أوقفه لترى الأقرب إليها، أو وسّع المعايير:" : hint === "gender" ? "لا توجد بطاقات جديدة بفلتر الجنس الحالي. اختر «👫 الكل» أو جرّب لاحقاً:" : hint === "empty" ? "لا توجد ملفات ظاهرة حالياً — تُضاف ملفات جديدة يومياً. جرّب أحد هذه الخيارات:" : "شاهدت كل المطابقات الحالية. جرّب أحد هذه الخيارات:"} action="🔄 تحديث" onAction={load} />
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
         {canRewind && <button onClick={rewind} className={`rounded-2xl p-3 ${GLASS}`}>↩️ استرجاع آخر ملف<span className="block text-[10px] text-white/45">${me?.rewindPrice ?? 0.5}</span></button>}
+        {strict && <button onClick={() => { haptic("select"); setStrict(false); }} className={`rounded-2xl p-3 ${GLASS}`}>🔍 أوقف البحث الدقيق<span className="block text-[10px] text-white/45">الأقرب لمواصفاتك</span></button>}
         <button onClick={() => onGo?.("anon")} className={`rounded-2xl p-3 ${GLASS}`}>🔀 دردشة مجهولة<span className="block text-[10px] text-white/45">تعارف فوري</span></button>
+        <button onClick={() => onGo?.("me")} className={`rounded-2xl p-3 ${GLASS}`}>💍 الخاطبة الشخصية<span className="block text-[10px] text-white/45">إنسان يختار لك</span></button>
         <button onClick={() => onGo?.("me")} className={`rounded-2xl p-3 ${GLASS}`}>💍 وسّع المعايير<span className="block text-[10px] text-white/45">نتائج أكثر</span></button>
         {!me?.ent?.boosted && <button onClick={() => onGo?.("me")} className={`rounded-2xl p-3 ${GLASS}`}>🚀 ارفع ملفك<span className="block text-[10px] text-white/45">ليجدك الآخرون أولاً</span></button>}
       </div>
@@ -1098,7 +1102,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
             <button aria-label="هدية" onClick={() => { haptic("light"); setGiftFor(c); }} className="rounded-2xl border border-amber-300/40 bg-amber-400/10 px-3 text-sm">🎁</button>
-            <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent("💞 تطابق جديد على توافق")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
+            <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent(r.text || "💞 تطابق جديد")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
           </div>
           {(c as any).metLink && (
             <button onClick={() => openAthar((c as any).metLink, "month", api)} className="mt-2 w-full rounded-2xl border border-[#e8b4a0]/30 bg-white/5 px-3 py-2 text-right text-[12px]">
@@ -1367,6 +1371,9 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
         {ent.vip && <p className="px-2 text-[11px] text-white/40">«🎯 بحث دقيق» في تبويب المطابقات، و«🕶 وضع التخفي» في الخصوصية.</p>}
       </div>
 
+      <MatchmakerCard api={api} say={say} reload={reload} />
+      <OwnCardCard api={api} say={say} />
+
       <AnimatePresence>
         {visitors && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className={`rounded-3xl p-4 ${GLASS}`}>
@@ -1388,7 +1395,6 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
           ))}
         </div>
         <div className="mt-3 flex gap-2">
-          {me?.deposit?.web && <button onClick={() => (tg()?.openLink ? tg().openLink(me.deposit.web) : window.open(me.deposit.web))} className="flex-1 rounded-2xl border border-white/15 py-2.5 text-xs">🌐 دفع بالعملات الرقمية</button>}
           {me?.deposit?.ton && <button onClick={async () => { const r = await api("deposit_ton"); if (r.ok) setTon(r); else say(r.error, "error"); }} className="flex-1 rounded-2xl border border-white/15 py-2.5 text-xs">🔷 TON / USDT مباشر</button>}
         </div>
         {ton && (
@@ -1408,6 +1414,79 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
             className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// 💍 الخاطبة الشخصية — the bot's «💍 خاطبة شخصية» (same $ price, same request, same Stars invoice MATCH_MM).
+function MatchmakerCard({ api, say, reload }: { api: any; say: any; reload: () => Promise<any> }) {
+  const [st, setSt] = useState<any>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api("mm_status").then((r: any) => { if (r?.ok) setSt(r); }), [api]);
+  useEffect(() => {
+    let on = true;
+    api("mm_status").then((r: any) => { if (on && r?.ok) setSt(r); });
+    return () => { on = false; };
+  }, [api]);
+  if (!st) return null;
+  const open = st.open;
+  const buy = async () => {
+    if (!(await confirmTg(`طلب الخاطبة الشخصية بـ $${st.price}؟ يُعاد المبلغ إن لم نجد ملفاً مناسباً.`))) return;
+    setBusy(true); haptic("medium");
+    const r = await api("mm_buy");
+    setBusy(false);
+    if (!r.ok) { say(r.error, "error"); return; }
+    if (r.link) {
+      openStarsInvoice(r.link, (status: string) => {
+        if (status === "paid") { say("✅ تم الدفع — اكتب طلبك هنا خلال لحظات"); [2500, 6000, 14000].forEach((ms) => window.setTimeout(() => { load(); reload(); }, ms)); }
+        else if (status === "failed") say("تعذّر الدفع", "error");
+      });
+      return;
+    }
+    if (r.message) say(r.message, "success");
+    setSt({ ...st, open: r.open }); reload();
+  };
+  const send = async () => {
+    setBusy(true);
+    const r = await api("mm_note", { note });
+    setBusy(false);
+    if (!r.ok) { say(r.error, "error"); return; }
+    say(r.message, "success"); setNote(""); setSt({ ...st, open: r.open });
+  };
+  return (
+    <div data-testid="matchmaker" className={`rounded-3xl p-4 ${GLASS}`}>
+      <p className="font-bold">💍 الخاطبة الشخصية <span className="text-xs font-normal text-white/45">· ${st.price} / طلب</span></p>
+      <p className="mt-1 text-[11px] leading-5 text-white/50">إنسان من فريق البوت يقرأ ما تبحث عنه ويرسل لك حتى 3 ملفات مناسبة خلال {st.slaHours} ساعة. لا يُكشف شيء عنك، ويُعاد المبلغ لرصيدك إن لم نجد ملفاً مناسباً.</p>
+      {!open && (st.canBuy
+        ? <button disabled={busy} onClick={buy} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold disabled:opacity-50 ${GRAD}`}>{busy ? "…" : `✅ اطلب الخاطبة ($${st.price})`}</button>
+        : <p className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/50">تحتاج الخاطبة ملفاً معتمداً حتى تعرف من تقترح له — أكمل «👤 ملفي» أولاً.</p>)}
+      {open?.status === "AWAITING_NOTE" && (
+        <div className="mt-3">
+          <Field label={`✍️ ما تبحث عنه (العمر، الدولة، المدينة، الالتزام…) — حتى ${st.noteMax} حرف، بلا أرقام أو حسابات`} area value={note} onChange={setNote} />
+          <button disabled={busy || note.trim().length < 10} onClick={send} className={`w-full rounded-2xl py-2.5 text-sm font-bold disabled:opacity-50 ${GRAD}`}>{busy ? "…" : "📨 أرسل طلبي للخاطبة"}</button>
+        </div>
+      )}
+      {open?.status === "OPEN" && <p className="mt-3 rounded-2xl bg-emerald-400/10 p-3 text-[12px] text-emerald-200">⏳ طلبك #{open.reqId} لدى الخاطبة. تصلك الاقتراحات في محادثة البوت خلال {st.slaHours} ساعة.</p>}
+    </div>
+  );
+}
+
+// 🪪 بطاقتي للمشاركة — the bot's own-card share (anonymous card + the bot link that credits you).
+function OwnCardCard({ api, say }: { api: any; say: any }) {
+  const share = async () => {
+    haptic("medium");
+    const r = await api("own_card");
+    if (!r.ok) { say(r.error, "error"); return; }
+    const w = tg();
+    if (w?.switchInlineQuery) { try { w.switchInlineQuery(r.inlineQuery, ["users", "groups", "channels"]); return; } catch {} }
+    if (r.link) { const u = `https://t.me/share/url?url=${encodeURIComponent(r.link)}&text=${encodeURIComponent(r.text)}`; if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }
+  };
+  return (
+    <div className={`rounded-3xl p-4 ${GLASS}`}>
+      <p className="font-bold">🪪 بطاقتي للمشاركة</p>
+      <p className="text-[11px] leading-5 text-white/50">بطاقتك المجهولة (بلا اسم ولا صورة ولا وسيلة تواصل). كل من يدخل البوت منها ويُعتمد ملفه يمنحك يوماً ذهبياً 👑.</p>
+      <button onClick={share} className="mt-3 w-full rounded-2xl border border-[#e8b4a0]/40 bg-white/5 py-2.5 text-sm">📤 أرسل بطاقتي إلى محادثة</button>
     </div>
   );
 }
