@@ -4,6 +4,7 @@ import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
 import { markSiteAdPaid } from "@/lib/siteAds";
 import { markDealPaid } from "@/lib/channels/exchange";
 import { markSponsorPaid } from "@/lib/khatma/khatma";
+import { markListingPaid } from "@/lib/remit/listings";
 
 // NOWPayments IPN for site banners (ADV-…).
 // Hardened 2026-11-10:
@@ -30,6 +31,12 @@ export async function POST(req: NextRequest) {
   if (code.startsWith("KSP-")) {
     if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
     const r = await markSponsorPaid(code, "NOWPayments", Number(body.price_amount));
+    return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
+  }
+  // 🏦 Remittance listings (RMT-XXXXXXXX-<invoice suffix>): each invoice extends the listing once.
+  if (code.startsWith("RMT-")) {
+    if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
+    const r = await markListingPaid(code.slice(0, 12), `NOWPayments ${code}`.slice(0, 120), Number(body.price_amount));
     return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
   }
   if (!code.startsWith("ADV-")) return NextResponse.json({ ok: true });

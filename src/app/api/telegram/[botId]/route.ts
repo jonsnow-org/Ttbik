@@ -116,6 +116,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message || "غير متاح" })).catch(() => null);
           return NextResponse.json({ status: "ok" });
         }
+        if (botRow.template === "STREAK_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("KSP:")) {
+          // 🏆 contest sponsor slot paid in Stars to the contest bot (the Stars buy the winners' Telegram prizes)
+          const { sponsorPreCheckout } = await import("@/lib/khatma/khatma");
+          const d = await sponsorPreCheckout(body.pre_checkout_query).catch(() => ({ ok: false, message: "تعذّر التحقق الآن، حاول بعد قليل." }));
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message || "غير متاح" })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         if (botRow.template === "NOVA_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("cplan:")) {
           // the coder's plans paid in Stars: signed payload, same buyer, plan still on sale at that price (src/lib/coderStars.ts)
           const { preCheckoutCoder } = await import("@/lib/coderStars");

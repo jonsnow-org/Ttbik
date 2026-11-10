@@ -57,6 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/guess-word`, changeFrequency: "daily", priority: 0.8 },
     { url: `${base}/prices`, changeFrequency: "daily", priority: 0.8 },
     { url: `${base}/remit`, changeFrequency: "daily", priority: 0.7 },
+    { url: `${base}/remit/join`, changeFrequency: "weekly", priority: 0.5 },
     { url: `${base}/markets`, changeFrequency: "hourly", priority: 0.85 },
     { url: `${base}/prayer-times`, changeFrequency: "daily", priority: 0.85 },
     { url: `${base}/prayer-widget`, changeFrequency: "monthly", priority: 0.6 },
