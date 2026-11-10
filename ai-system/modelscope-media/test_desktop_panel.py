@@ -99,5 +99,29 @@ class SizeTests(unittest.TestCase):
             self.assertIn(action, d.SETTLE)
 
 
+class AptTests(unittest.TestCase):
+    def test_a_stuck_apt_update_is_a_failed_result_not_an_exception(self):
+        box = d.box
+        saved = (box.subprocess.run, box.is_root, box.prepare_ubuntu_apt_sources, box.shutil.which, box._APT_INDEX_UPDATED_AT)
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            raise box.subprocess.TimeoutExpired(cmd, kw.get("timeout", 1))
+        try:
+            box.subprocess.run = fake_run
+            box.is_root = lambda: True
+            box.prepare_ubuntu_apt_sources = lambda: None
+            box.shutil.which = lambda name: "/usr/bin/" + name
+            box._APT_INDEX_UPDATED_AT = 0
+            result = box.apt_update(timeout=5)
+        finally:
+            box.subprocess.run, box.is_root, box.prepare_ubuntu_apt_sources, box.shutil.which, box._APT_INDEX_UPDATED_AT = saved
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("timed out", result.stderr)
+        self.assertIn("Acquire::http::Timeout=25", seen["cmd"])
+        self.assertIn("DPkg::Lock::Timeout=120", seen["cmd"])
+
+
 if __name__ == "__main__":
     unittest.main()

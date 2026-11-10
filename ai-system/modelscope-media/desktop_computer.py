@@ -123,14 +123,15 @@ def _install_packages() -> None:
         raise RuntimeError("This Studio image has no X11 desktop packages and cannot install them without root.")
     # Use the same repaired Ubuntu repositories as the terminal toolchain. APT
     # needs the system /tmp and root HOME, not clean_env()'s per-session TMPDIR.
-    update = box.apt_update(timeout=420)
+    update = box.apt_update(timeout=240)
+    update_note = ""
     if update.returncode != 0:
-        detail = (update.stderr or update.stdout or "APT returned no diagnostic").strip()
-        raise RuntimeError("Desktop package index update failed: " + detail[-700:])
+        # a failed or slow index refresh is not fatal: the package lists and the download cache of the earlier boots are usually enough
+        update_note = " (the index refresh failed: " + (update.stderr or update.stdout or "no diagnostic").strip()[-200:] + ")"
     result = box.apt_install(missing, timeout=900)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "APT returned no diagnostic").strip()
-        raise RuntimeError("Desktop packages could not be installed: " + detail[-900:])
+        raise RuntimeError("Desktop packages could not be installed" + update_note + ": " + detail[-900:])
     still_missing = [name for name in ("Xvfb", "xauth", "openbox", "xterm", "xdotool") if not shutil.which(name)]
     if still_missing:
         raise RuntimeError("Desktop packages remain unavailable: " + ", ".join(still_missing))

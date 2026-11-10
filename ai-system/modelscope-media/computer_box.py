@@ -139,9 +139,14 @@ def apt_update(timeout: int = 420) -> subprocess.CompletedProcess:
     if not is_root() or not shutil.which("apt-get"):
         raise RuntimeError("APT update requires root and apt-get in this Studio.")
     prepare_ubuntu_apt_sources()
-    result = subprocess.run(
-        ["apt-get", "update"], capture_output=True, text=True, timeout=timeout, env=apt_environment()
-    )
+    # Short network timeouts, IPv4 and a lock wait: after a redeploy the toolchain installer holds the dpkg/apt locks and the mirror can be slow;
+    # a bare `apt-get update` then sat for the whole 420 s and the desktop never started (tap probe 2026-11-10: "apt-get update timed out").
+    command = ["apt-get", "-o", "Acquire::ForceIPv4=true", "-o", "Acquire::http::Timeout=25", "-o", "Acquire::https::Timeout=25",
+               "-o", "Acquire::Retries=2", "-o", "DPkg::Lock::Timeout=120", "update"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=apt_environment())
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(command, 124, "", f"apt-get update timed out after {timeout} s")
     if result.returncode == 0:
         _APT_INDEX_UPDATED_AT = time.monotonic()
     return result
@@ -156,7 +161,7 @@ def apt_install(packages: list[str], timeout: int = 900) -> subprocess.Completed
     # lowest CPU / disk priority: after every restart the tools are installed again, and at normal priority that starved the 2 vCPUs for many minutes (users' calls answered slowly or with nothing)
     prefix = ["nice", "-n", "19"] + (["ionice", "-c3"] if shutil.which("ionice") else []) if shutil.which("nice") else []
     return subprocess.run(
-        [*prefix, "apt-get", *apt_cache_options(), "install", "-y", "--no-install-recommends", *packages],
+        [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=600", *apt_cache_options(), "install", "-y", "--no-install-recommends", *packages],
         capture_output=True, text=True, timeout=timeout, env=apt_environment()
     )
 
