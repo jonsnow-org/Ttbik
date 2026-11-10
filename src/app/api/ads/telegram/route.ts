@@ -7,10 +7,10 @@ import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/e
 import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
 import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
-import { REMIT_BUTTON, remitAppUrl } from "@/lib/remit/remit";
+import { officeCallback, officeStart, officeText, OFFICE_BUTTON } from "@/lib/remit/office";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
-const KEYBOARD = { keyboard: [[{ text: REMIT_BUTTON, web_app: { url: remitAppUrl(SITE, "admen10bot") } }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
+const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -120,6 +120,9 @@ export async function POST(req: NextRequest) {
     const chatId = update?.message?.chat?.id;
     // 🏦 a transfer company links its chat for approval/payment/renewal messages: /start rmt_<code>_<key>
     const startPayload = /^\/start\s+(\S+)/.exec(text)?.[1] || "";
+    // 💸 the remittance office (src/lib/remit/office.ts): its button, a recipient's pay_<address> link, and the steps typed in the chat
+    const office = { token: bot.token, site: SITE, botUsername: "Admen10bot" };
+    if (chatId && startPayload.startsWith("pay_") && (await officeStart(office, String(chatId), startPayload).catch(() => false))) return NextResponse.json({ ok: true });
     if (chatId && startPayload.startsWith("rmt_")) {
       const reply = await linkCompanyChat(startPayload, String(chatId)).catch(() => "تعذّر الربط الآن.");
       if (reply) await send(chatId, reply);
@@ -131,6 +134,7 @@ export async function POST(req: NextRequest) {
       await send(chatId, await runRefCommand(refCmd).catch(() => "تعذّر الحفظ الآن."));
       return NextResponse.json({ ok: true });
     }
+    if (chatId && !text.startsWith("/ref") && (await officeText(office, String(chatId), text).catch(() => false))) return NextResponse.json({ ok: true });
     if (chatId && (text === "الرصيد" || text.startsWith("/balance"))) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
@@ -147,6 +151,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // 💸 remittance office buttons: open to every user (each action is scoped to the user's own chat)
+  if (String(callback.data || "").startsWith("ro:")) {
+    await answer(callback.id, "");
+    const chat = callback.message?.chat?.id;
+    if (chat) await officeCallback({ token: bot.token, site: SITE, botUsername: "Admen10bot" }, String(chat), String(callback.data)).catch(() => null);
+    return NextResponse.json({ ok: true });
+  }
   // Approve/reject only from the admin chat the requests are sent to (notifyAdmin), never from any other user of the bot:
   // approving marks the ad PAID, so a crafted callback from a stranger must not activate a free ad.
   const adminChat = String(process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID || "");
