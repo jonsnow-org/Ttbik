@@ -44,10 +44,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   // The desktop is created in the shape of the page's own screen area (a phone is tall), so the picture fills it
   // instead of leaving a black band below a short landscape screen.
   const desktopSize = () => {
-    const width = 900;
+    const width = 640;       // phone-sized: the picture is shown at about half size, so the hub draws everything bigger and a fingertip can hit it
     const frameWidth = frameBox.current?.getBoundingClientRect().width || 340;
     const room = Math.max(420, (typeof window !== "undefined" ? window.innerHeight : 800) - 230);
-    return { width, height: Math.max(700, Math.min(1300, Math.round((width * room) / frameWidth))) };
+    return { width, height: Math.max(700, Math.min(1200, Math.round((width * room) / frameWidth))) };
   };
 
   const call = useCallback(async (args: Record<string, unknown>) => {
@@ -244,7 +244,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     if (mapped) { event.preventDefault(); enqueue({ key: mapped }); }
   };
   const [kbOn, setKbOn] = useState(false);
-  const toggleKeyboard = () => { try { if (kbOn) kbRef.current?.blur(); else kbRef.current?.focus({ preventScroll: true }); setKbOn(!kbOn); } catch { /* no keyboard field yet */ } };
+  const toggleKeyboard = () => setKbOn((on) => !on);
+  // The phone keyboard appears ONLY when this button turns the hidden field on (it is read-only with no input method otherwise),
+  // never from a tap on the screen. Turning it on focuses the field in the same moment of user activation.
+  useEffect(() => {
+    const el = kbRef.current;
+    if (!el) return;
+    if (kbOn) { try { el.focus({ preventScroll: true }); } catch { /* no field yet */ } }
+    else { try { el.blur(); } catch { /* no field yet */ } }
+  }, [kbOn]);
   const takeTyped = () => {
     const el = kbRef.current;
     if (!el || !el.value) return;
@@ -379,7 +387,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
       </div>
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
-      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}` } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
+      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}` } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden", touchAction: "none" }} onMouseDown={(e) => e.preventDefault()}>
       {frame && running ? (
         <div style={{ position: "absolute", inset: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
         <img
@@ -389,8 +397,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           onClick={(event) => clickScreen(event)}
           onContextMenu={(event) => { event.preventDefault(); clickScreen(event, "right"); }}
           onWheel={(event) => scrollRef.current(event.deltaY < 0 ? "up" : "down", Math.max(1, Math.min(8, Math.ceil(Math.abs(event.deltaY) / 100))))}
-          tabIndex={0}
-          onKeyDown={(event) => screenKey(event)}
           style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", objectFit: "fill", background: "#111827", cursor: "crosshair", touchAction: "none" }}
         />
         </div>
@@ -416,6 +422,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <input
             ref={kbRef}
             aria-label={ar ? "لوحة المفاتيح للشاشة" : "Screen keyboard"}
+            readOnly={!kbOn}
+            inputMode={kbOn ? "text" : "none"}
+            tabIndex={-1}
             autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false}
             onInput={() => { if (!composing.current) takeTyped(); }}
             onCompositionStart={() => { composing.current = true; }}

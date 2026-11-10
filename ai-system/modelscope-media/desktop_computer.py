@@ -32,8 +32,21 @@ MIN_AVAILABLE_MB = max(3072, int(os.environ.get("DESKTOP_MIN_AVAILABLE_MB", "307
 IDLE_SECONDS = max(120, int(os.environ.get("DESKTOP_IDLE_SECONDS", "900")))
 WIDTH = max(640, min(1600, int(os.environ.get("DESKTOP_WIDTH", "1344"))))
 HEIGHT = max(600, min(1500, int(os.environ.get("DESKTOP_HEIGHT", "840"))))
+DEFAULT_SIZE = (WIDTH, HEIGHT)
 MAX_TYPE = 1200
-PANEL_HEIGHT = 44          # the taskbar inside the desktop (tint2)
+PANEL_HEIGHT = 44          # the taskbar inside the desktop (tint2), landscape sizes
+SETTLE = {"click": 0.45, "dblclick": 0.6, "drag": 0.4, "key": 0.3, "type": 0.3, "scroll": 0.35, "launch": 1.3}   # seconds to let the screen react before an input reply carries its picture
+
+
+def small_screen() -> bool:
+    """A phone-shaped desktop (the Mini App asks for width 640): everything is drawn bigger so a fingertip can hit it when the picture is shown at about half size."""
+    return WIDTH < 800
+
+
+def ui() -> dict:
+    if small_screen():
+        return {"fs": 15, "cell_w": 11, "cell_h": 23, "panel": 60, "icon": 96, "font": "Sans 15", "small_font": "Sans 14"}
+    return {"fs": 12, "cell_w": 9, "cell_h": 19, "panel": PANEL_HEIGHT, "icon": 64, "font": "Sans 12", "small_font": "Sans 11"}
 MAX_FRAME_BYTES = 560_000
 INPUT_ACTIONS = {"click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "clipboard_get", "clipboard_set"}
 PACKAGES = ("xvfb", "xauth", "openbox", "xterm", "xdotool", "pcmanfm", "xclip")   # xclip: copy / paste between the Mini App and the desktop (optional)
@@ -220,12 +233,14 @@ def _child_env(session: str, display: str, auth: Path) -> dict[str, str]:
 
 
 def _terminal_command() -> list[str]:
-    """A terminal that fills the whole screen and shows what the model runs on its computer (its commands and their output) above an interactive shell."""
+    """A terminal window that shows what the model runs on its computer (its commands and their output) above an interactive shell."""
     # a window, not the whole screen: the desktop (wallpaper, taskbar, other windows) stays visible around it
-    # one cell of "Monospace 12" measured on the live desktop: about 9 x 19 px
-    cols, rows = max(40, int(WIDTH * (0.92 if WIDTH < 1000 else 0.78)) // 9 - 1), max(24, int((HEIGHT - PANEL_HEIGHT) * (0.80 if HEIGHT > WIDTH else 0.74)) // 19 - 1)
+    # one cell of "Monospace" at this size, measured on the live desktop (12 -> about 9 x 19 px)
+    u = ui()
+    cols = max(40, int(WIDTH * (0.94 if WIDTH < 1000 else 0.78)) // u["cell_w"] - 1)
+    rows = max(24, int((HEIGHT - u["panel"]) * (0.80 if HEIGHT > WIDTH else 0.74)) // u["cell_h"] - 1)
     script = 'touch "$HOME/.activity.log"; tail -n 60 -F "$HOME/.activity.log" 2>/dev/null & exec bash -i'
-    return ["xterm", "-fa", "Monospace", "-fs", "12", "-geometry", f"{cols}x{rows}+28+24", "-title", "Model Computer", "-e", "bash", "-c", script]
+    return ["xterm", "-fa", "Monospace", "-fs", str(u["fs"]), "-geometry", f"{cols}x{rows}+" + ("8+16" if WIDTH < 800 else "28+24"), "-title", "Model Computer", "-e", "bash", "-c", script]
 
 def panel_config(buttons: list[tuple[str, str]]) -> str:
     """The tint2 configuration: a taskbar along the bottom of the desktop with one button per app (label, command) and the open windows."""
@@ -234,18 +249,18 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
         "rounded = 6", "border_width = 1", "background_color = #1f2937 100", "border_color = #475569 100",
         "rounded = 6", "border_width = 1", "background_color = #0d9488 100", "border_color = #5eead4 100",
         "panel_items = " + "P" * len(buttons) + "TC",
-        f"panel_size = 100% {PANEL_HEIGHT}", "panel_margin = 0 0", "panel_padding = 6 5 6",
+        f"panel_size = 100% {ui()['panel']}", "panel_margin = 0 0", "panel_padding = 6 5 6",
         "panel_background_id = 1", "wm_menu = 0", "panel_dock = 0", "panel_position = bottom center horizontal",
         "panel_layer = top", "strut_policy = minimum", "autohide = 0",
         "taskbar_mode = single_desktop", "taskbar_padding = 2 0 2", "taskbar_background_id = 0",
-        "task_text = 1", "task_maximum_size = 170 34", "task_padding = 6 3 6", "task_font = Sans 10",
+        "task_text = 1", f"task_maximum_size = {170 if not small_screen() else 150} {ui()['panel'] - 10}", "task_padding = 6 3 6", "task_font = " + ui()["small_font"],
         "task_font_color = #ffffff 100", "task_background_id = 2", "task_active_background_id = 3",
-        "time1_format = %H:%M", "time1_font = Sans 11", "clock_font_color = #ffffff 100",
+        "time1_format = %H:%M", "time1_font = " + ui()["small_font"], "clock_font_color = #ffffff 100",
         "clock_padding = 8 0", "clock_background_id = 0",
     ]
     for label, command in buttons:
-        lines += ["button = new", "button_text = " + label, "button_font = Sans 11", "button_font_color = #ffffff 100",
-                  "button_padding = 12 4 8", "button_background_id = 2", "button_lclick_command = " + command]
+        lines += ["button = new", "button_text = " + label, "button_font = " + ui()["font"], "button_font_color = #ffffff 100",
+                  "button_padding = 14 6 10", "button_background_id = 2", "button_lclick_command = " + command]
     return "\n".join(lines) + "\n"
 
 
@@ -256,9 +271,9 @@ def _launcher_script(session: str, app: str) -> str | None:
         profile = box.session_home(session) / ".desktop" / "chrome-profile"
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
         flags = " ".join(shlex.quote(f) for f in [
-            "--no-sandbox", "--test-type", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+            "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
-            f"--window-size={WIDTH - 24},{HEIGHT - PANEL_HEIGHT - 50}", "about:blank"])
+            f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank"])
         return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
@@ -292,7 +307,7 @@ def _write_launchers(session: str, uid: int) -> dict[str, str]:
     return out
 
 
-def _make_icon(kind: str, path: Path) -> None:
+def _make_icon(kind: str, path: Path, size: int = 64) -> None:
     """A 64 px icon drawn with Pillow (no icon theme is needed): a globe, a terminal or a folder."""
     from PIL import Image, ImageDraw
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
@@ -310,6 +325,8 @@ def _make_icon(kind: str, path: Path) -> None:
         d.rounded_rectangle((4, 14, 60, 54), radius=6, fill=(245, 180, 40, 255))
         d.rounded_rectangle((4, 8, 28, 22), radius=4, fill=(235, 160, 20, 255))
         d.rounded_rectangle((4, 22, 60, 54), radius=6, fill=(252, 211, 77, 255))
+    if size != 64:
+        img = img.resize((size, size), Image.LANCZOS)
     img.save(path)
 
 
@@ -325,7 +342,7 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
             continue
         icon = icons / (app + ".png")
         try:
-            _make_icon(app, icon)
+            _make_icon(app, icon, ui()["icon"])
         except Exception:  # noqa: BLE001 - a missing icon is not worth a failed desktop
             pass
         entry = desktop / (label + ".desktop")
@@ -339,9 +356,9 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
     (conf / "libfm").mkdir(parents=True, exist_ok=True)
     (conf / "pcmanfm" / "default" / "desktop-items-0.conf").write_text(
         "[*]\nwallpaper_mode=color\nwallpaper_common=1\ndesktop_bg=#16324f\ndesktop_fg=#ffffff\ndesktop_shadow=#000000\n"
-        "desktop_font=Sans 12\nshow_wm_menu=0\nsort=name;ascending;\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n",
+        f"desktop_font={ui()['font']}\nshow_wm_menu=0\nsort=name;ascending;\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n",
         encoding="utf-8")
-    (conf / "libfm" / "libfm.conf").write_text("[config]\nquick_exec=1\nsingle_click=1\n", encoding="utf-8")
+    (conf / "libfm" / "libfm.conf").write_text(f"[config]\nquick_exec=1\nsingle_click=1\n[ui]\nbig_icon_size={ui()['icon']}\n", encoding="utf-8")
     return desktop
 
 
@@ -565,16 +582,17 @@ def _spawn_desktop(session: str) -> None:
 
 
 def _set_size(width: object, height: object) -> None:
-    """The page may ask for a desktop shaped like its screen area (only while no desktop is up: Xvfb is created with this size)."""
+    """The page may ask for a desktop shaped like its screen area (only while no desktop is up: Xvfb is created with this size).
+    A start without a size (the model's own `start`) gets the default landscape screen again."""
     global WIDTH, HEIGHT
     try:
-        w, h = int(width), int(height)  # type: ignore[arg-type]
+        size = (max(640, min(1600, int(width))), max(600, min(1500, int(height))))  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        return
+        size = DEFAULT_SIZE
     with _LOCK:
         if _PHASE in ("running", "starting", "installing", "busy"):
             return
-        WIDTH, HEIGHT = max(640, min(1600, w)), max(600, min(1500, h))
+        WIDTH, HEIGHT = size
 
 
 def _start_async(session: str) -> None:
@@ -799,6 +817,15 @@ def api_desktop_do(body: str) -> str:
             box.finish_activity(entry, {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
             raise
         box.finish_activity(entry, {"ok": bool(reply.get("ok", True))})
+        wait = SETTLE.get(action)
+        if wait is not None and reply.get("ok", True) and "screenshot_b64" not in reply:
+            # one round trip per action: the reply carries the picture after the screen had a moment to react (the gateway costs ~2.5 s a call,
+            # so a separate "frame" call doubled every tap; and the model's tool says "inspect the returned screenshot")
+            time.sleep(wait)
+            try:
+                reply.update(_screenshot(55, float(job.get("scale") or 1.0)))
+            except Exception as exc:  # noqa: BLE001
+                reply["frame_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
         return json.dumps(reply, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:280]}"}, ensure_ascii=False)
@@ -834,7 +861,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 os.chown(profile, box.session_uid(session), box.session_uid(session))
             os.chmod(profile, 0o700)
             cmd = [
-                str(executable), "--no-sandbox", "--test-type", "--disable-gpu", "--disable-dev-shm-usage",
+                str(executable), "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage",
                 "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
                 "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
