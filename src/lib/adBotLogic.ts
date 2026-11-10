@@ -2,7 +2,8 @@ import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./yo
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
 import { BOT_SALE_CALLBACK, handleBotSaleCallback, isGetbotRequest, sendPlans, type Tg } from "@/lib/botSalesChat";
-import { isOwnerBot, ownerBotGetbotLink } from "@/lib/builderOwnerBot";
+import { isOwnerBot, ownerBotGetbotLink, setBotAppMenu } from "@/lib/builderOwnerBot";
+import { gateUrl } from "@/lib/hostingOps";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest, remitAppUrl } from "@/lib/remit/remit";
 import { SITE_URL } from "@/lib/siteUrl";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
@@ -605,6 +606,16 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 
 // Owner-only mode: the owner can lock a bot row so only the platform owner (SUPER_ADMIN) can use it -- for a private admin bot.
 // Stored in bot_settings under private_bot:<row id>; anything unreadable counts as "public" so a database hiccup never locks everyone out.
+// The builder Mini App (every service, for every user) on the menu button of supervisor bots and of the builder's owner bot, once per
+// process. A bot owned by the platform owner that is not the configured owner bot (the supervisory bot) is left exactly as it is.
+const botAppMenuDone = new Set<string>();
+async function ensureBotAppMenu(botRow: BotRow): Promise<void> {
+  if (botAppMenuDone.has(botRow.id)) return;
+  botAppMenuDone.add(botRow.id);
+  const eligible = botRow.ownerId !== SUPER_ADMIN_ID || (await isOwnerBot(botRow.id).catch(() => false));
+  if (eligible) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+}
+
 function tgFor(token: string): Tg {
   return (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
@@ -728,6 +739,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
 
+  if (text.startsWith("/start")) void ensureBotAppMenu(botRow);
   if (text.startsWith("/start")) {
     const payload = text.slice(6).trim();
     if (isAdVerifyPayload(payload)) {

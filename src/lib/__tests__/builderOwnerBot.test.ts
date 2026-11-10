@@ -35,3 +35,9 @@ describe("builder owner bot config", () => {
     expect(await m.ownerBot()).toBeNull();
   });
 });
+
+describe("builder bots' Mini App", () => {
+  it("menu button opens /bot-app/<bot id> on the gate", () => {
+    expect(load().botAppUrl("https://gate.example/", "ad-1")).toBe("https://gate.example/bot-app/ad-1");
+  });
+});
