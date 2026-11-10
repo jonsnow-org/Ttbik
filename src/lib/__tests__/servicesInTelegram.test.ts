@@ -1,8 +1,9 @@
 // «🧭 خدمات وأرباح» inside Telegram: the site's service pages open as Mini App pages from the existing bots.
 import fs from "fs";
 import path from "path";
-import { SERVICE_LINKS, chainsBotLink } from "@/config/navigation";
-import { SERVICES_BUTTON, isServicesRequest, sendServices, serviceUrl, servicesKeyboard } from "@/lib/servicesInTelegram";
+import { SERVICE_LINKS, chainsBotLink, serviceBotLink } from "@/config/navigation";
+import { SERVICES_BUTTON, isServicesRequest, sendServices, serviceUrl, servicesKeyboard, siteBotServicesKeyboard } from "@/lib/servicesInTelegram";
+import { APP_SECTIONS } from "@/lib/botApp/buttons";
 
 const TME: Record<string, string> = { khatma: "https://t.me/Slaselbot?start=khatma", contests: "https://t.me/Slaselbot?start=contest", shop: "https://t.me/Saragptbotbot?start=shops" };
 
@@ -46,6 +47,31 @@ describe("services keyboard", () => {
     await sendServices({ api: { sendMessage } }, 5, ["shop"]);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect((sendMessage.mock.calls[0] as any[])[2].reply_markup.inline_keyboard[0][0].url).toBe("https://t.me/Saragptbotbot?start=shops");
+  });
+});
+
+describe("site bot (@Admen10bot) services keyboard — phase 5", () => {
+  it("routes every entry to its bot, drops the channel audit, keeps advertise as the site's own page", () => {
+    const kb: any = siteBotServicesKeyboard("https://s");
+    const flat = kb.inline_keyboard.flat();
+    expect(flat.map((b: any) => b.url || b.web_app.url)).toEqual([
+      "https://t.me/Sham_test0_bot?start=remit", "https://t.me/Sham_test0_bot?start=exchange", "https://s/advertise?src=tg",
+      "https://t.me/Slaselbot?start=khatma", "https://t.me/Slaselbot?start=contest", "https://t.me/Saragptbotbot?start=shops",
+    ]);
+    expect(kb.inline_keyboard.filter((r: any[]) => r.length).every((r: any[]) => r.length <= 2)).toBe(true);
+  });
+  it("other bots' keyboards and the site menu are unchanged (remit still a site page there)", () => {
+    const kb: any = servicesKeyboard([], "https://s");
+    expect(kb.inline_keyboard.flat()).toHaveLength(SERVICE_LINKS.length);
+    expect(serviceBotLink("remit")).toBe("https://t.me/Sham_test0_bot?start=remit");
+    expect(chainsBotLink("remit")).toBeNull();
+  });
+  it("the platform bot opens the Mini App section for /start remit and /start exchange, never as a referral", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "adBotLogic.ts"), "utf8");
+    expect(src).toContain('const section = payload === "remit" || payload === "exchange" ? payload : null;');
+    expect(src).toMatch(/const referredBy = payload && !payTo && !section &&/);
+    expect(src).toContain("botAppUrl(gateUrl(), botRow.id, section)");
+    expect(APP_SECTIONS).toEqual(expect.arrayContaining(["remit", "exchange"]));
   });
 });
 

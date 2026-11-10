@@ -750,7 +750,9 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await consumeAdVerifyPayload(payload);
     }
     const payTo = remitPayPayload(payload);
-    const referredBy = payload && !payTo && !isAdVerifyPayload(payload) && payload !== tgUserId ? payload : null;
+    // /start remit, /start exchange: deep links from the site bot's «🧭 خدمات وأرباح» (phase 5) open the Mini App section; never a referral.
+    const section = payload === "remit" || payload === "exchange" ? payload : null;
+    const referredBy = payload && !payTo && !section && !isAdVerifyPayload(payload) && payload !== tgUserId ? payload : null;
     const user = await ensureUser(botRow.id, tgUserId, botRow, referredBy);
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(user.id, null);
@@ -771,6 +773,10 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // panel, never the end-user main menu (no "شاهد واربح"/"ضع إعلانك"
     // etc.), matching the same "recognized immediately by ID" rule as
     // /admin itself. Only an ordinary member sees the normal menu.
+    if (section) {
+      await bot.api.sendMessage(chatId, section === "remit" ? REMIT_INTRO : EXCHANGE_INTRO, { reply_markup: new InlineKeyboard().webApp(section === "remit" ? REMIT_BUTTON : EXCHANGE_BUTTON, botAppUrl(gateUrl(), botRow.id, section)) }).catch(() => null);
+      return;
+    }
     if (payTo) {
       // A recipient's «send me» link (made in the Mini App's remittances): the transfer opens pre-filled for that wallet.
       await bot.api.sendMessage(chatId, "💸 حوالة USDT جاهزة لهذا المستلم. اضغط الزر لإكمالها:", { reply_markup: new InlineKeyboard().webApp(REMIT_BUTTON, botAppUrl(gateUrl(), botRow.id, "remit", { pay: payTo })) }).catch(() => null);

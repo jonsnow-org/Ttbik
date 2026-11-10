@@ -11,7 +11,7 @@ import { officeCallback, officeStart, officeText, OFFICE_BUTTON } from "@/lib/re
 import { BOT_PAID_USD, BOTBUY_STARS_PREFIX, GETBOT_BUTTON, botOrder, codeMessage, manualCode, markBotOrderPaid, parseCodeCommand } from "@/lib/botSales";
 import { BOT_SALE_CALLBACK, handleBotSaleCallback, type Tg } from "@/lib/botSalesChat";
 import { ownerBotGetbotLink } from "@/lib/builderOwnerBot";
-import { SERVICES_BUTTON, SERVICES_TEXT, isServicesRequest, servicesKeyboard } from "@/lib/servicesInTelegram";
+import { SERVICES_BUTTON, SERVICES_TEXT, isServicesRequest, siteBotServicesKeyboard } from "@/lib/servicesInTelegram";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 // The site bot (بوت الموقع), webhook set by bindSiteBot. A standalone bot: not part of the ads & earn builder (no Bot-table row, no AD_BOT role).
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
       await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: SERVICES_TEXT, reply_markup: servicesKeyboard(["advertise", "channels", "channel-audit", "remit"], SITE) }),
+        body: JSON.stringify({ chat_id: chatId, text: SERVICES_TEXT, reply_markup: siteBotServicesKeyboard(SITE) }),
       }).catch(() => null);
       return NextResponse.json({ ok: true });
     }
