@@ -31,7 +31,7 @@ export function servicesKeyboard(first: readonly ServiceId[] = [], site = SITE_U
   return kb;
 }
 
-export const SERVICES_TEXT = "🧭 خدمات وأرباح من شام AI — تفتح هنا داخل تيليجرام:";
+export const SERVICES_TEXT = "🧭 خدمات وأرباح المنصة — تفتح هنا داخل تيليجرام:";
 
 type Api = { sendMessage: (chatId: number, text: string, other?: any) => Promise<unknown> };
 export async function sendServices(bot: { api: Api }, chatId: number, first: readonly ServiceId[] = []): Promise<void> {
