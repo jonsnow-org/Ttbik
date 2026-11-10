@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { gateUrl } from "@/lib/hostingOps";
 
@@ -15,8 +16,10 @@ export function planFor(days: number) {
 
 export function makeCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  // 8 chars from a CSPRNG (≈ 40 bits): the code is also the advertiser's handle for confirm/status, so it must not be guessable.
+  const bytes = crypto.randomBytes(8);
   let tail = "";
-  for (let i = 0; i < 4; i++) tail += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < 8; i++) tail += alphabet[bytes[i] % alphabet.length];
   return `ADV-${new Date().getFullYear()}-${tail}`;
 }
 

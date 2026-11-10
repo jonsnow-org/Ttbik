@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { activateAd, bannerBalance, findAdmenBot } from "@/lib/siteAds";
+import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
@@ -51,6 +52,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Approve/reject only from the admin chat the requests are sent to (notifyAdmin), never from any other user of the bot:
+  // approving marks the ad PAID, so a crafted callback from a stranger must not activate a free ad.
+  const adminChat = String(process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID || "");
+  const superAdmin = String(process.env.SUPER_ADMIN_TELEGRAM_ID || "");
+  const fromOk = !!adminChat && (String(callback.message?.chat?.id ?? "") === adminChat || (!!superAdmin && String(callback.from?.id ?? "") === superAdmin));
+  if (!fromOk) {
+    await answer(callback.id, "غير مصرح");
+    return NextResponse.json({ ok: true });
+  }
   const [action, code] = String(callback.data || "").split(":");
   if (!code || !["approve", "reject"].includes(action)) {
     await answer(callback.id, "أمر غير معروف");
@@ -70,5 +80,9 @@ export async function POST(req: NextRequest) {
   }).catch(() => null);
   const ad = await activateAd(code);
   await answer(callback.id, ad?.adStatus === "ACTIVE" ? "تم التفعيل" : "لم يُفعّل");
+  if (ad?.adStatus === "ACTIVE") {
+    const report = adReportUrl(code);
+    if (report && callback.message?.chat?.id) await send(callback.message.chat.id, `✅ ${code} نشط حتى ${ad.endsAt?.toISOString().slice(0, 10)}\n📊 رابط تقرير المعلن (أرسله له):\n${report}`).catch(() => null);
+  }
   return NextResponse.json({ ok: true });
 }

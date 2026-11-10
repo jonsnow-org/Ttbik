@@ -16,6 +16,7 @@ export async function GET() {
   if (!ad) return NextResponse.json({ active: false });
   return NextResponse.json({
     active: true,
+    code: ad.reservationCode,
     bannerUrl: ad.bannerUrl,
     targetUrl: ad.targetUrl,
     altText: ad.altText,

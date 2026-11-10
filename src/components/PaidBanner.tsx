@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Active = { active: boolean; bannerUrl?: string; targetUrl?: string; altText?: string; kind?: string };
+type Active = { active: boolean; code?: string; bannerUrl?: string; targetUrl?: string; altText?: string; kind?: string };
 
 export default function PaidBanner({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const adWord = lang === "en" ? "Advertisement" : "إعلان";
@@ -10,7 +10,14 @@ export default function PaidBanner({ lang = "ar" }: { lang?: "ar" | "en" }) {
   useEffect(() => {
     fetch("/api/ads/active").then((r) => r.json()).then(setAd).catch(() => setAd({ active: false }));
   }, []);
+  // proof of promotion: one view ping per render of a live ad; clicks go through /api/ads/go (counted, then redirected)
+  useEffect(() => {
+    if (!ad.active || !ad.code) return;
+    if ((navigator as Navigator & { webdriver?: boolean }).webdriver) return;
+    fetch("/api/ads/view", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ c: ad.code }), keepalive: true }).catch(() => {});
+  }, [ad.active, ad.code]);
   if (!ad.active || !ad.targetUrl) return null;
+  const href = ad.code ? `/api/ads/go?c=${encodeURIComponent(ad.code)}` : ad.targetUrl;
 
   if (ad.kind === "code" && ad.bannerUrl) {
     return (
@@ -21,14 +28,14 @@ export default function PaidBanner({ lang = "ar" }: { lang?: "ar" | "en" }) {
   }
   if (ad.kind === "video" && ad.bannerUrl) {
     return (
-      <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="relative z-20 mx-auto my-2 block h-52 w-full max-w-3xl overflow-hidden bg-black">
+      <a href={href} target="_blank" rel="sponsored noopener" className="relative z-20 mx-auto my-2 block h-52 w-full max-w-3xl overflow-hidden bg-black">
         <video src={ad.bannerUrl} className="h-full w-full object-contain" autoPlay muted loop playsInline />
       </a>
     );
   }
   if (!ad.bannerUrl) return null;
   return (
-    <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="relative z-20 mx-auto my-2 block h-44 w-full max-w-3xl overflow-hidden bg-white">
+    <a href={href} target="_blank" rel="sponsored noopener" className="relative z-20 mx-auto my-2 block h-44 w-full max-w-3xl overflow-hidden bg-white">
       <img src={ad.bannerUrl} alt={ad.altText || adWord} className="h-full w-full object-contain" />
     </a>
   );
