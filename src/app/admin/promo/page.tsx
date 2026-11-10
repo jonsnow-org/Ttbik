@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import AdminChannelDeals from "@/components/channels/AdminChannelDeals";
+import AdminKhatma from "@/components/khatma/AdminKhatma";
 
 type Row = {
   code: string; kind: string; placement: string; title: string; targetUrl: string; bannerUrl: string; price: number; days: number;
@@ -62,6 +63,7 @@ export default function PromoModeration() {
         </section>
       )}
       <AdminChannelDeals />
+      <AdminKhatma />
       <div className="flex gap-2">{TABS.map(([id, label]) => <button key={id} onClick={() => setTab(id)} className={`rounded-full px-3 py-1 text-sm ${tab === id ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{label}</button>)}</div>
       {msg && <p className="text-sm">{msg}</p>}
       <div className="space-y-2">

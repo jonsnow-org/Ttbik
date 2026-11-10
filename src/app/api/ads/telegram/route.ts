@@ -4,6 +4,7 @@ import { activateAd, adStars, bannerBalance, findAdmenBot, markSiteAdPaid, SITE_
 import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
 import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/exchange";
+import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 const KEYBOARD = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
       ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
+    } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
+      const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
+      ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
     }
     await fetch(`https://api.telegram.org/bot${bot.token}/answerPreCheckoutQuery`, {
       method: "POST",
@@ -55,6 +59,19 @@ export async function POST(req: NextRequest) {
   }
   // …and credit it when Telegram confirms (only on a webhook verified by the secret token).
   const sp = update?.message?.successful_payment;
+  if (sp && String(sp.invoice_payload || "").startsWith(SPONSOR_STARS_PREFIX)) {
+    if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
+    const code = String(sp.invoice_payload).slice(SPONSOR_STARS_PREFIX.length);
+    const row = await sponsorByCode(code).catch(() => null);
+    if (row && Number(sp.total_amount) >= adStars(row.price)) {
+      const r = await markSponsorPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
+      if (r.first) {
+        const fresh = await sponsorByCode(code).catch(() => null);
+        await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك للختمات (${code}) من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}.`).catch(() => null);
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
   if (sp && String(sp.invoice_payload || "").startsWith(CHANNEL_STARS_PREFIX)) {
     if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
     const code = String(sp.invoice_payload).slice(CHANNEL_STARS_PREFIX.length);

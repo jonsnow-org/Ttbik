@@ -5,6 +5,10 @@ import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
+import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
+import {
+  consumeKhatmaText, handleKhatmaPayment, handleKhatmaPrivateCallback, khatmaStats, openMemorialFromStart, sendKhatmaIntro, startMemorialOrder, type KhatmaPending,
+} from "@/lib/khatma/khatma";
 
 /**
  * STREAK_BOT template (docs/claude-feature-backlog.md item 5) — daily-habit
@@ -57,7 +61,8 @@ function yesterdayKey(): string {
 type PendingAction =
   | { mode: "admin_broadcast" }
   | { mode: "admin_lookup" }
-  | { mode: "admin_channel" };
+  | { mode: "admin_channel" }
+  | KhatmaPending;
 
 // ---------------------------------------------------------------------
 // Menus
@@ -70,6 +75,7 @@ function isBack(text: string): boolean {
 }
 function mainMenu(): Keyboard {
   const kb = new Keyboard();
+  kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
   for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
   kb.text("📊 كل سلاسلي").text("ℹ️ معلومات");
   return kb.resized();
@@ -83,7 +89,8 @@ function categoryMenu(): Keyboard {
 function adminMenu(): Keyboard {
   return new Keyboard()
     .text("📊 الإحصائيات").text("🔎 بحث عن مستخدم").row()
-    .text("📡 قناة الاشتراك الإجباري").text("📢 بث جماعي")
+    .text("📡 قناة الاشتراك الإجباري").text("📢 بث جماعي").row()
+    .text(MENU_BUTTON).text(MEMORIAL_BUTTON)
     .resized();
 }
 
@@ -135,9 +142,11 @@ async function sendAdminStats(bot: TelegramBot, botRow: BotRow, chatId: number) 
     prisma.streakUser.count({ where: { botId: botRow.id, isBanned: true } }),
   ]);
   const usersCount = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
+  const k = await khatmaStats().catch(() => null);
+  const khatmaLine = k ? `\n\n📖 الختمات: مجموعات ${k.groups} · صدقة جارية ${k.memorials} · ختمات مكتملة ${k.rounds} · أجزاء مقروءة ${k.juzRead} · نجوم ${k.starsPaid}⭐` : "";
   await bot.api.sendMessage(
     chatId,
-    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n🔥 سلاسل نشطة: ${activeStreaksCount}`
+    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n🔥 سلاسل نشطة: ${activeStreaksCount}${khatmaLine}`
   );
 }
 
@@ -149,6 +158,8 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const text = String(msg.text || "").trim();
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
+  // The owner can try the khatma flows like any user.
+  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === "/khatma" || /^\/start (k_|khatma)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -237,6 +248,19 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
 // Regular flow
 // ---------------------------------------------------------------------
 export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  // 📖 Khatma: inline buttons (memorial purchase, memorial board) and the Stars receipt come first.
+  if (update.callback_query) {
+    const cq = update.callback_query;
+    const uid = String(cq.from?.id || "");
+    if (uid) await ensureStreakUser(botRow.id, uid);
+    const handled = await handleKhatmaPrivateCallback(bot, botRow, cq, (p) => setPending(uid, p));
+    if (!handled) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  if (update.message?.successful_payment) {
+    await handleKhatmaPayment(bot, botRow, update.message);
+    return;
+  }
   const msg = update.message;
   if (!msg?.from || !msg.chat) return;
   const chatId = msg.chat.id;
@@ -281,14 +305,31 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
+  if (pending && (pending.mode === "khatma_name" || pending.mode === "khatma_dedication") && !text.startsWith("/") && text !== MENU_BUTTON && text !== MEMORIAL_BUTTON) {
+    if (await consumeKhatmaText(bot, botRow, chatId, tgUserId, text, pending, (p) => setPending(tgUserId, p))) return;
+  }
+
   if (text === "/start" || text.startsWith("/start ")) {
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
+    const payload = text.split(/\s+/)[1] || "";
+    if (payload === "khatma") { await sendKhatmaIntro(bot, chatId); return; }
+    if (payload && (await openMemorialFromStart(bot, botRow, chatId, payload))) return;
     await bot.api.sendMessage(
       chatId,
       startGuide("STREAK"),
       { reply_markup: mainMenu() }
     );
+    return;
+  }
+
+  if (text === MENU_BUTTON || text === "/khatma") {
+    await setPending(tgUserId, null);
+    await sendKhatmaIntro(bot, chatId);
+    return;
+  }
+  if (text === MEMORIAL_BUTTON) {
+    await startMemorialOrder(bot, chatId, (p) => setPending(tgUserId, p));
     return;
   }
 

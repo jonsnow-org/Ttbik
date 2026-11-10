@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
 import { markSiteAdPaid } from "@/lib/siteAds";
 import { markDealPaid } from "@/lib/channels/exchange";
+import { markSponsorPaid } from "@/lib/khatma/khatma";
 
 // NOWPayments IPN for site banners (ADV-…).
 // Hardened 2026-11-10:
@@ -23,6 +24,12 @@ export async function POST(req: NextRequest) {
   if (code.startsWith("CHD-") || code.startsWith("CHB-")) {
     if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
     const r = await markDealPaid(code, "NOWPayments", Number(body.price_amount));
+    return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
+  }
+  // 🌙 Khatma sponsorship slots (KSP-).
+  if (code.startsWith("KSP-")) {
+    if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
+    const r = await markSponsorPaid(code, "NOWPayments", Number(body.price_amount));
     return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
   }
   if (!code.startsWith("ADV-")) return NextResponse.json({ ok: true });
