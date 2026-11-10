@@ -548,7 +548,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (!(await pgRateLimit(`share:${tg.id}`, 10, 3600))) return err("تمهّل قليلاً");
       const at = ab.created_at > ba.created_at ? ab.created_at : ba.created_at;
       const token = await createShare(botId, at);
-      const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+      const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
       return NextResponse.json({ ok: true, url: `${base}/match-share/${token}` });
     }
     if (action === "seen") {

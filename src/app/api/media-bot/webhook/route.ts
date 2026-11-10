@@ -19,7 +19,7 @@ const URL_RE = /https?:\/\/\S+/i;
 const PREMIUM_DAILY_LIMIT = 50;
 const FREE_DAILY_LIMIT = 8;
 const PREMIUM_STARS_PRICE = 500;
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 const INFO_TEXT =
   "طريقة الاستخدام\n\n" +

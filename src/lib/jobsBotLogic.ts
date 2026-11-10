@@ -270,7 +270,7 @@ async function blockedPeerIds(userId: string): Promise<string[]> {
   return Array.from(ids);
 }
 function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
   return `${base}/pay/jobs?uid=${userId}`;
 }
 async function chargeJobsUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {

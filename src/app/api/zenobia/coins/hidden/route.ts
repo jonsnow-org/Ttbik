@@ -6,7 +6,7 @@ import { ensureHiddenTable, hideSecret } from "@/lib/znbtHideDb";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 /** Public: the coins hidden from the lists. */
 export async function GET() {

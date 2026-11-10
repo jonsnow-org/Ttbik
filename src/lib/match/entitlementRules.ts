@@ -103,7 +103,7 @@ export function isEffectivelyBoosted(profile: Pick<MatchProfile, "boostedUntil">
 }
 
 export function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
   return `${base}/pay/marriage?uid=${userId}`;
 }
 export function insufficientBalanceText(userId: string, needed: number, have: number): string {

@@ -29,7 +29,7 @@ export default function BulkQr() {
     const res = await fetch("/api/ads/create", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "bulk", placement: "qr-generator", altText: `رموز ${lines.length}`, bannerUrl: "bulk", targetUrl: "https://ttbik.vercel.app", days: 7 }),
+      body: JSON.stringify({ kind: "bulk", placement: "qr-generator", altText: `رموز ${lines.length}`, bannerUrl: "bulk", targetUrl: "https://ttbik-gate.jonsnowx1r.workers.dev", days: 7 }),
     });
     const data = await res.json();
     if (!res.ok) return setMsg(data.error || "تعذر");

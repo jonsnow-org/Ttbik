@@ -7,7 +7,7 @@ import { hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 async function tg(token: string, method: string) {
   try {

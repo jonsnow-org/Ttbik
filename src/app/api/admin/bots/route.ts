@@ -88,7 +88,7 @@ async function tablesReady(template: string): Promise<boolean | null> {
   }
 }
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 type AdminBotRow = {
   id: string;

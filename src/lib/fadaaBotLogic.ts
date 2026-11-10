@@ -9,7 +9,7 @@ import { startGuide } from "@/lib/botStartGuide";
  * التطبيق المصغر: /fadaa — جلسات مشتركة مخزنة على Supabase مع توثيق Telegram.
  */
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 function miniAppUrl(botId: string, sessionId?: string): string {
   const url = new URL(`${SITE}/fadaa`);

@@ -145,6 +145,34 @@
     {
       "path": "/api/cron/remit-status",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/jobs-ton-deposits",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/jobs-ton-deposits",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/jobs-ton-deposits",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/marriage-ton-deposits",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/marriage-ton-deposits",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/marriage-ton-deposits",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/jobs-escrow-release",
+      "schedule": "0 3 * * *"
     }
   ]
 }

@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   const orderId = crypto.randomUUID();
   const orderCode = generateOrderCode();
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
   const invoice = await createInvoice({
     priceAmount: service.price_usd,

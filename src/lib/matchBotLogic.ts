@@ -834,7 +834,7 @@ function seriousnessLabel(score: number): string {
   return `🟠 مؤشر الجدية: أساسي (${score}%)`;
 }
 
-const SITE_ORIGIN = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_ORIGIN = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const PHOTO_LOCKED = `${SITE_ORIGIN}/img/match-locked.jpg`;
 const PHOTO_NONE = `${SITE_ORIGIN}/img/match-nophoto.jpg`;
 

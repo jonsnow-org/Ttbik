@@ -208,7 +208,7 @@ async function ghFetch(token: string, method: string, path: string, body?: unkno
 }
 
 export function hookUrl(id: string): string {
-  const base = (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
+  const base = (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/+$/, "");
   return `${base}/api/coder/hooks/github?s=${id}`;
 }
 

@@ -20,7 +20,7 @@ type Report = { id: string; post_id: string; post_title: string; post_owner_id: 
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked", followMigrated: "mb_follow_migrated", names: "mb_names", autoplay: "mb_autoplay", seen: "mb_seen" };
 const EMPTY_REL: Relations = { following: [], mutes: [], blocks: [], blockedBy: [] };
 

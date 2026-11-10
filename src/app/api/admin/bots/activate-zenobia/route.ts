@@ -7,7 +7,7 @@ import { COMMANDS } from "@/lib/zenobiaBotLogic";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 const COMMAND_TEXT: Record<(typeof COMMANDS)[number], string> = {
   start: "Start",

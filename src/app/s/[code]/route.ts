@@ -5,7 +5,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ code: st
   const params = await props.params;
   const code = (params.code || "").trim();
   if (!code || code.length > 16) {
-    return NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app"));
+    return NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev"));
   }
 
   try {
