@@ -14,7 +14,7 @@ const PATH = "/digest";
 export const revalidate = 600;
 
 export const metadata: Metadata = {
-  title: "ملخص اليوم | شام AI",
+  title: "ملخص اليوم",
   description:
     "صفحة واحدة لحدث اليوم وخبر اليوم ومقال مفيد وعناوين عاجلة من مصادر عربية — ابدأ من هنا يومياً.",
   alternates: { canonical: `${SITE}${PATH}` },

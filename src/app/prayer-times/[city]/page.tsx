@@ -20,7 +20,7 @@ export async function generateMetadata(props: { params: Promise<Params> }): Prom
   const city = getPrayerCity(params.city);
   if (!city) return { title: "مواقيت الصلاة" };
   return {
-    title: `مواقيت الصلاة في ${city.nameAr} | شام AI`,
+    title: `مواقيت الصلاة في ${city.nameAr}`,
     description: `أوقات الصلاة اليوم في ${city.nameAr} — ${city.countryAr}. طريقة ${city.methodLabel}. ${city.note}`,
     alternates: { canonical: `${SITE}/prayer-times/${city.slug}` },
     openGraph: {

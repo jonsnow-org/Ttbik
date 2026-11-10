@@ -8,7 +8,7 @@ const SITE = SITE_URL;
 const PATH = "/bots/earnings-calculator";
 
 export const metadata: Metadata = {
-  title: "حاسبة أرباح قناة أو بوت تليجرام | شام AI",
+  title: "حاسبة أرباح قناة أو بوت تليجرام",
   description:
     "قدّر أرباحك الشهرية التقريبية من الإعلانات على قناة أو بوت تليجرام حسب المشاهدات وCPM ونسبة بيع المساحات. بلا توكن BotFather وبلا سحب نقدي.",
   keywords: [

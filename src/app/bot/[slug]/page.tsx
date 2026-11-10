@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const b = BOT_LANDINGS.find((x) => x.slug === slug);
   if (!b) return {};
   return {
-    title: `${b.name} على تليجرام | شام AI`,
+    title: `${b.name} على تليجرام`,
     description: b.summary,
     keywords: b.keywords,
     alternates: { canonical: `/bot/${b.slug}` },

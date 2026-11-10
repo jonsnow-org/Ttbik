@@ -34,7 +34,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   if (!service) return {};
   const description = service.short_desc_ar || service.long_desc_ar || undefined;
   return {
-    title: `${service.name_ar} — ${formatUsd(service.price_usd)} | شام AI`,
+    title: `${service.name_ar} — ${formatUsd(service.price_usd)}`,
     description,
     openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }], title: service.name_ar, description, type: "website" },
   };

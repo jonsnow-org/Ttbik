@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SITE, PATH } from "./botsPageCopy";
 
 export const botsMetadata: Metadata = {
-  title: "تفعيل بوت تليجرام — شام AI",
+  title: "تفعيل بوت تليجرام",
   description:
     "فعّل بوت تليجرام يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
   keywords: [
