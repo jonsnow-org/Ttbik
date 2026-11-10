@@ -11,7 +11,7 @@ const PATH = "/remit";
 export const dynamic = "force-dynamic"; // paid listings and the owner's referral links change without a redeploy
 
 export const metadata: Metadata = {
-  title: "حاسبة الحوالات: اكشف التكلفة الحقيقية لأي حوالة | شام AI",
+  title: "حاسبة الحوالات: اكشف التكلفة الحقيقية لأي حوالة",
   description: "أدخل المبلغ والرسوم وما سيستلمه المستفيد حسب عرض شركة التحويل، ونحسب لك التكلفة الحقيقية وهامش سعر الصرف المخفي مقارنة بالسعر الوسطي الرسمي. معلومات فقط، لا نستلم ولا نحوّل أموالاً.",
   alternates: { canonical: `${SITE_URL}${PATH}` },
 };
