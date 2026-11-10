@@ -21,8 +21,8 @@ export default function BrandForm() {
     setCode(data.code);
   }
 
-  async function pay() {
-    const res = await fetch("/api/ads/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, method: "nowpayments" }) });
+  async function pay(method: "nowpayments" | "stars" = "nowpayments") {
+    const res = await fetch("/api/ads/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, method }) });
     const data = await res.json();
     if (data.invoiceUrl) window.location.href = data.invoiceUrl;
     else setMsg(data.error || "تعذر الدفع");
@@ -39,7 +39,7 @@ export default function BrandForm() {
       <input dir="ltr" className="w-full rounded-xl border px-3 py-2 text-left" placeholder="https://موقعك" value={url} onChange={(e) => setUrl(e.target.value)} />
       <p className="text-sm">10$ دفعة واحدة، الرابط يبقى سنة.</p>
       <button type="button" onClick={save} className="rounded-full bg-amber-600 px-4 py-2 text-sm font-extrabold text-white">توليد الرابط</button>
-      {code && <button type="button" onClick={pay} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white">ادفع ويصير الرابط /t/{code}</button>}
+      {code && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => pay("nowpayments")} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white">💎 ادفع ويصير الرابط /t/{code}</button><button type="button" onClick={() => pay("stars")} className="rounded-full bg-amber-500 px-4 py-2 text-sm font-bold text-white">⭐ ادفع بنجوم تيليجرام</button></div>}
       {msg && <p className="text-sm">{msg}</p>}
     </div>
   );

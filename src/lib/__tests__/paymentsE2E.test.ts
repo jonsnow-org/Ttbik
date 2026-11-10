@@ -32,10 +32,16 @@ const db: any = {
   }),
 };
 jest.mock("@/lib/prisma", () => ({ prisma: db }));
-jest.mock("@/lib/siteAds", () => ({
-  ...jest.requireActual("@/lib/siteAds"),
-  notifyAdmin: jest.fn(async (text: string) => { state.notified.push(text); }),
-}));
+// Telegram is mocked at the network edge: admin notices, invoice links, pre-checkout answers and payer replies are captured.
+const tg: { method: string; body: any }[] = [];
+(global as any).fetch = jest.fn(async (url: string, init?: any) => {
+  const method = String(url).split("/").pop()!;
+  const body = init?.body ? JSON.parse(init.body) : {};
+  tg.push({ method, body });
+  if (method === "sendMessage" && body.reply_markup?.inline_keyboard) state.notified.push(body.text);
+  if (method === "createInvoiceLink") return { ok: true, json: async () => ({ ok: true, result: "https://t.me/$inv123" }) };
+  return { ok: true, json: async () => ({ ok: true, result: { username: "admen10bot" } }) };
+});
 
 const SECRET = "ipn-test-secret";
 function sorted(v: any): any {
@@ -51,11 +57,17 @@ const req = (body: any, sig = sign(body)) => {
 
 import { POST as walletIpn } from "@/app/api/payments/webhook/route";
 import { POST as adsIpn } from "@/app/api/ads/ipn/route";
+import { POST as adsPay } from "@/app/api/ads/pay/route";
+import { POST as admenHook } from "@/app/api/ads/telegram/route";
 import { parseStarsPayload, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { isRealDeposit, summarize } from "@/lib/revenue";
 
 beforeEach(() => {
   process.env.NOWPAYMENTS_IPN_SECRET = SECRET;
+  process.env.TELEGRAM_ADMIN_CHAT_ID = "777";
+  process.env.TELEGRAM_WEBHOOK_SECRET = "hook-secret";
+  process.env.CRON_SECRET = "cron-test";
+  tg.length = 0;
   state.tx = []; state.users = new Map(); state.ads = new Map(); state.notified = []; state.revenue = 0;
 });
 
@@ -123,5 +135,49 @@ describe("revenue report: real money vs internal credit", () => {
     ]);
     expect(r).toMatchObject({ realUsd: 17.5, realCount: 3, internalUsd: 4, internalCount: 1, lastRealAt: "2026-11-10T00:00:00.000Z" });
     expect(r.bySource[0]).toMatchObject({ source: "بنرات الموقع", real: true });
+  });
+});
+
+describe("⭐ Telegram Stars → site ad (Admen bot)", () => {
+  const hook = (update: any, secret = "hook-secret") => admenHook({ json: async () => update, headers: { get: (h: string) => (h === "x-telegram-bot-api-secret-token" ? secret : null) } } as any);
+  const pay = (body: any) => adsPay({ json: async () => body } as any);
+  const pcq = (amount: number) => ({ pre_checkout_query: { id: "q1", currency: "XTR", total_amount: amount, invoice_payload: "SITEAD:ADV-STAR" } });
+  const paid = (amount: number, charge = "ch_1") => ({ message: { chat: { id: 42 }, from: { id: 42 }, successful_payment: { currency: "XTR", total_amount: amount, invoice_payload: "SITEAD:ADV-STAR", telegram_payment_charge_id: charge } } });
+  beforeEach(() => {
+    db.siteBannerAd.update = jest.fn(async () => ({}));
+    state.ads.set("ADV-STAR", { reservationCode: "ADV-STAR", totalPrice: 15, durationDays: 7, altText: "متجري", kind: "sponsor", placement: "zakat-calculator", targetUrl: "https://shop.example", paymentStatus: "PENDING", adStatus: "PENDING_PAYMENT", credited: false });
+  });
+  it("issues a 1500⭐ invoice for a $15 order", async () => {
+    const r: any = await pay({ code: "ADV-STAR", method: "stars" });
+    expect(r.body).toMatchObject({ invoiceUrl: "https://t.me/$inv123", stars: 1500 });
+    const inv = tg.find((c) => c.method === "createInvoiceLink")!.body;
+    expect(inv).toMatchObject({ currency: "XTR", payload: "SITEAD:ADV-STAR", prices: [{ amount: 1500 }] });
+  });
+  it("is refused when the webhook secret is not configured (a fake payment could not be told apart)", async () => {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    expect((await pay({ code: "ADV-STAR", method: "stars" })).status).toBe(400);
+    await hook(paid(1500), "");
+    expect(state.ads.get("ADV-STAR").paymentStatus).toBe("PENDING");
+  });
+  it("pre-checkout: accepts the full price, rejects an underpayment", async () => {
+    await hook(pcq(1500));
+    await hook(pcq(100));
+    const answers = tg.filter((c) => c.method === "answerPreCheckoutQuery").map((c) => c.body.ok);
+    expect(answers).toEqual([true, false]);
+  });
+  it("a confirmed payment marks the ad paid once, credits revenue once and sends the payer a report link", async () => {
+    await hook(paid(1500));
+    await hook(paid(1500)); // redelivery
+    expect(state.ads.get("ADV-STAR")).toMatchObject({ paymentStatus: "PAID", adStatus: "PENDING_APPROVAL", credited: true });
+    expect(state.revenue).toBe(15);
+    expect(state.notified).toHaveLength(1);
+    const reply = tg.find((c) => c.method === "sendMessage" && c.body.chat_id === 42)!.body.text;
+    expect(reply).toContain("/advertise/report?c=ADV-STAR&s=");
+  });
+  it("forged webhook (wrong secret) and underpaid payments change nothing", async () => {
+    expect((await hook(paid(1500), "wrong")).status).toBe(401);
+    await hook(paid(10));
+    expect(state.ads.get("ADV-STAR").paymentStatus).toBe("PENDING");
+    expect(state.revenue).toBe(0);
   });
 });

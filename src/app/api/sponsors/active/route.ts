@@ -11,5 +11,5 @@ export async function GET(req: NextRequest) {
     orderBy: { startsAt: "desc" },
   }).catch(() => null);
   if (!ad) return NextResponse.json({ active: false });
-  return NextResponse.json({ active: true, name: ad.altText, line: ad.bannerUrl, url: ad.targetUrl });
+  return NextResponse.json({ active: true, code: ad.reservationCode, name: ad.altText, line: ad.bannerUrl, url: ad.targetUrl });
 }
