@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findAdmenBot } from "@/lib/siteAds";
+import { findSiteBot, siteBotUsername } from "@/lib/siteAds";
 import { pollTransfers } from "@/lib/remit/office";
 import { gateUrl } from "@/lib/hostingOps";
 
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const bot = await findAdmenBot().catch(() => null);
+  const bot = await findSiteBot().catch(() => null);
   if (!bot) return NextResponse.json({ ok: true, skipped: "no bot" });
-  const r = await pollTransfers({ token: bot.token, site: gateUrl().replace(/\/$/, ""), botUsername: "Admen10bot" }).catch((e) => ({ error: String(e?.message || e).slice(0, 120) }));
+  const r = await pollTransfers({ token: bot.token, site: gateUrl().replace(/\/$/, ""), botUsername: await siteBotUsername().catch(() => "") }).catch((e) => ({ error: String(e?.message || e).slice(0, 120) }));
   return NextResponse.json({ ok: true, ...r });
 }

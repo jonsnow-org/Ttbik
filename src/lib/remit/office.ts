@@ -1,4 +1,4 @@
-// 💸 مكتب الحوالات inside @Admen10bot (owner, 2026-11-10): a guided transfer in the chat. Send or receive, countries, what you pay with,
+// 💸 مكتب الحوالات inside the site bot (owner, 2026-11-10): a guided transfer in the chat. Send or receive, countries, what you pay with,
 // amount → a live quote of what the recipient gets, recipient wallet (saved for next time) → a «حوالة» with a tracking number, and status
 // pushes (waiting → received → exchanging → sent → done). Executed by ChangeNOW's partner API, so the platform earns its partner fee on
 // every transfer. The platform never receives or holds money: the sender pays ChangeNOW's pay-in address, ChangeNOW pays the recipient.
@@ -110,7 +110,7 @@ export async function officeMenu(ctx: Ctx, chatId: string): Promise<void> {
     [{ text: "📤 إرسال حوالة", callback_data: "ro:send" }, { text: "📥 استلام حوالة", callback_data: "ro:recv" }],
     [{ text: "📜 حوالاتي", callback_data: "ro:hist" }, { text: "🔁 كرّر آخر حوالة", callback_data: "ro:again" }],
     [{ text: "👥 المستلمون المحفوظون", callback_data: "ro:book" }],
-    [{ text: "🌐 نافذة التبديل", web_app: { url: `${ctx.site.replace(/\/$/, "")}/remit?bot=admen10bot&src=tg` } }],
+    [{ text: "🌐 نافذة التبديل", web_app: { url: `${ctx.site.replace(/\/$/, "")}/remit?bot=site&src=tg` } }],
   ];
   await say(ctx, chatId, key
     ? "💸 مكتب الحوالات\nأرسل لأهلك USDT (TRC20) خلال دقائق، تدفع من محفظتك بأي عملة رقمية، ويصل للمستلم مباشرة. المنصة لا تستلم أموالك ولا تحتفظ بها."

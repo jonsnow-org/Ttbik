@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gateUrl, rehookBots } from "@/lib/hostingOps";
-import { bindAdmenBot } from "@/lib/siteAds";
+import { bindSiteBot } from "@/lib/siteAds";
+import { ensureOwnerBotFromEnv } from "@/lib/builderOwnerBot";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -10,8 +11,10 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // The builder's owner bot provided by env (BUILDER_OWNER_BOT_TOKEN / SHAM_TEST0_BOT_TOKEN): registered and selected once, idempotent.
+  const ownerBot = await ensureOwnerBotFromEnv(gateUrl()).then((r) => ({ ok: r.ok, note: r.note, username: r.username }), (e) => ({ ok: false, note: String(e?.message || e).slice(0, 80) }));
   const rows = await rehookBots(gateUrl(), false);
-  // The ads bot (@Admen10bot) is stored inactive, so rehookBots skips it: re-bind its webhook + menu button to the gate here (idempotent).
-  const admen = await bindAdmenBot().then((r) => ({ ok: r.ok, webhook: r.webhook }), (e) => ({ ok: false, webhook: String(e?.message || e).slice(0, 80) }));
-  return NextResponse.json({ checked: rows.length, changed: rows.filter((r) => r.note === "changed").length, menuChanged: rows.filter((r) => r.menu === "menu changed").length, admen, failed: rows.filter((r) => !r.ok).map((r) => ({ template: r.template, note: r.note })) });
+  // The site bot is not a builder bot (it is not in the Bot table), so rehookBots never sees it: bind its webhook + menu button here (idempotent).
+  const siteBot = await bindSiteBot().then((r) => ({ ok: r.ok, webhook: r.webhook }), (e) => ({ ok: false, webhook: String(e?.message || e).slice(0, 80) }));
+  return NextResponse.json({ checked: rows.length, changed: rows.filter((r) => r.note === "changed").length, menuChanged: rows.filter((r) => r.menu === "menu changed").length, siteBot, ownerBot, failed: rows.filter((r) => !r.ok).map((r) => ({ template: r.template, note: r.note })) });
 }

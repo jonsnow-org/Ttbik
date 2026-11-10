@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { bindAdmenBot } from "@/lib/siteAds";
+import { bindSiteBot } from "@/lib/siteAds";
 import { isCronAuthorized } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,6 @@ export async function GET(req: NextRequest) {
     where: { adStatus: "ACTIVE", endsAt: { lte: now } },
     data: { adStatus: "EXPIRED" },
   });
-  const bound = await bindAdmenBot().catch(() => ({ ok: false }));
-  return NextResponse.json({ expired: result.count, admen: bound.ok });
+  const bound = await bindSiteBot().catch(() => ({ ok: false }));
+  return NextResponse.json({ expired: result.count, siteBot: bound.ok });
 }

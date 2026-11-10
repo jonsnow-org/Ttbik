@@ -22,7 +22,6 @@ import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
-import { bannerBalance } from "@/lib/siteAds";
 import { grokNotificationFrom } from "@/lib/grokWebhook";
 
 import { createHmac, randomUUID } from "crypto";
@@ -169,34 +168,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const chatId = body.message?.chat?.id;
         if (chatId) {
           await bot.api.sendMessage(chatId, "بوت نشر قناة الموقع. لا لوحة مستخدم هنا، والمنشورات تخرج إلى القناة حسب الجدولة.");
-        }
-        return NextResponse.json({ status: "ok" });
-      }
-      if (botRow.template === "SITE_BANNER_ADMIN") {
-        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-        await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: site } } }).catch(() => null);
-        const text = String(body.message?.text || "");
-        const chatId = body.message?.chat?.id;
-        if (chatId) {
-          const adminIds = [botRow.ownerId, process.env.TELEGRAM_ADMIN_CHAT_ID, process.env.SUPER_ADMIN_TELEGRAM_ID].filter(Boolean).map(String);
-          const isAdmin = adminIds.includes(String(chatId));
-          const keyboard = isAdmin
-            ? { keyboard: [[{ text: "حصيلة البنر" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true }
-            : { keyboard: [[{ text: "محفظتي" }, { text: "شراء" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
-          let reply = isAdmin
-            ? "لوحة الأدمن. حصيلة البنر لا تظهر للمستخدمين."
-            : "افتح الموقع من زر التطبيق. محفظتك والشراء داخل التطبيق المصغر.";
-          if (isAdmin && (text === "حصيلة البنر" || text === "الرصيد" || text.startsWith("/balance"))) {
-            const balance = await bannerBalance();
-            reply = `حصيلة البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`;
-          } else if (!isAdmin && (text === "الرصيد" || text === "حصيلة البنر")) {
-            reply = "هذه الحصيلة للأدمن فقط. محفظتك تُفتح من زر الموقع.";
-          } else if (text === "محفظتي") {
-            reply = "محفظتك تُفتح من التطبيق المصغر، ولا تعرض حصيلة الموقع.";
-          } else if (text === "شراء") {
-            reply = "الشراء يتم داخل التطبيق المصغر بعد فتح زر الموقع.";
-          }
-          await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
         }
         return NextResponse.json({ status: "ok" });
       }

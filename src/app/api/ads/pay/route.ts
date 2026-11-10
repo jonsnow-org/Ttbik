@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   if (ad.paymentStatus === "PAID") return NextResponse.json({ error: "هذا الحجز مدفوع." }, { status: 400 });
 
   if (method === "stars") {
-    // ⭐ opens in Telegram; the Admen bot confirms the payment and the ad goes to review automatically
+    // ⭐ opens in Telegram; the site bot confirms the payment and the ad goes to review automatically
     const r = await siteAdStarsInvoice(ad);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json({ invoiceUrl: r.link, stars: r.stars, code });

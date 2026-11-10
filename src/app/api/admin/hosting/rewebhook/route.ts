@@ -18,5 +18,5 @@ export async function POST(req: NextRequest) {
   const out = await rehookBots(base, dry);
   let media: { ok: boolean; changed: boolean; detail: string } | null = null;
   if (!dry) media = await ensureFrontDoor().catch((e) => ({ ok: false, changed: false, detail: String(e?.message || e).slice(0, 120) }));
-  return NextResponse.json({ dry, base, total: out.length, ok: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, bots: out, media, note: "SITE_BANNER_ADMIN and the main /api/telegram/webhook bot register themselves from NEXT_PUBLIC_SITE_URL; see docs/HOSTING.md" });
+  return NextResponse.json({ dry, base, total: out.length, ok: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, bots: out, media, note: "The site bot (/api/ads/telegram, bindSiteBot) and the main /api/telegram/webhook bot register themselves from NEXT_PUBLIC_SITE_URL; see docs/HOSTING.md" });
 }

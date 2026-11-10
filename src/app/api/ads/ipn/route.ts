@@ -6,7 +6,7 @@ import { markDealPaid } from "@/lib/channels/exchange";
 import { markSponsorPaid } from "@/lib/khatma/khatma";
 import { markListingPaid } from "@/lib/remit/listings";
 import { BOT_PAID_USD, codeMessage, markBotOrderPaid } from "@/lib/botSales";
-import { findAdmenBot } from "@/lib/siteAds";
+import { deliverBotCode } from "@/lib/botSalesChat";
 import { gateUrl } from "@/lib/hostingOps";
 
 // NOWPayments IPN for site banners (ADV-…).
@@ -49,8 +49,7 @@ export async function POST(req: NextRequest) {
     if (Number.isFinite(paid) && paid + 0.01 < BOT_PAID_USD) return NextResponse.json({ ok: true, ignored: "underpaid" });
     const r = await markBotOrderPaid(String(body.order_id).slice(4).toLowerCase(), "NOWPayments").catch(() => ({ first: false, code: null, buyerId: null }));
     if (r.first && r.code && r.buyerId) {
-      const bot = await findAdmenBot().catch(() => null);
-      if (bot) await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: r.buyerId, text: codeMessage(r.code, r.buyerId, gateUrl(), false) }) }).catch(() => null);
+      await deliverBotCode(r.buyerId, codeMessage(r.code, r.buyerId, gateUrl(), false)).catch(() => null);
     }
     return NextResponse.json({ ok: true, duplicate: !r.first });
   }

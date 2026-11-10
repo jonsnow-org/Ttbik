@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { bindAdmenBot, creditBanner, notifyAdmin } from "@/lib/siteAds";
+import { bindSiteBot, creditBanner, notifyAdmin } from "@/lib/siteAds";
 import { adReportUrl } from "@/lib/adStats";
 
 export async function POST(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       data: { adStatus: "PENDING_APPROVAL" },
     });
   }
-  await bindAdmenBot().catch(() => null);
+  await bindSiteBot().catch(() => null);
   await creditBanner(code).catch(() => null);
   await notifyAdmin(
     `طلب بنر ${code}\nالعنوان: ${ad.altText}\nالرابط: ${ad.targetUrl}\nالمدة: ${ad.durationDays} يوم\nالسعر: ${ad.totalPrice}$\nالدفع: ${ad.paymentStatus}\nالبنر: ${ad.bannerUrl}`,
