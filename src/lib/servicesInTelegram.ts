@@ -5,7 +5,7 @@
  */
 import { InlineKeyboard } from "grammy";
 import { SERVICE_LINKS, CHAINS_BOT_USERNAME, chainsBotLink } from "@/config/navigation";
-export { CHAINS_BOT_USERNAME, IN_CHAINS_BOT, chainsBotLink } from "@/config/navigation";
+export { CHAINS_BOT_USERNAME, IN_CHAINS_BOT, IN_STORE_BOT, STORE_BOT_USERNAME, chainsBotLink } from "@/config/navigation";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const SERVICES_BUTTON = "🧭 خدمات وأرباح";
@@ -21,7 +21,7 @@ export function serviceUrl(href: string, site = SITE_URL): string {
   return `${site.replace(/\/$/, "")}${href}?src=tg`;
 }
 
-/** Two buttons per row; `first` puts the bot's own services at the top. Khatma and contests open the chains bot. */
+/** Two buttons per row; `first` puts the bot's own services at the top. Khatma and contests open the chains bot, shops the store bot. */
 export function servicesKeyboard(first: readonly ServiceId[] = [], site = SITE_URL, chainsBot = CHAINS_BOT_USERNAME): InlineKeyboard {
   const ordered = [...SERVICE_LINKS].sort((a, b) => Number(first.includes(b.id)) - Number(first.includes(a.id)));
   const kb = new InlineKeyboard();

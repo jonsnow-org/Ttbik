@@ -4,10 +4,10 @@ import path from "path";
 import { SERVICE_LINKS, chainsBotLink } from "@/config/navigation";
 import { SERVICES_BUTTON, isServicesRequest, sendServices, serviceUrl, servicesKeyboard } from "@/lib/servicesInTelegram";
 
-const IN_CHAINS = new Set(["khatma", "contests"]);
+const TME: Record<string, string> = { khatma: "https://t.me/Slaselbot?start=khatma", contests: "https://t.me/Slaselbot?start=contest", shop: "https://t.me/Saragptbotbot?start=shops" };
 
 describe("services keyboard", () => {
-  it("one button per service, two per row: site pages as web_app, khatma & contests as a t.me link to @Slaselbot", () => {
+  it("one button per service, two per row: site pages as web_app, khatma & contests → @Slaselbot, shops → @Saragptbotbot", () => {
     const kb: any = servicesKeyboard([], "https://site.example");
     const rows: any[][] = kb.inline_keyboard.filter((r: any[]) => r.length);
     const flat = rows.flat();
@@ -15,22 +15,25 @@ describe("services keyboard", () => {
     expect(rows.every((r) => r.length <= 2)).toBe(true);
     for (const b of flat) {
       const id = SERVICE_LINKS.find((s) => s.label === b.text)!.id;
-      if (IN_CHAINS.has(id)) {
+      if (TME[id]) {
         expect(b.web_app).toBeUndefined();
-        expect(b.url).toBe(id === "khatma" ? "https://t.me/Slaselbot?start=khatma" : "https://t.me/Slaselbot?start=contest");
+        expect(b.url).toBe(TME[id]);
       } else expect(b.web_app.url).toMatch(/^https:\/\/site\.example\/[a-z-]+\?src=tg$/);
     }
   });
   it("puts the bot's own services first; the chains bot username can be passed", () => {
     const kb: any = servicesKeyboard(["khatma", "contests"], "https://s", "@OtherChains");
     expect(kb.inline_keyboard[0].map((b: any) => b.url)).toEqual(["https://t.me/OtherChains?start=khatma", "https://t.me/OtherChains?start=contest"]);
-    const kb2: any = servicesKeyboard(["shop"], "https://s");
-    expect(kb2.inline_keyboard[0][0].web_app.url).toBe(serviceUrl("/shop", "https://s"));
+    const kb2: any = servicesKeyboard(["remit"], "https://s");
+    expect(kb2.inline_keyboard[0][0].web_app.url).toBe(serviceUrl("/remit", "https://s"));
+    const kb3: any = servicesKeyboard(["shop"], "https://s", "@OtherChains");
+    expect(kb3.inline_keyboard[0][0].url).toBe("https://t.me/Saragptbotbot?start=shops");
   });
-  it("chainsBotLink only covers khatma and contests", () => {
+  it("chainsBotLink covers khatma, contests (chains bot) and shops (store bot) only", () => {
     expect(chainsBotLink("khatma")).toBe("https://t.me/Slaselbot?start=khatma");
     expect(chainsBotLink("contests")).toBe("https://t.me/Slaselbot?start=contest");
-    expect(chainsBotLink("shop")).toBeNull();
+    expect(chainsBotLink("shop")).toBe("https://t.me/Saragptbotbot?start=shops");
+    for (const id of ["remit", "channels", "channel-audit", "advertise"]) expect(chainsBotLink(id)).toBeNull();
   });
   it("answers the button and /services (with or without @bot)", () => {
     expect(isServicesRequest(SERVICES_BUTTON)).toBe(true);
@@ -42,7 +45,7 @@ describe("services keyboard", () => {
     const sendMessage = jest.fn(async () => ({}));
     await sendServices({ api: { sendMessage } }, 5, ["shop"]);
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect((sendMessage.mock.calls[0] as any[])[2].reply_markup.inline_keyboard[0][0].web_app.url).toContain("/shop?src=tg");
+    expect((sendMessage.mock.calls[0] as any[])[2].reply_markup.inline_keyboard[0][0].url).toBe("https://t.me/Saragptbotbot?start=shops");
   });
 });
 

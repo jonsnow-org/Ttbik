@@ -12,6 +12,16 @@ import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { FEATURE_CALLBACK, SHOP_BUTTON, parseShopStart, withFeaturedFirst } from "@/lib/jobs/shopRules";
 import { featureButton, featureListing, featuredListingIds, featuredUntil, sendMyShop, sendShopInBot } from "@/lib/jobs/shop";
+import {
+  PROFESSIONAL_CATEGORIES, acceptOfferCore, blockedPeerIds, chargeJobsUser, confirmReceivedCore, counterOfferCore, createOfferCore, deleteListingCore,
+  deleteWantedCore, isBlocked, openDisputeCore, rejectOfferCore, saveListingCore, saveWantedCore, settleEscrow, submitDisputeCore, toggleListingCore, toggleWantedCore,
+} from "@/lib/jobs/core";
+import {
+  appLink, depositLink, notifyAcceptOutcome, notifyDisputeOpened, notifyDisputeReady, notifyOfferRejected, notifyOfferToOtherParty, notifyReceived,
+} from "@/lib/jobs/notify";
+import { APP_BUTTON } from "@/lib/botApp/buttons";
+import { setBotAppMenu } from "@/lib/builderOwnerBot";
+import { gateUrl } from "@/lib/hostingOps";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
   TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
@@ -45,13 +55,6 @@ const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 const RESULTS_PAGE_SIZE = 5;
 const ESCROW_AUTO_RELEASE_DAYS = 7;
 
-const PROFESSIONAL_CATEGORIES = [
-  "نجار", "حداد", "سباك", "كهربائي", "دهان", "ميكانيكي سيارات",
-  "فني تكييف وتبريد", "بنّاء", "مبلّط", "فني جبس وديكور", "حداد ألمنيوم",
-  "فني زجاج", "سائق", "بستاني", "عامل نظافة", "خياط",
-  "حلاق ومصفف شعر", "فني كمبيوتر وموبايل", "مصوّر", "طباخ وشيف",
-  "عامل مطعم", "حارس أمن", "عامل مستودع وتحميل",
-];
 const OTHER_CATEGORY_LABEL = "✏️ مهنة أخرى (اكتبها)";
 
 function shortId(id: string): string {
@@ -187,7 +190,7 @@ function mainMenu(): Keyboard {
     .text(TENDER_MENU_LABEL).row()
     .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
-  return kb.text("ℹ️ معلومات").text(SERVICES_BUTTON).resized();
+  return kb.text(APP_BUTTON).text(SHOPS_BUTTON).row().text("ℹ️ معلومات").text(SERVICES_BUTTON).resized();
 }
 function workMenu(): Keyboard {
   return new Keyboard().text("📢 نشر").text("🔍 بحث").row().text(backLabel()).resized();
@@ -254,66 +257,34 @@ function tenderCtx(bot: TelegramBot, chatId: number, userId: string) {
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.jobsUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
-async function isBlocked(aId: string, bId: string): Promise<boolean> {
-  const b = await prisma.jobsBlock.findFirst({ where: { OR: [{ blockerId: aId, blockedId: bId }, { blockerId: bId, blockedId: aId }] } });
-  return !!b;
+// Same atomic escrow settle as the bot's buttons and the Mini App (src/lib/jobs/core.ts); the 7-day auto-release cron imports it from here.
+export { settleEscrow };
+
+// The bot's own Mini App (/bot-app/<botId>, src/lib/botApp/jobsApp.ts): the chat's main menu button and /app open it, and the
+// Telegram menu button is pointed at it once per process (the same mechanism as the other bots' apps).
+export const SHOPS_BUTTON = "🛍 متاجر البائعين";
+const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك في مكان واحد داخل تيليجرام. اختر:";
+const appMenuSet = new Set<string>();
+function ensureJobsAppMenu(botRow: BotRow) {
+  if (appMenuSet.has(botRow.id)) return;
+  appMenuSet.add(botRow.id);
+  void setBotAppMenu(botRow.token, gateUrl(), botRow.id).then((ok) => { if (!ok) appMenuSet.delete(botRow.id); }).catch(() => appMenuSet.delete(botRow.id));
 }
-// Ids on either side of a block involving userId — either direction, since
-// a block is meant to sever contact/visibility mutually, not just one-way.
-async function blockedPeerIds(userId: string): Promise<string[]> {
-  const rows = await prisma.jobsBlock.findMany({
-    where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
-    select: { blockerId: true, blockedId: true },
-  });
-  const ids = new Set<string>();
-  for (const r of rows) ids.add(r.blockerId === userId ? r.blockedId : r.blockerId);
-  return Array.from(ids);
+function appKeyboard(botId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .webApp("📱 افتح التطبيق", appLink(botId, "home")).row()
+    .webApp("🛍 متاجر البائعين", appLink(botId, "shops")).webApp("🛒 المتجر", appLink(botId, "store")).row()
+    .webApp("📂 طلباتي", appLink(botId, "orders")).webApp("🏪 متجري", appLink(botId, "myshop")).row()
+    .webApp("💼 العمل", appLink(botId, "work")).webApp("🏷 المناقصات", appLink(botId, "tenders"));
 }
-function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
-  return `${base}/pay/jobs?uid=${userId}`;
-}
-async function chargeJobsUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  // Atomic check-and-decrement inside one DB transaction: updateMany's
-  // WHERE clause balance check is evaluated by Postgres as part of the
-  // UPDATE itself (row-locked), so two concurrent charges against the
-  // same user (e.g. two sellers accepting separate offers from the same
-  // buyer at nearly the same moment) can no longer both pass a stale
-  // in-JS balance check and drive the balance negative — the previous
-  // version read the balance, checked it in JS, then decremented in a
-  // separate step, which was a real TOCTOU race.
-  return prisma.$transaction(async (tx) => {
-    const result = await tx.jobsUser.updateMany({
-      where: { id: userId, balance: { gte: amount } },
-      data: { balance: { decrement: amount } },
+async function sendAppEntry(bot: TelegramBot, chatId: number, botId: string, section?: "shops" | "orders") {
+  if (section === "shops") {
+    await bot.api.sendMessage(chatId, "🛍 متاجر البائعين: تصفّح المتاجر والمنتجات بالصور واطلب مباشرة، أو افتح متجرك وشارك رابطه.", {
+      reply_markup: new InlineKeyboard().webApp("🛍 تصفّح المتاجر", appLink(botId, "shops")).row().webApp("🏪 متجري", appLink(botId, "myshop")),
     });
-    const current = await tx.jobsUser.findUnique({ where: { id: userId } });
-    const balance = Number(current?.balance || 0);
-    if (result.count === 0) return { ok: false, balance };
-    await tx.jobsTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } });
-    return { ok: true, balance };
-  });
-}
-/**
- * Moves an escrowed order to its final status and pays the winner in ONE
- * transaction; only the caller that wins the ESCROWED -> final status change pays.
- * A double tap on "received", an admin decision racing the 7-day auto release,
- * or two overlapping cron runs can therefore never pay an order twice.
- */
-export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "REFUNDED", payeeId: string, amount: number, ledgerType: string): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const claim = await tx.storeOrder.updateMany({ where: { id: orderId, status: "ESCROWED" }, data: { status: finalStatus, releasedAt: new Date() } });
-    if (claim.count !== 1) return false;
-    await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: amount } } });
-    await tx.jobsTransaction.create({ data: { userId: payeeId, amount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
-    return true;
-  });
-}
-async function creditJobsUser(userId: string, amount: number, type: string) {
-  await prisma.$transaction([
-    prisma.jobsUser.update({ where: { id: userId }, data: { balance: { increment: amount } } }),
-    prisma.jobsTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
+    return;
+  }
+  await bot.api.sendMessage(chatId, APP_TEXT, { reply_markup: appKeyboard(botId) });
 }
 
 // ---------------------------------------------------------------------
@@ -703,59 +674,22 @@ function orderStatusLabel(status: string): string {
 // Owner-only management actions on a StoreListing/StoreWantedListing —
 // only reachable via "📂 طلباتي" (owner spec, 2026-09-06): a seller/buyer
 // had no way to edit, pause, or remove what they already posted.
+ // Owner-only status changes (rules in src/lib/jobs/core.ts, shared with the Mini App).
 async function toggleListingStatus(bot: TelegramBot, chatId: number, userId: string, listingId: string) {
-  const l = await prisma.storeListing.findUnique({ where: { id: listingId } });
-  if (!l || l.sellerId !== userId) {
-    await bot.api.sendMessage(chatId, "غير مسموح.");
-    return;
-  }
-  if (l.status !== "ACTIVE" && l.status !== "PAUSED") {
-    await bot.api.sendMessage(chatId, "لا يمكن تغيير حالة هذا المنتج.");
-    return;
-  }
-  const newStatus = l.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
-  await prisma.storeListing.update({ where: { id: listingId }, data: { status: newStatus } });
-  await bot.api.sendMessage(chatId, newStatus === "ACTIVE" ? "▶️ تم تفعيل المنتج، وهو الآن ظاهر في التصفح." : "⏸ تم إيقاف المنتج مؤقتاً، لن يظهر في التصفح حتى تُعيد تفعيله.");
+  const r = await toggleListingCore(userId, listingId);
+  await bot.api.sendMessage(chatId, !r.ok ? r.error : r.status === "ACTIVE" ? "▶️ تم تفعيل المنتج، وهو الآن ظاهر في التصفح." : "⏸ تم إيقاف المنتج مؤقتاً، لن يظهر في التصفح حتى تُعيد تفعيله.");
 }
 async function deleteListing(bot: TelegramBot, chatId: number, userId: string, listingId: string) {
-  const l = await prisma.storeListing.findUnique({ where: { id: listingId } });
-  if (!l || l.sellerId !== userId) {
-    await bot.api.sendMessage(chatId, "غير مسموح.");
-    return;
-  }
-  if (l.status !== "ACTIVE" && l.status !== "PAUSED") {
-    await bot.api.sendMessage(chatId, "لا يمكن حذف هذا المنتج.");
-    return;
-  }
-  await prisma.storeListing.update({ where: { id: listingId }, data: { status: "REMOVED" } });
-  await bot.api.sendMessage(chatId, "🗑 تم حذف المنتج.");
+  const r = await deleteListingCore(userId, listingId);
+  await bot.api.sendMessage(chatId, r.ok ? "🗑 تم حذف المنتج." : r.error);
 }
 async function toggleWantedStatus(bot: TelegramBot, chatId: number, userId: string, wantedId: string) {
-  const w = await prisma.storeWantedListing.findUnique({ where: { id: wantedId } });
-  if (!w || w.buyerId !== userId) {
-    await bot.api.sendMessage(chatId, "غير مسموح.");
-    return;
-  }
-  if (w.status !== "ACTIVE" && w.status !== "PAUSED") {
-    await bot.api.sendMessage(chatId, "لا يمكن تغيير حالة هذا الطلب.");
-    return;
-  }
-  const newStatus = w.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
-  await prisma.storeWantedListing.update({ where: { id: wantedId }, data: { status: newStatus } });
-  await bot.api.sendMessage(chatId, newStatus === "ACTIVE" ? "▶️ تم تفعيل طلبك، وهو الآن ظاهر في التصفح." : "⏸ تم إيقاف طلبك مؤقتاً، لن يظهر في التصفح حتى تُعيد تفعيله.");
+  const r = await toggleWantedCore(userId, wantedId);
+  await bot.api.sendMessage(chatId, !r.ok ? r.error : r.status === "ACTIVE" ? "▶️ تم تفعيل طلبك، وهو الآن ظاهر في التصفح." : "⏸ تم إيقاف طلبك مؤقتاً، لن يظهر في التصفح حتى تُعيد تفعيله.");
 }
 async function deleteWanted(bot: TelegramBot, chatId: number, userId: string, wantedId: string) {
-  const w = await prisma.storeWantedListing.findUnique({ where: { id: wantedId } });
-  if (!w || w.buyerId !== userId) {
-    await bot.api.sendMessage(chatId, "غير مسموح.");
-    return;
-  }
-  if (w.status !== "ACTIVE" && w.status !== "PAUSED") {
-    await bot.api.sendMessage(chatId, "لا يمكن حذف هذا الطلب.");
-    return;
-  }
-  await prisma.storeWantedListing.update({ where: { id: wantedId }, data: { status: "REMOVED" } });
-  await bot.api.sendMessage(chatId, "🗑 تم حذف طلبك.");
+  const r = await deleteWantedCore(userId, wantedId);
+  await bot.api.sendMessage(chatId, r.ok ? "🗑 تم حذف طلبك." : r.error);
 }
 
 // Public browse/search of everyone's buy requests — the "🛍 تصفح للشراء" /
@@ -1021,19 +955,11 @@ async function consumeStoreListingStep(bot: TelegramBot, chatId: number, userId:
 
   const next = nextStoreListingStep(step);
   if (!next) {
-    const fields = {
-      title: data.title!, description: data.description ?? null, price: data.price!,
-      photoFileIds: data.photoFileIds as any, deliveryMethod: data.deliveryMethod!, paymentMethod: data.paymentMethod!,
-    };
-    if (pending.editingId) {
-      await prisma.storeListing.update({ where: { id: pending.editingId }, data: fields });
-      await setPending(userId, null);
-      await bot.api.sendMessage(chatId, "✅ تم تحديث منتجك.", { reply_markup: mainMenu() });
-      return;
-    }
-    await prisma.storeListing.create({ data: { sellerId: userId, ...fields } });
+    // Saved through the shared rule (src/lib/jobs/core.ts): «تاجر» only, and an edit lands only on the owner's ACTIVE/PAUSED listing
+    // (a stale edit wizard can no longer rewrite a listing that was sold or removed meanwhile).
+    const r = await saveListingCore(userId, data, pending.editingId);
     await setPending(userId, null);
-    await bot.api.sendMessage(chatId, "✅ تم نشر المنتج في المتجر.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, !r.ok ? r.error : r.created ? "✅ تم نشر المنتج في المتجر." : "✅ تم تحديث منتجك.", { reply_markup: mainMenu() });
     return;
   }
   await setPending(userId, { mode: "store_listing_wizard", step: next, data, editingId: pending.editingId });
@@ -1075,16 +1001,9 @@ async function consumeStoreWantedStep(bot: TelegramBot, chatId: number, userId: 
   }
   const next = nextStoreWantedStep(step);
   if (!next) {
-    const fields = { title: data.title!, description: data.description ?? null, budget: data.budget ?? null };
-    if (pending.editingId) {
-      await prisma.storeWantedListing.update({ where: { id: pending.editingId }, data: fields });
-      await setPending(userId, null);
-      await bot.api.sendMessage(chatId, "✅ تم تحديث طلبك.", { reply_markup: mainMenu() });
-      return;
-    }
-    await prisma.storeWantedListing.create({ data: { buyerId: userId, ...fields } });
+    const r = await saveWantedCore(userId, { title: data.title, description: data.description, budget: data.budget ?? null }, pending.editingId);
     await setPending(userId, null);
-    await bot.api.sendMessage(chatId, "✅ تم نشر طلبك في المتجر.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, !r.ok ? r.error : r.created ? "✅ تم نشر طلبك في المتجر." : "✅ تم تحديث طلبك.", { reply_markup: mainMenu() });
     return;
   }
   await setPending(userId, { mode: "store_wanted_wizard", step: next, data, editingId: pending.editingId });
@@ -1098,10 +1017,6 @@ async function consumeStoreWantedStep(bot: TelegramBot, chatId: number, userId: 
 // sellerId on the offer are fixed roles; price/lastOfferBy move as either
 // side counters. Accepting always executes at the CURRENT price.
 // ---------------------------------------------------------------------
-function receivedDisputeKeyboard(orderId: string): InlineKeyboard {
-  return new InlineKeyboard().text("✅ لقد استلمت المنتج", `jreceived|${orderId}`).row().text("⚠️ فتح نزاع", `jdispute|${orderId}`);
-}
-
 async function startOffer(bot: TelegramBot, chatId: number, initiatorId: string, kind: "LISTING" | "WANTED", targetId: string) {
   if (kind === "LISTING") {
     const listing = await prisma.storeListing.findUnique({ where: { id: targetId } });
@@ -1142,60 +1057,33 @@ async function startOffer(bot: TelegramBot, chatId: number, initiatorId: string,
   );
 }
 
-async function notifyOfferToOtherParty(bot: TelegramBot, offer: { id: string; kind: string; listingId: string | null; wantedId: string | null; buyerId: string; sellerId: string; price: number; lastOfferBy: string }) {
-  const title =
-    offer.kind === "LISTING"
-      ? (await prisma.storeListing.findUnique({ where: { id: offer.listingId! } }))?.title
-      : (await prisma.storeWantedListing.findUnique({ where: { id: offer.wantedId! } }))?.title;
-  const otherPartyId = offer.lastOfferBy === offer.buyerId ? offer.sellerId : offer.buyerId;
-  const proposerLabel = offer.lastOfferBy === offer.buyerId ? "المشتري" : "البائع";
-  const kb = new InlineKeyboard()
-    .text("✅ قبول", `joffer_accept|${offer.id}`).text("❌ رفض", `joffer_reject|${offer.id}`).row()
-    .text("💬 تفاوض (سعر آخر)", `joffer_negotiate|${offer.id}`);
-  await bot.api
-    .sendMessage(Number(otherPartyId), `💰 عرض سعر على "${title}": $${offer.price.toFixed(2)} من ${proposerLabel} (#${shortId(offer.lastOfferBy)})`, { reply_markup: kb })
-    .catch(() => null);
-}
-
-async function submitOfferPrice(bot: TelegramBot, chatId: number, userId: string, kind: "LISTING" | "WANTED", targetId: string, price: number) {
-  let offer;
-  if (kind === "LISTING") {
-    const listing = await prisma.storeListing.findUnique({ where: { id: targetId } });
-    if (!listing || listing.status !== "ACTIVE") {
-      await bot.api.sendMessage(chatId, "لم يعد هذا المنتج متاحاً.", { reply_markup: mainMenu() });
-      return;
-    }
-    offer = await prisma.storeOffer.create({ data: { kind: "LISTING", listingId: listing.id, buyerId: userId, sellerId: listing.sellerId, price, lastOfferBy: userId } });
-  } else {
-    const wanted = await prisma.storeWantedListing.findUnique({ where: { id: targetId } });
-    if (!wanted || wanted.status !== "ACTIVE") {
-      await bot.api.sendMessage(chatId, "لم يعد هذا الطلب متاحاً.", { reply_markup: mainMenu() });
-      return;
-    }
-    offer = await prisma.storeOffer.create({ data: { kind: "WANTED", wantedId: wanted.id, buyerId: wanted.buyerId, sellerId: userId, price, lastOfferBy: userId } });
-  }
-  await bot.api.sendMessage(chatId, `✅ تم إرسال عرضك بسعر $${price.toFixed(2)}. سننتظر رد الطرف الآخر.`, { reply_markup: mainMenu() });
-  await notifyOfferToOtherParty(bot, offer);
-}
-
-async function respondOffer(bot: TelegramBot, chatId: number, userId: string, offerId: string, action: "accept" | "reject") {
-  const offer = await prisma.storeOffer.findUnique({ where: { id: offerId } });
-  if (!offer || offer.status !== "PENDING") {
-    await bot.api.sendMessage(chatId, "هذا العرض لم يعد متاحاً.");
+async function submitOfferPrice(bot: TelegramBot, chatId: number, userId: string, kind: "LISTING" | "WANTED", targetId: string, price: number, botId?: string) {
+  const r = await createOfferCore(userId, kind, targetId, price);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error, { reply_markup: mainMenu() });
     return;
   }
-  const otherPartyId = offer.lastOfferBy === offer.buyerId ? offer.sellerId : offer.buyerId;
-  if (userId !== otherPartyId) {
-    await bot.api.sendMessage(chatId, "ليس لديك صلاحية الرد على هذا العرض.");
-    return;
-  }
+  await bot.api.sendMessage(chatId, `✅ تم إرسال عرضك بسعر $${r.offer.price.toFixed(2)}. سننتظر رد الطرف الآخر.`, { reply_markup: mainMenu() });
+  await notifyOfferToOtherParty(bot, r.offer, botId);
+}
+
+async function respondOffer(bot: TelegramBot, chatId: number, userId: string, offerId: string, action: "accept" | "reject", botId?: string) {
   if (action === "reject") {
-    await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "REJECTED" } });
+    const r = await rejectOfferCore(userId, offerId);
+    if (!r.ok) {
+      await bot.api.sendMessage(chatId, r.error);
+      return;
+    }
     await bot.api.sendMessage(chatId, "❌ تم رفض العرض.");
-    await bot.api.sendMessage(Number(offer.lastOfferBy), `❌ تم رفض عرضك بسعر $${offer.price.toFixed(2)}.`).catch(() => null);
+    await notifyOfferRejected(bot, r.offer);
     return;
   }
-  await finalizeAcceptedOffer(bot, offer);
+  const r = await acceptOfferCore(userId, offerId);
+  if (!r.ok && (r.reason === "gone" || r.reason === "not_allowed")) {
+    await bot.api.sendMessage(chatId, r.error);
+    return;
+  }
+  await notifyAcceptOutcome(bot, r, botId, mainMenu());
 }
 
 async function startNegotiate(bot: TelegramBot, chatId: number, userId: string, offerId: string) {
@@ -1213,160 +1101,52 @@ async function startNegotiate(bot: TelegramBot, chatId: number, userId: string, 
   await bot.api.sendMessage(chatId, `💬 أدخل السعر الذي تقترحه بالدولار (السعر الحالي: $${offer.price.toFixed(2)}):`, { reply_markup: plainBackMenu() });
 }
 
-async function submitOfferCounter(bot: TelegramBot, chatId: number, userId: string, offerId: string, price: number) {
-  const offer = await prisma.storeOffer.findUnique({ where: { id: offerId } });
-  if (!offer || offer.status !== "PENDING") {
-    await bot.api.sendMessage(chatId, "هذا العرض لم يعد متاحاً.", { reply_markup: mainMenu() });
+async function submitOfferCounter(bot: TelegramBot, chatId: number, userId: string, offerId: string, price: number, botId?: string) {
+  const r = await counterOfferCore(userId, offerId, price);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error, { reply_markup: mainMenu() });
     return;
   }
-  const otherPartyId = offer.lastOfferBy === offer.buyerId ? offer.sellerId : offer.buyerId;
-  if (userId !== otherPartyId) {
-    await bot.api.sendMessage(chatId, "ليس لديك صلاحية التفاوض على هذا العرض.", { reply_markup: mainMenu() });
-    return;
-  }
-  const updated = await prisma.storeOffer.update({ where: { id: offer.id }, data: { price, lastOfferBy: userId } });
-  await bot.api.sendMessage(chatId, `✅ تم إرسال عرضك المقابل بسعر $${price.toFixed(2)}.`, { reply_markup: mainMenu() });
-  await notifyOfferToOtherParty(bot, updated);
-}
-
-async function finalizeAcceptedOffer(bot: TelegramBot, offer: { id: string; kind: string; listingId: string | null; wantedId: string | null; buyerId: string; sellerId: string; price: number }) {
-  if (offer.kind === "LISTING") {
-    const listing = await prisma.storeListing.findUnique({ where: { id: offer.listingId! } });
-    if (!listing || listing.status !== "ACTIVE") {
-      await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "REJECTED" } });
-      await bot.api.sendMessage(Number(offer.buyerId), "❌ لم يعد هذا الاتفاق ممكناً — المنتج لم يعد متاحاً.").catch(() => null);
-      await bot.api.sendMessage(Number(offer.sellerId), "❌ لم يعد هذا الاتفاق ممكناً — المنتج لم يعد متاحاً.").catch(() => null);
-      return;
-    }
-    if (listing.paymentMethod === "MANUAL") {
-      await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "ACCEPTED" } });
-      const seller = await prisma.jobsProfile.findUnique({ where: { userId: listing.sellerId } });
-      const buyer = await prisma.jobsProfile.findUnique({ where: { userId: offer.buyerId } });
-      const sellerContact = seller ? (seller.contactMethod === "TELEGRAM" ? `https://t.me/${seller.contactValue.replace(/^@/, "")}` : `https://wa.me/${seller.contactValue.replace(/[^0-9]/g, "")}`) : null;
-      const buyerContact = buyer ? (buyer.contactMethod === "TELEGRAM" ? `https://t.me/${buyer.contactValue.replace(/^@/, "")}` : `https://wa.me/${buyer.contactValue.replace(/[^0-9]/g, "")}`) : null;
-      await bot.api.sendMessage(Number(offer.buyerId), `🤝 تم الاتفاق على السعر $${offer.price.toFixed(2)} — هذا المنتج دفعه يدوي، تواصل مع البائع لإتمام الصفقة.${sellerContact ? `\n${sellerContact}` : ""}`, { reply_markup: mainMenu() }).catch(() => null);
-      await bot.api.sendMessage(Number(offer.sellerId), `🤝 تم الاتفاق على السعر $${offer.price.toFixed(2)} — تواصل مع المشتري لإتمام الصفقة يدوياً.${buyerContact ? `\n${buyerContact}` : ""}`, { reply_markup: mainMenu() }).catch(() => null);
-      return;
-    }
-    const charge = await chargeJobsUser(offer.buyerId, offer.price, "ESCROW_HOLD");
-    if (!charge.ok) {
-      await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "REJECTED" } });
-      await bot.api.sendMessage(Number(offer.sellerId), "❌ لم يكتمل الاتفاق — رصيد المشتري غير كافٍ حالياً.").catch(() => null);
-      await bot.api.sendMessage(Number(offer.buyerId), `❌ قُبل عرضك لكن رصيدك $${charge.balance.toFixed(2)} لا يكفي (السعر $${offer.price.toFixed(2)}). أودِع ثم قدّم عرضاً جديداً:\n${depositLink(offer.buyerId)}`, { reply_markup: mainMenu() }).catch(() => null);
-      return;
-    }
-    const order = await prisma.storeOrder.create({
-      data: { buyerId: offer.buyerId, sellerId: listing.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: listing.deliveryMethod, status: "ESCROWED", escrowedAt: new Date() },
-    });
-    await prisma.storeListing.update({ where: { id: listing.id }, data: { status: "SOLD" } });
-    await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "ACCEPTED" } });
-    await bot.api.sendMessage(
-      Number(offer.buyerId),
-      `✅ تم قبول عرضك بسعر $${offer.price.toFixed(2)} على "${listing.title}"! تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`,
-      { reply_markup: receivedDisputeKeyboard(order.id) }
-    ).catch(() => null);
-    await bot.api
-      .sendMessage(Number(offer.sellerId), `✅ قبلت عرضاً بسعر $${offer.price.toFixed(2)} على "${listing.title}" — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`)
-      .catch(() => null);
-    return;
-  }
-
-  // kind === "WANTED" — there is no pre-existing StoreListing, so one is
-  // synthesized here purely so the existing escrow/dispute/auto-release
-  // pipeline (all driven off StoreOrder.listingId) keeps working unchanged.
-  const wanted = await prisma.storeWantedListing.findUnique({ where: { id: offer.wantedId! } });
-  if (!wanted || wanted.status !== "ACTIVE") {
-    await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "REJECTED" } });
-    await bot.api.sendMessage(Number(offer.buyerId), "❌ لم يعد هذا الاتفاق ممكناً — الطلب لم يعد متاحاً.").catch(() => null);
-    await bot.api.sendMessage(Number(offer.sellerId), "❌ لم يعد هذا الاتفاق ممكناً — الطلب لم يعد متاحاً.").catch(() => null);
-    return;
-  }
-  const charge = await chargeJobsUser(offer.buyerId, offer.price, "ESCROW_HOLD");
-  if (!charge.ok) {
-    await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "REJECTED" } });
-    await bot.api.sendMessage(Number(offer.sellerId), "❌ لم يكتمل الاتفاق — رصيد المشتري غير كافٍ حالياً.").catch(() => null);
-    await bot.api.sendMessage(Number(offer.buyerId), `❌ قُبل عرضك لكن رصيدك $${charge.balance.toFixed(2)} لا يكفي (السعر $${offer.price.toFixed(2)}). أودِع ثم قدّم عرضاً جديداً:\n${depositLink(offer.buyerId)}`, { reply_markup: mainMenu() }).catch(() => null);
-    return;
-  }
-  const listing = await prisma.storeListing.create({
-    data: { sellerId: offer.sellerId, title: wanted.title, description: wanted.description, price: offer.price, photoFileIds: [], deliveryMethod: "PICKUP_MANUAL", paymentMethod: "ESCROW", status: "SOLD" },
-  });
-  const order = await prisma.storeOrder.create({
-    data: { buyerId: offer.buyerId, sellerId: offer.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: "PICKUP_MANUAL", status: "ESCROWED", escrowedAt: new Date() },
-  });
-  await prisma.storeWantedListing.update({ where: { id: wanted.id }, data: { status: "FULFILLED" } });
-  await prisma.storeOffer.update({ where: { id: offer.id }, data: { status: "ACCEPTED" } });
-  await bot.api.sendMessage(
-    Number(offer.buyerId),
-    `✅ تم الاتفاق على تلبية طلبك "${wanted.title}" بسعر $${offer.price.toFixed(2)}. تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`,
-    { reply_markup: receivedDisputeKeyboard(order.id) }
-  ).catch(() => null);
-  await bot.api
-    .sendMessage(Number(offer.sellerId), `✅ قُبل عرضك لتلبية طلب "${wanted.title}" بسعر $${offer.price.toFixed(2)} — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`)
-    .catch(() => null);
+  await bot.api.sendMessage(chatId, `✅ تم إرسال عرضك المقابل بسعر $${r.offer.price.toFixed(2)}.`, { reply_markup: mainMenu() });
+  await notifyOfferToOtherParty(bot, r.offer, botId);
 }
 
 async function confirmReceived(bot: TelegramBot, chatId: number, buyerId: string, orderId: string) {
-  const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
-  if (!order || order.buyerId !== buyerId || order.status !== "ESCROWED") {
-    await bot.api.sendMessage(chatId, "هذا الطلب غير متاح لهذا الإجراء.");
-    return;
-  }
-  if (!(await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE"))) {
-    await bot.api.sendMessage(chatId, "هذا الطلب غير متاح لهذا الإجراء.");
+  const r = await confirmReceivedCore(buyerId, orderId);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error);
     return;
   }
   await bot.api.sendMessage(chatId, "✅ تم تأكيد الاستلام وتحويل المبلغ للبائع.", { reply_markup: mainMenu() });
-  await bot.api.sendMessage(Number(order.sellerId), `✅ أكّد المشتري استلام طلبه — تم إضافة $${order.amount.toFixed(2)} لرصيدك.`).catch(() => null);
+  await notifyReceived(bot, r.order);
 }
 
 // ---------------------------------------------------------------------
 // Dispute center — each side submits evidence separately
 // ---------------------------------------------------------------------
-async function openDispute(bot: TelegramBot, chatId: number, userId: string, orderId: string) {
-  const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
-  if (!order || order.status !== "ESCROWED" || (order.buyerId !== userId && order.sellerId !== userId)) {
-    await bot.api.sendMessage(chatId, "لا يمكن فتح نزاع على هذا الطلب.");
+async function openDispute(bot: TelegramBot, chatId: number, userId: string, orderId: string, botId?: string) {
+  const r = await openDisputeCore(userId, orderId);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error);
     return;
   }
-  await prisma.jobsDispute.upsert({
-    where: { orderId },
-    update: {},
-    create: { orderId, openedBy: userId },
-  });
-  const side = order.buyerId === userId ? "buyer" : "seller";
-  await setPending(userId, { mode: "dispute_statement", orderId, side });
-  const otherSide = side === "buyer" ? order.sellerId : order.buyerId;
+  await setPending(userId, { mode: "dispute_statement", orderId, side: r.side });
   await bot.api.sendMessage(chatId, "⚠️ تم فتح نزاع. اكتب إفادتك بخصوص هذا الطلب (ما حدث بالتفصيل):", { reply_markup: plainBackMenu() });
-  await bot.api
-    .sendMessage(Number(otherSide), `⚠️ فتح الطرف الآخر نزاعاً على طلب بقيمة $${order.amount.toFixed(2)}. سيُطلب منك إفادتك أيضاً.`, {
-      reply_markup: new InlineKeyboard().text("📝 تقديم إفادتي", `jdisputestate|${orderId}`),
-    })
-    .catch(() => null);
+  await notifyDisputeOpened(bot, orderId, r.otherSide, r.order.amount, botId);
 }
 async function submitDisputeStatement(bot: TelegramBot, chatId: number, userId: string, orderId: string, side: "buyer" | "seller", statement: string) {
   await setPending(userId, { mode: "dispute_evidence", orderId, side, statement });
   await bot.api.sendMessage(chatId, "أرسل صورة كدليل إن وُجدت، أو اضغط «تخطّي»:", { reply_markup: skipMenu() });
 }
-async function submitDisputeEvidence(bot: TelegramBot, chatId: number, userId: string, orderId: string, side: "buyer" | "seller", statement: string, photoFileId: string | null) {
-  const field = side === "buyer" ? { buyerStatement: statement, buyerEvidencePhotoIds: photoFileId ? [photoFileId] : [] } : { sellerStatement: statement, sellerEvidencePhotoIds: photoFileId ? [photoFileId] : [] };
-  const dispute = await prisma.jobsDispute.update({ where: { orderId }, data: field as any });
-  const bothIn = !!dispute.buyerStatement && !!dispute.sellerStatement;
-  if (bothIn) await prisma.jobsDispute.update({ where: { orderId }, data: { status: "BOTH_SUBMITTED" } });
+async function submitDisputeEvidence(bot: TelegramBot, chatId: number, userId: string, orderId: string, _side: "buyer" | "seller", statement: string, photoFileId: string | null) {
+  const r = await submitDisputeCore(userId, orderId, statement, photoFileId);
   await setPending(userId, null);
-  await bot.api.sendMessage(chatId, "✅ تم إرسال إفادتك للإدارة.", { reply_markup: mainMenu() });
-  if (bothIn && SUPER_ADMIN_ID) {
-    const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
-    await bot.api
-      .sendMessage(
-        Number(SUPER_ADMIN_ID),
-        `⚠️ نزاع جاهز للمراجعة — طلب #${shortId(orderId)} بقيمة $${order?.amount.toFixed(2)}\n\n` +
-          `🟦 المشتري (#${shortId(order?.buyerId || "")}):\n${dispute.buyerStatement}\n\n` +
-          `🟥 البائع (#${shortId(order?.sellerId || "")}):\n${dispute.sellerStatement}`,
-        { reply_markup: new InlineKeyboard().text("✅ الإفراج للبائع", `jresolve|${orderId}|seller`).text("↩️ استرداد للمشتري", `jresolve|${orderId}|buyer`) }
-      )
-      .catch(() => null);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error, { reply_markup: mainMenu() });
+    return;
   }
+  await bot.api.sendMessage(chatId, "✅ تم إرسال إفادتك للإدارة.", { reply_markup: mainMenu() });
+  if (r.bothIn) await notifyDisputeReady(bot, orderId, r.order, r.dispute);
 }
 async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string, winner: "buyer" | "seller") {
   const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
@@ -1465,10 +1245,10 @@ async function sendAdminInboxSummary(bot: TelegramBot, chatId: number) {
  * platform owner (his messages took a text-menu path that ignored everything but text) or is muted. Idempotent on the Stars charge id.
  */
 /** shop_<slug> / item_<id> deep links: open the shop or the product card; a buyer without a profile is then walked into it. */
-async function openShopStart(bot: TelegramBot, chatId: number, userId: string, payload: string) {
+async function openShopStart(bot: TelegramBot, chatId: number, userId: string, payload: string, botId?: string) {
   const p = parseShopStart(payload);
   if (!p) return;
-  if (p.kind === "shop") await sendShopInBot(bot, chatId, p.slug, userId);
+  if (p.kind === "shop") await sendShopInBot(bot, chatId, p.slug, userId, botId ? appLink(botId, "shop", { slug: p.slug }) : undefined);
   else await sendStoreListingCard(bot, chatId, p.id, userId);
   const profile = await prisma.jobsProfile.findUnique({ where: { userId } });
   if (!profile) {
@@ -1629,6 +1409,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
 
   const user = await ensureJobsUser(botRow.id, tgUserId);
   await prisma.jobsUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
+  ensureJobsAppMenu(botRow);
 
   if (user.isBanned) {
     await bot.api.sendMessage(chatId, "🚫 تم حظرك من استخدام هذا البوت من قِبل الإدارة.");
@@ -1662,7 +1443,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       const waiting = user.pendingAction as PendingAction | null;
       if (waiting?.mode === "after_verify") {
         await setPending(tgUserId, null);
-        await openShopStart(bot, chatId, tgUserId, waiting.payload);
+        await openShopStart(bot, chatId, tgUserId, waiting.payload, botRow.id);
       }
     } else {
       await bot.api.sendMessage(chatId, "⚠️ يجب مشاركة رقم هاتفك أنت.");
@@ -1715,6 +1496,16 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await sendServices(bot, chatId, ["shop"]);
     return;
   }
+  if (text === APP_BUTTON || /^\/app(@\w+)?$/i.test(text) || text === "/start app" || text === "/start orders") {
+    await setPending(tgUserId, null);
+    await sendAppEntry(bot, chatId, botRow.id);
+    return;
+  }
+  if (text === SHOPS_BUTTON || text === "/start shops") {
+    await setPending(tgUserId, null);
+    await sendAppEntry(bot, chatId, botRow.id, "shops");
+    return;
+  }
   if (text === "/start" || text.startsWith("/start ")) {
     // AD_BOT hands out "/start adv_<AdClickId>" deep links when a campaign
     // promotes this very bot — consuming it here marks that click verified
@@ -1728,7 +1519,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     if (parseShopStart(payload)) {
-      await openShopStart(bot, chatId, tgUserId, payload);
+      await openShopStart(bot, chatId, tgUserId, payload, botRow.id);
       return;
     }
     const profile = await prisma.jobsProfile.findUnique({ where: { userId: tgUserId } });
@@ -1770,7 +1561,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       return;
     }
     await setPending(tgUserId, null);
-    return submitOfferPrice(bot, chatId, tgUserId, pending.kind, pending.targetId, price);
+    return submitOfferPrice(bot, chatId, tgUserId, pending.kind, pending.targetId, price, botRow.id);
   }
   if (pending?.mode === "offer_counter") {
     const price = Number(text.replace(/[^0-9.]/g, ""));
@@ -1779,7 +1570,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       return;
     }
     await setPending(tgUserId, null);
-    return submitOfferCounter(bot, chatId, tgUserId, pending.offerId, price);
+    return submitOfferCounter(bot, chatId, tgUserId, pending.offerId, price, botRow.id);
   }
   if (pending?.mode === "professional_search_category") {
     if (text === OTHER_CATEGORY_LABEL) {
@@ -2025,7 +1816,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
   if (text === SHOP_BUTTON) {
-    await sendMyShop(bot, chatId, tgUserId);
+    await sendMyShop(bot, chatId, tgUserId, appLink(botRow.id, "myshop"));
     return;
   }
   if (text === "📂 طلباتي") {
@@ -2142,6 +1933,12 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   }
 
   const cbUser = await ensureJobsUser(botRow.id, tgUserId);
+  // The same gate as typed messages: a banned or muted user can no longer act through an old inline button
+  // (accept an offer, confirm a receipt, open a dispute, feature a listing, …).
+  if (cbUser.isBanned || (cbUser.mutedUntil && cbUser.mutedUntil > new Date())) {
+    await bot.api.answerCallbackQuery(cq.id, { text: cbUser.isBanned ? "🚫 تم حظرك من استخدام هذا البوت." : "🔇 أنت مكتوم مؤقتاً. حاول لاحقاً.", show_alert: true }).catch(() => null);
+    return;
+  }
 
   if (data.startsWith("jtn_")) {
     if (cbUser.isBanned) {
@@ -2292,13 +2089,13 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   }
   if (data.startsWith("joffer_accept|")) {
     const offerId = data.split("|")[1];
-    await respondOffer(bot, chatId, tgUserId, offerId, "accept");
+    await respondOffer(bot, chatId, tgUserId, offerId, "accept", botRow.id);
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
   if (data.startsWith("joffer_reject|")) {
     const offerId = data.split("|")[1];
-    await respondOffer(bot, chatId, tgUserId, offerId, "reject");
+    await respondOffer(bot, chatId, tgUserId, offerId, "reject", botRow.id);
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
@@ -2316,17 +2113,21 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   }
   if (data.startsWith("jdispute|")) {
     const orderId = data.split("|")[1];
-    await openDispute(bot, chatId, tgUserId, orderId);
+    await openDispute(bot, chatId, tgUserId, orderId, botRow.id);
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
   if (data.startsWith("jdisputestate|")) {
     const orderId = data.split("|")[1];
     const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
-    if (order && (order.buyerId === tgUserId || order.sellerId === tgUserId)) {
+    const dispute = order ? await prisma.jobsDispute.findUnique({ where: { orderId } }) : null;
+    // Only while the order is still in escrow with an open dispute (an old button used to start a statement that could not be saved).
+    if (order && order.status === "ESCROWED" && dispute && dispute.status !== "RESOLVED" && (order.buyerId === tgUserId || order.sellerId === tgUserId)) {
       const side = order.buyerId === tgUserId ? "buyer" : "seller";
       await setPending(tgUserId, { mode: "dispute_statement", orderId, side });
       await bot.api.sendMessage(chatId, "اكتب إفادتك بخصوص هذا الطلب:", { reply_markup: plainBackMenu() });
+    } else {
+      await bot.api.sendMessage(chatId, "لا يوجد نزاع مفتوح على هذا الطلب.").catch(() => null);
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;

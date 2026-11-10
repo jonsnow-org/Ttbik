@@ -48,7 +48,16 @@ export const SERVICE_LINKS = [
  */
 export const CHAINS_BOT_USERNAME = "Slaselbot";
 export const IN_CHAINS_BOT: Partial<Record<(typeof SERVICE_LINKS)[number]["id"], string>> = { khatma: "khatma", contests: "contest" };
+/**
+ * Seller shops live inside the jobs & store bot (@Saragptbotbot) and its own Mini App (owner, phase 3): other bots and Mini
+ * Apps link there with a t.me deep link (/start shops opens the shops section) instead of the website page.
+ */
+export const STORE_BOT_USERNAME = "Saragptbotbot";
+export const IN_STORE_BOT: Partial<Record<(typeof SERVICE_LINKS)[number]["id"], string>> = { shop: "shops" };
+/** t.me deep link for a service that lives inside one of the platform's own bots (khatma/contests → chains bot, shops → store bot), else null. */
 export function chainsBotLink(id: string, username: string = CHAINS_BOT_USERNAME): string | null {
+  const store = IN_STORE_BOT[id as keyof typeof IN_STORE_BOT];
+  if (store) return `https://t.me/${STORE_BOT_USERNAME}?start=${store}`;
   const payload = IN_CHAINS_BOT[id as keyof typeof IN_CHAINS_BOT];
   return payload ? `https://t.me/${(username || CHAINS_BOT_USERNAME).replace(/^@/, "")}?start=${payload}` : null;
 }

@@ -25,16 +25,17 @@ const sent = () => tg.filter((c) => c.method === "sendMessage").map((c) => c.bod
 beforeEach(() => { tg.length = 0; delete process.env.TELEGRAM_WEBHOOK_SECRET; process.env.SITE_BOT_TOKEN = "t"; });
 
 describe("site bot services entry point", () => {
-  it.each([SERVICES_BUTTON, "/services", "/services@Admen10bot"])("%s → one message: web_app buttons for the services, khatma & contests as links to @Slaselbot", async (text) => {
+  it.each([SERVICES_BUTTON, "/services", "/services@Admen10bot"])("%s → one message: web_app buttons for the services, khatma & contests → @Slaselbot, shops → @Saragptbotbot", async (text) => {
     await hook(text);
     const msgs = sent();
     expect(msgs).toHaveLength(1);
     const buttons = msgs[0].reply_markup.inline_keyboard.flat();
     expect(buttons).toHaveLength(SERVICE_LINKS.length);
     const links = buttons.filter((b: any) => b.url).map((b: any) => b.url).sort();
-    expect(links).toEqual(["https://t.me/Slaselbot?start=contest", "https://t.me/Slaselbot?start=khatma"]);
+    expect(links).toEqual(["https://t.me/Saragptbotbot?start=shops", "https://t.me/Slaselbot?start=contest", "https://t.me/Slaselbot?start=khatma"]);
     const urls = buttons.filter((b: any) => b.web_app).map((b: any) => b.web_app.url);
-    expect(urls).toHaveLength(SERVICE_LINKS.length - 2);
+    expect(urls).toHaveLength(SERVICE_LINKS.length - 3);
+    expect(urls.some((u: string) => u.includes("/shop"))).toBe(false);
     for (const u of urls) expect(u).toMatch(/^https:\/\/.+\?src=tg$/);
     for (const u of urls.slice(0, 4)) expect(u).toMatch(/\/(advertise|channels|channel-audit|remit)\?/);
     expect(msgs[0].text).toContain("المنصة");
