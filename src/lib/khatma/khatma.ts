@@ -26,6 +26,9 @@ export function ensureKhatmaTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS khatma_juz (khatma_id BIGINT NOT NULL, round INT NOT NULL, juz INT NOT NULL, user_id TEXT, user_name TEXT, done BOOLEAN NOT NULL DEFAULT false, taken_at TIMESTAMPTZ, done_at TIMESTAMPTZ, PRIMARY KEY (khatma_id, round, juz))`,
         `CREATE TABLE IF NOT EXISTS khatma_orders (id BIGSERIAL PRIMARY KEY, bot_id TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT, intent TEXT, dedication TEXT, tier TEXT, stars INT, status TEXT NOT NULL DEFAULT 'DRAFT', charge_id TEXT UNIQUE, khatma_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), paid_at TIMESTAMPTZ)`,
         `CREATE TABLE IF NOT EXISTS khatma_sponsors (code TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT, contact TEXT, price NUMERIC NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT', paid_via TEXT, starts_at TIMESTAMPTZ, ends_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+        // Sponsor slots are shared by products (khatma, contest); each product has its own queue.
+        `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'khatma'`,
+        `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS prize TEXT`,
       ];
       for (const q of ddl) await prisma.$executeRawUnsafe(q);
     })().catch((e) => { ready = null; throw e; });
@@ -48,10 +51,14 @@ async function boardOf(k: KhatmaRow): Promise<JuzState[]> {
 }
 
 /** The single active Ramadan sponsor line, if any. */
-export async function activeSponsor(): Promise<string | null> {
+export async function activeSponsor(product: SponsorProduct = "khatma"): Promise<string | null> {
+  const r = await activeSponsorRow(product);
+  return r ? sponsorLine(r.name, r.url) + (r.prize ? ` · 🎁 ${r.prize}` : "") : null;
+}
+export async function activeSponsorRow(product: SponsorProduct = "khatma"): Promise<{ name: string; url: string | null; prize: string | null; ends_at: Date } | null> {
   await ensureKhatmaTables();
-  const r = await prisma.$queryRaw<{ name: string; url: string | null }[]>`SELECT name, url FROM khatma_sponsors WHERE status = 'ACTIVE' AND starts_at <= now() AND ends_at > now() ORDER BY starts_at LIMIT 1`;
-  return r[0] ? sponsorLine(r[0].name, r[0].url) : null;
+  const r = await prisma.$queryRaw<{ name: string; url: string | null; prize: string | null; ends_at: Date }[]>`SELECT name, url, prize, ends_at FROM khatma_sponsors WHERE product = ${product} AND status = 'ACTIVE' AND starts_at <= now() AND ends_at > now() ORDER BY starts_at LIMIT 1`;
+  return r[0] || null;
 }
 
 const displayName = (from: any) => cleanText([from?.first_name, from?.last_name].filter(Boolean).join(" ") || (from?.username ? `@${from.username}` : "مشارك"), 24);
@@ -371,25 +378,36 @@ export async function khatmaStats() {
 }
 
 export const SPONSOR_PREFIX = "KSP-";
+export type SponsorProduct = "khatma" | "contest";
+/** Price and slot length per product. */
+export const SPONSOR_PRODUCTS: Record<SponsorProduct, { price: number; days: number; title: string; what: string; page: string }> = {
+  khatma: { price: SPONSOR_PRICE_USD, days: SPONSOR_DAYS, title: "رعاية الختمات", what: "سطر «برعاية …» في رسائل ختم القرآن وصفحات الختمات", page: "/khatma" },
+  contest: { price: 15, days: 7, title: "رعاية مسابقات الجروبات", what: "اسمك وجائزتك في كل جولة ولوحة الصدارة الأسبوعية لمسابقات الجروبات", page: "/contests" },
+};
+const isProduct = (p: unknown): p is SponsorProduct => p === "khatma" || p === "contest";
 const contactOk = (s: string) => /^@?[A-Za-z][A-Za-z0-9_]{3,31}$/.test(s.trim());
 
-export async function createSponsorOrder(input: { name: string; url: string; contact: string }) {
+export async function createSponsorOrder(input: { name: string; url: string; contact: string; product?: string; prize?: string }) {
   await ensureKhatmaTables();
+  const product: SponsorProduct = isProduct(input.product) ? input.product : "khatma";
+  const conf = SPONSOR_PRODUCTS[product];
+  const prize = product === "contest" ? cleanText(input.prize || "", 80) : "";
+  if (product === "contest" && prize.length < 3) return { ok: false as const, error: "اكتب الجائزة التي تموّلها (مثال: 20$ USDT للاعب الأول)." };
   const name = cleanText(input.name, 60);
   if (name.length < 2) return { ok: false as const, error: "اكتب اسم الجهة الراعية." };
   const url = String(input.url || "").trim();
   if (url && !/^https:\/\/[^\s<>"]{3,200}$/i.test(url)) return { ok: false as const, error: "الرابط يجب أن يبدأ بـ https://" };
   if (!contactOk(input.contact)) return { ok: false as const, error: "اكتب معرّفك على تيليجرام (@username)." };
   const code = `${SPONSOR_PREFIX}${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-  await prisma.$executeRaw`INSERT INTO khatma_sponsors (code, name, url, contact, price) VALUES (${code}, ${name}, ${url || null}, ${input.contact.trim().replace(/^@?/, "@")}, ${SPONSOR_PRICE_USD})`;
-  return { ok: true as const, code, price: SPONSOR_PRICE_USD };
+  await prisma.$executeRaw`INSERT INTO khatma_sponsors (code, name, url, contact, price, product, prize) VALUES (${code}, ${name}, ${url || null}, ${input.contact.trim().replace(/^@?/, "@")}, ${conf.price}, ${product}, ${prize || null})`;
+  return { ok: true as const, code, price: conf.price };
 }
 
 export async function sponsorByCode(code: string) {
   if (!/^KSP-[0-9A-F]{8}$/.test(code)) return null;
   await ensureKhatmaTables();
-  const r = await prisma.$queryRaw<{ code: string; name: string; url: string | null; price: unknown; status: string; starts_at: Date | null; ends_at: Date | null }[]>`SELECT code, name, url, price, status, starts_at, ends_at FROM khatma_sponsors WHERE code = ${code}`;
-  return r[0] ? { ...r[0], price: Number(r[0].price) } : null;
+  const r = await prisma.$queryRaw<{ code: string; name: string; url: string | null; price: unknown; status: string; starts_at: Date | null; ends_at: Date | null; product: string }[]>`SELECT code, name, url, price, status, starts_at, ends_at, product FROM khatma_sponsors WHERE code = ${code}`;
+  return r[0] ? { ...r[0], price: Number(r[0].price), product: (isProduct(r[0].product) ? r[0].product : "khatma") as SponsorProduct } : null;
 }
 
 /** Paid → queued right after the last booked slot, so sponsors never overlap. Idempotent. */
@@ -397,17 +415,18 @@ export async function markSponsorPaid(code: string, via: string, amountUsd?: num
   const s = await sponsorByCode(code);
   if (!s) return { ok: false, first: false };
   if (amountUsd != null && Number.isFinite(amountUsd) && amountUsd + 0.01 < s.price) return { ok: false, first: false };
+  const days = SPONSOR_PRODUCTS[s.product].days;
   const n = await prisma.$executeRaw`
     UPDATE khatma_sponsors SET status = 'ACTIVE', paid_via = ${via.slice(0, 120)},
-      starts_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE'), now())),
-      ends_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE'), now())) + make_interval(days => ${SPONSOR_DAYS})
+      starts_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE' AND product = ${s.product}), now())),
+      ends_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE' AND product = ${s.product}), now())) + make_interval(days => ${days})
     WHERE code = ${code} AND status = 'PENDING_PAYMENT'`;
   return { ok: true, first: n === 1 };
 }
 
 export async function adminSponsors() {
   await ensureKhatmaTables();
-  const r = await prisma.$queryRaw<any[]>`SELECT code, name, url, contact, price, status, paid_via, starts_at, ends_at, created_at FROM khatma_sponsors ORDER BY created_at DESC LIMIT 100`;
+  const r = await prisma.$queryRaw<any[]>`SELECT code, name, url, contact, price, status, paid_via, starts_at, ends_at, created_at, product, prize FROM khatma_sponsors ORDER BY created_at DESC LIMIT 100`;
   return r.map((x) => ({ ...x, price: Number(x.price) }));
 }
 export async function adminSponsorAction(code: string, action: "confirm_paid" | "stop") {
@@ -432,14 +451,14 @@ export async function paySponsor(code: string, method: "stars" | "nowpayments" |
     await bindAdmenBot().catch(() => null);
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "رعاية الختمات", description: `سطر «برعاية ${s.name}» في رسائل ختم القرآن وصفحات الختمات لمدة ${SPONSOR_DAYS} أيام (${code})`.slice(0, 255), payload: `${SPONSOR_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: adStars(s.price) }] }),
+      body: JSON.stringify({ title: SPONSOR_PRODUCTS[s.product].title, description: `${SPONSOR_PRODUCTS[s.product].what} لمدة ${SPONSOR_PRODUCTS[s.product].days} أيام: ${s.name} (${code})`.slice(0, 255), payload: `${SPONSOR_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: adStars(s.price) }] }),
     }).catch(() => null);
     const data = await res?.json().catch(() => null);
     if (!data?.ok || !data.result) return { ok: false as const, error: "تعذّر إنشاء فاتورة النجوم." };
     return { ok: true as const, invoiceUrl: String(data.result) };
   }
   if (!isNowPaymentsConfigured()) return { ok: false as const, error: "فاتورة العملات غير مفعّلة. اختر USDT أو النجوم." };
-  const r = await createInvoice({ priceAmount: s.price, orderId: code, orderDescription: `Sham AI khatma sponsorship ${code}`, ipnCallbackUrl: `${apiSite()}/api/ads/ipn`, successUrl: `${SITE_URL}/khatma?sponsor=${code}`, cancelUrl: `${SITE_URL}/khatma` });
+  const r = await createInvoice({ priceAmount: s.price, orderId: code, orderDescription: `Sham AI ${s.product} sponsorship ${code}`, ipnCallbackUrl: `${apiSite()}/api/ads/ipn`, successUrl: `${SITE_URL}${SPONSOR_PRODUCTS[s.product].page}?sponsor=${code}`, cancelUrl: `${SITE_URL}${SPONSOR_PRODUCTS[s.product].page}` });
   return r.ok ? { ok: true as const, invoiceUrl: r.invoiceUrl } : { ok: false as const, error: r.error || "تعذّر إنشاء الفاتورة" };
 }
 

@@ -6,6 +6,8 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
+import { MENU_BUTTON as CONTEST_BUTTON } from "@/lib/contests/rules";
+import { contestStats, sendContestIntro } from "@/lib/contests/contests";
 import {
   consumeKhatmaText, handleKhatmaPayment, handleKhatmaPrivateCallback, khatmaStats, openMemorialFromStart, sendKhatmaIntro, startMemorialOrder, type KhatmaPending,
 } from "@/lib/khatma/khatma";
@@ -76,6 +78,7 @@ function isBack(text: string): boolean {
 function mainMenu(): Keyboard {
   const kb = new Keyboard();
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
+  kb.text(CONTEST_BUTTON).row();
   for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
   kb.text("📊 كل سلاسلي").text("ℹ️ معلومات");
   return kb.resized();
@@ -143,10 +146,12 @@ async function sendAdminStats(bot: TelegramBot, botRow: BotRow, chatId: number) 
   ]);
   const usersCount = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
   const k = await khatmaStats().catch(() => null);
+  const c = await contestStats().catch(() => null);
+  const contestLine = c ? `\n🏆 المسابقات: جولات ${c.rounds} · جروبات ${c.groups} · لاعبون ${c.players}` : "";
   const khatmaLine = k ? `\n\n📖 الختمات: مجموعات ${k.groups} · صدقة جارية ${k.memorials} · ختمات مكتملة ${k.rounds} · أجزاء مقروءة ${k.juzRead} · نجوم ${k.starsPaid}⭐` : "";
   await bot.api.sendMessage(
     chatId,
-    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n🔥 سلاسل نشطة: ${activeStreaksCount}${khatmaLine}`
+    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n🔥 سلاسل نشطة: ${activeStreaksCount}${khatmaLine}${contestLine}`
   );
 }
 
@@ -159,7 +164,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
   // The owner can try the khatma flows like any user.
-  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === "/khatma" || /^\/start (k_|khatma)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -314,6 +319,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     await setPending(tgUserId, null);
     const payload = text.split(/\s+/)[1] || "";
     if (payload === "khatma") { await sendKhatmaIntro(bot, chatId); return; }
+    if (payload === "contest") { await sendContestIntro(bot, chatId); return; }
     if (payload && (await openMemorialFromStart(bot, botRow, chatId, payload))) return;
     await bot.api.sendMessage(
       chatId,
@@ -326,6 +332,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   if (text === MENU_BUTTON || text === "/khatma") {
     await setPending(tgUserId, null);
     await sendKhatmaIntro(bot, chatId);
+    return;
+  }
+  if (text === CONTEST_BUTTON || text === "/contest") {
+    await setPending(tgUserId, null);
+    await sendContestIntro(bot, chatId);
     return;
   }
   if (text === MEMORIAL_BUTTON) {
