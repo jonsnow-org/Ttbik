@@ -5,7 +5,7 @@ import { PLANS } from "@/lib/remit/listings";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "أدرج شركة التحويل أو مكتب الصرافة في صفحة الحوالات | شام AI",
+  title: "أدرج شركة التحويل أو مكتب الصرافة في صفحة الحوالات",
   description: "شركات ومكاتب التحويل المرخّصة: اظهر لمن يقارن تكلفة حوالته في صفحة الحوالات، مع عدّاد نقرات. الدفع بـ USDT أو العملات الرقمية أو نجوم تيليجرام، والإدراج يتفعّل تلقائياً.",
   alternates: { canonical: `${SITE_URL}/remit/join` },
 };
