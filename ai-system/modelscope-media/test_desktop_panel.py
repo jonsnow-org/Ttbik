@@ -22,6 +22,18 @@ class PanelTests(unittest.TestCase):
         rows = int(geometry.split("x")[1].split("+")[0])
         self.assertLessEqual(rows * 15, d.HEIGHT - d.PANEL_HEIGHT)
 
+    def test_files_launcher_uses_options_this_pcmanfm_knows(self):
+        # the live log said "Unknown option --new-window": this pcmanfm opens a folder window from a plain path
+        old = d.shutil.which
+        d.shutil.which = lambda name: "/usr/bin/" + name if name == "pcmanfm" else old(name)
+        try:
+            script = d._launcher_script("s", "files")
+        finally:
+            d.shutil.which = old
+        self.assertIn("exec pcmanfm ", script)
+        self.assertNotIn("--new-window", script)
+        self.assertNotIn("--no-desktop", script)
+
     def test_browser_script_finds_chromium_when_clicked(self):
         script = d._launcher_script("s", "browser")
         self.assertTrue(script.startswith("#!/bin/sh"))
