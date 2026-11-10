@@ -10,9 +10,12 @@ import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
 import { officeCallback, officeStart, officeText, OFFICE_BUTTON } from "@/lib/remit/office";
 import { BOT_PAID_USD, BOTBUY_STARS_PREFIX, GETBOT_BUTTON, PLANS_TEXT, botOrder, botOrderUsdtQuote, checkBotOrderUsdt, codeMessage, freeCode, manualCode, markBotOrderPaid, paidOrder, parseCodeCommand } from "@/lib/botSales";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
+import { SERVICES_BUTTON, SERVICES_TEXT, isServicesRequest, servicesKeyboard } from "@/lib/servicesInTelegram";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
-const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }, { text: GETBOT_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
+// This webhook (set by bindAdmenBot) is what really serves @Admen10bot, not the AD_BOT template handler.
+const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }, { text: GETBOT_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }], [{ text: SERVICES_BUTTON }]], resize_keyboard: true };
+const HELP_TEXT = `بوت المنصة: 💸 حوالات USDT، «${GETBOT_BUTTON}»، الرصيد، المحفظة، الشراء، زر الموقع، و«${SERVICES_BUTTON}».`;
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -157,12 +160,23 @@ export async function POST(req: NextRequest) {
       await send(chatId, await runRefCommand(refCmd).catch(() => "تعذّر الحفظ الآن."));
       return NextResponse.json({ ok: true });
     }
+    // 🧭 the platform's service pages as Mini App buttons (src/lib/servicesInTelegram.ts); /start shows them too.
+    // Before the remittance office's typed steps, so the button never gets read as an amount or address.
+    if (chatId && (isServicesRequest(text) || /^\/start(@\w+)?$/i.test(text.trim()))) {
+      if (!isServicesRequest(text)) await send(chatId, HELP_TEXT);
+      await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: SERVICES_TEXT, reply_markup: servicesKeyboard(["advertise", "channels", "channel-audit", "remit"], SITE) }),
+      }).catch(() => null);
+      return NextResponse.json({ ok: true });
+    }
     if (chatId && !text.startsWith("/ref") && (await officeText(office, String(chatId), text).catch(() => false))) return NextResponse.json({ ok: true });
     if (chatId && (text === "الرصيد" || text.startsWith("/balance"))) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
     } else if (chatId) {
-      await send(chatId, text === "المحفظة" ? "المحفظة تُفتح من التطبيق المصغر." : text === "شراء" ? "الشراء يتم داخل التطبيق المصغر." : "بوت الموقع: 💸 حوالات USDT، الرصيد، المحفظة، الشراء، وزر الموقع.");
+      await send(chatId, text === "المحفظة" ? "المحفظة تُفتح من التطبيق المصغر." : text === "شراء" ? "الشراء يتم داخل التطبيق المصغر." : HELP_TEXT);
     }
     return NextResponse.json({ ok: true });
   }
