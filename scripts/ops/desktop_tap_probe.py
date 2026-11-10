@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import modelscope_computer_smoke as m  # noqa: E402
 
 API = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
-W, H = 900, 1300
+W, H = 640, 1070        # what the Mini App asks for on a phone
 OUT = os.environ.get("PROBE_FRAMES_DIR", "probe-frames")
 
 
@@ -56,9 +56,9 @@ def main() -> int:
         time.sleep(3)
         save(token, session, "0-start")
         steps = [
-            ("1-icon-browser-single", [("click", 60, 40)], 8),
-            ("2-taskbar-terminal", [("click", 141, H - 22)], 4),
-            ("3-taskbar-files", [("click", 220, H - 22)], 8),
+            ("1-icon-browser-single", [("click", 52, 50)], 9),
+            ("2-taskbar-terminal", [("click", 160, H - 30)], 4),
+            ("3-taskbar-files", [("click", 255, H - 30)], 8),
         ]
         for name, clicks, wait in steps:
             for kind, x, y in clicks:
