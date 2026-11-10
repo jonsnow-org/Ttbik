@@ -109,6 +109,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
           return NextResponse.json({ status: "ok" });
         }
+        if (botRow.template === "STREAK_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("KHATMA:")) {
+          // 🕊 memorial khatma: only a pending order of this payer at its full price (src/lib/khatma/khatma.ts)
+          const { khatmaPreCheckout } = await import("@/lib/khatma/khatma");
+          const d = await khatmaPreCheckout(botRow, body.pre_checkout_query).catch(() => ({ ok: false, message: "تعذّر التحقق الآن، حاول بعد قليل." }));
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message || "غير متاح" })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         if (botRow.template === "NOVA_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("cplan:")) {
           // the coder's plans paid in Stars: signed payload, same buyer, plan still on sale at that price (src/lib/coderStars.ts)
           const { preCheckoutCoder } = await import("@/lib/coderStars");
@@ -137,6 +144,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       // can be requested in private chats only" and spammed the owner. Ignore
       // them here, for every template at once.
       const chatType = body.message?.chat?.type ?? body.callback_query?.message?.chat?.type;
+      if (chatType && chatType !== "private" && botRow.template === "STREAK_BOT") {
+        // 📖 Group khatma (the one exception): STREAK_BOT answers in a group only to /khatma and taps on its own board.
+        const { handleKhatmaGroupUpdate } = await import("@/lib/khatma/khatma");
+        await handleKhatmaGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:khatma-group", e, { botId: botRow?.id }); });
+        return NextResponse.json({ status: "ok" });
+      }
       if (chatType && chatType !== "private") {
         return NextResponse.json({ status: "ignored", reason: "non-private chat" });
       }
