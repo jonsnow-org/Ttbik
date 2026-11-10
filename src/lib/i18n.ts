@@ -13,8 +13,8 @@ type Dict = Record<string, { ar: string; en: string }>;
 export const STR: Dict = {
   btnCreateAd: { ar: "➕ ضع إعلانك", en: "➕ Create Ad" },
   btnMyAds: { ar: "📢 إعلاناتي", en: "📢 My Ads" },
-  btnOwnerPanel: { ar: "🛠 لوحة المشرف", en: "🛠 Admin Panel" },
-  ownerPanelTitle: { ar: "🛠 لوحة المشرف — إدارة بوتك:", en: "🛠 Admin Panel — manage your bot:" },
+  btnOwnerPanel: { ar: "🛠 لوحة المشرف", en: "🛠 Supervisor panel" },
+  ownerPanelTitle: { ar: "🛠 لوحة المشرف — إدارة بوتك:", en: "🛠 Supervisor panel — manage your bot:" },
   btnWatchEarn: { ar: "👀 شاهد واربح", en: "👀 Watch & Earn" },
   btnWallet: { ar: "💰 المحفظة", en: "💰 Wallet" },
   btnReferrals: { ar: "🙌 الإحالات", en: "🙌 Referrals" },
@@ -67,12 +67,12 @@ export const STR: Dict = {
     en: "🎁 We also have completely free tools that work right in your browser, no signup or usage limits — zakat calculator, Hijri date converter, Arabic CV and invoice generators, a digital business card, a crypto converter, and more:\n{link}",
   },
   btnProceedPurchase: { ar: "💳 متابعة للشراء", en: "💳 Proceed to purchase" },
-  btnContactAdmin: { ar: "📩 راسل الأدمن", en: "📩 Message Admin" },
+  btnContactAdmin: { ar: "📩 راسل المنصة", en: "📩 Contact support" },
   contactAdminPrompt: {
-    ar: "📩 اكتب رسالتك الآن وسأرسلها مباشرة لمالك المنصة. سيصلك رده هنا في نفس هذه المحادثة بمجرد أن يرد.",
-    en: "📩 Type your message now and I'll send it straight to the platform owner. Their reply will arrive right here as soon as they respond.",
+    ar: "📩 اكتب رسالتك الآن وسأرسلها مباشرة للمنصة. سيصلك الرد هنا في نفس هذه المحادثة بمجرد أن يرد.",
+    en: "📩 Type your message now and I'll send it straight to the platform. The reply will arrive right here.",
   },
-  contactAdminSent: { ar: "✅ تم إرسال رسالتك للأدمن، بانتظار الرد.", en: "✅ Your message was sent to the admin — waiting for a reply." },
+  contactAdminSent: { ar: "✅ تم إرسال رسالتك للمنصة، بانتظار الرد.", en: "✅ Your message was sent to the platform — waiting for a reply." },
 
   welcome: {
     ar: startGuide("AD").replace("اضغط «معلومات»", "اضغط «❓ الأسئلة الشائعة»"),
@@ -99,8 +99,8 @@ export const STR: Dict = {
     en: "🏆 Contest: the first 3 people to invite 500 real members to this bot get their own identical bot, with every feature — the bot itself is completely free (not the ads run on it).\n\n📊 Real invites so far: {count} / 500",
   },
   referralContestWon: {
-    ar: "\n\n🎉 مبروك! وصلت إلى 500 دعوة حقيقية وأنت من أول 3 فائزين في هذه المسابقة. راسل الأدمن الآن من زر «📩 راسل الأدمن» ليفعّل بوتك الخاص.",
-    en: "\n\n🎉 Congratulations! You've reached 500 real invites and are one of the first 3 winners of this contest. Message the admin now via the \"📩 Message Admin\" button to get your own bot activated.",
+    ar: "\n\n🎉 مبروك! وصلت إلى 500 دعوة حقيقية وأنت من أول 3 فائزين في هذه المسابقة. راسل المنصة الآن من زر «📩 راسل المنصة» ليفعّل بوتك الخاص.",
+    en: "\n\n🎉 Congratulations! You've reached 500 real invites and are one of the first 3 winners of this contest. Contact the platform now via the \"📩 Contact support\" button to get your own bot activated.",
   },
   referralContestFull: {
     ar: "\n\nملاحظة: الفائزون الثلاثة في هذه المسابقة مكتملون بالفعل — يمكنك الاستمرار بالإحالة لربح عمولة حقيقية من كل شخص تدعوه.",
@@ -124,7 +124,7 @@ export const STR: Dict = {
   withdrawAmountPrompt: { ar: "أرسل المبلغ المراد سحبه بالدولار (الحد الأدنى ${min}):", en: "Send the amount to withdraw in USD (minimum ${min}):" },
   withdrawMinError: { ar: "الحد الأدنى للسحب ${min}. أرسل رقماً صحيحاً.", en: "Minimum withdrawal is ${min}. Send a valid number." },
   withdrawInsufficient: { ar: "رصيدك {balance} فقط.", en: "Your balance is only {balance}." },
-  withdrawSent: { ar: "تم إرسال طلب سحب {amount}. سيُراجَع من مالك المنصة.", en: "Withdrawal request for {amount} sent. It will be reviewed by the platform owner." },
+  withdrawSent: { ar: "تم إرسال طلب سحب {amount}. ستراجعه المنصة.", en: "Withdrawal request for {amount} sent. It will be reviewed by the platform." },
   withdrawAddressPrompt: { ar: "أرسل عنوان محفظتك (USDT-TRC20 أو TON) لاستلام السحب:", en: "Send your wallet address (USDT-TRC20 or TON) to receive the withdrawal:" },
   withdrawAddressError: { ar: "أرسل عنوان محفظة صالح.", en: "Send a valid wallet address." },
 
@@ -298,8 +298,8 @@ export const STR: Dict = {
   // 50% user payout as a selling point, not the internal creator/platform
   // split or referral mechanics.
   wantOwnBotInfo: {
-    ar: "ℹ️ إنشاء بوتك الخاص\n\nيمكنك امتلاك بوت إعلانات وربح خاص بك، يعمل بنفس نظام هذا البوت بالكامل:\n\n📌 كيف يعمل؟\n• مستخدمو بوتك يربحون 50% من قيمة كل مهمة يكملونها (مشاهدة إعلان، الانضمام لقناة، وغيرها).\n• يمكنهم أيضاً إنشاء إعلاناتهم الخاصة داخل بوتك.\n• أنت كمالك للبوت تحصل على عمولة من كل نشاط يحدث داخله، قابلة للسحب بانتظام.\n\n💰 السعر: 100$ لمرة واحدة فقط (بلا اشتراك متكرر) — تفعيل فوري بعد التحقق من التحويل.\n\nللمتابعة اضغط الزر أدناه:",
-    en: "ℹ️ Create your own bot\n\nYou can own your own ads-and-earnings bot, running on the exact same system as this one:\n\n📌 How it works?\n• Your bot's users earn 50% of the value of every task they complete (watching an ad, joining a channel, etc.).\n• They can also create their own ad campaigns inside your bot.\n• As the bot owner, you earn a commission on every activity inside it, withdrawable regularly.\n\n💰 Price: a one-time $100 (no recurring subscription) — instant activation once your transfer is verified.\n\nTap below to continue:",
+    ar: "ℹ️ إنشاء بوتك الخاص\n\nيمكنك امتلاك بوت إعلانات وربح خاص بك، يعمل بنفس نظام هذا البوت بالكامل:\n\n📌 كيف يعمل؟\n• مستخدمو بوتك يربحون 50% من قيمة كل مهمة يكملونها (مشاهدة إعلان، الانضمام لقناة، وغيرها).\n• يمكنهم أيضاً إنشاء إعلاناتهم الخاصة داخل بوتك.\n• أنت مشرف البوت وتحصل على عمولة من كل مهمة تُنجز داخله، قابلة للسحب.\n\n🆓 مجاني: عمولتك 10% من كل مهمة.\n💎 مدفوع (20$ مرة واحدة): عمولتك 20% من كل مهمة.\n\nكود التفعيل يصلك تلقائياً بعد اختيار الخطة. اضغط الزر أدناه:",
+    en: "ℹ️ Create your own bot\n\nYou can own your own ads-and-earnings bot, running on the exact same system as this one:\n\n📌 How it works?\n• Your bot's users earn 50% of the value of every task they complete (watching an ad, joining a channel, etc.).\n• They can also create their own ad campaigns inside your bot.\n• As the bot's supervisor you earn a commission on every task done inside it, withdrawable.\n\n🆓 Free: your commission is 10% of each task.\n💎 Paid ($20 once): your commission is 20% of each task.\n\nYour activation code arrives automatically once you pick a plan. Tap below:",
   },
   purchaseBankInfo: {
     ar: "💳 لإتمام الشراء ({amount}$)، حوّل المبلغ عبر إحدى الطرق التالية:\n\n🏦 تحويل بنكي:\nالمستفيد: {holder}\nرقم الحساب: {account}\n\n💵 أو USDT ({usdtNet}):\n{usdtAddr}\n\nبعد التحويل، أرسل هنا اسمك أو رقم/مرجع عملية التحويل للمراجعة:",

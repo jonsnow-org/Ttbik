@@ -8,12 +8,14 @@ import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khat
 import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
 import { officeCallback, officeStart, officeText, OFFICE_BUTTON } from "@/lib/remit/office";
+import { BOT_PAID_USD, BOTBUY_STARS_PREFIX, GETBOT_BUTTON, PLANS_TEXT, botOrder, botOrderUsdtQuote, checkBotOrderUsdt, codeMessage, freeCode, manualCode, markBotOrderPaid, paidOrder, parseCodeCommand } from "@/lib/botSales";
+import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { SERVICES_BUTTON, SERVICES_TEXT, isServicesRequest, servicesKeyboard } from "@/lib/servicesInTelegram";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 // This webhook (set by bindAdmenBot) is what really serves @Admen10bot, not the AD_BOT template handler.
-const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }], [{ text: SERVICES_BUTTON }]], resize_keyboard: true };
-const HELP_TEXT = `بوت المنصة: 💸 حوالات USDT، الرصيد، المحفظة، الشراء، زر الموقع، و«${SERVICES_BUTTON}».`;
+const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }, { text: GETBOT_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }], [{ text: SERVICES_BUTTON }]], resize_keyboard: true };
+const HELP_TEXT = `بوت المنصة: 💸 حوالات USDT، «${GETBOT_BUTTON}»، الرصيد، المحفظة، الشراء، زر الموقع، و«${SERVICES_BUTTON}».`;
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -55,6 +57,9 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
+    } else if (payload.startsWith(BOTBUY_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
+      const o = await botOrder(payload.slice(BOTBUY_STARS_PREFIX.length));
+      ok = !!o && o.status === "PENDING" && o.transferReference === "auto" && Number(pcq.total_amount) >= adStars(BOT_PAID_USD);
     } else if (payload.startsWith(REMIT_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const l = await listingByCode(payload.slice(REMIT_STARS_PREFIX.length)).catch(() => null);
       ok = !!l && ["APPROVED", "ACTIVE", "EXPIRED"].includes(l.status) && Number(pcq.total_amount) >= adStars(l.price);
@@ -79,6 +84,13 @@ export async function POST(req: NextRequest) {
         await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك (${code}) من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}.`).catch(() => null);
       }
     }
+    return NextResponse.json({ ok: true });
+  }
+  // 🤖 builder activation code paid in Stars: the code goes out at once
+  if (sp && String(sp.invoice_payload || "").startsWith(BOTBUY_STARS_PREFIX)) {
+    if (!siteAdStarsEnabled() || sp.currency !== "XTR" || Number(sp.total_amount) < adStars(BOT_PAID_USD)) return NextResponse.json({ ok: true });
+    const r = await markBotOrderPaid(String(sp.invoice_payload).slice(BOTBUY_STARS_PREFIX.length), `Stars ${String(sp.telegram_payment_charge_id || "").slice(0, 60)}`).catch(() => ({ first: false, code: null, buyerId: null }));
+    if (r.first && r.code && r.buyerId) await send(update.message.chat.id, codeMessage(r.code, r.buyerId, SITE, false)).catch(() => null);
     return NextResponse.json({ ok: true });
   }
   // 🏦 remittance listing paid in Stars: live at once (src/lib/remit/listings.ts)
@@ -126,6 +138,17 @@ export async function POST(req: NextRequest) {
     // 💸 the remittance office (src/lib/remit/office.ts): its button, a recipient's pay_<address> link, and the steps typed in the chat
     const office = { token: bot.token, site: SITE, botUsername: "Admen10bot" };
     if (chatId && startPayload.startsWith("pay_") && (await officeStart(office, String(chatId), startPayload).catch(() => false))) return NextResponse.json({ ok: true });
+    if (chatId && (text === GETBOT_BUTTON || startPayload === "getbot" || /^\/getbot(@\w+)?$/i.test(text))) {
+      await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: chatId, text: PLANS_TEXT, reply_markup: { inline_keyboard: [[{ text: "🆓 مجاني", callback_data: "bs:free" }, { text: `💎 مدفوع ${BOT_PAID_USD}$`, callback_data: "bs:paid" }]] } }) }).catch(() => null);
+      return NextResponse.json({ ok: true });
+    }
+    const codeCmd = parseCodeCommand(text);
+    if (chatId && codeCmd && isOwner(update?.message?.from?.id)) {
+      const c = await manualCode(codeCmd.buyerId, codeCmd.free).catch(() => null);
+      if (c) await send(codeCmd.buyerId, codeMessage(c, codeCmd.buyerId, SITE, codeCmd.free)).catch(() => null);
+      await send(chatId, c ? `✅ كود ${codeCmd.free ? "مجاني" : "مدفوع"} لـ ${codeCmd.buyerId}: ${c}\n(أُرسل له إن كان قد بدأ المحادثة مع البوت)` : "تعذّر إنشاء الكود.");
+      return NextResponse.json({ ok: true });
+    }
     if (chatId && startPayload.startsWith("rmt_")) {
       const reply = await linkCompanyChat(startPayload, String(chatId)).catch(() => "تعذّر الربط الآن.");
       if (reply) await send(chatId, reply);
@@ -165,6 +188,51 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // 🤖 «احصل على بوت مشابه»: plans and payment, open to every user (each order belongs to the user who taps)
+  const bs = /^bs:(free|paid|usdt|np|st|chk)(?::([0-9a-f-]{36}))?$/.exec(String(callback.data || ""));
+  if (bs) {
+    await answer(callback.id, "");
+    const chat = callback.message?.chat?.id;
+    const who = String(callback.from?.id ?? "");
+    if (!chat || !who) return NextResponse.json({ ok: true });
+    const tg = (body: Record<string, unknown>, method = "sendMessage") => fetch(`https://api.telegram.org/bot${bot.token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: chat, ...body }) }).catch(() => null);
+    if (bs[1] === "free") {
+      const r = await freeCode(who).catch(() => null);
+      await send(chat, r ? `${r.reused ? "لديك كود مجاني سابق:\n\n" : ""}${codeMessage(r.code, who, SITE, true)}` : "تعذّر إنشاء الكود الآن، حاول بعد قليل.");
+      return NextResponse.json({ ok: true });
+    }
+    if (bs[1] === "paid") {
+      const o = await paidOrder(who).catch(() => null);
+      if (!o) { await send(chat, "تعذّر إنشاء الطلب الآن."); return NextResponse.json({ ok: true }); }
+      const rows = [[{ text: "💵 USDT (TRC20) مباشرة", callback_data: `bs:usdt:${o.id}` }], [{ text: "⭐ نجوم تيليجرام", callback_data: `bs:st:${o.id}` }]];
+      if (isNowPaymentsConfigured()) rows.push([{ text: "💎 عملات رقمية أخرى", callback_data: `bs:np:${o.id}` }]);
+      await tg({ text: `💎 الخطة المدفوعة: ${BOT_PAID_USD}$ مرة واحدة. اختر طريقة الدفع، ويصلك الكود هنا تلقائياً بعد تأكيد الدفع:`, reply_markup: { inline_keyboard: rows } });
+      return NextResponse.json({ ok: true });
+    }
+    const o = bs[2] ? await botOrder(bs[2]) : null;
+    if (!o || o.buyerId !== who) { await send(chat, "الطلب غير موجود."); return NextResponse.json({ ok: true }); }
+    if (o.status !== "PENDING") { if (o.code) await send(chat, codeMessage(o.code, who, SITE, false)); return NextResponse.json({ ok: true }); }
+    if (bs[1] === "usdt") {
+      const q = await botOrderUsdtQuote(o.id).catch(() => null);
+      if (!q?.ok) { await send(chat, "تعذّر إنشاء طلب USDT الآن، اختر طريقة أخرى أو حاول بعد قليل."); return NextResponse.json({ ok: true }); }
+      await tg({ text: `💵 أرسل بالضبط ${q.amount} USDT على شبكة TRC20 إلى:\n${q.address}\n\nالمبلغ المميِّز يربط الدفع بطلبك تلقائياً (صالح ${q.expiresInMin} دقيقة). بعد الإرسال اضغط الزر:`, reply_markup: { inline_keyboard: [[{ text: "✅ أرسلت، تحقّق", callback_data: `bs:chk:${o.id}` }]] } });
+      return NextResponse.json({ ok: true });
+    }
+    if (bs[1] === "chk") {
+      const r = await checkBotOrderUsdt(o.id).catch(() => null);
+      if (r?.first && r.code) await send(chat, codeMessage(r.code, who, SITE, false));
+      else await tg({ text: "لم يصل بعد. تأكيد الشبكة يأخذ دقيقة أو اثنتين؛ وسيصلك الكود هنا تلقائياً حتى لو لم تضغط.", reply_markup: { inline_keyboard: [[{ text: "🔄 تحقّق مرة أخرى", callback_data: `bs:chk:${o.id}` }]] } });
+      return NextResponse.json({ ok: true });
+    }
+    if (bs[1] === "st") {
+      if (!siteAdStarsEnabled()) { await send(chat, "الدفع بالنجوم غير متاح الآن، اختر USDT."); return NextResponse.json({ ok: true }); }
+      await tg({ title: "كود تفعيل بوت", description: `كود تفعيل بوت إعلانات وأرباح، خطة مدفوعة (عمولتك 20%).`, payload: `${BOTBUY_STARS_PREFIX}${o.id}`, currency: "XTR", prices: [{ label: "كود تفعيل", amount: adStars(BOT_PAID_USD) }] }, "sendInvoice");
+      return NextResponse.json({ ok: true });
+    }
+    const inv = await createInvoice({ priceAmount: BOT_PAID_USD, orderId: `BOT-${o.id}`, orderDescription: "Bot activation code", ipnCallbackUrl: `${SITE}/api/ads/ipn`, successUrl: `https://t.me/Admen10bot`, cancelUrl: `https://t.me/Admen10bot` }).catch(() => null);
+    await send(chat, inv?.ok && inv.invoiceUrl ? `💎 ادفع من هنا، ويصلك الكود تلقائياً بعد التأكيد:\n${inv.invoiceUrl}` : "تعذّر إنشاء الفاتورة الآن، اختر USDT.");
+    return NextResponse.json({ ok: true });
+  }
   // 💸 remittance office buttons: open to every user (each action is scoped to the user's own chat)
   if (String(callback.data || "").startsWith("ro:")) {
     await answer(callback.id, "");
