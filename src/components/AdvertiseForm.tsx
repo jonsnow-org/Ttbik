@@ -17,6 +17,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
   const [targetUrl, setTargetUrl] = useState("");
   const [altText, setAltText] = useState("");
   const [code, setCode] = useState("");
+  const [report, setReport] = useState("");
   const [confirm, setConfirm] = useState("");
   const [method, setMethod] = useState<"nowpayments" | "usdt">("nowpayments");
   const [msg, setMsg] = useState("");
@@ -70,6 +71,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
     });
     const data = await res.json();
     setMsg(data.status || data.error || (ar ? "أُرسل" : "Sent"));
+    if (data.reportUrl) setReport(data.reportUrl);
   }
 
   return (
@@ -117,6 +119,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
       </label>
       <button type="button" onClick={sendCode} className="rounded-full border px-4 py-2 text-sm font-bold">{ar ? "إرسال للموافقة" : "Submit"}</button>
       {msg && <p className="text-sm text-slate-600">{msg}</p>}
+      {report && <a href={report} className="block text-sm font-bold text-amber-700 underline">{ar ? "📊 تقرير المشاهدات والنقرات (احفظ الرابط)" : "📊 Views & clicks report (save this link)"}</a>}
     </div>
   );
 }

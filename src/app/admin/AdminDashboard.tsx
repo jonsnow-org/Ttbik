@@ -58,6 +58,9 @@ export default function AdminDashboard() {
           <Link href="/admin/revenue" className="text-sm font-semibold text-brand-700 hover:underline">
             💵 الإيرادات الحقيقية ←
           </Link>
+          <Link href="/admin/promo" className="text-sm font-semibold text-brand-700 hover:underline">
+            📣 طابور الترويج والإعلانات ←
+          </Link>
           <Link href="/admin/analytics" className="text-sm font-semibold text-brand-700 hover:underline">
             إحصائيات الزوار ←
           </Link>

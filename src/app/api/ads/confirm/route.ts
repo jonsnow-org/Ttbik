@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { bindAdmenBot, creditBanner, notifyAdmin } from "@/lib/siteAds";
+import { adReportUrl } from "@/lib/adStats";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -19,5 +20,9 @@ export async function POST(req: NextRequest) {
     `طلب بنر ${code}\nالعنوان: ${ad.altText}\nالرابط: ${ad.targetUrl}\nالمدة: ${ad.durationDays} يوم\nالسعر: ${ad.totalPrice}$\nالدفع: ${ad.paymentStatus}\nالبنر: ${ad.bannerUrl}`,
     code,
   );
-  return NextResponse.json({ ok: true, status: ad.paymentStatus === "PAID" ? "بانتظار موافقة التلجرام" : "أُبلغ المدير. التفعيل بعد تأكيد الدفع." });
+  return NextResponse.json({
+    ok: true,
+    status: ad.paymentStatus === "PAID" ? "بانتظار موافقة التلجرام" : "أُبلغ المدير. التفعيل بعد تأكيد الدفع.",
+    reportUrl: adReportUrl(code) || undefined, // the advertiser's private views/clicks report
+  });
 }
