@@ -1,5 +1,5 @@
 import AdSlot from "@/components/AdSlot";
-export const metadata = { title: "سياسة الخصوصية | شام AI" };
+export const metadata = { title: "سياسة الخصوصية" };
 
 export default function PrivacyPage() {
   return (

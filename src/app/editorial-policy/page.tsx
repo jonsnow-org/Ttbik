@@ -7,7 +7,7 @@ const SITE = SITE_URL;
 const PATH = "/editorial-policy";
 
 export const metadata: Metadata = {
-  title: "سياسة التحرير | شام AI",
+  title: "سياسة التحرير",
   description:
     "كيف نكتب الأخبار والمقالات: مصادر موثوقة، بلا اختلاق، بلا نسخ كامل، وتصحيح ظاهر عند الخطأ.",
   alternates: { canonical: `${SITE}${PATH}` },

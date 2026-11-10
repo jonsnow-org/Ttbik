@@ -8,7 +8,7 @@ const SITE = SITE_URL;
 const PATH = "/bots/health-check";
 
 export const metadata: Metadata = {
-  title: "فاحص صحة بوت تليجرام | شام AI",
+  title: "فاحص صحة بوت تليجرام",
   description:
     "افحص مجاناً هل بوت تليجرام ما زال يعمل: التوكن، الويبهوك، شهادة HTTPS، ووجود التوكن داخل رابط الويبهوك. تقرير فوري بدون حفظ التوكن.",
   keywords: [

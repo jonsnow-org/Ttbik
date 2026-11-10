@@ -4,7 +4,7 @@ import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "كيف يعمل الموقع؟ | شام AI",
+  title: "كيف يعمل الموقع؟",
   description: "شرح كامل لطريقة الطلب والدفع والحصول على أدواتك وبوتاتك خطوة بخطوة.",
 };
 

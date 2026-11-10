@@ -1,5 +1,5 @@
 import AdSlot from "@/components/AdSlot";
-export const metadata = { title: "الشروط وسياسة الاسترجاع | شام AI" };
+export const metadata = { title: "الشروط وسياسة الاسترجاع" };
 
 export default function TermsPage() {
   return (

@@ -18,7 +18,7 @@ export async function generateMetadata(
   });
   if (!card) return { title: "بطاقة غير موجودة" };
   return {
-    title: `${card.title} | شام AI`,
+    title: `${card.title}`,
     description: card.bio || `بطاقة أعمال رقمية لـ ${card.title}`,
   };
 }

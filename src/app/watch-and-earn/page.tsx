@@ -4,7 +4,7 @@ import AdSlot from "@/components/AdSlot";
 import ExploreMore from "@/components/ExploreMore";
 
 export const metadata: Metadata = {
-  title: "الربح من مشاهدة الإعلانات على تليجرام | شام AI",
+  title: "الربح من مشاهدة الإعلانات على تليجرام",
   description:
     "اربح مالاً حقيقياً من مشاهدة الإعلانات عبر بوت تليجرام مجاني — بلا استثمار، سحب حقيقي عبر تحويل بنكي أو USDT. اعرف كيف يعمل بالتفصيل.",
   alternates: { canonical: "/watch-and-earn" },

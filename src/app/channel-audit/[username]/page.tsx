@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cache } from "react";
 import { auditByUsername } from "@/lib/channels/exchange";
 import { GRADE_LABEL, normalizeChannel } from "@/lib/channels/auditRules";
 import AuditForm from "@/components/channels/AuditForm";
@@ -7,8 +8,15 @@ import { SITE_URL } from "@/lib/siteUrl";
 export const dynamic = "force-dynamic";
 type P = { params: Promise<{ username: string }> };
 
+// One audit per request, shared by the metadata and the page.
+const audit = cache((raw: string) => auditByUsername(raw).catch(() => ({ ok: false as const, error: "تعذّر الفحص الآن." })));
+
 export async function generateMetadata({ params }: P): Promise<Metadata> {
-  const u = normalizeChannel(decodeURIComponent((await params).username)) || "channel";
+  const raw = decodeURIComponent((await params).username);
+  const u = normalizeChannel(raw) || "channel";
+  const r = await audit(raw);
+  // Any typed name gets a URL here; only real public channels may be indexed (no thin «تعذّر فحص» pages in search).
+  if (!r.ok) return { title: `تعذّر فحص @${u}`, robots: { index: false, follow: true } };
   return {
     title: `تقرير قناة @${u}: نسبة المشاهدة والسعر العادل للإعلان`,
     description: `فحص مجاني لقناة @${u} على تيليجرام: المشاهدات الحقيقية، نسبة الوصول، وتيرة النشر، والسعر العادل لمنشور إعلاني.`,
@@ -21,7 +29,7 @@ const GRADE_COLOR: Record<string, string> = { excellent: "bg-emerald-100 text-em
 
 export default async function ChannelAuditReport({ params }: P) {
   const raw = decodeURIComponent((await params).username);
-  const r = await auditByUsername(raw).catch(() => ({ ok: false as const, error: "تعذّر الفحص الآن." }));
+  const r = await audit(raw);
   if (!r.ok) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-8">

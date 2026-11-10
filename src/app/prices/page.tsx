@@ -9,7 +9,7 @@ const PATH = "/prices";
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: "أسعار الصرف المرجعية | شام AI",
+  title: "أسعار الصرف المرجعية",
   description:
     "جدول أسعار صرف مقابل اليورو من نشرة المصرف المركزي الأوروبي اليومية، مع تاريخ المصدر. بلا تقدير.",
   alternates: { canonical: `${SITE_URL}${PATH}` },
