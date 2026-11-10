@@ -8,8 +8,9 @@ import { earnPoints } from "@/lib/platformPoints";
 import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
 import { MENU_BUTTON as CONTEST_BUTTON } from "@/lib/contests/rules";
 import { contestStats, sendContestIntro } from "@/lib/contests/contests";
+import { claimPrizes, PRIZE_START } from "@/lib/contests/prizes";
 import {
-  consumeKhatmaText, handleKhatmaPayment, handleKhatmaPrivateCallback, khatmaStats, openMemorialFromStart, sendKhatmaIntro, startMemorialOrder, type KhatmaPending,
+  consumeKhatmaText, handleKhatmaPayment, handleSponsorStarsPayment, handleKhatmaPrivateCallback, khatmaStats, openMemorialFromStart, sendKhatmaIntro, startMemorialOrder, type KhatmaPending,
 } from "@/lib/khatma/khatma";
 
 /**
@@ -164,7 +165,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
   // The owner can try the khatma flows like any user.
-  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -263,6 +264,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
   if (update.message?.successful_payment) {
+    if (await handleSponsorStarsPayment(bot, update.message)) return;
     await handleKhatmaPayment(bot, botRow, update.message);
     return;
   }
@@ -320,6 +322,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     const payload = text.split(/\s+/)[1] || "";
     if (payload === "khatma") { await sendKhatmaIntro(bot, chatId); return; }
     if (payload === "contest") { await sendContestIntro(bot, chatId); return; }
+    if (payload === PRIZE_START) { await claimPrizes(bot, chatId, tgUserId); return; }
     if (payload && (await openMemorialFromStart(bot, botRow, chatId, payload))) return;
     await bot.api.sendMessage(
       chatId,

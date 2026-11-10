@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { weeklyGroups } from "@/lib/contests/contests";
 import { activeSponsorRow, khatmaBotUsername, SPONSOR_PRODUCTS } from "@/lib/khatma/khatma";
 import SponsorForm from "@/components/khatma/SponsorForm";
+import { settleDueSponsors } from "@/lib/contests/prizes";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ContestsPage() {
+  void settleDueSponsors().catch(() => null); // fire-and-forget on the self-hosted server; cheap when nothing is due; the scheduled sweep does the same
   const [rows, u, sponsor] = await Promise.all([weeklyGroups().catch(() => []), khatmaBotUsername().catch(() => ""), activeSponsorRow("contest").catch(() => null)]);
   const conf = SPONSOR_PRODUCTS.contest;
   return (
@@ -34,7 +36,7 @@ export default async function ContestsPage() {
       </section>
       <section id="sponsor" className="mt-8 rounded-2xl border bg-white p-4">
         <h2 className="text-lg font-extrabold">🎁 رعاية المسابقة الأسبوعية</h2>
-        <p className="mb-3 mt-1 text-sm leading-7 text-slate-600">اسمك ورابطك وجائزتك في بداية كل جولة ونتائجها ولوحة الصدارة في كل الجروبات لمدة {conf.days} أيام، بـ ${conf.price}. أنت تموّل الجائزة وتُسلَّم للفائز بعد نهاية الأسبوع بالتنسيق مع الأدمن. راعٍ واحد كل أسبوع.</p>
+        <p className="mb-3 mt-1 text-sm leading-7 text-slate-600">اسمك ورابطك وجائزتك في بداية كل جولة ونتائجها ولوحة الصدارة في كل الجروبات لمدة {conf.days} أيام، بـ ${conf.price}. كل شيء تلقائي: الدفع يفعّل الرعاية فوراً، وبعد نهاية المدة يختار النظام أعلى 3 لاعبين (20 نقطة على الأقل في جولتين) ويرسل لهم الجائزة بنفسه، وتظهر لك أسماؤهم في صفحة طلبك. راعٍ واحد كل أسبوع والدور يُحجز تلقائياً.</p>
         <SponsorForm price={conf.price} days={conf.days} product="contest" />
       </section>
     </main>

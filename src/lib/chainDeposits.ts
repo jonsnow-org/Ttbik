@@ -193,3 +193,20 @@ export async function checkUserDeposits(userId: string, apply: Applier): Promise
   }
   return out;
 }
+
+/** The newest still-open (unexpired) request of this payer, so a page reload shows the same exact amount instead of drawing a new one. */
+export async function openRequestFor(userId: string, chain: Chain): Promise<{ id: string; address: string; amount: string; usd: number; expiresInMin: number } | null> {
+  await ensureTables();
+  const r = await prisma.$queryRaw<{ id: string; atomic: bigint; usd: number; address: string; expires_at: Date }[]>`
+    SELECT id, atomic, usd, address, expires_at FROM chain_deposit_requests WHERE user_id = ${userId} AND chain = ${chain} AND status = 'OPEN' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`;
+  const x = r[0];
+  if (!x) return null;
+  return { id: x.id, address: x.address, amount: formatAtomic(chain, Number(x.atomic)), usd: Number(x.usd), expiresInMin: Math.max(1, Math.round((x.expires_at.getTime() - Date.now()) / 60_000)) };
+}
+
+/** Every payer reference (user_id) with an open request whose prefix matches, for the scheduled sweep. */
+export async function openPayers(prefix: string): Promise<string[]> {
+  await ensureTables();
+  const r = await prisma.$queryRaw<{ user_id: string }[]>`SELECT DISTINCT user_id FROM chain_deposit_requests WHERE status = 'OPEN' AND user_id LIKE ${prefix + "%"} AND expires_at > now() - interval '30 minutes' LIMIT 200`;
+  return r.map((x) => x.user_id);
+}

@@ -11,7 +11,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
-import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
+import { openPayers, usdtCheck, usdtQuote } from "@/lib/payments/usdtOrders";
 import {
   DEDICATION_MAX, INTENTS, JUZ_COUNT, KHATMA_CMD, MAX_OPEN_PER_USER, MEMORIAL_START_PREFIX, MEMORIAL_TIERS, NAME_MAX, SPONSOR_DAYS, SPONSOR_PRICE_USD, STARS_KIND, TITLE_MAX,
   arNum, boardKeyboard, boardText, cleanText, completionText, emptyBoard, isComplete, isSlug, makeSlug, memorialTitle, parseJuzCallback, sponsorLine, tap, tierById, type JuzState,
@@ -30,6 +30,11 @@ export function ensureKhatmaTables(): Promise<void> {
         // Sponsor slots are shared by products (khatma, contest); each product has its own queue.
         `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'khatma'`,
         `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS prize TEXT`,
+        // Contest prizes are delivered automatically after the slot ends (src/lib/contests/prizes.ts):
+        // TG = Telegram Premium + gifts bought from the bot's Stars; VOUCHER = the sponsor's own prize, its private part sent only to winners.
+        `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS prize_mode TEXT NOT NULL DEFAULT 'VOUCHER'`,
+        `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS prize_secret TEXT`,
+        `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ`,
       ];
       for (const q of ddl) await prisma.$executeRawUnsafe(q);
     })().catch((e) => { ready = null; throw e; });
@@ -388,36 +393,43 @@ export const SPONSOR_PRODUCTS: Record<SponsorProduct, { price: number; days: num
 const isProduct = (p: unknown): p is SponsorProduct => p === "khatma" || p === "contest";
 const contactOk = (s: string) => /^@?[A-Za-z][A-Za-z0-9_]{3,31}$/.test(s.trim());
 
-export async function createSponsorOrder(input: { name: string; url: string; contact: string; product?: string; prize?: string }) {
+export type PrizeMode = "TG" | "VOUCHER";
+/** Telegram prize pack bought from the bot's own Stars when the slot ends: Premium for 1st, a gift each for 2nd and 3rd. */
+export const TG_PRIZE_TEXT = "تيليجرام بريميوم 3 أشهر للأول + هدية تيليجرام للثاني والثالث";
+
+export async function createSponsorOrder(input: { name: string; url: string; contact: string; product?: string; prize?: string; prizeMode?: string; prizeSecret?: string }) {
   await ensureKhatmaTables();
   const product: SponsorProduct = isProduct(input.product) ? input.product : "khatma";
   const conf = SPONSOR_PRODUCTS[product];
-  const prize = product === "contest" ? cleanText(input.prize || "", 80) : "";
-  if (product === "contest" && prize.length < 3) return { ok: false as const, error: "اكتب الجائزة التي تموّلها (مثال: 20$ USDT للاعب الأول)." };
+  const prizeMode: PrizeMode = product === "contest" && input.prizeMode === "TG" ? "TG" : "VOUCHER";
+  const prize = product !== "contest" ? "" : prizeMode === "TG" ? TG_PRIZE_TEXT : cleanText(input.prize || "", 80);
+  const prizeSecret = product === "contest" && prizeMode === "VOUCHER" ? String(input.prizeSecret || "").replace(/[<>]/g, "").trim().slice(0, 300) : "";
+  if (product === "contest" && prize.length < 3) return { ok: false as const, error: "اكتب الجائزة التي تموّلها (مثال: كوبون خصم 50٪ من متجرنا)." };
+  if (product === "contest" && prizeMode === "VOUCHER" && prizeSecret.length < 3) return { ok: false as const, error: "اكتب طريقة استلام الجائزة التي تصل الفائزين تلقائياً (كود خصم، رابط، أو معرّف التواصل)." };
   const name = cleanText(input.name, 60);
   if (name.length < 2) return { ok: false as const, error: "اكتب اسم الجهة الراعية." };
   const url = String(input.url || "").trim();
   if (url && !/^https:\/\/[^\s<>"]{3,200}$/i.test(url)) return { ok: false as const, error: "الرابط يجب أن يبدأ بـ https://" };
   if (!contactOk(input.contact)) return { ok: false as const, error: "اكتب معرّفك على تيليجرام (@username)." };
   const code = `${SPONSOR_PREFIX}${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-  await prisma.$executeRaw`INSERT INTO khatma_sponsors (code, name, url, contact, price, product, prize) VALUES (${code}, ${name}, ${url || null}, ${input.contact.trim().replace(/^@?/, "@")}, ${conf.price}, ${product}, ${prize || null})`;
+  await prisma.$executeRaw`INSERT INTO khatma_sponsors (code, name, url, contact, price, product, prize, prize_mode, prize_secret) VALUES (${code}, ${name}, ${url || null}, ${input.contact.trim().replace(/^@?/, "@")}, ${conf.price}, ${product}, ${prize || null}, ${prizeMode}, ${prizeSecret || null})`;
   return { ok: true as const, code, price: conf.price };
 }
 
 export async function sponsorByCode(code: string) {
   if (!/^KSP-[0-9A-F]{8}$/.test(code)) return null;
   await ensureKhatmaTables();
-  const r = await prisma.$queryRaw<{ code: string; name: string; url: string | null; price: unknown; status: string; starts_at: Date | null; ends_at: Date | null; product: string }[]>`SELECT code, name, url, price, status, starts_at, ends_at, product FROM khatma_sponsors WHERE code = ${code}`;
-  return r[0] ? { ...r[0], price: Number(r[0].price), product: (isProduct(r[0].product) ? r[0].product : "khatma") as SponsorProduct } : null;
+  const r = await prisma.$queryRaw<{ code: string; name: string; url: string | null; price: unknown; status: string; starts_at: Date | null; ends_at: Date | null; product: string; prize: string | null; prize_mode: string; settled_at: Date | null; paid_via: string | null }[]>`SELECT code, name, url, price, status, starts_at, ends_at, product, prize, prize_mode, settled_at, paid_via FROM khatma_sponsors WHERE code = ${code}`;
+  return r[0] ? { ...r[0], price: Number(r[0].price), product: (isProduct(r[0].product) ? r[0].product : "khatma") as SponsorProduct, prize_mode: (r[0].prize_mode === "TG" ? "TG" : "VOUCHER") as PrizeMode } : null;
 }
 
 /** Paid → queued right after the last booked slot, so sponsors never overlap. Idempotent. */
-export async function markSponsorPaid(code: string, via: string, amountUsd?: number): Promise<{ ok: boolean; first: boolean }> {
+export async function markSponsorPaid(code: string, via: string, amountUsd?: number, db: { $executeRaw: typeof prisma.$executeRaw } = prisma): Promise<{ ok: boolean; first: boolean }> {
   const s = await sponsorByCode(code);
   if (!s) return { ok: false, first: false };
   if (amountUsd != null && Number.isFinite(amountUsd) && amountUsd + 0.01 < s.price) return { ok: false, first: false };
   const days = SPONSOR_PRODUCTS[s.product].days;
-  const n = await prisma.$executeRaw`
+  const n = await db.$executeRaw`
     UPDATE khatma_sponsors SET status = 'ACTIVE', paid_via = ${via.slice(0, 120)},
       starts_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE' AND product = ${s.product}), now())),
       ends_at = GREATEST(now(), COALESCE((SELECT max(ends_at) FROM khatma_sponsors WHERE status = 'ACTIVE' AND product = ${s.product}), now())) + make_interval(days => ${days})
@@ -444,12 +456,18 @@ export async function paySponsor(code: string, method: "stars" | "nowpayments" |
   const s = await sponsorByCode(code);
   if (!s) return { ok: false as const, error: "الكود غير موجود." };
   if (s.status !== "PENDING_PAYMENT") return { ok: false as const, error: "هذا الطلب مدفوع أو مغلق." };
-  if (method === "usdt") return { ok: true as const, manual: true, amount: s.price, usdt: usdtAddress(), network: usdtNetwork(), note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
+  if (s.prize_mode === "TG" && method !== "stars") return { ok: false as const, error: "جائزة تيليجرام (بريميوم + هدايا) تُشترى من رصيد نجوم البوت، فتُدفع بالنجوم فقط. اختر النجوم أو جائزتك الخاصة." };
+  if (method === "usdt") {
+    const q = await usdtQuote(`sponsor:${code}`, s.price);
+    if (!q.ok) return { ok: false as const, error: q.error };
+    return { ...q, usdt: q.address, note: `حوّل المبلغ بالضبط ${q.amount} USDT على شبكة TRC20 خلال ${q.expiresInMin} دقيقة. يتفعّل الطلب تلقائياً عند وصول التحويل (عادة خلال دقائق).` };
+  }
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };
-    const bot = await findAdmenBot();
+    // Contest slots are paid to the contest bot itself, so the Stars that buy the winners' Telegram prizes are in its own balance.
+    const bot = s.product === "contest" ? await prisma.bot.findFirst({ where: { template: "STREAK_BOT", isActive: true }, orderBy: { created_at: "asc" } }) : await findAdmenBot();
     if (!bot) return { ok: false as const, error: "بوت الدفع غير متاح." };
-    await bindAdmenBot().catch(() => null);
+    if (s.product !== "contest") await bindAdmenBot().catch(() => null);
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: SPONSOR_PRODUCTS[s.product].title, description: `${SPONSOR_PRODUCTS[s.product].what} لمدة ${SPONSOR_PRODUCTS[s.product].days} أيام: ${s.name} (${code})`.slice(0, 255), payload: `${SPONSOR_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: adStars(s.price) }] }),
@@ -461,6 +479,57 @@ export async function paySponsor(code: string, method: "stars" | "nowpayments" |
   if (!isNowPaymentsConfigured()) return { ok: false as const, error: "فاتورة العملات غير مفعّلة. اختر USDT أو النجوم." };
   const r = await createInvoice({ priceAmount: s.price, orderId: code, orderDescription: `Sham AI ${s.product} sponsorship ${code}`, ipnCallbackUrl: `${apiSite()}/api/ads/ipn`, successUrl: `${SITE_URL}${SPONSOR_PRODUCTS[s.product].page}?sponsor=${code}`, cancelUrl: `${SITE_URL}${SPONSOR_PRODUCTS[s.product].page}` });
   return r.ok ? { ok: true as const, invoiceUrl: r.invoiceUrl } : { ok: false as const, error: r.error || "تعذّر إنشاء الفاتورة" };
+}
+
+/** pre_checkout for KSP:<code> on the contest bot: an unpaid order at its full price. */
+export async function sponsorPreCheckout(pcq: any): Promise<{ ok: boolean; message?: string }> {
+  const payload = String(pcq?.invoice_payload || "");
+  if (!payload.startsWith(SPONSOR_STARS_PREFIX) || pcq.currency !== "XTR") return { ok: false, message: "طلب غير معروف" };
+  const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length));
+  return sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price) ? { ok: true } : { ok: false, message: "الطلب غير متاح للدفع (مدفوع مسبقاً أو غير موجود)." };
+}
+/** successful_payment for KSP:<code> received by the contest bot. Idempotent. */
+export async function handleSponsorStarsPayment(bot: TelegramBot, msg: any): Promise<boolean> {
+  const sp = msg?.successful_payment;
+  const payload = String(sp?.invoice_payload || "");
+  if (!sp || !payload.startsWith(SPONSOR_STARS_PREFIX)) return false;
+  if (sp.currency !== "XTR" || !siteAdStarsEnabled()) return true;
+  const code = payload.slice(SPONSOR_STARS_PREFIX.length);
+  const row = await sponsorByCode(code);
+  if (!row || Number(sp.total_amount) < adStars(row.price)) return true;
+  const r = await markSponsorPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
+  if (r.first) {
+    const fresh = await sponsorByCode(code);
+    await bot.api.sendMessage(msg.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك ${code} مفعّلة من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}. الفائزون يُختارون وتصلهم الجوائز تلقائياً بعد نهاية المدة.`).catch(() => null);
+    const admin = process.env.SUPER_ADMIN_TELEGRAM_ID;
+    if (admin) await bot.api.sendMessage(Number(admin), `⭐ رعاية مدفوعة تلقائياً: ${row.name} · ${sp.total_amount}⭐ · ${code} (${row.product})`).catch(() => null);
+  }
+  return true;
+}
+
+/** USDT on-chain check for one sponsor order (also run by the scheduled sweep). Activates the slot in the same transaction. */
+export async function checkSponsorUsdt(code: string): Promise<{ paid: boolean; status: string | null }> {
+  const s = await sponsorByCode(code);
+  if (!s) return { paid: false, status: null };
+  if (s.status !== "PENDING_PAYMENT") return { paid: s.status === "ACTIVE", status: s.status };
+  const r = await usdtCheck(`sponsor:${code}`, async (tx, p) => {
+    const m = await markSponsorPaid(code, `USDT TRC20 ${p.hash.slice(0, 16)}`, p.usd, tx);
+    if (!m.first) throw new Error("not pending");
+  });
+  if (r.paid) {
+    const admin = process.env.SUPER_ADMIN_TELEGRAM_ID;
+    const bot = admin ? await findAdmenBot().catch(() => null) : null;
+    if (bot && admin) await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: admin, text: `💵 رعاية مدفوعة تلقائياً بـ USDT: ${s.name} · ${s.price}$ · ${code} (${s.product})` }) }).catch(() => null);
+  }
+  const fresh = await sponsorByCode(code);
+  return { paid: r.paid || fresh?.status === "ACTIVE", status: fresh?.status || null };
+}
+
+/** Sweep: every sponsor order with an open USDT quote. */
+export async function sweepSponsorUsdt(): Promise<number> {
+  let n = 0;
+  for (const ref of await openPayers("sponsor:")) if ((await checkSponsorUsdt(ref.slice("sponsor:".length)).catch(() => ({ paid: false }))).paid) n++;
+  return n;
 }
 
 export { JUZ_COUNT };

@@ -25,6 +25,30 @@
     {
       "path": "/api/cron/telegram-post",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/auto-money",
+      "schedule": "0 20 * * *"
     }
   ]
 }

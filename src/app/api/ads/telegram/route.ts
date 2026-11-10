@@ -5,6 +5,8 @@ import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
 import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/exchange";
 import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
+import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
+import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 const KEYBOARD = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
@@ -49,6 +51,9 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
+    } else if (payload.startsWith(REMIT_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
+      const l = await listingByCode(payload.slice(REMIT_STARS_PREFIX.length)).catch(() => null);
+      ok = !!l && ["APPROVED", "ACTIVE", "EXPIRED"].includes(l.status) && Number(pcq.total_amount) >= adStars(l.price);
     }
     await fetch(`https://api.telegram.org/bot${bot.token}/answerPreCheckoutQuery`, {
       method: "POST",
@@ -69,6 +74,17 @@ export async function POST(req: NextRequest) {
         const fresh = await sponsorByCode(code).catch(() => null);
         await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك (${code}) من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}.`).catch(() => null);
       }
+    }
+    return NextResponse.json({ ok: true });
+  }
+  // 🏦 remittance listing paid in Stars: live at once (src/lib/remit/listings.ts)
+  if (sp && String(sp.invoice_payload || "").startsWith(REMIT_STARS_PREFIX)) {
+    if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
+    const code = String(sp.invoice_payload).slice(REMIT_STARS_PREFIX.length);
+    const l = await listingByCode(code).catch(() => null);
+    if (l && Number(sp.total_amount) >= adStars(l.price)) {
+      const r = await markListingPaid(code, `Stars ${String(sp.telegram_payment_charge_id || "").slice(0, 60)}`).catch(() => ({ ok: false, first: false }));
+      if (r.first) await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). «${l.name}» ظاهر الآن في صفحة الحوالات.`).catch(() => null);
     }
     return NextResponse.json({ ok: true });
   }
@@ -97,9 +113,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  const isOwner = (id: unknown) => !!process.env.SUPER_ADMIN_TELEGRAM_ID && String(id ?? "") === String(process.env.SUPER_ADMIN_TELEGRAM_ID);
   if (!callback) {
     const text = String(update?.message?.text || "");
     const chatId = update?.message?.chat?.id;
+    // 🏦 a transfer company links its chat for approval/payment/renewal messages: /start rmt_<code>_<key>
+    const startPayload = /^\/start\s+(\S+)/.exec(text)?.[1] || "";
+    if (chatId && startPayload.startsWith("rmt_")) {
+      const reply = await linkCompanyChat(startPayload, String(chatId)).catch(() => "تعذّر الربط الآن.");
+      if (reply) await send(chatId, reply);
+      return NextResponse.json({ ok: true });
+    }
+    // 🔗 owner only: referral links for /remit without a redeploy (/ref, /ref KEY https://…, /ref KEY off)
+    const refCmd = parseRefCommand(text);
+    if (chatId && refCmd && isOwner(update?.message?.from?.id)) {
+      await send(chatId, await runRefCommand(refCmd).catch(() => "تعذّر الحفظ الآن."));
+      return NextResponse.json({ ok: true });
+    }
     if (chatId && (text === "الرصيد" || text.startsWith("/balance"))) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
@@ -123,6 +153,14 @@ export async function POST(req: NextRequest) {
   const fromOk = !!adminChat && (String(callback.message?.chat?.id ?? "") === adminChat || (!!superAdmin && String(callback.from?.id ?? "") === superAdmin));
   if (!fromOk) {
     await answer(callback.id, "غير مصرح");
+    return NextResponse.json({ ok: true });
+  }
+  // 🏦 remittance listing review: one tap (src/lib/remit/listings.ts)
+  const rmt = /^rmt_(ok|no):(RMT-[0-9A-F]{8})$/.exec(String(callback.data || ""));
+  if (rmt) {
+    const r = await reviewListing(rmt[2], rmt[1] === "ok").catch(() => ({ ok: false, text: "تعذّر" }));
+    await answer(callback.id, r.text);
+    if (r.ok && callback.message?.chat?.id) await send(callback.message.chat.id, `${rmt[1] === "ok" ? "✅" : "❌"} ${rmt[2]}: ${r.text}`).catch(() => null);
     return NextResponse.json({ ok: true });
   }
   const [action, code] = String(callback.data || "").split(":");
