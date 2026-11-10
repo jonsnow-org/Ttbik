@@ -388,7 +388,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(SERVICES_BUTTON).row()
-    .text(REMIT_BUTTON).row(); // remittance section: the owner's exchanger partner commission on every swap (src/lib/remit)
+    .text(REMIT_BUTTON).text(GETBOT_BUTTON).row(); // remittance section: the owner's exchanger partner commission on every swap (src/lib/remit)
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -550,6 +550,7 @@ function topLevelTexts(lang: Lang): string[] {
     t("ar", "btnAccounts"),
     t("en", "btnAccounts"),
     t(lang, "btnWantOwnBot"),
+    GETBOT_BUTTON,
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
     CHAIN_DEPOSIT_BTN,

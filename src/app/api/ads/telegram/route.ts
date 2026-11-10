@@ -9,13 +9,14 @@ import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, re
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
 import { officeCallback, officeStart, officeText, OFFICE_BUTTON } from "@/lib/remit/office";
 import { BOT_PAID_USD, BOTBUY_STARS_PREFIX, GETBOT_BUTTON, botOrder, codeMessage, manualCode, markBotOrderPaid, parseCodeCommand } from "@/lib/botSales";
-import { BOT_SALE_CALLBACK, handleBotSaleCallback, sendPlans, type Tg } from "@/lib/botSalesChat";
+import { BOT_SALE_CALLBACK, handleBotSaleCallback, type Tg } from "@/lib/botSalesChat";
+import { ownerBotGetbotLink } from "@/lib/builderOwnerBot";
 import { SERVICES_BUTTON, SERVICES_TEXT, isServicesRequest, servicesKeyboard } from "@/lib/servicesInTelegram";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 // The site bot (بوت الموقع), webhook set by bindSiteBot. A standalone bot: not part of the ads & earn builder (no Bot-table row, no AD_BOT role).
-const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }, { text: GETBOT_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }], [{ text: SERVICES_BUTTON }]], resize_keyboard: true };
-const HELP_TEXT = `بوت المنصة: 💸 حوالات USDT، «${GETBOT_BUTTON}»، الرصيد، المحفظة، الشراء، زر الموقع، و«${SERVICES_BUTTON}».`;
+const KEYBOARD = { keyboard: [[{ text: OFFICE_BUTTON }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }], [{ text: SERVICES_BUTTON }]], resize_keyboard: true };
+const HELP_TEXT = `بوت المنصة: 💸 حوالات USDT، الرصيد، المحفظة، الشراء، زر الموقع، و«${SERVICES_BUTTON}».`;
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -139,8 +140,15 @@ export async function POST(req: NextRequest) {
     // 💸 the remittance office (src/lib/remit/office.ts): its button, a recipient's pay_<address> link, and the steps typed in the chat
     const office = { token: bot.token, site: SITE, botUsername: await siteBotUsername().catch(() => "") };
     if (chatId && startPayload.startsWith("pay_") && (await officeStart(office, String(chatId), startPayload).catch(() => false))) return NextResponse.json({ ok: true });
+    // «احصل على بوت مشابه» is not offered here (owner, 2026-11-10): it belongs to the ads & earn builder bots. An old link or a typed
+    // /getbot is pointed at the builder's owner bot (src/lib/builderOwnerBot.ts), where the checkout runs.
     if (chatId && (text === GETBOT_BUTTON || startPayload === "getbot" || /^\/getbot(@\w+)?$/i.test(text))) {
-      await sendPlans(tg, chatId);
+      const link = await ownerBotGetbotLink().catch(() => null);
+      await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: link ? "🤖 إنشاء بوت إعلانات وربح خاص بك يتم من بوت المنصة:" : HELP_TEXT, reply_markup: link ? { inline_keyboard: [[{ text: "🤖 افتح البوت", url: link }]] } : KEYBOARD }),
+      }).catch(() => null);
       return NextResponse.json({ ok: true });
     }
     const codeCmd = parseCodeCommand(text);
@@ -189,7 +197,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // 🤖 «احصل على بوت مشابه»: plans and payment, open to every user (each order belongs to the user who taps; src/lib/botSalesChat.ts)
+  // 🤖 orders started here before the button moved to the builder bots: their plan/payment buttons still work (src/lib/botSalesChat.ts)
   if (BOT_SALE_CALLBACK.test(String(callback.data || ""))) {
     await answer(callback.id, "");
     const u = await siteBotUsername().catch(() => "");
