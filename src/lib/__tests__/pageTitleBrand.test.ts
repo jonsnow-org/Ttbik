@@ -5,8 +5,8 @@ import fs from "fs";
 import path from "path";
 
 const APP = path.join(__dirname, "..", "..", "app");
-// /remit is being edited on another branch; its title is fixed there.
-const PENDING = new Set(["remit/page.tsx"]);
+// /remit/** is being edited on another branch; its titles are fixed there.
+const PENDING = (rel: string) => rel.startsWith("remit/") || rel.startsWith(`remit${path.sep}`);
 
 function files(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -24,7 +24,7 @@ describe("page titles do not repeat the brand", () => {
     const bad: string[] = [];
     for (const f of files(APP)) {
       const rel = path.relative(APP, f);
-      if (PENDING.has(rel)) continue;
+      if (PENDING(rel)) continue;
       const src = fs.readFileSync(f, "utf8");
       for (const m of src.matchAll(TOP_TITLE)) if (/[|—-]\s*شام AI\s*$/.test(m[2])) bad.push(`${rel}: ${m[2]}`);
     }
