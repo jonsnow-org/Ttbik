@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "قالب غير مدعوم على هذه الصفحة." }, { status: 400 });
     }
 
-    let purchase: { id: string } | null = null;
+    let purchase: { id: string; amount: number } | null = null;
     if (tpl === "SITE_BANNER_ADMIN" || tpl === "CHANNEL_PUBLISH_BOT") {
       if (ownerId !== "420066855" && ownerId !== process.env.SUPER_ADMIN_TELEGRAM_ID) {
         return NextResponse.json({ success: false, error: "هذا القالب للمالك فقط." }, { status: 403 });
@@ -252,6 +252,11 @@ export async function POST(req: NextRequest) {
 
     if (purchase) {
       await prisma.botPurchase.update({ where: { id: purchase.id }, data: { status: "REDEEMED" } });
+      // free code → the supervisor's 10% share; paid → the normal 20% (src/lib/botSales.ts)
+      if (tpl === "AD_BOT") {
+        const { recordBotPlan } = await import("@/lib/botSales");
+        await recordBotPlan(newBot.id, Number(purchase.amount)).catch(() => null);
+      }
     }
 
     return NextResponse.json({

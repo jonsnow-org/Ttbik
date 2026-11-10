@@ -1,5 +1,6 @@
 import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
+import { creatorPct, splitCreatorCut } from "@/lib/botSales";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest, remitAppUrl } from "@/lib/remit/remit";
 import { SITE_URL } from "@/lib/siteUrl";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
@@ -17,7 +18,6 @@ import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, 
 import { ownerWalletSummary, sweepOwnerProfits, setPayoutsPaused } from "@/lib/ownerPayout";
 import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
-import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -686,7 +686,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   if (tgUserId === SUPER_ADMIN_ID && msg.reply_to_message?.text) {
     const targetId = extractAdminContactTargetId(msg.reply_to_message.text);
     if (targetId) {
-      await bot.api.sendMessage(Number(targetId), `📩 رد الأدمن:\n\n${text}`).catch(() => null);
+      await bot.api.sendMessage(Number(targetId), `📩 رد المنصة:\n\n${text}`).catch(() => null);
       await bot.api.sendMessage(chatId, "✅ تم إرسال ردك للمستخدم.");
       return;
     }
@@ -943,25 +943,13 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, t(lang, "askNovaPrompt"), { reply_markup: new Keyboard().text(backLabel(lang)).resized() });
     return;
   }
-  if (text === t(lang, "btnWantOwnBot")) {
+  // «أريد بوتاً مماثلاً»: the automatic checkout (free or paid plan, code delivered on payment) in the platform's site bot.
+  // The old manual path (bank details + transfer reference + approval) is gone from the menus: it showed private payment details.
+  if (text === t(lang, "btnWantOwnBot") || text === t(lang, "btnProceedPurchase")) {
     await setPending(user.id, null);
-    const infoKb = new Keyboard().text(t(lang, "btnProceedPurchase")).row().text(backLabel(lang)).resized();
-    await bot.api.sendMessage(chatId, t(lang, "wantOwnBotInfo"), { reply_markup: infoKb });
-    return;
-  }
-  if (text === t(lang, "btnProceedPurchase")) {
-    await setPending(user.id, { mode: "purchase_bot_reference" });
-    await bot.api.sendMessage(
-      chatId,
-      t(lang, "purchaseBankInfo", {
-        amount: "100",
-        holder: process.env.BANK_HOLDER || "-",
-        account: process.env.BANK_ACCOUNT_NUMBER || "-",
-        usdtNet: usdtNetwork(),
-        usdtAddr: usdtAddress() || "-",
-      }),
-      { reply_markup: amountEntryMenu(lang) }
-    );
+    await bot.api.sendMessage(chatId, t(lang, "wantOwnBotInfo"), {
+      reply_markup: new InlineKeyboard().url(lang === "ar" ? "🤖 احصل على بوتك الآن" : "🤖 Get your bot now", "https://t.me/Admen10bot?start=getbot"),
+    });
     return;
   }
   if (text === t(lang, "btnMyAds")) {
@@ -2179,8 +2167,10 @@ async function payoutTask(tgUserId: string, adId: string, currentBotId: string, 
   const newRemaining = round2(Number(ad.remaining) - Number(ad.cpc));
   const adExpired = newRemaining < Number(ad.cpc);
   const workerCut = Number(ad.workerCut);
-  const creatorCut = Number(ad.creatorCut);
-  const ownerCut = Number(ad.ownerCut);
+  // A bot activated with a FREE code keeps 10% instead of 20% (src/lib/botSales.ts); the difference is the platform's.
+  const share = splitCreatorCut(Number(ad.creatorCut), await creatorPct(currentBotId).catch(() => 20));
+  const creatorCut = share.creator;
+  const ownerCut = Number(ad.ownerCut) + share.toPlatform;
 
   let referrerId: string | null = null;
   if (completingUser.referredBy && completingUser.referredBy !== tgUserId) {
