@@ -13,7 +13,13 @@ getkv() { # getkv FILE KEY
 BOT_TOKEN="$(getkv "$OR/media.env" BOT_TOKEN)"
 OWNER_ID="$(getkv "$OR/media.env" OWNER_ID)"
 SITE_URL="$(getkv "$OR/media.env" FEED_API_URL | sed -E 's#(https?://[^/]+).*#\1#')"
-SITE_URL="${SITE_URL:-https://ttbik.vercel.app}"
+SITE_URL="${SITE_URL:-https://ttbik-gate.jonsnowx1r.workers.dev}"
+# Vercel is paused (HTTP 402 since 2026-11-07), so health reports sent there were lost. The owner approved on 2026-11-10 ("أيوه، عدّل ملف common.sh وادمج")
+# sending them to the gate instead. If media.env still names the vercel.app host, use the gate from deploy/hosting/site.json (it serves the same /api routes).
+case "$SITE_URL" in
+  *.vercel.app) GATE_URL="$(python3 -c "import json;print(json.load(open('/opt/ttbik/deploy/hosting/site.json'))['gateUrl'].rstrip('/'))" 2>/dev/null)"
+                SITE_URL="${GATE_URL:-https://ttbik-gate.jonsnowx1r.workers.dev}";;
+esac
 DATABASE_URL="$(getkv "$OR/backup.env" DATABASE_URL)"
 AUTO_RESTORE="$(getkv "$OR/backup.env" AUTO_RESTORE)"
 # Owner enabled guarded auto-restore (2026-10-03). Delete agent/AUTO_RESTORE_ON to go back to backup.env control.
