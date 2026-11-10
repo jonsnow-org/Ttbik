@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Logo from "@/components/Logo";
-import { SIDEBAR_EDITORIAL_SECTION } from "@/config/navigation";
+import { SIDEBAR_EDITORIAL_SECTION, SIDEBAR_SERVICES_SECTION } from "@/config/navigation";
 
 /**
  * Mobile-only hamburger + slide-in drawer. The per-tool admin shortcuts
@@ -48,11 +48,15 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: SIDEBAR_EDITORIAL_SECTION.links.map((l) => ({ href: l.href, label: l.label })),
     },
     {
+      label: SIDEBAR_SERVICES_SECTION.label,
+      links: SIDEBAR_SERVICES_SECTION.links.map((l) => ({ href: l.href, label: l.label })),
+    },
+    {
       label: "قسم البوتات",
       links: [
         { href: "/bots", label: "🤖 منشئ البوتات" },
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
-        { href: "/#categories", label: "الأقسام والخدمات" },
+        { href: "/#services", label: "الأقسام والخدمات" },
       ],
     },
     {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import { FREE_TOOLS } from "@/lib/freeTools";
+import { SERVICE_LINKS } from "@/config/navigation";
 
 // Full literal class strings so Tailwind's scanner generates them.
 const TOOL_GRADIENTS = [
@@ -110,6 +111,19 @@ export default async function HomePage() {
       <div className="mx-auto max-w-6xl px-4 py-6">
         <AdSlot position="in-content" label="بين الترحيب والأقسام" />
       </div>
+
+      <section id="services" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
+        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🧭 خدمات وأرباح</h2>
+        <p className="mt-1 text-sm text-slate-600">حوالات، إعلانات القنوات، ختمات ومسابقات الجروبات، ومتاجر البائعين.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {SERVICE_LINKS.map((s) => (
+            <Link key={s.href} href={s.href} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md">
+              <h3 className="text-sm font-extrabold leading-snug text-slate-900 sm:text-base">{s.label}</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{s.desc}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
         <div>

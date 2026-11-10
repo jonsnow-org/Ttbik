@@ -19,6 +19,7 @@ import TelegramSwipeLock from "@/components/TelegramSwipeLock";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 import { SITE_URL } from "@/lib/siteUrl";
+import { SERVICE_LINKS } from "@/config/navigation";
 const SITE_TITLE = "شام AI — Sham AI | الذكاء الاصطناعي والتقنية والخدمات الرقمية المتكاملة";
 const SITE_DESCRIPTION =
   "مشروع شام للذكاء الاصطناعي والتقنية والخدمات الرقمية المتكاملة: خدمات وأدوات رقمية جاهزة (بوتات، أدوات ذكاء اصطناعي، أتمتة) بأسعار رمزية وتسليم فوري، بالإضافة لأدوات مجانية حقيقية تعمل مباشرة في متصفحك.";
@@ -222,7 +223,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </a>
             <a href="/advertise" className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950">أعلن Advertise</a>
             <nav className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-sm font-semibold text-slate-600 lg:flex">
-              <a href="/#categories" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+              <a href="/#services" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 الأقسام
               </a>
               <a
@@ -296,6 +297,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <a href="/how-it-works" className="hover:text-brand-700">كيف يعمل الموقع؟</a>
                 <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
                 <a href="/order/lookup" className="hover:text-brand-700">تتبع طلبي</a>
+                {SERVICE_LINKS.filter((l) => l.id !== "advertise").map((l) => (
+                  <a key={l.href} href={l.href} className="hover:text-brand-700">{l.label.replace(/^\S+\s/, "")}</a>
+                ))}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-6 text-xs text-slate-400 sm:flex-row">

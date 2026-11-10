@@ -75,7 +75,7 @@ export default function HowItWorksPage() {
       </div>
 
       <div className="mt-10 flex flex-wrap gap-3">
-        <Link href="/#categories" className="rounded-full bg-brand-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-800">
+        <Link href="/#services" className="rounded-full bg-brand-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-800">
           تصفّح الخدمات
         </Link>
         <Link href="/order/lookup" className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
