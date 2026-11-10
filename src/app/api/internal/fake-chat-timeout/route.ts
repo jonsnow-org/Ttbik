@@ -3,6 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/prisma";
 import { dispatchFakeChatCheck, expireFakeChatIfIdle, isValidFakeChatSecret, logFakeChatEvent } from "@/lib/matchBotLogic";
 import { supabaseAdmin } from "@/lib/supabase";
+import { isCronAuthorized } from "@/lib/cronAuth";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -39,9 +40,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, queued: true }, { status: 202 });
 }
 
-// Anonymous status: how many fake chats are open and how long each has been
-// idle. No user IDs are exposed.
-export async function GET() {
+// Operator-only status: how many fake chats are open, how long each has been idle, and the debug event log.
+// Needs `Authorization: Bearer $CRON_SECRET`; the event log is internal and must not be public.
+export async function GET(req: NextRequest) {
+  if (!isCronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const rows = await prisma.matchUser.findMany({
     where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
     select: { pendingAction: true },
