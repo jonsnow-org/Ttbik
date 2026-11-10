@@ -63,9 +63,15 @@ export async function sendDm(bot: TelegramBot, botId: string, appUrl: string, me
 export async function unlockDm(me: string, peer: string): Promise<{ ok: true; message: string } | { ok: false; reason: "insufficient"; needed: number; balance: number }> {
   const st = await dmState(me, peer);
   if (st.matched || st.unlocked || st.vip) return { ok: true, message: "المحادثة مفتوحة بالفعل" };
+  // Claim the unlock row FIRST, charge only the call that inserted it: two parallel taps used to both pass the
+  // check above and pay twice for one chat. A failed charge removes the claim again.
+  const claimed = await prisma.$executeRaw`INSERT INTO match_dm_unlock (user_id, peer_id) VALUES (${me}, ${peer}) ON CONFLICT DO NOTHING`;
+  if (claimed !== 1) return { ok: true, message: "المحادثة مفتوحة بالفعل" };
   const charge = await chargeMatchUser(me, PRICE_DM_UNLOCK, "DM_UNLOCK");
-  if (!charge.ok) return { ok: false, reason: "insufficient", needed: PRICE_DM_UNLOCK, balance: charge.balance };
-  await prisma.$executeRaw`INSERT INTO match_dm_unlock (user_id, peer_id) VALUES (${me}, ${peer}) ON CONFLICT DO NOTHING`;
+  if (!charge.ok) {
+    await prisma.$executeRaw`DELETE FROM match_dm_unlock WHERE user_id = ${me} AND peer_id = ${peer}`;
+    return { ok: false, reason: "insufficient", needed: PRICE_DM_UNLOCK, balance: charge.balance };
+  }
   return { ok: true, message: `🔓 تم فتح المحادثة (-$${PRICE_DM_UNLOCK})` };
 }
 

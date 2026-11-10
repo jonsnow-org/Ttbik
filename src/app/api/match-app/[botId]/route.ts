@@ -8,22 +8,25 @@ import { availableProfiles, botUsername, sendChatRequest } from "@/lib/match/hyb
 import { COMPLIMENTS, COMPLIMENTS_PER_DAY, SUPERLIKE_NOTE_MAX, complimentText, countryFlag, onlineLabel, sanitizeAnonFilter } from "@/lib/match/premium";
 import { addComplimentOnce, getDaily, setAnonFilterValue, takeDaily } from "@/lib/match/appStore";
 import {
-  PRICE_VERIFIED_BADGE, UPGRADE_CATALOGUE, depositLink, chargeSuperLike, entitlementSummary, hasAdvancedFilters, isVipActive,
+  PRICE_VERIFIED_BADGE, UPGRADE_CATALOGUE, chargeSuperLike, entitlementSummary, hasAdvancedFilters, isVipActive,
   purchaseBoost, purchaseVip, purchaseAnonFilters, anonFiltersStatus, toggleIncognito, unlockAdvancedFilters, unlockExtraPhotos, unlockProfileVisitors, type Purchase,
 } from "@/lib/match/entitlements";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
+import { nextProfileStatus } from "@/lib/match/guardRules";
+import { buyMatchmakerCore, matchmakerStatus, submitMatchmakerNote } from "@/lib/match/trust";
+import { CARD_INLINE_QUERY, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER, cardLink, cardShareText } from "@/lib/match/trustRules";
 import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
 import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
 import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { trackFunnel } from "@/lib/match/growth";
-import { atharClientConfig, atharDateLink, atharDay, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
-import { chargeMatchUser } from "@/lib/match/entitlements";
+import { atharClientConfig, atharDateLink, atharDay, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
+import { chargeMatchUser, PURCHASE_BUSY_TEXT } from "@/lib/match/entitlements";
 import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, vipTrialAvailable, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart, anonVoiceGet, anonVoiceSend } from "@/lib/match/anon";
 import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
-import { scrubContacts } from "@/lib/match/inline";
+import { publicCardText, scrubContacts } from "@/lib/match/inline";
 import { cardGenderStatus, setCardGender } from "@/lib/match/entitlements";
 import { PRICE_CARD_GENDER } from "@/lib/match/entitlementRules";
 import { dmState, dmThread, dmThreads, dmUnreadCount, notificationFeed, pushNotification, sendDm, unlockDm } from "@/lib/match/social";
@@ -48,9 +51,12 @@ const err = (message: string, status = 400) => NextResponse.json({ ok: false, er
 function insufficientMsg(needed: number, balance: number): string {
   return `رصيدك $${balance.toFixed(2)} لا يكفي (المطلوب $${needed.toFixed(2)}). اشحن رصيدك من الأسفل.`;
 }
+/** Target actions that need a live (APPROVED) profile. Report/block/existing threads stay possible. */
+const LIVE_TARGET_ACTIONS = new Set(["photo", "seen", "swipe", "request", "photo_request", "compliment", "dm_unlock", "dm_send", "gift_send"]);
+
 function purchaseError(r: Exclude<Purchase, { ok: true }>): string {
   if (r.reason === "insufficient") return `رصيدك $${r.balance.toFixed(2)} لا يكفي (المطلوب $${r.needed.toFixed(2)}). اشحن رصيدك من الأسفل.`;
-  return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً.", trial_used: "✨ التجربة متاحة مرة واحدة لكل حساب — العضوية الذهبية الكاملة متاحة دائماً." } as const)[r.reason as "no_user"];
+  return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً.", busy: PURCHASE_BUSY_TEXT, trial_used: "✨ التجربة متاحة مرة واحدة لكل حساب — العضوية الذهبية الكاملة متاحة دائماً." } as const)[r.reason as "no_user"];
 }
 
 
@@ -139,7 +145,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         buyNowKeys: BUY_NOW_KEYS,
         // the ✨ 3-day trial is listed only while this account can still take it
         catalogue: (await vipTrialAvailable(tg.id).catch(() => false)) ? UPGRADE_CATALOGUE : UPGRADE_CATALOGUE.filter((c) => c.key !== "vipTrial"),
-        deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
+        deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), ton: isNativeTonConfigured() }, // Stars + TON only: the app links to no website page
         complimentsLeft: daily ? Math.max(0, COMPLIMENTS_PER_DAY - daily.compliments) : COMPLIMENTS_PER_DAY,
         // Bot's own referral reward: one golden day per invited friend whose profile goes live.
         referral: { link: username ? `https://t.me/${username}?start=ref_${tg.id}` : null, rewarded: referralsRewarded, ...(await inviteStats(tg.id).catch(() => null)) },
@@ -295,7 +301,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const v = validateProfileInput(body.profile);
       if (!v.ok) return err(v.error);
       const existing = user.profile;
-      const status = existing?.status === "REJECTED" ? "PENDING" : "APPROVED"; // same rule as the bot wizard
+      const status = nextProfileStatus(existing?.status); // same rule as the bot wizard
       const sensitiveChanged = !existing || existing.name !== v.value.name || (existing.attributes ?? null) !== v.value.attributes;
       const saved = await prisma.matchProfile.upsert({ where: { userId: tg.id }, update: { ...v.value, status }, create: { userId: tg.id, ...v.value, status } });
       if (status === "APPROVED" && !existing) await grantReferralReward(bot, tg.id).catch(() => null);
@@ -439,11 +445,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const advanced = hasAdvancedFilters(user);
       const strict = action === "discover" && !!body.strict && advanced && !!user.preference; // «🎯 بحث دقيق» — same gate as the bot
       let ids: string[];
+      let genderFiltered = false;
       const matchedAt = new Map<string, Date>(); // mutual date = the later of the two likes
       if (action === "discover") {
         // Cards are MIXED by default; a specific gender only with the paid 🚻 filter (server-checked).
         const cg = await cardGenderStatus(tg.id).catch(() => null);
         const genderMode = cg?.owned && cg.gender ? cg.gender : "all";
+        genderFiltered = genderMode !== "all";
         ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict, genderMode); // the bot's own ranking engine
       } else {
         const [mine, theirs] = await Promise.all([
@@ -465,7 +473,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           return { ...c, since: at ? at.toISOString().slice(0, 10) : null, metDays: days, metLink: athar && at && days >= 30 ? atharDateLink(ymdOf(at)) : null };
         });
       }
-      return NextResponse.json({ ok: true, me: myPub, items, strict, advanced });
+      // Empty deck: say why, so the app can offer the right way out (turn off 🎯, change the 🚻 filter, wait).
+      const hint = action !== "discover" || items.length ? null : strict ? "strict" : genderFiltered ? "gender" : ids.length ? "seen" : "empty";
+      return NextResponse.json({ ok: true, me: myPub, items, strict, advanced, hint });
     }
 
     if (action === "quiz_get") {
@@ -478,6 +488,36 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       return NextResponse.json({ ok: true, message: "🧠 حُفظت أجوبتك. ستظهر نسبة تطابق القيم مع من أجاب مثلك." });
     }
 
+    // ---- 💍 الخاطبة الشخصية + 🪪 بطاقتي: the bot's own functions, same price/rules (src/lib/match/trust.ts) ----
+    if (action === "mm_status") {
+      const open = await matchmakerStatus(tg.id).catch(() => null);
+      return NextResponse.json({ ok: true, price: PRICE_MATCHMAKER, slaHours: MATCHMAKER_SLA_HOURS, noteMax: MATCHMAKER_NOTE_MAX, open, canBuy: user.profile?.status === "APPROVED" });
+    }
+    if (action === "mm_buy") {
+      if (!(await pgRateLimit(`buy:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
+      const r = await buyMatchmakerCore(tg.id, botId);
+      if (r.status === "busy") return err(PURCHASE_BUSY_TEXT);
+      if (r.status === "no_profile") return err("⚠️ الخاطبة تحتاج ملفاً معتمداً حتى تعرف من تقترح له. أنشئ ملفك أولاً.");
+      if (r.status === "open") return NextResponse.json({ ok: true, open: { reqId: r.reqId, status: r.awaitingNote ? "AWAITING_NOTE" : "OPEN" } });
+      if (r.status === "created") { void trackFunnel(tg.id, "purchase_success", "matchmaker"); return NextResponse.json({ ok: true, open: { reqId: r.reqId, status: "AWAITING_NOTE" }, message: `✅ تم الدفع (-$${PRICE_MATCHMAKER}). اكتب الآن ما تبحث عنه.` }); }
+      // Shortfall: the bot's own MATCH_MM Stars invoice; the bot's successful_payment handler opens the request.
+      const link = await starsInvoiceLink(bot, "💍 خاطبة شخصية", `إنسان من الفريق يقترح لك حتى 3 ملفات مناسبة خلال ${MATCHMAKER_SLA_HOURS} ساعة. يُعاد المبلغ إن لم نجد ملفاً مناسباً.`, starsPayload(MATCHMAKER_STARS_KIND, tg.id), r.stars);
+      return link ? NextResponse.json({ ok: true, link, stars: r.stars }) : err("تعذّر إنشاء الفاتورة");
+    }
+    if (action === "mm_note") {
+      const open = await matchmakerStatus(tg.id);
+      if (!open || open.status !== "AWAITING_NOTE") return err("لا يوجد طلب خاطبة بانتظار وصفك");
+      const r = await submitMatchmakerNote(bot, tg.id, open.reqId, String(body.note || ""));
+      if (r.status === "invalid") return err(r.message);
+      return NextResponse.json({ ok: true, open: { reqId: open.reqId, status: "OPEN" }, message: `✅ وصل طلبك (#${open.reqId}). ستصلك اقتراحات الخاطبة في محادثة البوت خلال ${MATCHMAKER_SLA_HOURS} ساعة.` });
+    }
+    if (action === "own_card") {
+      if (user.profile?.status !== "APPROVED") return err("🪪 بطاقتك تظهر بعد إنشاء ملفك واعتماده.");
+      const username = await botUsername(bot, botId);
+      void trackFunnel(tg.id, "card_share", undefined);
+      return NextResponse.json({ ok: true, text: cardShareText(publicCardText(toPublicProfile(user.profile))), link: username ? cardLink(username, user.profile.id) : null, inlineQuery: CARD_INLINE_QUERY });
+    }
+
     // ---- actions on a target profile (by public profile ref only) ----
     const ref = String(body.target || "").toLowerCase();
     if (!/^[0-9a-f-]{36}$/.test(ref)) return err("هدف غير صالح");
@@ -485,6 +525,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     if (!targetProfile || targetProfile.user.botId !== botId || targetProfile.user.isBanned) return err("غير موجود", 404);
     const target = targetProfile.userId;
     if (target === tg.id) return err("هذا ملفك أنت");
+    // Moderation gate: only live (APPROVED) profiles can be seen or contacted from the app. A pending or
+    // rejected profile's photo was still served and it could still get likes, requests and compliments.
+    if (LIVE_TARGET_ACTIONS.has(action) && targetProfile.status !== "APPROVED") return err("هذا الملف غير متاح", 404);
     const blocked = await prisma.matchBlock.findFirst({ where: { OR: [{ blockerId: tg.id, blockedId: target }, { blockerId: target, blockedId: tg.id }] } });
 
     if (action === "photo") {
@@ -547,9 +590,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (!ab || !ba) return err("المشاركة متاحة للإعجاب المتبادل فقط");
       if (!(await pgRateLimit(`share:${tg.id}`, 10, 3600))) return err("تمهّل قليلاً");
       const at = ab.created_at > ba.created_at ? ab.created_at : ba.created_at;
-      const token = await createShare(botId, at);
-      const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
-      return NextResponse.json({ ok: true, url: `${base}/match-share/${token}` });
+      // Standalone app: the share points to the bot itself (no website page). Only the match date travels — no ids,
+      // names, photos or countries.
+      const username = await botUsername(bot, botId);
+      if (!username) return err("تعذّرت المشاركة الآن");
+      return NextResponse.json({ ok: true, url: `https://t.me/${username}`, text: `💞 تطابق جديد بتاريخ ${at.toISOString().slice(0, 10)} — تعارف بغرض الزواج 💍` });
     }
     if (action === "seen") {
       // The bot records a visit each time it shows a card (sendSearchCard); same here.
@@ -567,7 +612,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       }
       if (kind !== "like" && kind !== "super") return err("نوع غير معروف");
       if (!rateLimit(`like:${tg.id}`, 60, 3600_000)) return err("أبطئ قليلاً");
-      const existed = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: tg.id, toUserId: target } } });
+      let existed = !!(await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: tg.id, toUserId: target } } }));
       if (kind === "super") {
         // ⭐ = the bot's paid Super Like ($1 from balance) with a short note, same checks.
         const note = String(body.note || "").trim().slice(0, SUPERLIKE_NOTE_MAX);
@@ -578,7 +623,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         if (!r.ok) return err(purchaseError(r));
         await notifyMutualLike(bot, tg.id, target).catch(() => null); // bot does the same after a super like
       } else {
-        await prisma.matchLike.upsert({ where: { fromUserId_toUserId: { fromUserId: tg.id, toUserId: target } }, update: {}, create: { fromUserId: tg.id, toUserId: target } });
+        // create (not upsert): only the request that really inserted the like may announce the match, so two
+        // parallel taps cannot both send «💞 إعجاب متبادل» to both people.
+        if (!existed) {
+          existed = !(await prisma.matchLike.create({ data: { fromUserId: tg.id, toUserId: target } }).then(() => true).catch((e: any) => {
+            if (e?.code === "P2002") return false;
+            throw e;
+          }));
+        }
       }
       const back = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: target, toUserId: tg.id } } });
       if (back && !existed && kind === "like") await notifyMutualLike(bot, tg.id, target).catch(() => null); // bot alerts both (existing behaviour)
@@ -611,7 +663,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (!(await pgRateLimit(`preq:${tg.id}`, 10, 3600))) return err("حد الطلبات");
       const existing = await prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: target, viewerId: tg.id } } });
       if (existing) return NextResponse.json({ ok: true, message: existing.status === "PENDING" ? "طلبك قيد الانتظار" : existing.status === "GRANTED" ? "مسموح لك" : "رفض صاحب الملف" });
-      await prisma.matchPhotoPermission.create({ data: { ownerId: target, viewerId: tg.id } });
+      const createdReq = await prisma.matchPhotoPermission.create({ data: { ownerId: target, viewerId: tg.id } }).then(() => true).catch((e: any) => { if (e?.code === "P2002") return false; throw e; });
+      if (!createdReq) return NextResponse.json({ ok: true, message: "طلبك قيد الانتظار" }); // a parallel tap already sent it
       await bot.api.sendMessage(Number(target), `🔒 ملف #${myPub.shortId} يطلب رؤية صورتك.`, {
         reply_markup: { inline_keyboard: [[{ text: "✅ سماح", callback_data: `mphotoyes|${tg.id}` }, { text: "❌ رفض", callback_data: `mphotono|${tg.id}` }]] },
       }).catch(() => null);

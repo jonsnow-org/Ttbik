@@ -129,6 +129,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
           return NextResponse.json({ status: "ok" });
         }
+        if (botRow.template === "MARRIAGE_BOT") {
+          // 💍 Only this bot's own MATCH_* invoices, paid by the user they were made for (src/lib/match/guardRules.ts):
+          // a forwarded/shared invoice paid by someone else used to be approved and then credited to nobody.
+          const { matchPreCheckout } = await import("@/lib/match/guardRules");
+          const d = matchPreCheckout(String(body.pre_checkout_query.invoice_payload || ""), String(body.pre_checkout_query.from?.id ?? ""));
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }

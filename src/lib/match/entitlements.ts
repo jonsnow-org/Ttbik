@@ -13,9 +13,10 @@ import type { MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ensureMatchAppTables, extendAnonPaidUntilAtomic, getAnonFilterRow } from "@/lib/match/appStore";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
+import { withShortLock, BUSY } from "@/lib/match/shortLock";
 
 export * from "@/lib/match/entitlementRules";
-import { PRICE_VIP_TRIAL, VIP_TRIAL_DAYS, REFERRAL_VIP_HOURS, vipTrialEligible, BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey, PRICE_CARD_GENDER, CARD_GENDER_DAYS, hasCardGenderFilter } from "@/lib/match/entitlementRules";
+import { PRICE_VERIFIED_BADGE, PRICE_VIP_TRIAL, VIP_TRIAL_DAYS, REFERRAL_VIP_HOURS, vipTrialEligible, BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey, PRICE_CARD_GENDER, CARD_GENDER_DAYS, hasCardGenderFilter } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
@@ -110,26 +111,42 @@ export async function recordPass(userId: string, targetId: string): Promise<void
 // ---- purchase steps (shared by bot buttons and Mini App) -----------------------
 export type Purchase<T = object> =
   | ({ ok: true } & T)
-  | { ok: false; reason: "no_profile" | "no_pref" | "vip_included" | "not_vip" | "no_user" }
+  | { ok: false; reason: "no_profile" | "no_pref" | "vip_included" | "not_vip" | "no_user" | "busy" }
   | { ok: false; reason: "insufficient"; needed: number; balance: number };
 
 const insufficient = (needed: number, balance: number) => ({ ok: false as const, reason: "insufficient" as const, needed, balance });
+const busy = { ok: false as const, reason: "busy" as const };
+/** Same purchase already running for this user (double tap / two instances) → BUSY instead of a second charge. */
+async function once<T>(key: string, fn: () => Promise<T>): Promise<T | typeof busy> {
+  const r = await withShortLock(key, fn);
+  return r === BUSY ? busy : r;
+}
+export const PURCHASE_BUSY_TEXT = "⏳ طلبك السابق قيد التنفيذ — لحظات وسيظهر.";
 
 /** 🚀 رفع ملفي — $2 / 24h; VIP already includes a continuous boost. */
 export async function purchaseBoost(userId: string): Promise<Purchase<{ boostedUntil: Date }>> {
+  return once(`boost:${userId}`, () => purchaseBoostOnce(userId));
+}
+async function purchaseBoostOnce(userId: string): Promise<Purchase<{ boostedUntil: Date }>> {
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
   if (!profile) return { ok: false, reason: "no_profile" };
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
   if (dbUser && isVipActive(dbUser)) return { ok: false, reason: "vip_included" };
   const charge = await chargeMatchUser(userId, PRICE_BOOST_24H, "BOOST");
   if (!charge.ok) return insufficient(PRICE_BOOST_24H, charge.balance);
-  const boostedUntil = new Date(Date.now() + BOOST_HOURS * 3600 * 1000);
+  // Buying again while still boosted stacks on the remaining time (it used to restart at now+24h,
+  // so the unused part of the earlier paid boost was lost).
+  const base = profile.boostedUntil && profile.boostedUntil > new Date() ? profile.boostedUntil : new Date();
+  const boostedUntil = new Date(base.getTime() + BOOST_HOURS * 3600 * 1000);
   await prisma.matchProfile.update({ where: { userId }, data: { boostedUntil } });
   return { ok: true, boostedUntil };
 }
 
 /** 👑 العضوية الذهبية — $8 / 30 days, stacks on an active membership. */
 export async function purchaseVip(userId: string): Promise<Purchase<{ vipUntil: Date }>> {
+  return once(`vip:${userId}`, () => purchaseVipOnce(userId));
+}
+async function purchaseVipOnce(userId: string): Promise<Purchase<{ vipUntil: Date }>> {
   const charge = await chargeMatchUser(userId, PRICE_VIP_30D, "VIP_MEMBERSHIP");
   if (!charge.ok) return insufficient(PRICE_VIP_30D, charge.balance);
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
@@ -149,6 +166,10 @@ export async function vipTrialAvailable(userId: string): Promise<boolean> {
   return vipTrialEligible({ vipActive: isVipActive(dbUser), priorTrialOrVip: await hasUsedVipTrial(userId) });
 }
 export async function purchaseVipTrial(userId: string): Promise<Purchase<{ vipUntil: Date }> | { ok: false; reason: "trial_used" }> {
+  // Two parallel taps both passed the «never had a trial» check and were both charged.
+  return once(`vip:${userId}`, () => purchaseVipTrialOnce(userId));
+}
+async function purchaseVipTrialOnce(userId: string): Promise<Purchase<{ vipUntil: Date }> | { ok: false; reason: "trial_used" }> {
   if (!(await vipTrialAvailable(userId))) return { ok: false, reason: "trial_used" };
   const charge = await chargeMatchUser(userId, PRICE_VIP_TRIAL, "VIP_TRIAL");
   if (!charge.ok) return insufficient(PRICE_VIP_TRIAL, charge.balance);
@@ -169,6 +190,9 @@ export async function grantReferralVip(userId: string): Promise<Date | null> {
 
 /** 👀 من زار ملفي — $2 one-time permanent unlock (free while VIP). */
 export async function unlockProfileVisitors(userId: string): Promise<Purchase<{ charged: boolean }>> {
+  return once(`visitors:${userId}`, () => unlockProfileVisitorsOnce(userId));
+}
+async function unlockProfileVisitorsOnce(userId: string): Promise<Purchase<{ charged: boolean }>> {
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
   if (!dbUser) return { ok: false, reason: "no_user" };
   if (hasProfileVisitors(dbUser)) return { ok: true, charged: false };
@@ -180,6 +204,9 @@ export async function unlockProfileVisitors(userId: string): Promise<Purchase<{ 
 
 /** 🎯 فلاتر متقدمة — $2 one-time (free while VIP); needs basic partner specs first. */
 export async function unlockAdvancedFilters(userId: string): Promise<Purchase<{ charged: boolean }>> {
+  return once(`filters:${userId}`, () => unlockAdvancedFiltersOnce(userId));
+}
+async function unlockAdvancedFiltersOnce(userId: string): Promise<Purchase<{ charged: boolean }>> {
   const pref = await prisma.partnerPreference.findUnique({ where: { userId } });
   if (!pref) return { ok: false, reason: "no_pref" };
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
@@ -193,6 +220,9 @@ export async function unlockAdvancedFilters(userId: string): Promise<Purchase<{ 
 
 /** 🖼 صور إضافية — $2 one-time (free while VIP); upload itself happens in the bot. */
 export async function unlockExtraPhotos(userId: string): Promise<Purchase<{ profile: MatchProfile; charged: boolean }>> {
+  return once(`photos:${userId}`, () => unlockExtraPhotosOnce(userId));
+}
+async function unlockExtraPhotosOnce(userId: string): Promise<Purchase<{ profile: MatchProfile; charged: boolean }>> {
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
   if (!profile) return { ok: false, reason: "no_profile" };
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
@@ -231,6 +261,9 @@ export async function chargeSuperLike(userId: string, targetUserId: string, note
 
 /** 🎛 فلاتر الدردشة العشوائية — $2 / 30 يوماً (تتراكم)، مشمولة في الذهبية بلا خصم. */
 export async function purchaseAnonFilters(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
+  return once(`anonf:${userId}`, () => purchaseAnonFiltersOnce(userId));
+}
+async function purchaseAnonFiltersOnce(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
   if (!dbUser) return { ok: false, reason: "no_user" };
   if (isVipActive(dbUser)) return { ok: true, charged: false, until: dbUser.vipUntil, viaVip: true };
@@ -264,6 +297,9 @@ export async function setCardGender(userId: string, gender: "MALE" | "FEMALE" | 
   return true;
 }
 export async function purchaseCardGender(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
+  return once(`cardg:${userId}`, () => purchaseCardGenderOnce(userId));
+}
+async function purchaseCardGenderOnce(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
   if (!dbUser) return { ok: false, reason: "no_user" };
   if (isVipActive(dbUser)) return { ok: true, charged: false, until: dbUser.vipUntil, viaVip: true };
@@ -275,4 +311,27 @@ export async function purchaseCardGender(userId: string): Promise<Purchase<{ cha
     ON CONFLICT (user_id) DO UPDATE SET paid_until = GREATEST(COALESCE(match_card_filter.paid_until, now()), now()) + make_interval(days => ${CARD_GENDER_DAYS}::int)
     RETURNING paid_until`;
   return { ok: true, charged: true, until: r[0].paid_until, viaVip: false };
+}
+
+/**
+ * ☑️ Verification photo: claims the review slot FIRST (NONE/REJECTED → PENDING, compare-and-set),
+ * then charges. Two photos sent together (an album, a double send) used to charge twice; now the
+ * second finds the slot taken and is not charged. A failed charge puts the old status back.
+ */
+export async function submitVerificationPhoto(
+  userId: string,
+  fileId: string,
+): Promise<{ ok: true } | { ok: false; reason: "no_profile" | "already" } | { ok: false; reason: "insufficient"; needed: number; balance: number }> {
+  const profile = await prisma.matchProfile.findUnique({ where: { userId }, select: { verificationStatus: true } });
+  if (!profile) return { ok: false, reason: "no_profile" };
+  const prev = profile.verificationStatus;
+  if (prev === "PENDING" || prev === "VERIFIED") return { ok: false, reason: "already" };
+  const claim = await prisma.matchProfile.updateMany({ where: { userId, verificationStatus: prev }, data: { verificationStatus: "PENDING", verificationPhotoFileId: fileId } });
+  if (claim.count !== 1) return { ok: false, reason: "already" };
+  const charge = await chargeMatchUser(userId, PRICE_VERIFIED_BADGE, "VERIFIED_BADGE");
+  if (!charge.ok) {
+    await prisma.matchProfile.updateMany({ where: { userId, verificationStatus: "PENDING" }, data: { verificationStatus: prev, verificationPhotoFileId: null } });
+    return insufficient(PRICE_VERIFIED_BADGE, charge.balance);
+  }
+  return { ok: true };
 }
