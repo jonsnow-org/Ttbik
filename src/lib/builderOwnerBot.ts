@@ -120,6 +120,19 @@ export async function ensureOwnerBotFromEnv(gateBase: string): Promise<EnsureRes
     if (info?.result?.url !== want) await tg("setWebhook", { url: want, secret_token: row.webhookSecret }).catch(() => null);
   }
   if (!String(process.env.BUILDER_OWNER_BOT_ID || "").trim() && (await ownerBotId().catch(() => "")) !== row.id) await setOwnerBotId(row.id);
+  await setBotAppMenu(token, base, row.id).catch(() => false); // its Mini App: the platform's services
   const info = await tg("getWebhookInfo").catch(() => null);
   return { ok: info?.result?.url === `${base}/api/telegram/${row.id}`, note: "owner bot bound", id: row.id, username, webhook: String(info?.result?.url || "") };
+}
+
+/** The builder bots' Mini App (the platform's services), opened from the chat's menu button. Pure. */
+export function botAppUrl(gateBase: string, botId: string): string {
+  return `${gateBase.replace(/\/$/, "")}/bot-app/${encodeURIComponent(botId)}`;
+}
+/** Sets the bot's menu button to its Mini App. Done for the owner bot and for every bot deployed from the builder from now on;
+ *  existing supervisor bots and other platform bots are left exactly as they are. */
+export async function setBotAppMenu(token: string, gateBase: string, botId: string): Promise<boolean> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: botAppUrl(gateBase, botId) } } }), signal: AbortSignal.timeout(8000) }).catch(() => null);
+  const data = await res?.json().catch(() => null);
+  return !!data?.ok;
 }

@@ -2,7 +2,8 @@ import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./yo
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
 import { BOT_SALE_CALLBACK, handleBotSaleCallback, isGetbotRequest, sendPlans, type Tg } from "@/lib/botSalesChat";
-import { isOwnerBot, ownerBotGetbotLink, parseOwnerBotCommand, setOwnerBotId } from "@/lib/builderOwnerBot";
+import { isOwnerBot, ownerBotGetbotLink, parseOwnerBotCommand, setBotAppMenu, setOwnerBotId } from "@/lib/builderOwnerBot";
+import { gateUrl } from "@/lib/hostingOps";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest, remitAppUrl } from "@/lib/remit/remit";
 import { SITE_URL } from "@/lib/siteUrl";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
@@ -731,6 +732,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   const ownerBotCmd = parseOwnerBotCommand(text);
   if (ownerBotCmd && tgUserId === SUPER_ADMIN_ID) {
     await setOwnerBotId(ownerBotCmd.off ? null : botRow.id).catch(() => null);
+    if (!ownerBotCmd.off) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
     await bot.api.sendMessage(chatId, ownerBotCmd.off ? "✅ أُلغي تعيين بوت المنصة." : "✅ صار هذا البوت بوت المنصة: زر «احصل على بوت مشابه» في كل بوتات المنشئ يفتح هنا، والبيع والأكواد تعمل هنا.").catch(() => null);
     return;
   }
