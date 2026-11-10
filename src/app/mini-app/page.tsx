@@ -1,5 +1,5 @@
 "use client";
-import { SERVICE_LINKS } from "@/config/navigation";
+import { SERVICE_LINKS, chainsBotLink } from "@/config/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
@@ -1325,9 +1325,15 @@ export default function MiniAppPage() {
           <div className="mb-4 rounded-3xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4">
             <p className="text-sm font-black text-indigo-700">🧭 خدمات وأرباح</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              {SERVICE_LINKS.map((sv) => (
-                <a key={sv.href} href={`${sv.href}?src=tg`} className="rounded-2xl bg-white p-2.5 text-[11px] font-bold text-slate-700 shadow-sm">{sv.label}</a>
-              ))}
+              {SERVICE_LINKS.map((sv) => {
+                // Khatma and group contests live in the daily chains bot (@Slaselbot) and its own Mini App.
+                const tme = chainsBotLink(sv.id);
+                return tme ? (
+                  <a key={sv.href} href={tme} onClick={(e) => { const w = (window as any).Telegram?.WebApp; if (w?.openTelegramLink) { e.preventDefault(); w.openTelegramLink(tme); } }} className="rounded-2xl bg-white p-2.5 text-[11px] font-bold text-slate-700 shadow-sm">{sv.label}</a>
+                ) : (
+                  <a key={sv.href} href={`${sv.href}?src=tg`} className="rounded-2xl bg-white p-2.5 text-[11px] font-bold text-slate-700 shadow-sm">{sv.label}</a>
+                );
+              })}
             </div>
           </div>
         )}

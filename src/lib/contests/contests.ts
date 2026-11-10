@@ -163,7 +163,7 @@ export async function handleContestGroupUpdate(bot: TelegramBot, botRow: BotRow,
   return true;
 }
 
-export async function sendContestIntro(bot: TelegramBot, chatId: number) {
+export async function sendContestIntro(bot: TelegramBot, chatId: number, appUrl?: string) {
   const me = await bot.api.getMe().catch(() => null);
   const u = me?.username || "";
   await bot.api.sendMessage(chatId,
@@ -171,7 +171,10 @@ export async function sendContestIntro(bot: TelegramBot, chatId: number) {
     "أضف البوت لجروبك فتبدأ جولة من 5 أسئلة (دين، جغرافيا، تاريخ، علوم، لغة). كل إجابة صحيحة 10 نقاط، وأول إجابة صحيحة 15.\n" +
     "نقاط كل الجولات تدخل لوحة صدارة أسبوعية بين كل الجروبات، والجوائز يموّلها الرعاة فقط. اللعب مجاني دائماً.\n\n" +
     `في الجروب: /contest@${u} لجولة جديدة، و/top@${u} للصدارة.`,
-    { reply_markup: { inline_keyboard: [[{ text: "➕ أضف البوت لجروب", url: `https://t.me/${u}?startgroup=contest` }]] } });
+    { reply_markup: { inline_keyboard: [
+      ...(appUrl ? [[{ text: "📱 الصدارة وجوائزي في التطبيق", web_app: { url: appUrl } }]] : []),
+      [{ text: "➕ أضف البوت لجروب", url: `https://t.me/${u}?startgroup=contest` }],
+    ] } });
 }
 
 export async function contestStats() {
