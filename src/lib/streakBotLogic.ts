@@ -6,6 +6,8 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
+import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
+
 import { MENU_BUTTON as CONTEST_BUTTON } from "@/lib/contests/rules";
 import { contestStats, sendContestIntro } from "@/lib/contests/contests";
 import { claimPrizes, PRIZE_START } from "@/lib/contests/prizes";
@@ -79,7 +81,7 @@ function isBack(text: string): boolean {
 function mainMenu(): Keyboard {
   const kb = new Keyboard();
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
-  kb.text(CONTEST_BUTTON).row();
+  kb.text(CONTEST_BUTTON).text(SERVICES_BUTTON).row();
   for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
   kb.text("📊 كل سلاسلي").text("ℹ️ معلومات");
   return kb.resized();
@@ -94,7 +96,8 @@ function adminMenu(): Keyboard {
   return new Keyboard()
     .text("📊 الإحصائيات").text("🔎 بحث عن مستخدم").row()
     .text("📡 قناة الاشتراك الإجباري").text("📢 بث جماعي").row()
-    .text(MENU_BUTTON).text(MEMORIAL_BUTTON)
+    .text(MENU_BUTTON).text(MEMORIAL_BUTTON).row()
+    .text(SERVICES_BUTTON)
     .resized();
 }
 
@@ -165,7 +168,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
   // The owner can try the khatma flows like any user.
-  if (text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  if (isServicesRequest(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -332,6 +335,10 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
+  if (isServicesRequest(text)) {
+    await sendServices(bot, chatId, ["khatma", "contests"]);
+    return;
+  }
   if (text === MENU_BUTTON || text === "/khatma") {
     await setPending(tgUserId, null);
     await sendKhatmaIntro(bot, chatId);

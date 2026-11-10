@@ -1,4 +1,5 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
+import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
@@ -186,7 +187,7 @@ function mainMenu(): Keyboard {
     .text(TENDER_MENU_LABEL).row()
     .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
-  return kb.text("ℹ️ معلومات").resized();
+  return kb.text("ℹ️ معلومات").text(SERVICES_BUTTON).resized();
 }
 function workMenu(): Keyboard {
   return new Keyboard().text("📢 نشر").text("🔍 بحث").row().text(backLabel()).resized();
@@ -1707,6 +1708,11 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (isBack(text)) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
+    return;
+  }
+  if (isServicesRequest(text)) {
+    await setPending(tgUserId, null);
+    await sendServices(bot, chatId, ["shop"]);
     return;
   }
   if (text === "/start" || text.startsWith("/start ")) {

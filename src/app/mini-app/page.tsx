@@ -1,4 +1,5 @@
 "use client";
+import { SERVICE_LINKS } from "@/config/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
@@ -1316,6 +1317,17 @@ export default function MiniAppPage() {
               <div className="mt-4 grid grid-cols-5 gap-1.5">{([[profileStats.posts, "منشورات", "text-sky-600 bg-sky-50"], [profileStats.views, "مشاهدة", "text-indigo-600 bg-indigo-50"], [profileStats.clones, "تحميل", "text-emerald-600 bg-emerald-50"], [profileStats.likes, "إعجاب", "text-rose-600 bg-rose-50"]] as [number, string, string][]).map(([v, l, c]) => (<div key={l} className={`rounded-2xl py-2.5 text-center ${c.split(" ")[1]}`}><p className={`text-base font-black ${c.split(" ")[0]}`}>{v}</p><p className="text-[9px] font-bold text-slate-500">{l}</p></div>))}<button type="button" onClick={() => profileTargetId && void openPeople("followers", profileTargetId)} className="rounded-2xl bg-violet-50 py-2.5 text-center ring-1 ring-violet-100 active:scale-95"><p className="text-base font-black text-violet-600">{profileStats.followers}</p><p className="text-[9px] font-bold text-violet-500">متابِع ›</p></button></div>
               {profileTargetId && <button type="button" onClick={() => void openPeople("following", profileTargetId)} className="mt-2 text-[11px] font-bold text-violet-600">يتابع {profileStats.following} شخصاً ›</button>}
               <div className="mt-3 flex gap-1.5">{(["all", "video", "audio", "photo"] as const).map((id) => (<button key={id} type="button" onClick={() => setProfileSection(id)} className={`flex-1 rounded-xl py-1.5 text-[11px] font-bold ${profileSection === id ? "bg-gradient-to-l from-teal-500 to-sky-500 text-white" : "bg-slate-50 text-slate-600"}`}>{{ all: "الكل", video: "فيديو", audio: "صوت", photo: "صورة" }[id]}</button>))}</div>
+            </div>
+          </div>
+        )}
+
+        {isOwnProfile && !overlayOpen && (
+          <div className="mb-4 rounded-3xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4">
+            <p className="text-sm font-black text-indigo-700">🧭 خدمات وأرباح</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {SERVICE_LINKS.map((sv) => (
+                <a key={sv.href} href={`${sv.href}?src=tg`} className="rounded-2xl bg-white p-2.5 text-[11px] font-bold text-slate-700 shadow-sm">{sv.label}</a>
+              ))}
             </div>
           </div>
         )}

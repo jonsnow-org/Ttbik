@@ -1,4 +1,5 @@
 import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
+import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import crypto from "crypto";
@@ -381,7 +382,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnAccounts")).row();
+    .text(t(lang, "btnAccounts")).text(SERVICES_BUTTON).row();
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -512,7 +513,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnAccounts")).row()
+    .text(t(lang, "btnAccounts")).text(SERVICES_BUTTON).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -779,6 +780,12 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     }
     const homeMenu = tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang);
     await bot.api.sendMessage(chatId, t(lang, "mainMenuTitle"), { reply_markup: homeMenu });
+    return;
+  }
+
+  if (isServicesRequest(text)) {
+    if (pending) await setPending(user.id, null);
+    await sendServices(bot, chatId, ["advertise", "channels", "channel-audit"]);
     return;
   }
 
