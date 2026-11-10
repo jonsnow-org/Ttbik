@@ -6,6 +6,7 @@
  */
 import { Bot as TelegramBot, InlineKeyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { chargeMatchUser } from "@/lib/match/entitlements";
 import { containsContactInfo } from "@/lib/match/contactGuard";
@@ -16,7 +17,7 @@ import { sendStarsInvoice, starsPayload } from "@/lib/starsPayment";
 import {
   CARD_INLINE_QUERY, MATCHMAKER_INTRO, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER,
   MATCHMAKER_CANDIDATES, cardLink, cardShareText, checkMatchmakerNote, parseCardStart, rankMatchmakerScored, shortfallStars, suggestCallback,
-  candidateWhyLine, emptyCandidatesText,
+  candidateWhyLine, emptyCandidatesText, NOT_SUITABLE_REASONS, isNotSuitableReason, notSuitableCallback, type NotSuitableReason, type Rejection,
 } from "@/lib/match/trustRules";
 import { withShortLock, BUSY } from "@/lib/match/shortLock";
 
@@ -36,6 +37,9 @@ export function ensureTrustTables(): Promise<void> {
       await prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS match_matchmaker_sent (req_id BIGINT NOT NULL, profile_id TEXT NOT NULL, sent_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (req_id, profile_id))`
       );
+      // 🙅 «غير مناسب» + reason (prisma/migration_30_marriage_bot_digest_feedback.sql), additive.
+      await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker_sent ADD COLUMN IF NOT EXISTS verdict TEXT`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker_sent ADD COLUMN IF NOT EXISTS verdict_at TIMESTAMPTZ`);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;
@@ -274,12 +278,13 @@ export async function findMatchmakerCandidates(reqId: string) {
     prisma.$queryRaw<{ profile_id: string }[]>`SELECT profile_id FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)}`,
   ]);
   const ids = pool.map((p) => p.userId);
-  const [countryOnly, likesOut, likesIn, passes, prefs] = await Promise.all([
+  const [countryOnly, likesOut, likesIn, passes, prefs, rejections] = await Promise.all([
     countryOnlyOwners(ids),
     rows(prisma.matchLike?.findMany({ where: { fromUserId: row.user_id, toUserId: { in: ids } }, select: { toUserId: true } })),
     rows(prisma.matchLike?.findMany({ where: { toUserId: row.user_id, fromUserId: { in: ids } }, select: { fromUserId: true } })),
     rows(prisma.$queryRaw<{ target_id: string }[]>`SELECT target_id FROM match_app_passes_log WHERE user_id = ${row.user_id}`),
     rows(prisma.partnerPreference.findMany?.({ where: { userId: { in: ids } }, select: { userId: true, country: true, ageMin: true, ageMax: true } })),
+    memberRejections(row.user_id),
   ]);
   const blocked = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
   const done = new Set(sent.map((x) => x.profile_id));
@@ -295,7 +300,7 @@ export async function findMatchmakerCandidates(reqId: string) {
     return true;
   });
   const ranked = rankMatchmakerScored(
-    { userId: row.user_id, gender: me.gender, age: me.age, country: me.country, pref, note: row.note },
+    { userId: row.user_id, gender: me.gender, age: me.age, country: me.country, pref, note: row.note, rejections },
     fresh.map((p) => ({
       ...p, lastActiveAt: p.user.lastActiveAt, verified: p.verificationStatus === "VERIFIED",
       pref: prefOf.get(p.userId) ?? null, likedRequester: likedMe.has(p.userId), passedByRequester: passed.has(p.userId),
@@ -347,7 +352,8 @@ export async function sendSuggestion(bot: TelegramBot, botRow: BotRow, reqId: st
   const n = await prisma.$executeRaw`INSERT INTO match_matchmaker_sent (req_id, profile_id) VALUES (${BigInt(reqId)}, ${profileId}) ON CONFLICT DO NOTHING`;
   if (n !== 1) return "dup";
   const sent = await bot.api.sendMessage(Number(row.user_id), `💍 اقتراح من الخاطبة (طلب #${reqId}):\n\n${publicCardText(toPublicProfile(p))}\n\nإن أعجبك، اطلب دردشة مجهولة أو أرسل إعجاباً من الأزرار.`, {
-    reply_markup: publicCardKeyboard(p.userId),
+    // the member's own «🙅 غير مناسب» (+ reason) feeds the next ranking for them.
+    reply_markup: { inline_keyboard: [...((publicCardKeyboard(p.userId) as any)?.inline_keyboard ?? []), [{ text: "🙅 غير مناسب", callback_data: notSuitableCallback(reqId, profileId) }]] },
   }).catch(() => null);
   if (!sent) {
     await prisma.$executeRaw`DELETE FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)} AND profile_id = ${profileId}`.catch(() => null);
@@ -355,6 +361,54 @@ export async function sendSuggestion(bot: TelegramBot, botRow: BotRow, reqId: st
   }
   await prisma.$executeRaw`UPDATE match_matchmaker SET replies = replies + 1 WHERE id = ${BigInt(reqId)}`;
   return "sent";
+}
+
+/** Profiles this member marked «غير مناسب» (any of their requests), with what they looked like. */
+async function memberRejections(userId: string): Promise<Rejection[]> {
+  await ensureTrustTables().catch(() => null);
+  const r = await rows(prisma.$queryRaw<{ profile_id: string; verdict: string }[]>`
+    SELECT s.profile_id, s.verdict FROM match_matchmaker_sent s JOIN match_matchmaker m ON m.id = s.req_id
+    WHERE m.user_id = ${userId} AND s.verdict IS NOT NULL ORDER BY s.verdict_at DESC LIMIT 30`);
+  const valid = r.filter((x) => isNotSuitableReason(x.verdict));
+  if (!valid.length) return [];
+  const profs = await rows(prisma.matchProfile.findMany({ where: { id: { in: valid.map((x) => x.profile_id) } }, select: { id: true, age: true, country: true, city: true, maritalStatus: true, job: true, education: true } }));
+  const byId = new Map(profs.map((p) => [p.id, p]));
+  return valid.flatMap((x) => { const p = byId.get(x.profile_id); return p ? [{ reason: x.verdict as NotSuitableReason, ...p }] : []; });
+}
+
+/**
+ * The member marks one of THEIR suggestions «غير مناسب» with a reason. Only the owner of the request can, once per
+ * suggestion; the admin is told so the next suggestions avoid it, and the next ranking penalises similar profiles.
+ */
+export async function markNotSuitable(bot: TelegramBot, userId: string, reqId: string, profileId: string, reason: NotSuitableReason): Promise<"ok" | "dup" | "invalid"> {
+  if (!/^\d+$/.test(reqId) || !/^[0-9a-fA-F-]{36}$/.test(profileId || "")) return "invalid";
+  const row = await requestRow(reqId);
+  if (!row || row.user_id !== userId) return "invalid";
+  const n = await prisma.$executeRaw`UPDATE match_matchmaker_sent SET verdict = ${reason}, verdict_at = now() WHERE req_id = ${BigInt(reqId)} AND profile_id = ${profileId.toLowerCase()} AND verdict IS NULL`;
+  if (n !== 1) {
+    const exists = await rows(prisma.$queryRaw<{ x: number }[]>`SELECT 1 AS x FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)} AND profile_id = ${profileId.toLowerCase()}`);
+    return exists.length ? "dup" : "invalid";
+  }
+  if (SUPER_ADMIN_ID && (row.status === "OPEN" || row.status === "AWAITING_NOTE")) {
+    const p = await prisma.matchProfile.findUnique({ where: { id: profileId.toLowerCase() } }).catch(() => null);
+    const short = p ? toPublicProfile(p).shortId : profileId.slice(-6);
+    await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🙅 طلب #${reqId}: الملف #${short} غير مناسب — السبب: ${NOT_SUITABLE_REASONS[reason]}.\nالاقتراحات القادمة تراعي ذلك تلقائياً.`, { reply_markup: adminKeyboard(reqId) }).catch(() => null);
+  }
+  return "ok";
+}
+
+/** 💍 Mini App progress view: the member's latest requests and the suggestions each one received. */
+export async function matchmakerProgress(userId: string): Promise<{ id: string; status: string; createdAt: string; closedAt: string | null; suggestions: { profileId: string; sentAt: string; verdict: string | null }[] }[]> {
+  await ensureTrustTables();
+  const reqs = await rows(prisma.$queryRaw<{ id: bigint; status: string; created_at: Date; closed_at: Date | null }[]>`
+    SELECT id, status, created_at, closed_at FROM match_matchmaker WHERE user_id = ${userId} ORDER BY id DESC LIMIT 5`);
+  if (!reqs.length) return [];
+  const sent = await rows(prisma.$queryRaw<{ req_id: bigint; profile_id: string; sent_at: Date; verdict: string | null }[]>`
+    SELECT req_id, profile_id, sent_at, verdict FROM match_matchmaker_sent WHERE req_id IN (${Prisma.join(reqs.map((r) => r.id))}) ORDER BY sent_at ASC`);
+  return reqs.map((r) => ({
+    id: String(r.id), status: r.status, createdAt: new Date(r.created_at).toISOString(), closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : null,
+    suggestions: sent.filter((x) => String(x.req_id) === String(r.id)).map((x) => ({ profileId: x.profile_id, sentAt: new Date(x.sent_at).toISOString(), verdict: x.verdict })),
+  }));
 }
 
 async function suggestedCount(reqId: string): Promise<number> {
@@ -399,6 +453,21 @@ export async function handleTrustCallback(bot: TelegramBot, botRow: BotRow, cq: 
   if (kind === "mm_buy") {
     await ack();
     await buyMatchmaker(bot, botRow, chatId, userId);
+    return true;
+  }
+  if (kind === "mm_ns" || kind === "mm_nsr") {
+    // 🙅 «غير مناسب» — the REQUESTER's own button under a suggestion (checked against the request owner).
+    const reason = data.split("|")[3];
+    if (kind === "mm_ns") {
+      if (!/^\d+$/.test(reqId || "") || !/^[0-9a-fA-F-]{36}$/.test(extra || "")) { await ack("غير متاح"); return true; }
+      await ack();
+      const kb = new InlineKeyboard();
+      (Object.keys(NOT_SUITABLE_REASONS) as NotSuitableReason[]).forEach((r, i) => { kb.text(NOT_SUITABLE_REASONS[r], notSuitableCallback(reqId, extra, r)); if (i % 2 === 1) kb.row(); });
+      await bot.api.sendMessage(chatId, "🙅 ما الذي لم يناسبك في هذا الملف؟ (يساعد الخاطبة على اقتراحات أدق لك)", { reply_markup: kb }).catch(() => null);
+      return true;
+    }
+    const r = isNotSuitableReason(reason) ? await markNotSuitable(bot, userId, reqId, extra, reason) : "invalid";
+    await ack(r === "ok" ? "✅ شكراً، ستراعي الخاطبة ذلك" : r === "dup" ? "سجّلنا رأيك من قبل" : "غير متاح");
     return true;
   }
   if (!SUPER_ADMIN_ID || userId !== SUPER_ADMIN_ID || !reqId || !/^\d+$/.test(reqId)) {

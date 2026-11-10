@@ -13,7 +13,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 type Tab = "anon" | "discover" | "chats" | "me" | "admin";
 type Card = {
   ref: string; shortId: string; name?: string | null; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
-  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null; values?: number | null; tgv?: boolean;
+  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null; values?: number | null; tgv?: boolean; twoWay?: boolean;
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
@@ -197,7 +197,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
             ? <DiscoverTab api={api} say={say} me={me} onInfo={setInfo} onMessage={setChatWith} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} onGo={(t) => setTab(t)} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
           {tab === "chats" && <ChatsTab api={api} say={say} athar={me?.athar} onOpenChat={setChatWith} onRead={() => api("dm_unread").then((r: any) => r?.ok && setDmUnread(r.n || 0))} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
-          {tab === "me" && (me?.registered === false ? <Empty icon="🛡" text="حساب الإدارة بلا ملف عضو" /> : <MeTab api={api} say={say} me={me} reload={reloadMe} />)}
+          {tab === "me" && (me?.registered === false ? <Empty icon="🛡" text="حساب الإدارة بلا ملف عضو" /> : <MeTab api={api} say={say} me={me} reload={reloadMe} onInfo={setInfo} />)}
           {tab === "admin" && me?.isAdmin && <AdminTab api={api} say={say} onChange={reloadMe} />}
         </motion.section>
       </>
@@ -979,6 +979,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
         <div className="flex flex-col items-end gap-1">
           {card.compat != null && <span className={`rounded-full px-3 py-1 text-xs font-bold ${GRAD}`}>💞 {card.compat}%</span>}
           {card.values != null && <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-bold">🧠 قيم {card.values}%</span>}
+          {card.twoWay && <span data-testid="two-way" className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold">🤝 توافق متبادل</span>}
         </div>
       </div>
 
@@ -1093,7 +1094,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
             </div>
             <div className="flex-1">
               <p className="font-bold">{c.flag} {c.name || `#${c.shortId}`} · {c.age}</p>
-              <p className="text-xs text-white/50">{c.country}{c.compat != null ? ` · 💞 ${c.compat}%` : ""} · {c.presence.label}</p>
+              <p className="text-xs text-white/50">{c.country}{c.compat != null ? ` · 💞 ${c.compat}%` : ""}{c.twoWay ? " · 🤝" : ""} · {c.presence.label}</p>
             </div>
           </div>
           <div className="mt-3 flex gap-2">
@@ -1133,7 +1134,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
 
 // ---------------------------------------------------------------------------------------------
 // 👤 Profile, criteria, privacy, and ⭐ upgrades (the bot's own paid system)
-function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: () => Promise<any> }) {
+function MeTab({ api, say, me, reload, onInfo }: { api: any; say: any; me: any; reload: () => Promise<any>; onInfo?: (c: Card) => void }) {
   const [section, setSection] = useState<"upgrades" | "profile" | "pref" | "privacy">(me?.profile ? "upgrades" : "profile");
   const [profile, setProfile] = useState<Record<string, any>>(blank(me?.profile, emptyProfile));
   const [pref, setPref] = useState<Record<string, any>>(blank(me?.preference, emptyPref));
@@ -1183,7 +1184,8 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
         ))}
       </div>
 
-      {section === "upgrades" && <UpgradeScreen api={api} say={say} me={me} reload={reload} />}
+      {p && me?.completeness && <CompletenessMeter c={me.completeness} onEdit={() => setSection("profile")} />}
+      {section === "upgrades" && <UpgradeScreen api={api} say={say} me={me} reload={reload} onInfo={onInfo} />}
 
       {section === "profile" && me?.athar && <AtharBirthday api={api} say={say} athar={me.athar} />}
       {section === "profile" && (
@@ -1244,6 +1246,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
             {ent.incognitoAvailable
               ? <Toggle on={!!ent.incognitoOn} label="🕶 وضع التخفي (ضمن الذهبية)" hint="تتصفح دون تسجيل زيارتك" onChange={async (v) => { const r = await api("upgrade", { key: "incognito", on: v }); say(r.message || r.error, r.ok ? "success" : "error"); reload(); }} />
               : <p className="py-3 text-xs text-white/40">🕶 وضع التخفي متاح ضمن 👑 العضوية الذهبية.</p>}
+            <Toggle on={!!me?.digest} label="🔔 أفضل 3 مطابقات يومياً" hint="رسالة واحدة كل مساء من البوت، ويمكنك إيقافها متى شئت" onChange={async (v) => { const r = await api("privacy", { digest: v }); say(r.ok ? (v ? "🔔 تم التفعيل" : "🔕 تم الإيقاف") : r.error); reload(); }} />
           </>}
           <p className="py-3 text-[11px] leading-5 text-white/40">لا نعرض اسمك أو حسابك أو رقمك لأي عضو. الصورة تظهر فقط لمن تسمح له. الحظر والإبلاغ متاحان في كل بطاقة ومحادثة.</p>
         </div>
@@ -1254,7 +1257,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
 
 // ⭐ Upgrade screen — mirrors the bot's «⭐ الترقيات والمزايا» keyboard and its purchase path
 // (balance in USD, topped up by the same Stars invoice / payment page / TON memo).
-function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; reload: () => Promise<any> }) {
+function UpgradeScreen({ api, say, me, reload, onInfo }: { api: any; say: any; me: any; reload: () => Promise<any>; onInfo?: (c: Card) => void }) {
   const ent = me?.ent || {};
   const [visitors, setVisitors] = useState<any[] | null>(null);
   const [ton, setTon] = useState<{ address: string; memo: string } | null>(null);
@@ -1371,7 +1374,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
         {ent.vip && <p className="px-2 text-[11px] text-white/40">«🎯 بحث دقيق» في تبويب المطابقات، و«🕶 وضع التخفي» في الخصوصية.</p>}
       </div>
 
-      <MatchmakerCard api={api} say={say} reload={reload} />
+      <MatchmakerCard api={api} say={say} reload={reload} onInfo={onInfo} />
       <OwnCardCard api={api} say={say} />
 
       <AnimatePresence>
@@ -1419,8 +1422,27 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
 }
 
 // 💍 الخاطبة الشخصية — the bot's «💍 خاطبة شخصية» (same $ price, same request, same Stars invoice MATCH_MM).
-function MatchmakerCard({ api, say, reload }: { api: any; say: any; reload: () => Promise<any> }) {
+// 📊 profile completeness meter + the most useful missing items (owner-approved 2026-11-11).
+function CompletenessMeter({ c, onEdit }: { c: { percent: number; tips: string[] }; onEdit: () => void }) {
+  const [more, setMore] = useState(false);
+  return (
+    <div data-testid="completeness" className={`mb-4 rounded-3xl p-4 ${GLASS}`}>
+      <div className="flex items-center justify-between text-sm"><span className="font-bold">📊 اكتمال ملفك</span><span className="font-extrabold">{c.percent}%</span></div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full ${GRAD}`} style={{ width: `${c.percent}%` }} /></div>
+      {c.tips.length ? <>
+        <ul className="mt-2 space-y-1 text-[11px] leading-5 text-white/60">{(more ? c.tips : c.tips.slice(0, 2)).map((t) => <li key={t}>{t}</li>)}</ul>
+        <div className="mt-2 flex gap-2 text-[11px]">
+          {c.tips.length > 2 && <button onClick={() => setMore(!more)} className="text-white/50">{more ? "أقل" : `+${c.tips.length - 2} نصائح`}</button>}
+          <button onClick={onEdit} className="text-[#f3cbbd]">✏️ أكمل ملفي ←</button>
+        </div>
+      </> : <p className="mt-2 text-[11px] text-emerald-300">ممتاز! ملفك مكتمل.</p>}
+    </div>
+  );
+}
+const MM_STATUS: Record<string, string> = { AWAITING_NOTE: "✍️ بانتظار وصفك", OPEN: "⏳ لدى الخاطبة", DONE: "✅ اكتمل", REFUNDED: "↩️ أُعيد المبلغ" };
+function MatchmakerCard({ api, say, reload, onInfo }: { api: any; say: any; reload: () => Promise<any>; onInfo?: (c: Card) => void }) {
   const [st, setSt] = useState<any>(null);
+  const [asking, setAsking] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => api("mm_status").then((r: any) => { if (r?.ok) setSt(r); }), [api]);
@@ -1468,6 +1490,50 @@ function MatchmakerCard({ api, say, reload }: { api: any; say: any; reload: () =
         </div>
       )}
       {open?.status === "OPEN" && <p className="mt-3 rounded-2xl bg-emerald-400/10 p-3 text-[12px] text-emerald-200">⏳ طلبك #{open.reqId} لدى الخاطبة. تصلك الاقتراحات في محادثة البوت خلال {st.slaHours} ساعة.</p>}
+      {!!st.requests?.length && (
+        <div data-testid="mm-progress" className="mt-3 space-y-2">
+          <p className="text-xs font-bold text-white/70">📋 متابعة طلباتي</p>
+          {st.requests.map((r: any) => (
+            <div key={r.id} className="rounded-2xl bg-white/5 p-3">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="font-bold">طلب #{r.id}</span>
+                <span className="text-white/60">{MM_STATUS[r.status] || r.status} · {r.suggestions.length}/3 اقتراحات</span>
+              </div>
+              {r.suggestions.map((x: any) => {
+                const c: Card = x.card;
+                const key = `${r.id}:${x.profileId}`;
+                return (
+                  <div key={key} className="mt-2 rounded-xl border border-white/10 p-2">
+                    <button onClick={() => onInfo?.(c)} className="block w-full text-right">
+                      <span className="block text-[13px] font-bold">{c.flag} {c.name || `#${c.shortId}`}، {c.age} {c.verified && "☑️"}</span>
+                      <span className="block text-[11px] text-white/50">{c.country}{c.city ? ` · ${c.city}` : ""}{c.compat != null ? ` · 💞 ${c.compat}%` : ""}{c.twoWay ? " · 🤝 توافق متبادل" : ""}</span>
+                    </button>
+                    {x.verdict
+                      ? <p className="mt-1 text-[11px] text-white/45">🙅 غير مناسب — {st.reasons?.[x.verdict] || x.verdict}</p>
+                      : asking === key
+                        ? <div className="mt-2 flex flex-wrap gap-1.5">
+                            {Object.entries(st.reasons || {}).map(([k, l]) => (
+                              <button key={k} disabled={busy} onClick={async () => {
+                                setBusy(true);
+                                const v = await api("mm_verdict", { reqId: r.id, profileId: x.profileId, reason: k });
+                                setBusy(false); setAsking(null);
+                                if (!v.ok) { say(v.error, "error"); return; }
+                                say(v.message, "success"); load();
+                              }} className="rounded-full border border-white/15 px-2.5 py-1 text-[11px]">{String(l)}</button>
+                            ))}
+                          </div>
+                        : <div className="mt-2 flex gap-1.5">
+                            <button onClick={() => onInfo?.(c)} className="flex-1 rounded-full bg-white/10 py-1.5 text-[11px]">👁 الملف والمراسلة</button>
+                            <button onClick={() => setAsking(key)} className="flex-1 rounded-full border border-white/15 py-1.5 text-[11px]">🙅 غير مناسب</button>
+                          </div>}
+                  </div>
+                );
+              })}
+              {!r.suggestions.length && r.status === "OPEN" && <p className="mt-1 text-[11px] text-white/45">لم تصل اقتراحات بعد — تصلك هنا وفي محادثة البوت.</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1809,6 +1875,7 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
           <div>
             <p className="text-xl font-extrabold">{card.name || `#${card.shortId}`} {card.verified && <span className="text-sky-300">☑️</span>}</p>
             <p className="text-xs text-white/55">{card.presence.online ? "● " : ""}{card.presence.label}{card.compat != null ? ` · 💞 ${card.compat}%` : ""}</p>
+            {card.twoWay && <p className="mt-1 text-xs font-bold text-emerald-300">🤝 توافق متبادل — كلاكما يطابق ما يبحث عنه الآخر</p>}
             {card.values != null && <p className="mt-1 text-xs text-violet-200">🧠 تطابق القيم {card.values}%{why ? ` · ${why}` : ""}</p>}
             {card.photoLocked && <button onClick={async () => { const r = await api("photo_request", { target: card.ref }); say(r.message || r.error); }} className="mt-2 rounded-full border border-[#e8b4a0]/50 px-3 py-1 text-[11px] text-[#f3cbbd]">🔒 اطلب رؤية الصورة</button>}
           </div>

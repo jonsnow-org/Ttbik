@@ -33,7 +33,9 @@ import {
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
 import { sendOwnCard, ownCardInlineResults, cardReferrer, parseCardStart, showMatchmaker, buyMatchmaker, consumeMatchmakerNote, sendMatchmakerReply, listMatchmakerRequests, handleTrustCallback } from "@/lib/match/trust";
-import { CARD_BUTTON, MATCHMAKER_BUTTON, MATCHMAKER_STARS_KIND, affinityFactor, isCardInlineQuery, reciprocalFit } from "@/lib/match/trustRules";
+import { completenessOf, digestOn, digestPromptText, digestToggleKeyboard, handleDigestCallback } from "@/lib/match/engage";
+import { DIGEST_BUTTON_ON, completenessLine } from "@/lib/match/engageRules";
+import { CARD_BUTTON, MATCHMAKER_BUTTON, MATCHMAKER_STARS_KIND, affinityFactor, isCardInlineQuery, reciprocalFit, twoWayFit, TWO_WAY_BADGE } from "@/lib/match/trustRules";
 import { nextProfileStatus } from "@/lib/match/guardRules";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
@@ -231,7 +233,7 @@ function upgradesMenu(discount = false): Keyboard {
   return kb.text(backLabel()).resized();
 }
 function infoMenu(): Keyboard {
-  const kb = new Keyboard().text("📩 مراسلة الأدمن").text("🔗 دعوة رابط البوت").row();
+  const kb = new Keyboard().text("📩 مراسلة الأدمن").text("🔗 دعوة رابط البوت").row().text(DIGEST_BUTTON_ON).row();
   if (novaAssistConfigured()) kb.text("✨ اسأل نوفا (ذكاء اصطناعي)").row();
   return kb.text(backLabel()).resized();
 }
@@ -884,12 +886,18 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   ]);
   if (!profile || !targetUser) return null;
 
-  const viewerOwn = viewerPref ? null : await prisma.matchProfile.findUnique({ where: { userId: viewerId } });
+  const [viewerOwn, targetPref] = await Promise.all([
+    Promise.resolve().then(() => prisma.matchProfile.findUnique({ where: { userId: viewerId } })).catch(() => null),
+    Promise.resolve().then(() => prisma.partnerPreference.findUnique({ where: { userId: targetUserId } })).catch(() => null),
+  ]);
   const pct = compatibilityPercent(profile, viewerPref ?? (viewerOwn ? defaultPref(viewerId, viewerOwn) : null), viewerUser ? hasAdvancedFilters(viewerUser) : false);
+  // 🤝 both sides meet each other's stated country/age wishes (owner-approved 2026-11-11).
+  const mutual = !!viewerOwn && twoWayFit(viewerOwn, viewerPref, profile, targetPref ?? null);
   const head = [
     `👤 ${profile.name}، ${profile.age}${profile.verificationStatus === "VERIFIED" ? " ☑️" : ""}`,
     `🌍 ${profile.country}${profile.city ? ` · ${clip(profile.city, 40)}` : ""}`,
     pct != null ? `💞 توافق ${pct}%` : null,
+    mutual ? TWO_WAY_BADGE : null,
     presenceLabel(targetUser.lastActiveAt),
   ];
   // Short card by default; the full text sits behind "📖 المزيد" so the card
@@ -2723,6 +2731,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await handleMatchInlineQuery(bot, botRow, update.inline_query);
     return;
   }
+  if (update.callback_query && (await handleDigestCallback(bot, botRow.id, update.callback_query))) return;
   if (update.callback_query && (await handleTrustCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query && (await handleHybridCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query) {
@@ -3027,7 +3036,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     const visibilityLabel = profile.isHidden ? "⏸ مخفي عن نتائج البحث" : "🟢 ظاهر في نتائج البحث";
     const toggleLabel = profile.isHidden ? "▶️ إظهار ملفي" : "⏸ إخفاء ملفي مؤقتاً";
     const onlyMine = (await countryOnlyOwners([tgUserId])).has(tgUserId);
-    const infoText = `👤 ملفك الشخصي\n\nالاسم: ${profile.name}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\nالحالة: ${statusLabel}\nالظهور: ${visibilityLabel}\nمن يرى ملفي: ${onlyMine ? `🌍 ${profile.country} فقط` : "🌐 الجميع"}\n\nلتعديل الملف أرسل «✏️ تعديل».`;
+    const infoText = `👤 ملفك الشخصي\n\nالاسم: ${profile.name}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\nالحالة: ${statusLabel}\nالظهور: ${visibilityLabel}\nمن يرى ملفي: ${onlyMine ? `🌍 ${profile.country} فقط` : "🌐 الجميع"}\n\n${(await completenessOf(tgUserId).then((c) => (c ? completenessLine(c) + "\n\n" : ""), () => ""))}لتعديل الملف أرسل «✏️ تعديل».`;
     const countryOnly = (await countryOnlyOwners([tgUserId])).has(tgUserId);
     const kb = new Keyboard()
       .text("✏️ تعديل").text(toggleLabel).row()
@@ -3172,6 +3181,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، تحصل على يوم ذهبي مجاني 👑. وأسهل دعوة: «🪪 بطاقتي للمشاركة».\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
     await bot.api.sendMessage(chatId, info, { reply_markup: infoMenu() });
+    return;
+  }
+  if (text === DIGEST_BUTTON_ON || text === "/digest") {
+    // 🔔 opt-in daily «3 best matches» (owner-approved 2026-11-11): the member switches it on/off themselves.
+    const on = await digestOn(tgUserId).catch(() => false);
+    await bot.api.sendMessage(chatId, digestPromptText(on), { reply_markup: digestToggleKeyboard(on) });
     return;
   }
   if (text === "📩 مراسلة الأدمن") {
