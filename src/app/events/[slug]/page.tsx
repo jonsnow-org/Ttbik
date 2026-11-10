@@ -8,6 +8,9 @@ import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 export const revalidate = 3600;
+// Every slug comes from a static list (generateStaticParams). Unknown slugs must answer a real 404: the section's
+// loading.tsx starts streaming first, so notFound() inside the page could only send «not found» with status 200.
+export const dynamicParams = false;
 
 function resolve(slug: string) {
   return getEvent(slug) || getExtraEvent(slug);

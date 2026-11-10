@@ -10,6 +10,9 @@ const SITE = SITE_URL;
 
 /** ISR — static editorial body; refresh periodically */
 export const revalidate = 3600;
+// Every slug comes from a static list (generateStaticParams). Unknown slugs must answer a real 404: the section's
+// loading.tsx starts streaming first, so notFound() inside the page could only send «not found» with status 200.
+export const dynamicParams = false;
 
 export function generateStaticParams() {
   return NEWS_ITEMS.map((n) => ({ slug: n.slug }));
