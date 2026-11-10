@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 
 // Payment details live in server-only env vars (no NEXT_PUBLIC_ prefix) so
 // they are never baked into the public JS bundle — they're only sent to a
@@ -35,8 +36,8 @@ export async function GET(req: NextRequest) {
       address: process.env.BANK_ADDRESS || "",
     },
     usdt: {
-      address: process.env.USDT_ADDRESS || "",
-      network: process.env.USDT_NETWORK || "TRC20",
+      address: usdtAddress(),
+      network: usdtNetwork(),
     },
   });
 }

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { siteAdStarsInvoice } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
+import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
       manual: true,
       method: "usdt",
       amount: ad.totalPrice,
-      usdt: process.env.USDT_ADDRESS || "",
-      network: process.env.USDT_NETWORK || "TRC20",
+      usdt: usdtAddress(),
+      network: usdtNetwork(),
       note: "حوّل المبلغ ثم أدخل كود الحجز في الخانة السفلية.",
     });
   }

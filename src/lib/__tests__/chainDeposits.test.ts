@@ -44,9 +44,11 @@ describe("findPayment", () => {
 describe("receiveAddress", () => {
   const keep = { ...process.env };
   afterEach(() => { process.env = { ...keep }; });
-  it("is closed until an address is configured, and rejects malformed ones", () => {
+  it("uses the owner's committed TRC20 wallet when no deposit address is set, and rejects malformed ones", () => {
     delete process.env.DEPOSIT_TRON_ADDRESS; delete process.env.USDT_ADDRESS; delete process.env.DEPOSIT_DOGE_ADDRESS;
-    expect(availableChains()).toEqual([]);
+    expect(availableChains().sort()).toEqual(["TRX", "USDT_TRC20"]);
+    expect(receiveAddress("USDT_TRC20")).toBe("TSVES7iRYHCrGbJ9UzJzxypDXQY65KTgsn");
+    expect(receiveAddress("DOGE")).toBeNull();
     process.env.DEPOSIT_TRON_ADDRESS = "not-valid";
     expect(receiveAddress("TRX")).toBeNull();
   });
