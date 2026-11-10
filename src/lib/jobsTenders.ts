@@ -30,7 +30,7 @@ const DURATIONS: Record<string, number> = { "⏱ 24 ساعة": 24, "⏱ 3 أيا
 
 const MAX_OPEN_TENDERS = 3;
 const MAX_NOTIFY = 40;
-const MAX_SHOWN_BIDS = 10;
+export const MAX_SHOWN_BIDS = 10;
 
 type Kind = "SERVICE" | "PRODUCT";
 type WizardStep = "category" | "categoryOther" | "details" | "budget" | "duration";
@@ -256,19 +256,34 @@ export async function handleTenderPending(ctx: Ctx, profile: JobsProfile, pendin
   });
 }
 
-async function publishTender(ctx: Ctx, profile: JobsProfile, d: TenderDraft) {
-  const { bot, chatId, userId } = ctx;
-  if (!d.category || !d.details || !d.hours) {
-    await setPending(userId, null);
-    await bot.api.sendMessage(chatId, "انتهت صلاحية المسودة، ابدأ من جديد.", { reply_markup: tenderMenu() });
-    return;
+export const TENDER_DURATIONS = DURATIONS;
+export const TENDER_MAX_OPEN = MAX_OPEN_TENDERS;
+export type { TenderDraft };
+
+/** The wizard's checks as one validated draft (used by the Mini App; the chat validates step by step with the same limits). */
+export function validateTenderDraft(raw: { kind?: unknown; category?: unknown; details?: unknown; budget?: unknown; hours?: unknown }, categories: string[]): { ok: true; data: TenderDraft } | { ok: false; error: string } {
+  const kind: Kind | null = raw.kind === "SERVICE" ? "SERVICE" : raw.kind === "PRODUCT" ? "PRODUCT" : null;
+  if (!kind) return { ok: false, error: "اختر خدمة أو منتجاً." };
+  const category = String(raw.category ?? "").trim();
+  if (category.length < 2 || category.length > 60) return { ok: false, error: "اكتب اسماً قصيراً (2–60 حرفاً)." };
+  void categories; // a SERVICE may be one of the listed trades or «أخرى» typed freely, exactly like the chat
+  const details = String(raw.details ?? "").trim();
+  if (details.length < 10 || details.length > 800) return { ok: false, error: "الوصف قصير جداً أو طويل جداً (10–800 حرف)." };
+  let budget: number | null = null;
+  if (raw.budget !== null && raw.budget !== undefined && raw.budget !== "") {
+    budget = parsePrice(String(raw.budget));
+    if (budget === null) return { ok: false, error: "أرسل رقماً للميزانية، أو اتركها فارغة." };
   }
+  const hours = Number(raw.hours);
+  if (!Object.values(DURATIONS).includes(hours)) return { ok: false, error: "اختر مدة استقبال العروض." };
+  return { ok: true, data: { kind, category, details, budget, hours } };
+}
+
+/** Creates the tender and notifies the matching providers (same matching and limits as the chat). */
+export async function publishTenderCore(bot: TelegramBot, userId: string, profile: JobsProfile, d: TenderDraft, appUrl?: string) {
+  if (!d.category || !d.details || !d.hours) return { ok: false as const, error: "انتهت صلاحية المسودة، ابدأ من جديد." };
   const open = await prisma.jobsTender.count({ where: { requesterId: userId, status: "OPEN", expiresAt: { gt: new Date() } } });
-  if (open >= MAX_OPEN_TENDERS) {
-    await setPending(userId, null);
-    await bot.api.sendMessage(chatId, `⚠️ لديك ${open} طلبات مفتوحة بالفعل.`, { reply_markup: tenderMenu() });
-    return;
-  }
+  if (open >= MAX_OPEN_TENDERS) return { ok: false as const, error: `⚠️ لديك ${open} طلبات مفتوحة بالفعل.` };
   const t = await prisma.jobsTender.create({
     data: {
       requesterId: userId,
@@ -281,22 +296,30 @@ async function publishTender(ctx: Ctx, profile: JobsProfile, d: TenderDraft) {
       expiresAt: new Date(Date.now() + d.hours * 3_600_000),
     },
   });
-  await setPending(userId, null);
-
   const recipients = await matchingProviders(userId, t);
   let sent = 0;
   for (const r of recipients) {
+    const kb = new InlineKeyboard().text("💸 قدّم عرضك", `jtn_bid|${t.id}`);
+    if (appUrl) kb.row().webApp("📱 قدّم عرضك من التطبيق", appUrl);
     const ok = await bot.api
-      .sendMessage(
-        Number(r.userId),
-        `🏷 طلب عروض جديد يناسبك\n\n${tenderCard(t)}⏳ يُغلق خلال ${hoursLeft(t.expiresAt)}\n\n🔒 عرضك سري — لا يراه أي منافس.`,
-        { reply_markup: new InlineKeyboard().text("💸 قدّم عرضك", `jtn_bid|${t.id}`) }
-      )
+      .sendMessage(Number(r.userId), `🏷 طلب عروض جديد يناسبك\n\n${tenderCard(t)}⏳ يُغلق خلال ${hoursLeft(t.expiresAt)}\n\n🔒 عرضك سري — لا يراه أي منافس.`, { reply_markup: kb })
       .then(() => true)
       .catch(() => false);
     if (ok) sent++;
   }
   await prisma.jobsTender.update({ where: { id: t.id }, data: { notifiedCount: sent } });
+  return { ok: true as const, tender: t, sent };
+}
+
+async function publishTender(ctx: Ctx, profile: JobsProfile, d: TenderDraft) {
+  const { bot, chatId, userId } = ctx;
+  const r = await publishTenderCore(bot, userId, profile, d);
+  await setPending(userId, null);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error, { reply_markup: tenderMenu() });
+    return;
+  }
+  const { tender: t, sent } = r;
   await bot.api.sendMessage(
     chatId,
     sent > 0
@@ -349,37 +372,55 @@ async function matchingProviders(requesterId: string, t: { kind: string; categor
 // ---------------------------------------------------------------------
 // Bidding
 // ---------------------------------------------------------------------
-async function openTender(id: string) {
+export async function openTender(id: string) {
   const t = await prisma.jobsTender.findUnique({ where: { id } });
   return t && t.status === "OPEN" && t.expiresAt > new Date() ? t : null;
 }
 
-async function startBid(ctx: Ctx, profile: JobsProfile | null, tenderId: string) {
-  const { bot, chatId, userId } = ctx;
+/** Who may quote on a tender (same rules for the chat and the Mini App). */
+export async function bidEligibility(userId: string, profile: JobsProfile | null, tenderId: string) {
   const t = await openTender(tenderId);
-  if (!t) {
-    await bot.api.sendMessage(chatId, "⌛ هذا الطلب أُغلق أو انتهت مدته.");
-    return;
-  }
-  if (t.requesterId === userId) {
-    await bot.api.sendMessage(chatId, "هذا طلبك أنت.");
-    return;
-  }
+  if (!t) return { ok: false as const, error: "⌛ هذا الطلب أُغلق أو انتهت مدته." };
+  if (t.requesterId === userId) return { ok: false as const, error: "هذا طلبك أنت." };
   const wanted = t.kind === "SERVICE" ? "PROFESSIONAL" : "TRADER";
-  if (!profile || profile.roleType !== wanted) {
-    await bot.api.sendMessage(chatId, t.kind === "SERVICE" ? "⚠️ تقديم العروض على طلبات الخدمات متاح لملفات «مهني»." : "⚠️ تقديم العروض على طلبات المنتجات متاح لملفات «تاجر».");
-    return;
-  }
-  if (t.kind === "SERVICE" && !sameTrade(profile.professionalCategory, t.category)) {
-    await bot.api.sendMessage(chatId, `⚠️ هذا الطلب لتخصص «${t.category}»، وتخصصك المسجّل «${profile.professionalCategory || "—"}».`);
-    return;
-  }
-  if ((await blockedPeerIds(userId)).includes(t.requesterId)) {
-    await bot.api.sendMessage(chatId, "🚫 غير متاح.");
-    return;
-  }
+  if (!profile || profile.roleType !== wanted) return { ok: false as const, error: t.kind === "SERVICE" ? "⚠️ تقديم العروض على طلبات الخدمات متاح لملفات «مهني»." : "⚠️ تقديم العروض على طلبات المنتجات متاح لملفات «تاجر»." };
+  if (t.kind === "SERVICE" && !sameTrade(profile.professionalCategory, t.category)) return { ok: false as const, error: `⚠️ هذا الطلب لتخصص «${t.category}»، وتخصصك المسجّل «${profile.professionalCategory || "—"}».` };
+  if ((await blockedPeerIds(userId)).includes(t.requesterId)) return { ok: false as const, error: "🚫 غير متاح." };
   const mine = await prisma.jobsTenderBid.findUnique({ where: { tenderId_bidderId: { tenderId, bidderId: userId } } });
   const competitors = await prisma.jobsTenderBid.count({ where: { tenderId, bidderId: { not: userId } } });
+  return { ok: true as const, tender: t, mine, competitors };
+}
+
+/** Sends or updates a sealed quote and tells the requester (price and count only). */
+export async function submitBidCore(bot: TelegramBot, userId: string, profile: JobsProfile | null, tenderId: string, rawPrice: unknown, rawNote: unknown, appUrl?: string) {
+  const price = parsePrice(String(rawPrice ?? ""));
+  if (price === null) return { ok: false as const, error: "أرسل السعر رقماً." };
+  const note = String(rawNote ?? "").trim();
+  if (note.length < 5 || note.length > 400) return { ok: false as const, error: "اكتب وصفاً مختصراً (5–400 حرف)." };
+  const e = await bidEligibility(userId, profile, tenderId);
+  if (!e.ok) return e;
+  const t = e.tender;
+  const existed = !!e.mine;
+  await prisma.jobsTenderBid.upsert({
+    where: { tenderId_bidderId: { tenderId: t.id, bidderId: userId } },
+    update: { price, note },
+    create: { tenderId: t.id, bidderId: userId, price, note },
+  });
+  const total = await prisma.jobsTenderBid.count({ where: { tenderId: t.id } });
+  const kb = new InlineKeyboard().text("📊 قارن العروض", `jtn_cmp|${t.id}`);
+  if (appUrl) kb.row().webApp("📱 قارن في التطبيق", appUrl);
+  await bot.api.sendMessage(Number(t.requesterId), `💸 ${existed ? "عرض معدَّل" : "عرض جديد"} على طلبك «${t.category}»: ${money(price)}\n📊 عدد العروض: ${total}`, { reply_markup: kb }).catch(() => null);
+  return { ok: true as const, existed, total, price };
+}
+
+async function startBid(ctx: Ctx, profile: JobsProfile | null, tenderId: string) {
+  const { bot, chatId, userId } = ctx;
+  const e = await bidEligibility(userId, profile, tenderId);
+  if (!e.ok) {
+    await bot.api.sendMessage(chatId, e.error);
+    return;
+  }
+  const { tender: t, mine, competitors } = e;
   await setPending(userId, { mode: "tender_bid", step: "price", tenderId });
   await bot.api.sendMessage(
     chatId,
@@ -406,29 +447,16 @@ async function consumeBidStep(ctx: Ctx, pending: Extract<TenderPending, { mode: 
     await bot.api.sendMessage(chatId, "اكتب وصفاً مختصراً (5–400 حرف).", { reply_markup: backMenu() });
     return;
   }
-  const t = await openTender(pending.tenderId);
   await setPending(userId, null);
-  if (!t) {
-    await bot.api.sendMessage(chatId, "⌛ أُغلق الطلب قبل إرسال عرضك.", { reply_markup: ctx.home });
+  const profile = await prisma.jobsProfile.findUnique({ where: { userId } });
+  const r = await submitBidCore(bot, userId, profile, pending.tenderId, pending.price, text);
+  if (!r.ok) {
+    await bot.api.sendMessage(chatId, r.error.startsWith("⌛") ? "⌛ أُغلق الطلب قبل إرسال عرضك." : r.error, { reply_markup: ctx.home });
     return;
   }
-  const existed = await prisma.jobsTenderBid.findUnique({ where: { tenderId_bidderId: { tenderId: t.id, bidderId: userId } } });
-  await prisma.jobsTenderBid.upsert({
-    where: { tenderId_bidderId: { tenderId: t.id, bidderId: userId } },
-    update: { price: pending.price!, note: text },
-    create: { tenderId: t.id, bidderId: userId, price: pending.price!, note: text },
-  });
-  const total = await prisma.jobsTenderBid.count({ where: { tenderId: t.id } });
-  await bot.api.sendMessage(chatId, `✅ ${existed ? "عُدّل" : "أُرسل"} عرضك (${money(pending.price!)}). عدد العروض على هذا الطلب: ${total}. سيصلك إشعار إن اختارك صاحب الطلب.`, {
+  await bot.api.sendMessage(chatId, `✅ ${r.existed ? "عُدّل" : "أُرسل"} عرضك (${money(r.price)}). عدد العروض على هذا الطلب: ${r.total}. سيصلك إشعار إن اختارك صاحب الطلب.`, {
     reply_markup: ctx.home,
   });
-  await bot.api
-    .sendMessage(
-      Number(t.requesterId),
-      `💸 ${existed ? "عرض معدَّل" : "عرض جديد"} على طلبك «${t.category}»: ${money(pending.price!)}\n📊 عدد العروض: ${total}`,
-      { reply_markup: new InlineKeyboard().text("📊 قارن العروض", `jtn_cmp|${t.id}`) }
-    )
-    .catch(() => null);
 }
 
 // ---------------------------------------------------------------------
@@ -479,16 +507,13 @@ async function compareBids(ctx: Ctx, tenderId: string) {
   await bot.api.sendMessage(chatId, `📊 العروض على «${t.category}» (من الأرخص):${budgetLine}\n\n${lines.join("\n\n")}`, { reply_markup: kb });
 }
 
-async function awardBid(ctx: Ctx, bidId: string) {
-  const { bot, chatId, userId } = ctx;
+/** «🏆 اختيار العرض»: one award per tender (conditional OPEN → AWARDED); then both sides get each other's contact. */
+export async function awardBidCore(bot: TelegramBot, userId: string, bidId: string) {
   const bid = await prisma.jobsTenderBid.findUnique({ where: { id: bidId }, include: { tender: true } });
-  if (!bid || bid.tender.requesterId !== userId) return;
+  if (!bid || bid.tender.requesterId !== userId) return { ok: false as const, error: "غير مسموح." };
   const t = bid.tender;
   const claimed = await prisma.jobsTender.updateMany({ where: { id: t.id, status: "OPEN" }, data: { status: "AWARDED", awardedBidId: bid.id } });
-  if (claimed.count === 0) {
-    await bot.api.sendMessage(chatId, "تم اختيار عرض لهذا الطلب مسبقاً أو أُغلق.");
-    return;
-  }
+  if (claimed.count === 0) return { ok: false as const, error: "تم اختيار عرض لهذا الطلب مسبقاً أو أُغلق." };
   await prisma.$transaction([
     prisma.jobsTenderBid.update({ where: { id: bid.id }, data: { status: "WON" } }),
     prisma.jobsTenderBid.updateMany({ where: { tenderId: t.id, id: { not: bid.id } }, data: { status: "LOST" } }),
@@ -497,40 +522,46 @@ async function awardBid(ctx: Ctx, bidId: string) {
     prisma.jobsProfile.findUnique({ where: { userId: bid.bidderId } }),
     prisma.jobsProfile.findUnique({ where: { userId } }),
   ]);
-  const winnerKb = new InlineKeyboard();
-  if (winner) winnerKb.url("💬 تواصل مع صاحب العرض", contactUrl(winner)).row();
-  winnerKb.text("🚩 إبلاغ", `jreport|profile|${bid.bidderId}`);
-  await bot.api.sendMessage(
-    chatId,
-    `🏆 اخترت عرض ${winner?.name || "مقدّم العرض"} بسعر ${money(bid.price)}.\n📝 ${bid.note}\n\nتواصل معه لإتمام الاتفاق — وصلته بيانات تواصلك أيضاً.\n⚠️ الاتفاق والدفع يتمّان بينكما مباشرة؛ لا تدفع مقدماً لمن لا تثق به.`,
-    { reply_markup: winnerKb }
-  );
   const reqKb = new InlineKeyboard();
   if (requester) reqKb.url("💬 تواصل مع صاحب الطلب", contactUrl(requester));
   await bot.api
-    .sendMessage(
-      Number(bid.bidderId),
-      `🎉 فاز عرضك (${money(bid.price)}) على طلب «${t.category}»!\n📍 ${t.governorate}، ${t.city}\n\nتواصل مع صاحب الطلب ${requester?.name || ""} لإتمام العمل.`,
-      { reply_markup: reqKb }
-    )
+    .sendMessage(Number(bid.bidderId), `🎉 فاز عرضك (${money(bid.price)}) على طلب «${t.category}»!\n📍 ${t.governorate}، ${t.city}\n\nتواصل مع صاحب الطلب ${requester?.name || ""} لإتمام العمل.`, { reply_markup: reqKb })
     .catch(() => null);
   const losers = await prisma.jobsTenderBid.findMany({ where: { tenderId: t.id, id: { not: bid.id } }, select: { bidderId: true } });
-  for (const l of losers) {
-    await bot.api.sendMessage(Number(l.bidderId), `ℹ️ اختار صاحب طلب «${t.category}» عرضاً آخر هذه المرة. بالتوفيق في الطلبات القادمة 💪`).catch(() => null);
+  for (const l of losers) await bot.api.sendMessage(Number(l.bidderId), `ℹ️ اختار صاحب طلب «${t.category}» عرضاً آخر هذه المرة. بالتوفيق في الطلبات القادمة 💪`).catch(() => null);
+  return { ok: true as const, bid, winner, winnerContact: winner ? contactUrl(winner) : null };
+}
+
+async function awardBid(ctx: Ctx, bidId: string) {
+  const { bot, chatId } = ctx;
+  const r = await awardBidCore(bot, ctx.userId, bidId);
+  if (!r.ok) {
+    if (r.error !== "غير مسموح.") await bot.api.sendMessage(chatId, r.error);
+    return;
   }
+  const winnerKb = new InlineKeyboard();
+  if (r.winnerContact) winnerKb.url("💬 تواصل مع صاحب العرض", r.winnerContact).row();
+  winnerKb.text("🚩 إبلاغ", `jreport|profile|${r.bid.bidderId}`);
+  await bot.api.sendMessage(
+    chatId,
+    `🏆 اخترت عرض ${r.winner?.name || "مقدّم العرض"} بسعر ${money(r.bid.price)}.\n📝 ${r.bid.note}\n\nتواصل معه لإتمام الاتفاق — وصلته بيانات تواصلك أيضاً.\n⚠️ الاتفاق والدفع يتمّان بينكما مباشرة؛ لا تدفع مقدماً لمن لا تثق به.`,
+    { reply_markup: winnerKb }
+  );
+}
+
+export async function closeTenderCore(bot: TelegramBot, userId: string, tenderId: string) {
+  const res = await prisma.jobsTender.updateMany({ where: { id: tenderId, requesterId: userId, status: "OPEN" }, data: { status: "CLOSED" } });
+  if (res.count === 0) return { ok: false as const, error: "هذا الطلب مغلق مسبقاً." };
+  const t = await prisma.jobsTender.findUnique({ where: { id: tenderId } });
+  const bidders = await prisma.jobsTenderBid.findMany({ where: { tenderId }, select: { bidderId: true } });
+  for (const b of bidders) await bot.api.sendMessage(Number(b.bidderId), `ℹ️ أغلق صاحب طلب «${t?.category}» طلبه دون اختيار عرض.`).catch(() => null);
+  return { ok: true as const };
 }
 
 async function closeTender(ctx: Ctx, tenderId: string) {
   const { bot, chatId, userId } = ctx;
-  const res = await prisma.jobsTender.updateMany({ where: { id: tenderId, requesterId: userId, status: "OPEN" }, data: { status: "CLOSED" } });
-  if (res.count === 0) {
-    await bot.api.sendMessage(chatId, "هذا الطلب مغلق مسبقاً.");
-    return;
-  }
-  const t = await prisma.jobsTender.findUnique({ where: { id: tenderId } });
-  const bidders = await prisma.jobsTenderBid.findMany({ where: { tenderId }, select: { bidderId: true } });
-  for (const b of bidders) await bot.api.sendMessage(Number(b.bidderId), `ℹ️ أغلق صاحب طلب «${t?.category}» طلبه دون اختيار عرض.`).catch(() => null);
-  await bot.api.sendMessage(chatId, "🔒 أُغلق الطلب.", { reply_markup: tenderMenu() });
+  const r = await closeTenderCore(bot, userId, tenderId);
+  await bot.api.sendMessage(chatId, r.ok ? "🔒 أُغلق الطلب." : r.error, r.ok ? { reply_markup: tenderMenu() } : {});
 }
 
 // ---------------------------------------------------------------------
@@ -544,6 +575,24 @@ async function sendInbox(ctx: Ctx, profile: JobsProfile) {
     });
     return;
   }
+  const matches = await inboxTenders(userId, profile);
+  if (matches.length === 0) {
+    await bot.api.sendMessage(chatId, "💤 لا توجد طلبات مفتوحة تناسبك الآن — سيصلك إشعار فور نشر طلب جديد.", { reply_markup: tenderMenu() });
+    return;
+  }
+  const myBids = await prisma.jobsTenderBid.findMany({ where: { bidderId: userId, tenderId: { in: matches.map((m) => m.id) } } });
+  const bidBy = new Map(myBids.map((b) => [b.tenderId, b]));
+  for (const t of matches) {
+    const mine = bidBy.get(t.id);
+    await bot.api.sendMessage(chatId, `${tenderCard(t)}⏳ يُغلق خلال ${hoursLeft(t.expiresAt)}` + (mine ? `\n📌 عرضك: ${money(mine.price)}` : ""), {
+      reply_markup: new InlineKeyboard().text(mine ? "✏️ تعديل عرضك" : "💸 قدّم عرضك", `jtn_bid|${t.id}`),
+    });
+  }
+}
+
+/** Open tenders a provider may quote on: services of their trade in their area (professionals), products in their country (traders). */
+export async function inboxTenders(userId: string, profile: JobsProfile, limit = 5) {
+  if (profile.roleType !== "PROFESSIONAL" && profile.roleType !== "TRADER") return [];
   const blocked = await blockedPeerIds(userId);
   const where: Prisma.JobsTenderWhereInput =
     profile.roleType === "PROFESSIONAL"
@@ -565,19 +614,7 @@ async function sendInbox(ctx: Ctx, profile: JobsProfile) {
     const sameCountry = new Set(requesters.filter((r) => r.country.trim().toLowerCase() === profile.country.trim().toLowerCase()).map((r) => r.userId));
     matches = rows.filter((t) => sameCountry.has(t.requesterId));
   }
-  matches = matches.slice(0, 5);
-  if (matches.length === 0) {
-    await bot.api.sendMessage(chatId, "💤 لا توجد طلبات مفتوحة تناسبك الآن — سيصلك إشعار فور نشر طلب جديد.", { reply_markup: tenderMenu() });
-    return;
-  }
-  const myBids = await prisma.jobsTenderBid.findMany({ where: { bidderId: userId, tenderId: { in: matches.map((m) => m.id) } } });
-  const bidBy = new Map(myBids.map((b) => [b.tenderId, b]));
-  for (const t of matches) {
-    const mine = bidBy.get(t.id);
-    await bot.api.sendMessage(chatId, `${tenderCard(t)}⏳ يُغلق خلال ${hoursLeft(t.expiresAt)}` + (mine ? `\n📌 عرضك: ${money(mine.price)}` : ""), {
-      reply_markup: new InlineKeyboard().text(mine ? "✏️ تعديل عرضك" : "💸 قدّم عرضك", `jtn_bid|${t.id}`),
-    });
-  }
+  return matches.slice(0, limit);
 }
 
 // ---------------------------------------------------------------------

@@ -3,9 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit, verifyInitData } from "@/lib/match/inline";
 import { handleAdAppAction } from "@/lib/botApp/adApp";
 import { handleStreakAppAction } from "@/lib/botApp/streakApp";
+import { handleJobsAppAction } from "@/lib/botApp/jobsApp";
 
 // Templates that have their own Mini App, and the server side of each.
-const APPS = { AD_BOT: handleAdAppAction, STREAK_BOT: handleStreakAppAction } as const;
+const APPS = { AD_BOT: handleAdAppAction, STREAK_BOT: handleStreakAppAction, JOBS_BOT: handleJobsAppAction } as const;
 
 /**
  * Backend of an ads & earn bot's own Mini App (/bot-app/<botId>). Every call carries Telegram WebApp initData verified with THIS

@@ -32,7 +32,7 @@ export async function shopSlugFor(sellerId: string): Promise<string> {
   throw new Error("shop slug");
 }
 
-async function sellerBySlug(slug: string): Promise<string | null> {
+export async function sellerBySlug(slug: string): Promise<string | null> {
   if (!isShopSlug(slug)) return null;
   await ensureShopTables();
   const r = await prisma.$queryRaw<{ seller_id: string }[]>`SELECT seller_id FROM jobs_shops WHERE slug = ${slug}`;
@@ -65,13 +65,14 @@ export async function jobsBotUsername(): Promise<string> {
 }
 
 /** "🏪 متجري" in the bot: the seller's links, a share button and the feature offer. */
-export async function sendMyShop(bot: TelegramBot, chatId: number, userId: string) {
+export async function sendMyShop(bot: TelegramBot, chatId: number, userId: string, appUrl?: string) {
   const [profile, count] = await Promise.all([
     prisma.jobsProfile.findUnique({ where: { userId } }),
     prisma.storeListing.count({ where: { sellerId: userId, status: "ACTIVE" } }),
   ]);
   if (!count) {
-    await bot.api.sendMessage(chatId, "🏪 متجرك فارغ. أضف منتجاً من «🛒 قسم المتجر ← 💰 أمر بيع»، ثم ارجع هنا لتأخذ رابط متجرك.");
+    await bot.api.sendMessage(chatId, "🏪 متجرك فارغ. أضف منتجاً من «🛒 قسم المتجر ← 💰 أمر بيع»، ثم ارجع هنا لتأخذ رابط متجرك.",
+      appUrl ? { reply_markup: new InlineKeyboard().webApp("📱 أضف منتجاً بالصور من التطبيق", appUrl) } : {});
     return;
   }
   const slug = await shopSlugFor(userId);
@@ -82,6 +83,7 @@ export async function sendMyShop(bot: TelegramBot, chatId: number, userId: strin
   const kb = new InlineKeyboard();
   if (deep) kb.url("📤 شارك متجرك", `https://t.me/share/url?url=${encodeURIComponent(deep)}&text=${encodeURIComponent(shopShareText(name, count))}`).row();
   kb.url("🌐 صفحة المتجر", page);
+  if (appUrl) kb.row().webApp("📱 إدارة متجري في التطبيق", appUrl);
   await bot.api.sendMessage(chatId,
     `🏪 متجر ${name} · ${count} منتج نشط\n\n🔗 رابط المتجر داخل البوت (للجروبات والحالة):\n${deep}\n\n🌐 صفحة المتجر على الويب:\n${page}\n\n` +
     `⭐ ميّز أي منتج ليظهر أولاً في التصفح والبحث ${FEATURE_DAYS} أيام بـ $${FEATURE_PRICE_USD} من رصيدك: افتح المنتج من «📂 طلباتي ← 💰 طلباتي (بيع)» واضغط «⭐ تمييز».`,
@@ -89,7 +91,7 @@ export async function sendMyShop(bot: TelegramBot, chatId: number, userId: strin
 }
 
 /** Opens a shop inside the bot from shop_<slug>. */
-export async function sendShopInBot(bot: TelegramBot, chatId: number, slug: string, viewerId: string): Promise<boolean> {
+export async function sendShopInBot(bot: TelegramBot, chatId: number, slug: string, viewerId: string, appUrl?: string): Promise<boolean> {
   const sellerId = await sellerBySlug(slug);
   if (!sellerId) { await bot.api.sendMessage(chatId, "هذا المتجر غير موجود."); return true; }
   const [profile, listings, featured] = await Promise.all([
@@ -100,6 +102,7 @@ export async function sendShopInBot(bot: TelegramBot, chatId: number, slug: stri
   if (!listings.length) { await bot.api.sendMessage(chatId, "لا توجد منتجات نشطة في هذا المتجر الآن."); return true; }
   const f = new Set(featured);
   const kb = new InlineKeyboard();
+  if (appUrl) kb.webApp("📱 افتح المتجر في التطبيق (بالصور)", appUrl).row();
   const lines = listings.map((l, i) => {
     kb.text(`👁 ${i + 1}. ${l.title.slice(0, 28)}`, `jview|listing|${l.id}`).row();
     return `${i + 1}. ${f.has(l.id) ? "⭐ " : ""}${l.title} — $${l.price.toFixed(2)}`;
