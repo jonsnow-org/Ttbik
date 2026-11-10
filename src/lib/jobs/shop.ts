@@ -154,3 +154,19 @@ export async function shopStats() {
   const r = await prisma.$queryRaw<{ shops: bigint; live: bigint; usd: unknown }[]>`SELECT (SELECT count(*) FROM jobs_shops) shops, (SELECT count(*) FROM jobs_featured WHERE until > now()) live, (SELECT COALESCE(sum(paid),0) FROM jobs_featured) usd`;
   return { shops: Number(r[0]?.shops || 0), featuredNow: Number(r[0]?.live || 0), featureRevenueUsd: Number(r[0]?.usd || 0) };
 }
+
+/** Public shop directory (/shop): shops with at least one active listing, busiest first. */
+export async function listShops(limit = 60): Promise<{ slug: string; name: string; place: string; items: number }[]> {
+  await ensureShopTables();
+  const rows = await prisma.$queryRaw<{ slug: string; seller_id: string; items: bigint }[]>`
+    SELECT s.slug, s.seller_id, count(l.id) AS items FROM jobs_shops s
+    JOIN "StoreListing" l ON l."sellerId" = s.seller_id AND l.status = 'ACTIVE'
+    GROUP BY s.slug, s.seller_id ORDER BY count(l.id) DESC, s.slug LIMIT ${limit}`;
+  if (!rows.length) return [];
+  const profiles = await prisma.jobsProfile.findMany({ where: { userId: { in: rows.map((r) => r.seller_id) } } });
+  const by = new Map(profiles.map((p: any) => [p.userId, p]));
+  return rows.map((r) => {
+    const p: any = by.get(r.seller_id);
+    return { slug: r.slug, name: String(p?.name || "متجر"), place: [p?.city, p?.country].filter(Boolean).join("، "), items: Number(r.items) };
+  });
+}
