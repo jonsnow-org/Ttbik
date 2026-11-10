@@ -18,5 +18,7 @@ export function verifyNowPaymentsSignature(body: any, signature: string): boolea
   const secret = process.env.NOWPAYMENTS_IPN_SECRET || "";
   if (!secret || !signature) return false;
   const expected = crypto.createHmac("sha512", secret).update(sortedJson(body)).digest("hex");
-  return signature === expected;
+  const a = Buffer.from(String(signature).toLowerCase());
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
