@@ -42,6 +42,17 @@ export const SERVICE_LINKS = [
   { id: "shop", href: "/shop", label: "🛍 متاجر البائعين", desc: "متاجر أعضاء بوت فرص العمل والمتجر، والطلب عبر البوت." },
 ] as const;
 
+/**
+ * Services that live inside the daily chains bot (@Slaselbot) and its own Mini App (owner, phase 2): other bots and Mini Apps
+ * link there with a t.me deep link (/start khatma, /start contest opens the section) instead of the website page.
+ */
+export const CHAINS_BOT_USERNAME = "Slaselbot";
+export const IN_CHAINS_BOT: Partial<Record<(typeof SERVICE_LINKS)[number]["id"], string>> = { khatma: "khatma", contests: "contest" };
+export function chainsBotLink(id: string, username: string = CHAINS_BOT_USERNAME): string | null {
+  const payload = IN_CHAINS_BOT[id as keyof typeof IN_CHAINS_BOT];
+  return payload ? `https://t.me/${(username || CHAINS_BOT_USERNAME).replace(/^@/, "")}?start=${payload}` : null;
+}
+
 export const SIDEBAR_SERVICES_SECTION: NavSection = {
   label: "خدمات وأرباح",
   links: SERVICE_LINKS.map((s) => ({ id: s.id, href: s.href, label: s.label })),

@@ -42,7 +42,7 @@ export function ensureKhatmaTables(): Promise<void> {
   return ready;
 }
 
-type KhatmaRow = { id: bigint; bot_id: string; chat_id: string | null; kind: string; title: string; dedication: string | null; slug: string | null; bot_username: string | null; round: number; completed_rounds: number; message_id: bigint | null; featured_until: Date | null; status: string; created_at: Date };
+export type KhatmaRow = { id: bigint; bot_id: string; chat_id: string | null; kind: string; title: string; dedication: string | null; slug: string | null; bot_username: string | null; round: number; completed_rounds: number; message_id: bigint | null; featured_until: Date | null; status: string; created_at: Date };
 
 async function khatmaById(id: string | number | bigint): Promise<KhatmaRow | null> {
   const r = await prisma.$queryRaw<KhatmaRow[]>`SELECT * FROM khatma WHERE id = ${BigInt(id)}`;
@@ -61,9 +61,9 @@ export async function activeSponsor(product: SponsorProduct = "khatma"): Promise
   const r = await activeSponsorRow(product);
   return r ? sponsorLine(r.name, r.url) + (r.prize ? ` · 🎁 ${r.prize}` : "") : null;
 }
-export async function activeSponsorRow(product: SponsorProduct = "khatma"): Promise<{ name: string; url: string | null; prize: string | null; ends_at: Date } | null> {
+export async function activeSponsorRow(product: SponsorProduct = "khatma"): Promise<{ name: string; url: string | null; prize: string | null; starts_at: Date; ends_at: Date } | null> {
   await ensureKhatmaTables();
-  const r = await prisma.$queryRaw<{ name: string; url: string | null; prize: string | null; ends_at: Date }[]>`SELECT name, url, prize, ends_at FROM khatma_sponsors WHERE product = ${product} AND status = 'ACTIVE' AND starts_at <= now() AND ends_at > now() ORDER BY starts_at LIMIT 1`;
+  const r = await prisma.$queryRaw<{ name: string; url: string | null; prize: string | null; starts_at: Date; ends_at: Date }[]>`SELECT name, url, prize, starts_at, ends_at FROM khatma_sponsors WHERE product = ${product} AND status = 'ACTIVE' AND starts_at <= now() AND ends_at > now() ORDER BY starts_at LIMIT 1`;
   return r[0] || null;
 }
 
@@ -130,41 +130,38 @@ export async function handleKhatmaGroupUpdate(bot: TelegramBot, botRow: BotRow, 
   return true;
 }
 
-async function handleKhatmaCallback(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
-  const p = parseJuzCallback(String(cq.data || ""));
-  if (!p) return false;
-  await ensureKhatmaTables();
-  const answer = (text: string, alert = false) => bot.api.answerCallbackQuery(cq.id, { text, show_alert: alert }).catch(() => null);
-  const k = await khatmaById(p.khatmaId);
-  if (!k || k.bot_id !== botRow.id || k.status !== "ACTIVE") { await answer("هذه الختمة مغلقة."); return true; }
-  if (k.round !== p.round) { await answer("هذه لوحة ختمة سابقة. استخدم أحدث لوحة."); return true; }
-  // A group board only works in its own group; a memorial board works in any private chat.
-  const chat = cq.message?.chat;
-  if (k.kind === "GROUP" && String(chat?.id) !== k.chat_id) { await answer("لوحة غير صالحة هنا."); return true; }
-  const uid = String(cq.from.id);
+export type TapOutcome = { ok: boolean; message: string; alert?: boolean; completed?: boolean };
+
+/**
+ * One tap on a juz (group board, memorial board, or the bot's Mini App): take a free juz, mark mine read, or undo.
+ * Same rules everywhere (rules.ts tap(): busy / limit of open juz per reader). When the 30th juz is read, exactly one tap
+ * closes the round and the completion message goes out (group: in the group; memorial: to every reader of the round).
+ */
+export async function tapJuzCore(bot: TelegramBot, k: KhatmaRow, juz: number, uid: string, name: string, completionChat?: number | string | null): Promise<TapOutcome> {
   const board = await boardOf(k);
-  const t = tap(board, p.juz, uid);
-  const name = displayName(cq.from);
-  if (t.kind === "busy") { await answer(`الجزء ${arNum(p.juz)} مع ${t.by}`); return true; }
-  if (t.kind === "limit") { await answer(`معك ${arNum(MAX_OPEN_PER_USER)} أجزاء لم تكتمل. أنهِ واحداً أولاً.`, true); return true; }
+  const t = tap(board, juz, uid);
+  let out: TapOutcome;
+  if (t.kind === "busy") return { ok: false, message: `الجزء ${arNum(juz)} مع ${t.by}` };
+  if (t.kind === "limit") return { ok: false, message: `معك ${arNum(MAX_OPEN_PER_USER)} أجزاء لم تكتمل. أنهِ واحداً أولاً.`, alert: true };
   if (t.kind === "take") {
-    const n = await prisma.$executeRaw`INSERT INTO khatma_juz (khatma_id, round, juz, user_id, user_name, taken_at) VALUES (${k.id}, ${k.round}, ${p.juz}, ${uid}, ${name}, now()) ON CONFLICT DO NOTHING`;
-    await answer(n === 1 ? `الجزء ${arNum(p.juz)} لك. اضغطه مرة أخرى حين تنتهي منه.` : "سبقك أحدهم لهذا الجزء.");
+    const n = await prisma.$executeRaw`INSERT INTO khatma_juz (khatma_id, round, juz, user_id, user_name, taken_at) VALUES (${k.id}, ${k.round}, ${juz}, ${uid}, ${name}, now()) ON CONFLICT DO NOTHING`;
+    out = n === 1 ? { ok: true, message: `الجزء ${arNum(juz)} لك. اضغطه مرة أخرى حين تنتهي منه.` } : { ok: false, message: "سبقك أحدهم لهذا الجزء." };
   } else if (t.kind === "done") {
-    await prisma.$executeRaw`UPDATE khatma_juz SET done = true, done_at = now() WHERE khatma_id = ${k.id} AND round = ${k.round} AND juz = ${p.juz} AND user_id = ${uid}`;
-    await answer(`تقبّل الله. سُجّل الجزء ${arNum(p.juz)} مقروءاً ✅`);
+    await prisma.$executeRaw`UPDATE khatma_juz SET done = true, done_at = now() WHERE khatma_id = ${k.id} AND round = ${k.round} AND juz = ${juz} AND user_id = ${uid}`;
+    out = { ok: true, message: `تقبّل الله. سُجّل الجزء ${arNum(juz)} مقروءاً ✅` };
   } else {
-    await prisma.$executeRaw`UPDATE khatma_juz SET done = false, done_at = NULL WHERE khatma_id = ${k.id} AND round = ${k.round} AND juz = ${p.juz} AND user_id = ${uid}`;
-    await answer(`أعدنا الجزء ${arNum(p.juz)} إلى «قيد القراءة».`);
+    await prisma.$executeRaw`UPDATE khatma_juz SET done = false, done_at = NULL WHERE khatma_id = ${k.id} AND round = ${k.round} AND juz = ${juz} AND user_id = ${uid}`;
+    out = { ok: true, message: `أعدنا الجزء ${arNum(juz)} إلى «قيد القراءة».` };
   }
   const after = await boardOf(k);
   if (isComplete(after)) {
     // Only one tap may close a round, even if two land at the same moment.
     const moved = await prisma.$executeRaw`UPDATE khatma SET round = round + 1, completed_rounds = completed_rounds + 1 WHERE id = ${k.id} AND round = ${k.round}`;
     if (moved === 1) {
+      out.completed = true;
       const readers = new Set(after.map((j) => j.userId)).size;
       const sponsor = await activeSponsor().catch(() => null);
-      const target = chat?.id ?? k.chat_id;
+      const target = completionChat ?? k.chat_id;
       if (k.kind === "GROUP" && target) {
         await bot.api.sendMessage(target, completionText({ title: k.title, dedication: k.dedication, round: k.round, readers, sponsor }), {
           reply_markup: { inline_keyboard: [[{ text: "📖 ابدأ الختمة التالية", callback_data: `kn|${k.id}` }]] },
@@ -176,13 +173,71 @@ async function handleKhatmaCallback(bot: TelegramBot, botRow: BotRow, cq: any): 
         }
       }
     }
-    const fresh = await khatmaById(k.id);
-    if (fresh && chat?.id && cq.message?.message_id) await renderBoard(bot, fresh, chat.id, cq.message.message_id);
-    return true;
   }
-  if (chat?.id && cq.message?.message_id) await renderBoard(bot, k, chat.id, cq.message.message_id);
+  return out;
+}
+
+async function handleKhatmaCallback(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
+  const p = parseJuzCallback(String(cq.data || ""));
+  if (!p) return false;
+  await ensureKhatmaTables();
+  const answer = (text: string, alert = false) => bot.api.answerCallbackQuery(cq.id, { text, show_alert: alert }).catch(() => null);
+  const k = await khatmaById(p.khatmaId);
+  if (!k || k.bot_id !== botRow.id || k.status !== "ACTIVE") { await answer("هذه الختمة مغلقة."); return true; }
+  if (k.round !== p.round) { await answer("هذه لوحة ختمة سابقة. استخدم أحدث لوحة."); return true; }
+  // A group board only works in its own group; a memorial board works in any private chat.
+  const chat = cq.message?.chat;
+  if (k.kind === "GROUP" && String(chat?.id) !== k.chat_id) { await answer("لوحة غير صالحة هنا."); return true; }
+  const r = await tapJuzCore(bot, k, p.juz, String(cq.from.id), displayName(cq.from), chat?.id ?? null);
+  await answer(r.message, !!r.alert);
+  if (!r.ok && !r.message.startsWith("سبقك")) return true;
+  const fresh = r.completed ? await khatmaById(k.id) : k;
+  if (fresh && chat?.id && cq.message?.message_id) await renderBoard(bot, fresh, chat.id, cq.message.message_id);
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// The chains bot's Mini App (src/lib/botApp/streakApp.ts) reads and taps the same boards.
+// ---------------------------------------------------------------------------
+export type KhatmaView = { id: string; kind: string; title: string; dedication: string | null; round: number; completedRounds: number; slug: string | null; chatId: string | null; board: JuzState[]; sponsor: string | null };
+export async function khatmaView(k: KhatmaRow): Promise<KhatmaView> {
+  return { id: String(k.id), kind: k.kind, title: k.title, dedication: k.dedication, round: k.round, completedRounds: k.completed_rounds, slug: k.slug, chatId: k.chat_id, board: await boardOf(k), sponsor: await activeSponsor().catch(() => null) };
+}
+export async function khatmaForApp(botId: string, ref: { id?: string; slug?: string }): Promise<KhatmaRow | null> {
+  await ensureKhatmaTables();
+  if (ref.slug && isSlug(ref.slug)) return (await prisma.$queryRaw<KhatmaRow[]>`SELECT * FROM khatma WHERE slug = ${ref.slug} AND bot_id = ${botId} AND status = 'ACTIVE'`)[0] || null;
+  if (ref.id && /^\d{1,12}$/.test(ref.id)) { const k = await khatmaById(ref.id); return k && k.bot_id === botId && k.status === "ACTIVE" ? k : null; }
+  return null;
+}
+/** The khatmas a reader is part of (took a juz in, or started), newest first. */
+export async function myKhatmas(botId: string, uid: string): Promise<KhatmaRow[]> {
+  await ensureKhatmaTables();
+  return prisma.$queryRaw<KhatmaRow[]>`
+    SELECT k.* FROM khatma k WHERE k.bot_id = ${botId} AND k.status = 'ACTIVE'
+      AND (k.creator_id = ${uid} OR EXISTS (SELECT 1 FROM khatma_juz j WHERE j.khatma_id = k.id AND j.user_id = ${uid}))
+    ORDER BY k.id DESC LIMIT 20`;
+}
+/** Re-draws a group board in its group after a tap made from the app, so the group's message stays true. */
+export async function refreshGroupBoard(bot: TelegramBot, k: KhatmaRow): Promise<void> {
+  const fresh = await khatmaById(k.id);
+  if (fresh && fresh.kind === "GROUP" && fresh.chat_id && fresh.message_id) await renderBoard(bot, fresh, fresh.chat_id, Number(fresh.message_id)).catch(() => null);
+}
+/** A memorial order filled in one go (the chat asks name → intent → dedication → tier); same table, same PENDING state for the Stars invoice. */
+export async function createMemorialOrderCore(botId: string, uid: string, input: { name: string; intent: string; dedication?: string; tier: string }) {
+  const name = cleanText(input.name || "", NAME_MAX);
+  if (name.length < 2) return { ok: false as const, error: "اكتب اسماً صحيحاً." };
+  const intent = INTENTS.some((i) => i.id === input.intent) ? input.intent : null;
+  if (!intent) return { ok: false as const, error: "اختر النية." };
+  const tier = tierById(String(input.tier || ""));
+  if (!tier) return { ok: false as const, error: "اختر الباقة." };
+  const ded = cleanText(input.dedication || "", DEDICATION_MAX);
+  await ensureKhatmaTables();
+  const r = await prisma.$queryRaw<{ id: bigint }[]>`
+    INSERT INTO khatma_orders (bot_id, user_id, name, intent, dedication, tier, stars, status) VALUES (${botId}, ${uid}, ${name}, ${intent}, ${ded || null}, ${tier.id}, ${tier.stars}, 'PENDING') RETURNING id`;
+  const orderId = String(r[0].id);
+  return { ok: true as const, orderId, stars: tier.stars, title: memorialTitle(name, intent), tierLabel: tier.label, payload: `${STARS_KIND}${orderId}` };
+}
+export { MEMORIAL_TIERS, INTENTS, MAX_OPEN_PER_USER };
 
 /** "Start the next round" button under a group completion message: re-posts the fresh board. */
 export async function handleKhatmaNextCallback(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
@@ -205,7 +260,7 @@ export async function handleKhatmaNextCallback(bot: TelegramBot, botRow: BotRow,
 // ---------------------------------------------------------------------------
 export type KhatmaPending = { mode: "khatma_name" } | { mode: "khatma_dedication"; orderId: string };
 
-export async function sendKhatmaIntro(bot: TelegramBot, chatId: number) {
+export async function sendKhatmaIntro(bot: TelegramBot, chatId: number, appUrl?: string) {
   const u = await botUsername(bot);
   await bot.api.sendMessage(chatId,
     "📖 ختمة جماعية في مجموعتك\n\n" +
@@ -213,7 +268,10 @@ export async function sendKhatmaIntro(bot: TelegramBot, chatId: number) {
     `2) لعرض اللوحة لاحقاً أو بعنوان خاص اكتب في المجموعة: /khatma@${u} ختمة رمضان\n` +
     "3) كل شخص يضغط رقم جزء ليأخذه، ثم يضغطه حين ينتهي. عند اكتمال 30 جزءاً تصل رسالة الختم والدعاء، وتبدأ الختمة التالية بضغطة.\n\n" +
     "مجاناً بالكامل.",
-    { reply_markup: { inline_keyboard: [[{ text: "➕ أضف البوت إلى مجموعة", url: `https://t.me/${u}?startgroup=khatma` }], [{ text: "🕊 ختمة صدقة جارية لمن تحب", callback_data: "km_new" }]] } });
+    { reply_markup: { inline_keyboard: [
+      ...(appUrl ? [[{ text: "📱 افتح الختمة في التطبيق", web_app: { url: appUrl } }]] : []),
+      [{ text: "➕ أضف البوت إلى مجموعة", url: `https://t.me/${u}?startgroup=khatma` }], [{ text: "🕊 ختمة صدقة جارية لمن تحب", callback_data: "km_new" }],
+    ] } });
 }
 
 export async function startMemorialOrder(bot: TelegramBot, chatId: number, setPending: (p: KhatmaPending | null) => Promise<void>) {

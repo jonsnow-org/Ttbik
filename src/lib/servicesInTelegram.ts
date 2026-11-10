@@ -4,7 +4,8 @@
  * buttons (they carry signed initData and need no BotFather domain setup). Same list as the site menu.
  */
 import { InlineKeyboard } from "grammy";
-import { SERVICE_LINKS } from "@/config/navigation";
+import { SERVICE_LINKS, CHAINS_BOT_USERNAME, chainsBotLink } from "@/config/navigation";
+export { CHAINS_BOT_USERNAME, IN_CHAINS_BOT, chainsBotLink } from "@/config/navigation";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const SERVICES_BUTTON = "🧭 خدمات وأرباح";
@@ -20,12 +21,14 @@ export function serviceUrl(href: string, site = SITE_URL): string {
   return `${site.replace(/\/$/, "")}${href}?src=tg`;
 }
 
-/** Two buttons per row; `first` puts the bot's own services at the top. */
-export function servicesKeyboard(first: readonly ServiceId[] = [], site = SITE_URL): InlineKeyboard {
+/** Two buttons per row; `first` puts the bot's own services at the top. Khatma and contests open the chains bot. */
+export function servicesKeyboard(first: readonly ServiceId[] = [], site = SITE_URL, chainsBot = CHAINS_BOT_USERNAME): InlineKeyboard {
   const ordered = [...SERVICE_LINKS].sort((a, b) => Number(first.includes(b.id)) - Number(first.includes(a.id)));
   const kb = new InlineKeyboard();
   ordered.forEach((s, i) => {
-    kb.webApp(s.label, serviceUrl(s.href, site));
+    const tme = chainsBotLink(s.id, chainsBot);
+    if (tme) kb.url(s.label, tme);
+    else kb.webApp(s.label, serviceUrl(s.href, site));
     if (i % 2 === 1) kb.row();
   });
   return kb;
@@ -34,6 +37,6 @@ export function servicesKeyboard(first: readonly ServiceId[] = [], site = SITE_U
 export const SERVICES_TEXT = "🧭 خدمات وأرباح المنصة — تفتح هنا داخل تيليجرام:";
 
 type Api = { sendMessage: (chatId: number, text: string, other?: any) => Promise<unknown> };
-export async function sendServices(bot: { api: Api }, chatId: number, first: readonly ServiceId[] = []): Promise<void> {
-  await bot.api.sendMessage(chatId, SERVICES_TEXT, { reply_markup: servicesKeyboard(first) }).catch(() => null);
+export async function sendServices(bot: { api: Api }, chatId: number, first: readonly ServiceId[] = [], chainsBot = CHAINS_BOT_USERNAME): Promise<void> {
+  await bot.api.sendMessage(chatId, SERVICES_TEXT, { reply_markup: servicesKeyboard(first, SITE_URL, chainsBot) }).catch(() => null);
 }

@@ -4,7 +4,7 @@
 // two sections close to its work: USDT remittances and the channels & groups exchange. Nothing here opens the website.
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, moneyCpc, useApp,
+  AppFrame, AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, moneyCpc, useApp,
   type Lang, type Screen,
 } from "./ui";
 import { AD_STATUS, TX_LABEL, tr } from "./strings";
@@ -22,20 +22,6 @@ type Init = {
   };
 };
 
-const THEME: React.CSSProperties = {
-  ["--app-bg" as any]: "var(--tg-theme-secondary-bg-color, #f1f2f6)",
-  ["--app-card" as any]: "var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff))",
-  ["--app-text" as any]: "var(--tg-theme-text-color, #0f172a)",
-  ["--app-hint" as any]: "var(--tg-theme-hint-color, #6b7280)",
-  ["--app-link" as any]: "var(--tg-theme-link-color, #2481cc)",
-  ["--app-btn" as any]: "var(--tg-theme-button-color, #2481cc)",
-  ["--app-btn-text" as any]: "var(--tg-theme-button-text-color, #ffffff)",
-  ["--app-danger" as any]: "var(--tg-theme-destructive-text-color, #e53935)",
-  ["--app-section-header" as any]: "var(--tg-theme-section-header-text-color, var(--tg-theme-hint-color, #6b7280))",
-  ["--app-sep" as any]: "color-mix(in srgb, var(--tg-theme-hint-color, #6b7280) 18%, transparent)",
-  ["--app-chip" as any]: "color-mix(in srgb, var(--tg-theme-button-color, #2481cc) 11%, var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff)))",
-};
-
 export default function BotMiniApp({ botId, section, pay }: { botId: string; section: string; pay: string | null }) {
   const [lang, setLang] = useState<Lang>("ar");
   const [ready, setReady] = useState(false);
@@ -46,13 +32,13 @@ export default function BotMiniApp({ botId, section, pay }: { botId: string; sec
   }, []);
   const initial: Screen = section === "home" ? { name: "home" } : { name: section, params: pay ? { pay } : {} };
   return (
-    <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
+    <AppFrame lang={lang}>
       {ready && (
         <AppProvider botId={botId} initial={initial} lang={lang} setLang={setLang}>
           <Shell />
         </AppProvider>
       )}
-    </div>
+    </AppFrame>
   );
 }
 

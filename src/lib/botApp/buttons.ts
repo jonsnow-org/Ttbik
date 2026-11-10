@@ -17,7 +17,7 @@ export function remitPayPayload(payload: string | null | undefined): string | nu
 }
 
 /** The sections the app can be opened on (`?s=`). */
-export const APP_SECTIONS = ["home", "earn", "create", "ads", "wallet", "referrals", "remit", "exchange"] as const;
+export const APP_SECTIONS = ["home", "earn", "create", "ads", "wallet", "referrals", "remit", "exchange", "khatma", "contests"] as const;
 export type AppSection = (typeof APP_SECTIONS)[number];
 export function appSection(v: unknown): AppSection {
   const s = String(Array.isArray(v) ? v[0] : v ?? "");

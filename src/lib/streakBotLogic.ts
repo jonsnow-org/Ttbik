@@ -6,7 +6,11 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
-import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
+import { isServicesRequest } from "@/lib/servicesInTelegram";
+import { APP_BUTTON } from "@/lib/botApp/buttons";
+import { botAppUrl, setBotAppMenu } from "@/lib/builderOwnerBot";
+import { gateUrl } from "@/lib/hostingOps";
+import { InlineKeyboard } from "grammy";
 
 import { MENU_BUTTON as CONTEST_BUTTON } from "@/lib/contests/rules";
 import { contestStats, sendContestIntro } from "@/lib/contests/contests";
@@ -27,13 +31,27 @@ import {
  */
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
+// The owner panel keeps its button as it was; it now opens the bot's own Mini App like every other entry.
+const APP_TEXT = "📱 تطبيق البوت: سلاسلك اليومية، الختمة الجماعية ومسابقات الجروبات في مكان واحد.";
+const SERVICES_BUTTON_ADMIN = "🧭 خدمات وأرباح";
+
+/** This bot's own Mini App (src/app/bot-app, STREAK_BOT: daily chains + group khatma + group contests). */
+export const appUrlFor = (botRow: BotRow, section?: "khatma" | "contests", params: Record<string, string> = {}) => botAppUrl(gateUrl(), botRow.id, section, params);
+const appButton = (botRow: BotRow, label: string, section?: "khatma" | "contests") => new InlineKeyboard().webApp(label, appUrlFor(botRow, section));
+// The menu button («التطبيق») of every chains bot opens its Mini App; set once per process, like the ads & earn bots.
+const appMenuDone = new Set<string>();
+async function ensureStreakAppMenu(botRow: BotRow): Promise<void> {
+  if (appMenuDone.has(botRow.id)) return;
+  appMenuDone.add(botRow.id);
+  await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+}
 
 // ---------------------------------------------------------------------
 // Category definitions — static list
 // ---------------------------------------------------------------------
-type StreakCategory = { id: string; emoji: string; title: string; menuLabel: string };
+export type StreakCategory = { id: string; emoji: string; title: string; menuLabel: string };
 
-const STREAK_CATEGORIES: StreakCategory[] = [
+export const STREAK_CATEGORIES: StreakCategory[] = [
   { id: "fasting", emoji: "🌙", title: "الصيام", menuLabel: "🌙 الصيام" },
   { id: "prayer", emoji: "🕌", title: "الصلاة", menuLabel: "🕌 الصلاة" },
   { id: "reading", emoji: "📖", title: "القراءة", menuLabel: "📖 القراءة" },
@@ -51,10 +69,10 @@ function findCategoryByLabel(label: string): StreakCategory | undefined {
 // Date helpers — plain "YYYY-MM-DD" (UTC), same convention already used
 // elsewhere in this codebase (see src/lib/wordGame.ts, channelPublisher.ts).
 // ---------------------------------------------------------------------
-function todayKey(): string {
+export function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
-function yesterdayKey(): string {
+export function yesterdayKey(): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
@@ -81,7 +99,7 @@ function isBack(text: string): boolean {
 function mainMenu(): Keyboard {
   const kb = new Keyboard();
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
-  kb.text(CONTEST_BUTTON).text(SERVICES_BUTTON).row();
+  kb.text(CONTEST_BUTTON).text(APP_BUTTON).row();
   for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
   kb.text("📊 كل سلاسلي").text("ℹ️ معلومات");
   return kb.resized();
@@ -97,7 +115,7 @@ function adminMenu(): Keyboard {
     .text("📊 الإحصائيات").text("🔎 بحث عن مستخدم").row()
     .text("📡 قناة الاشتراك الإجباري").text("📢 بث جماعي").row()
     .text(MENU_BUTTON).text(MEMORIAL_BUTTON).row()
-    .text(SERVICES_BUTTON)
+    .text(SERVICES_BUTTON_ADMIN)
     .resized();
 }
 
@@ -107,18 +125,39 @@ function adminMenu(): Keyboard {
 // upsert, not findUnique-then-create — same race-avoidance reasoning as
 // every other ensureXUser in this codebase (two near-simultaneous first
 // messages from the same new user must never both pass an existence check).
-async function ensureStreakUser(botId: string, tgUserId: string) {
+export async function ensureStreakUser(botId: string, tgUserId: string) {
   return prisma.streakUser.upsert({ where: { id: tgUserId }, update: {}, create: { id: tgUserId, botId } });
 }
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.streakUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
-async function getOrCreateEntry(userId: string, categoryId: string) {
+export async function getOrCreateEntry(userId: string, categoryId: string) {
   return prisma.streakEntry.upsert({
     where: { userId_category: { userId, category: categoryId } },
     update: {},
     create: { userId, category: categoryId },
   });
+}
+
+/** «✅ سجلت اليوم» for one category (chat and Mini App): once per UTC day; yesterday continues the streak, a gap restarts it at 1. */
+export async function checkInCore(botId: string, userId: string, categoryId: string): Promise<{ already: boolean; continued: boolean; entry: { currentStreak: number; longestStreak: number; lastCheckInDate: string | null } }> {
+  const entry = await getOrCreateEntry(userId, categoryId);
+  const today = todayKey();
+  if (entry.lastCheckInDate === today) return { already: true, continued: false, entry };
+  const continued = entry.lastCheckInDate === yesterdayKey();
+  const newStreak = continued ? entry.currentStreak + 1 : 1;
+  const newLongest = Math.max(entry.longestStreak, newStreak);
+  // Compare-and-swap on the last check-in day: a double tap (chat + app at once) counts one day only.
+  const n = await prisma.streakEntry.updateMany({
+    where: { userId, category: categoryId, lastCheckInDate: entry.lastCheckInDate },
+    data: { currentStreak: newStreak, longestStreak: newLongest, lastCheckInDate: today },
+  });
+  if (n.count !== 1) {
+    const fresh = await getOrCreateEntry(userId, categoryId);
+    return { already: true, continued: false, entry: fresh };
+  }
+  await earnPoints(userId, 1, "streak_checkin", botId).catch(() => null);
+  return { already: false, continued, entry: { currentStreak: newStreak, longestStreak: newLongest, lastCheckInDate: today } };
 }
 
 function entryStatusText(cat: StreakCategory, entry: { currentStreak: number; longestStreak: number; lastCheckInDate: string | null }): string {
@@ -134,7 +173,7 @@ function entryStatusText(cat: StreakCategory, entry: { currentStreak: number; lo
   return lines.join("\n");
 }
 
-function shareCardText(cat: StreakCategory, entry: { currentStreak: number }): string {
+export function shareCardText(cat: StreakCategory, entry: { currentStreak: number }): string {
   return `🔥 سلسلتي في ${cat.title} ${cat.emoji}: ${entry.currentStreak} يوم متتالي!\n\nانضم إلي وابدأ سلسلتك الخاصة 💪`;
 }
 
@@ -168,7 +207,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
   // The owner can try the khatma flows like any user.
-  if (isServicesRequest(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  if (isServicesRequest(text) || text === APP_BUTTON || text === "/app" || /^\/start app$/.test(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -275,6 +314,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   if (!msg?.from || !msg.chat) return;
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
+  void ensureStreakAppMenu(botRow);
 
   if (await handleStreakAdmin(bot, botRow, msg)) return;
 
@@ -323,8 +363,9 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     const payload = text.split(/\s+/)[1] || "";
-    if (payload === "khatma") { await sendKhatmaIntro(bot, chatId); return; }
-    if (payload === "contest") { await sendContestIntro(bot, chatId); return; }
+    if (payload === "khatma") { await sendKhatmaIntro(bot, chatId, appUrlFor(botRow, "khatma")); return; }
+    if (payload === "contest") { await sendContestIntro(bot, chatId, appUrlFor(botRow, "contests")); return; }
+    if (payload === "app") { await bot.api.sendMessage(chatId, APP_TEXT, { reply_markup: appButton(botRow, APP_BUTTON) }); return; }
     if (payload === PRIZE_START) { await claimPrizes(bot, chatId, tgUserId); return; }
     if (payload && (await openMemorialFromStart(bot, botRow, chatId, payload))) return;
     await bot.api.sendMessage(
@@ -335,18 +376,18 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
-  if (isServicesRequest(text)) {
-    await sendServices(bot, chatId, ["khatma", "contests"]);
+  if (isServicesRequest(text) || text === APP_BUTTON || text === "/app") {
+    await bot.api.sendMessage(chatId, APP_TEXT, { reply_markup: appButton(botRow, APP_BUTTON) });
     return;
   }
   if (text === MENU_BUTTON || text === "/khatma") {
     await setPending(tgUserId, null);
-    await sendKhatmaIntro(bot, chatId);
+    await sendKhatmaIntro(bot, chatId, appUrlFor(botRow, "khatma"));
     return;
   }
   if (text === CONTEST_BUTTON || text === "/contest") {
     await setPending(tgUserId, null);
-    await sendContestIntro(bot, chatId);
+    await sendContestIntro(bot, chatId, appUrlFor(botRow, "contests"));
     return;
   }
   if (text === MEMORIAL_BUTTON) {
@@ -363,25 +404,16 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   }
 
   if (activeCategory && text === "✅ سجلت اليوم") {
-    const entry = await getOrCreateEntry(tgUserId, activeCategory.id);
-    const today = todayKey();
-    if (entry.lastCheckInDate === today) {
+    const r = await checkInCore(botRow.id, tgUserId, activeCategory.id);
+    if (r.already) {
       await bot.api.sendMessage(chatId, "✅ سجّلت اليوم بالفعل، عد غداً لتكمل سلسلتك!", { reply_markup: categoryMenu() });
       return;
     }
-    const continued = entry.lastCheckInDate === yesterdayKey();
-    const newStreak = continued ? entry.currentStreak + 1 : 1;
-    const newLongest = Math.max(entry.longestStreak, newStreak);
-    const updated = await prisma.streakEntry.update({
-      where: { userId_category: { userId: tgUserId, category: activeCategory.id } },
-      data: { currentStreak: newStreak, longestStreak: newLongest, lastCheckInDate: today },
-    });
     await bot.api.sendMessage(
       chatId,
-      `${continued ? "🔥" : "🌱"} تم التسجيل! سلسلتك الآن ${updated.currentStreak} يوم متتالي.`,
+      `${r.continued ? "🔥" : "🌱"} تم التسجيل! سلسلتك الآن ${r.entry.currentStreak} يوم متتالي.`,
       { reply_markup: categoryMenu() }
     );
-    await earnPoints(tgUserId, 1, "streak_checkin", botRow.id).catch(() => null);
     return;
   }
 
