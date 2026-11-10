@@ -83,3 +83,7 @@ CREATE TABLE IF NOT EXISTS match_broadcast_log (campaign TEXT NOT NULL, user_id 
 -- v8 (2026-10-14): admin profile review cards (removed after a decision)
 CREATE TABLE IF NOT EXISTS match_review_cards (user_id TEXT NOT NULL, chat_id TEXT NOT NULL, message_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_id, message_id));
 CREATE INDEX IF NOT EXISTS match_review_cards_user_idx ON match_review_cards (user_id);
+
+-- v9 (2026-11-11): opt-in daily «3 best matches» digest (also prisma/migration_30_marriage_bot_digest_feedback.sql)
+CREATE TABLE IF NOT EXISTS match_digest_optin (user_id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_digest_optin_bot_idx ON match_digest_optin (bot_id) WHERE enabled;

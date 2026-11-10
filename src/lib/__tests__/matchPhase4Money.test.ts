@@ -307,6 +307,8 @@ describe("💍 matchmaker candidates: privacy and repeats", () => {
     user("ok"); const pOk = profile("ok");
     const bot = mkBot();
     expect(await trust.sendSuggestion(bot, { id: "b1" } as any, "1", pOk.id)).toBe("sent");
+    // 2026-11-11: the requester gets «🙅 غير مناسب» under every suggestion
+    expect(JSON.stringify(bot.api.sendMessage.mock.calls[0][2].reply_markup)).toContain(`mm_ns|1|${pOk.id}`);
     expect(await trust.sendSuggestion(bot, { id: "b1" } as any, "1", pOk.id)).toBe("dup");
   });
 });

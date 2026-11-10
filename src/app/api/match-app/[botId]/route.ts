@@ -13,7 +13,9 @@ import {
 } from "@/lib/match/entitlements";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import { nextProfileStatus } from "@/lib/match/guardRules";
-import { buyMatchmakerCore, matchmakerStatus, submitMatchmakerNote } from "@/lib/match/trust";
+import { buyMatchmakerCore, markNotSuitable, matchmakerProgress, matchmakerStatus, submitMatchmakerNote } from "@/lib/match/trust";
+import { completenessOf, digestOn, setDigest } from "@/lib/match/engage";
+import { NOT_SUITABLE_REASONS, isNotSuitableReason, twoWayFit } from "@/lib/match/trustRules";
 import { CARD_INLINE_QUERY, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER, cardLink, cardShareText } from "@/lib/match/trustRules";
 import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
 import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
@@ -154,6 +156,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         giftsReceived: await giftsReceived(tg.id).catch(() => ({})),
         quizDone: (await quizOf([tg.id]).catch(() => new Map())).has(tg.id),
         compliments: COMPLIMENTS,
+        completeness: await completenessOf(tg.id).catch(() => null), // 📊 meter + tips (2026-11-11)
+        digest: await digestOn(tg.id).catch(() => false), // 🔔 opt-in daily «3 best matches»
       });
     }
 
@@ -325,6 +329,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await prisma.matchProfilePrivacy.upsert({ where: { userId: tg.id }, update: { countryOnly: body.countryOnly }, create: { userId: tg.id, countryOnly: body.countryOnly } }).catch(() => null);
       }
       if (typeof body.incognito === "boolean") await toggleIncognito(tg.id, body.incognito);
+      if (typeof body.digest === "boolean") await setDigest(tg.id, botId, body.digest);
       return NextResponse.json({ ok: true });
     }
     if (action === "visibility") { // v1 compatibility
@@ -385,10 +390,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const denied = new Set(perms.map((p) => p.ownerId));
       const blockedIds = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
       const profiles = await prisma.matchProfile.findMany({
-        where: { userId: { in: pick.filter((id) => !blockedIds.has(id)) }, status: "APPROVED" },
+        where: { userId: { in: pick.filter((id) => !blockedIds.has(id)) }, status: "APPROVED", user: { isBanned: false } },
         include: { user: { select: { lastActiveAt: true, vipUntil: true } } },
       });
       const byId = new Map(profiles.map((p) => [p.userId, p]));
+      // 🤝 two-way fit: each side meets the other's stated country/age wishes (needs both preferences).
+      const theirPrefs = await prisma.partnerPreference.findMany({ where: { userId: { in: profiles.map((p) => p.userId) } }, select: { userId: true, country: true, ageMin: true, ageMax: true } }).catch(() => []);
+      const prefOf = new Map(theirPrefs.map((x) => [x.userId, x]));
       const now = new Date();
       const [quizzes, tgIds] = await Promise.all([quizOf([tg.id, ...pick]).catch(() => new Map<string, number[]>()), identitiesOf(pick).catch(() => new Set<string>())]);
       const myQuiz = quizzes.get(tg.id);
@@ -397,6 +405,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         name: cardName(p.name), // the display name typed in the bot profile (app cards only; inline sharing stays nameless)
         flag: countryFlag(p.country),
         compat: compatibilityPercent(p, pref, advanced), // bot's own «💞 توافق X%»
+        twoWay: twoWayFit(user.profile!, user.preference, p, prefOf.get(p.userId) ?? null),
         values: myQuiz && quizzes.get(p.userId) ? valuesPercent(myQuiz, quizzes.get(p.userId)!) : null, // 🧠 values quiz, only when both answered
         tgv: tgIds.has(p.userId),
         presence: onlineLabel(p.user.lastActiveAt),
@@ -491,7 +500,26 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     // ---- 💍 الخاطبة الشخصية + 🪪 بطاقتي: the bot's own functions, same price/rules (src/lib/match/trust.ts) ----
     if (action === "mm_status") {
       const open = await matchmakerStatus(tg.id).catch(() => null);
-      return NextResponse.json({ ok: true, price: PRICE_MATCHMAKER, slaHours: MATCHMAKER_SLA_HOURS, noteMax: MATCHMAKER_NOTE_MAX, open, canBuy: user.profile?.status === "APPROVED" });
+      // 💍 progress view: the member's own requests and the suggestions each received (cards re-checked for
+      // APPROVED, banned and blocks by cards(); a suggestion that no longer passes simply isn't shown).
+      const progress = await matchmakerProgress(tg.id).catch(() => []);
+      const pids = [...new Set(progress.flatMap((r) => r.suggestions.map((x) => x.profileId)))];
+      const owners = pids.length ? await prisma.matchProfile.findMany({ where: { id: { in: pids } }, select: { id: true, userId: true } }) : [];
+      const shown = await cards([...new Set(owners.map((o) => o.userId))], user.preference ?? defaultPref(tg.id, user.profile), hasAdvancedFilters(user));
+      const cardOf = new Map(shown.map((c) => [c.ref, c]));
+      const requests = progress.map((r) => ({
+        ...r,
+        suggestions: r.suggestions.flatMap((x) => { const card = cardOf.get(x.profileId); return card ? [{ ...x, card }] : []; }),
+      }));
+      return NextResponse.json({ ok: true, price: PRICE_MATCHMAKER, slaHours: MATCHMAKER_SLA_HOURS, noteMax: MATCHMAKER_NOTE_MAX, open, canBuy: user.profile?.status === "APPROVED", requests, reasons: NOT_SUITABLE_REASONS });
+    }
+    if (action === "mm_verdict") {
+      if (!(await pgRateLimit(`mmv:${tg.id}`, 20, 60))) return err("تمهّل قليلاً");
+      const reason = String(body.reason || "");
+      if (!isNotSuitableReason(reason)) return err("اختر سبباً");
+      const r = await markNotSuitable(bot, tg.id, String(body.reqId || ""), String(body.profileId || ""), reason);
+      if (r === "invalid") return err("غير متاح", 404);
+      return NextResponse.json({ ok: true, verdict: reason, message: r === "dup" ? "سجّلنا رأيك من قبل" : "✅ شكراً، ستراعي الخاطبة ذلك في اقتراحاتها" });
     }
     if (action === "mm_buy") {
       if (!(await pgRateLimit(`buy:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");

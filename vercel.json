@@ -99,6 +99,10 @@
       "schedule": "0 17 * * *"
     },
     {
+      "path": "/api/cron/match-digest",
+      "schedule": "0 17 * * *"
+    },
+    {
       "path": "/api/cron/remit-status",
       "schedule": "0 2 * * *"
     },

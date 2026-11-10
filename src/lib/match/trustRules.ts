@@ -80,6 +80,8 @@ export type CandidateInput = {
 };
 export type RequesterInput = {
   userId: string; gender: string;
+  /** Profiles this member marked «🙅 غير مناسب» on earlier suggestions (any request). */
+  rejections?: Rejection[];
   /** The requester's own age/country: the default country wish and the reciprocal fit. */
   age?: number | null; country?: string | null;
   pref?: { country?: string | null; ageMin?: number | null; ageMax?: number | null; city?: string | null; maritalStatus?: string | null; job?: string | null; education?: string | null } | null;
@@ -156,6 +158,8 @@ function scoreCandidate(req: RequesterInput, c: CandidateInput, now: Date): Scor
   if (c.likedRequester) { s += 20; why.push("أعجب بملفه سابقاً"); }
   if (c.passedByRequester) s -= 25;
   if (c.verified) { s += 5; why.push("موثّق"); }
+  const fb = req.rejections?.length ? feedbackPenalty(c, req.rejections) : 0;
+  if (fb) s -= fb;
   const days = c.lastActiveAt ? (now.getTime() - c.lastActiveAt.getTime()) / 86400_000 : Infinity;
   s += days <= 3 ? 15 : days <= MATCHMAKER_ACTIVE_DAYS ? 8 : days <= 60 ? 2 : 0;
   return { c, s, why };
@@ -217,4 +221,51 @@ export function affinityFactor(o: { likedByMe?: boolean; likedMe?: boolean; fit?
   if (o.fit === "fit") w *= 1.4;
   else if (o.fit === "miss") w *= 0.7;
   return w;
+}
+
+/**
+ * 🤝 Mutual two-way fit: each side meets the other's stated wishes (country, age range). Needs stated wishes on
+ * BOTH sides — without them nothing is claimed. Shown as a badge on cards.
+ */
+export function twoWayFit(
+  a: { age?: number | null; country?: string | null }, aPref: CandidateInput["pref"],
+  b: { age?: number | null; country?: string | null }, bPref: CandidateInput["pref"],
+): boolean {
+  return reciprocalFit(a, bPref) === "fit" && reciprocalFit(b, aPref) === "fit";
+}
+export const TWO_WAY_BADGE = "🤝 توافق متبادل";
+
+// ---------------------------------------------------------------------------
+// 🙅 «غير مناسب» on a matchmaker suggestion: the reason feeds the next ranking for that member.
+// ---------------------------------------------------------------------------
+export const NOT_SUITABLE_REASONS = {
+  age: "العمر",
+  place: "الدولة أو المدينة",
+  marital: "الحالة الاجتماعية",
+  work: "العمل أو التعليم",
+  other: "سبب آخر",
+} as const;
+export type NotSuitableReason = keyof typeof NOT_SUITABLE_REASONS;
+export function isNotSuitableReason(s: string | null | undefined): s is NotSuitableReason {
+  return !!s && Object.prototype.hasOwnProperty.call(NOT_SUITABLE_REASONS, s);
+}
+export function notSuitableCallback(reqId: string, profileId: string, reason?: NotSuitableReason): string {
+  return reason ? `mm_nsr|${reqId}|${profileId}|${reason}` : `mm_ns|${reqId}|${profileId}`;
+}
+/** A profile the member marked «غير مناسب», with what it looked like (for the similarity penalty). */
+export type Rejection = { reason: NotSuitableReason; age: number; country: string; city?: string | null; maritalStatus?: string | null; job?: string | null; education?: string | null };
+/**
+ * Score penalty for a candidate that resembles profiles this member rejected, on the dimension they named:
+ * age within 2 years (age), same country/city (place), same marital status (marital), similar job/education (work).
+ * «سبب آخر» carries no signal. Capped so feedback steers the ranking without wiping a candidate out.
+ */
+export function feedbackPenalty(c: CandidateInput, rejections: Rejection[]): number {
+  let p = 0;
+  for (const r of rejections) {
+    if (r.reason === "age" && Math.abs(c.age - r.age) <= 2) p += 12;
+    else if (r.reason === "place" && (normAr(c.country) === normAr(r.country) && (!r.city || !c.city || normAr(c.city) === normAr(r.city)))) p += 12;
+    else if (r.reason === "marital" && r.maritalStatus && c.maritalStatus && normAr(c.maritalStatus) === normAr(r.maritalStatus)) p += 10;
+    else if (r.reason === "work" && ((r.job && loose(c.job, r.job)) || (r.education && loose(c.education, r.education)))) p += 8;
+  }
+  return Math.min(30, p);
 }
