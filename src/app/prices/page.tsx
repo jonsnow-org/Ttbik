@@ -144,6 +144,7 @@ export default async function PricesPage() {
             لا تتوفر أرقام اليوم من المصدر. لم نضع بديلاً تقديرياً.
           </p>
         )}
+        <p className="my-4 rounded-xl bg-emerald-50 p-3 text-sm">💸 سترسل حوالة؟ <Link href="/remit" className="font-bold underline">احسب تكلفتها الحقيقية وهامش سعر الصرف المخفي</Link>.</p>
         <AdSlot position="in-content" label="وسط صفحة أسعار الصرف" />
         <h2 className="mb-3 mt-8 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
         <dl className="space-y-3">
