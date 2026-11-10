@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { shrinkImage } from "@/lib/clientPrep";
 
 const PLANS = [
@@ -21,6 +21,8 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
   const [confirm, setConfirm] = useState("");
   const [method, setMethod] = useState<"nowpayments" | "usdt" | "stars">("nowpayments");
   const [msg, setMsg] = useState("");
+  const [usdt, setUsdt] = useState<{ amount: string; address: string; expiresInMin: number } | null>(null);
+  const [paid, setPaid] = useState(false);
   const price = useMemo(() => PLANS.find((p) => p.days === days)?.price || 0, [days]);
 
   async function upload(picked: File) {
@@ -59,8 +61,23 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
     });
     const data = await res.json();
     if (data.invoiceUrl) window.location.href = data.invoiceUrl;
+    else if (data.auto && data.amount) setUsdt({ amount: String(data.amount), address: String(data.usdt), expiresInMin: Number(data.expiresInMin) || 0 });
     else setMsg(data.note ? `${data.note} ${data.amount}$ ${ar ? "عبر" : "via"} ${data.network}: ${data.usdt}` : data.error || (ar ? "تعذر الدفع" : "Payment failed"));
   }
+
+  async function checkUsdt() {
+    const res = await fetch("/api/ads/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, method: "usdt-check" }) });
+    const data = await res.json().catch(() => ({}));
+    if (data.paid) { setPaid(true); setUsdt(null); setMsg(ar ? "✅ وصل الدفع. الإعلان قيد المراجعة ثم يُفعَّل." : "✅ Payment received. Your ad is in review."); }
+    return Boolean(data.paid);
+  }
+
+  useEffect(() => {
+    if (!usdt || paid) return;
+    const id = setInterval(() => { void checkUsdt(); }, 30000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usdt, paid]);
 
   async function sendCode() {
     setMsg("");
@@ -113,6 +130,14 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
             <button type="button" onClick={() => setMethod("usdt")} className={`rounded-full px-3 py-1 text-sm font-bold ${method === "usdt" ? "bg-slate-900 text-white" : "bg-slate-100"}`}>USDT</button>
           </div>
           <button type="button" onClick={pay} className="mt-3 rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white">{ar ? "متابعة الدفع" : "Continue"}</button>
+          {usdt && (
+            <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm leading-7">
+              <p>{ar ? "أرسل هذا المبلغ بالضبط (USDT على شبكة TRC20):" : "Send exactly this amount (USDT, TRC20 network):"} <b dir="ltr">{usdt.amount} USDT</b></p>
+              <p className="break-all font-mono text-xs" dir="ltr">{usdt.address}</p>
+              <p className="text-xs text-slate-600">{ar ? `المبلغ المميِّز يربط الدفع بطلبك تلقائياً، صالح ${usdt.expiresInMin} دقيقة. نتحقق كل 30 ثانية.` : `The exact amount links the payment to your order; valid ${usdt.expiresInMin} min. Checked every 30 s.`}</p>
+              <button type="button" onClick={() => void checkUsdt().then((ok) => { if (!ok) setMsg(ar ? "لم يصل بعد. انتظر تأكيد الشبكة." : "Not received yet."); })} className="mt-2 rounded-full border px-3 py-1 text-xs font-bold">{ar ? "تحققت من الإرسال" : "I sent it"}</button>
+            </div>
+          )}
         </div>
       )}
       <label className="block text-sm font-bold">{ar ? "بعد الدفع: أدخل الكود" : "After payment: code"}

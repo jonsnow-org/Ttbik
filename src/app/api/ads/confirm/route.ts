@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   );
   return NextResponse.json({
     ok: true,
-    status: ad.paymentStatus === "PAID" ? "بانتظار موافقة التلجرام" : "أُبلغ المدير. التفعيل بعد تأكيد الدفع.",
+    status: ad.paymentStatus === "PAID" ? "بانتظار مراجعة المنصة" : "أُرسل للمنصة للمراجعة. التفعيل بعد تأكيد الدفع.",
     reportUrl: adReportUrl(code) || undefined, // the advertiser's private views/clicks report
   });
 }

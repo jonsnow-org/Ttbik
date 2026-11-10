@@ -33,7 +33,7 @@ export const SIDEBAR_EDITORIAL_SECTION: NavSection = {
  * One source for the side menu, the footer and the home page section.
  */
 export const SERVICE_LINKS = [
-  { id: "remit", href: "/remit", label: "💸 حاسبة الحوالات", desc: "اكشف التكلفة الحقيقية لأي حوالة وقارن الشركات." },
+  { id: "remit", href: "/remit", label: "💸 حوالات USDT", desc: "بدّل وأرسل USDT لأي محفظة خلال دقائق." },
   { id: "channels", href: "/channels", label: "📢 بورصة القنوات", desc: "إعلانات قنوات تيليجرام بضمان الدفع حتى يُنشر الإعلان." },
   { id: "channel-audit", href: "/channel-audit", label: "🔎 فحص قناة مجاناً", desc: "نسبة المشاهدة الحقيقية والسعر العادل لأي قناة عامة." },
   { id: "advertise", href: "/advertise", label: "📣 أعلن على الموقع", desc: "بنرات ورعاية أدوات بأسعار واضحة، والدفع بالنجوم أو العملات الرقمية." },

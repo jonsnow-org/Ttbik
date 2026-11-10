@@ -192,3 +192,37 @@ export async function markSiteAdPaid(code: string, via: string): Promise<{ ok: b
   }
   return { ok: true, first: moved.count === 1, ad };
 }
+
+// 💵 Automatic USDT (TRC20) for site ads (2026-11-10): before this the buyer sent the flat price and the owner had to check his wallet by
+// hand and tap approve, so a paid ad could sit unpaid in the system. Now each order gets an exact amount (src/lib/payments/usdtOrders.ts)
+// paid straight to the owner's wallet; the on-chain match marks it PAID and puts it in the normal review queue (content review stays).
+export const SITE_AD_USDT_PREFIX = "sitead:";
+export async function siteAdUsdtQuote(ad: { reservationCode: string; totalPrice: number }) {
+  const { usdtQuote } = await import("@/lib/payments/usdtOrders");
+  return usdtQuote(`${SITE_AD_USDT_PREFIX}${ad.reservationCode}`, ad.totalPrice);
+}
+export async function checkSiteAdUsdt(code: string): Promise<{ paid: boolean }> {
+  const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
+  if (!ad) return { paid: false };
+  if (ad.paymentStatus === "PAID") return { paid: true };
+  const { usdtCheck } = await import("@/lib/payments/usdtOrders");
+  let hash = "";
+  const r = await usdtCheck(`${SITE_AD_USDT_PREFIX}${code}`, async (tx, p) => {
+    const moved = await tx.siteBannerAd.updateMany({ where: { reservationCode: code, paymentStatus: { not: "PAID" } }, data: { paymentStatus: "PAID" } });
+    if (moved.count !== 1) throw new Error("not pending");
+    hash = p.hash;
+  });
+  if (r.paid) {
+    // already PAID in the claim transaction; this records revenue, moves it to review and tells the owner (once)
+    await prisma.siteBannerAd.update({ where: { reservationCode: code }, data: { adStatus: "PENDING_APPROVAL" } }).catch(() => null);
+    await creditBanner(code).catch(() => null);
+    await notifyAdmin(`💵 دُفع إعلان ${code} تلقائياً بـ USDT TRC20 (${hash.slice(0, 16)})\n${ad.totalPrice}$ لمدة ${ad.durationDays} يوم\n${ad.kind}/${ad.placement}\n${ad.targetUrl}`, code).catch(() => null);
+  }
+  return { paid: r.paid };
+}
+export async function sweepSiteAdUsdt(): Promise<number> {
+  const { openPayers } = await import("@/lib/payments/usdtOrders");
+  let n = 0;
+  for (const ref of await openPayers(SITE_AD_USDT_PREFIX)) if ((await checkSiteAdUsdt(ref.slice(SITE_AD_USDT_PREFIX.length)).catch(() => ({ paid: false }))).paid) n++;
+  return n;
+}

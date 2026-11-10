@@ -33,7 +33,7 @@ export default function AdvertisePage() {
           </a>
         ))}
       </section>
-      <p className="mt-3 text-xs text-slate-500">طرق الدفع: 💎 عملات رقمية (NOWPayments: USDT وTON وBTC وغيرها)، ⭐ نجوم تيليجرام، أو تحويل USDT يدوي. يُحتسب الدفع تلقائياً فقط بعد تأكيد مزوّد الدفع، ويحصل كل معلن على رابط تقرير خاص بالمشاهدات والنقرات.</p>
+      <p className="mt-3 text-xs text-slate-500">طرق الدفع: 💎 عملات رقمية (NOWPayments: USDT وTON وBTC وغيرها)، ⭐ نجوم تيليجرام، أو USDT (TRC20) مباشرة لمحفظتنا بمبلغ مميِّز. يُحتسب الدفع تلقائياً بعد تأكيد الشبكة أو مزوّد الدفع، ويحصل كل معلن على رابط تقرير خاص بالمشاهدات والنقرات.</p>
       <div className="mt-6"><AdvertiseForm locale="ar" /></div>
     </main>
   );

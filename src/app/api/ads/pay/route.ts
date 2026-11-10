@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
-import { siteAdStarsInvoice } from "@/lib/siteAds";
+import { checkSiteAdUsdt, siteAdStarsInvoice, siteAdUsdtQuote } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
 import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const code = String(body.code || "").trim().toUpperCase();
-  const method = body.method === "usdt" ? "usdt" : body.method === "stars" ? "stars" : "nowpayments";
+  const method = body.method === "usdt" ? "usdt" : body.method === "usdt-check" ? "usdt-check" : body.method === "stars" ? "stars" : "nowpayments";
   const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
   if (!ad) return NextResponse.json({ error: "الكود غير موجود." }, { status: 404 });
+  if (method === "usdt-check") {
+    // the buyer's page polls this; the cron /api/cron/auto-money also sweeps every open quote
+    const r = await checkSiteAdUsdt(code).catch(() => ({ paid: false }));
+    return NextResponse.json({ paid: r.paid, code });
+  }
   if (ad.paymentStatus === "PAID") return NextResponse.json({ error: "هذا الحجز مدفوع." }, { status: 400 });
 
   if (method === "stars") {
@@ -20,6 +25,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ invoiceUrl: r.link, stars: r.stars, code });
   }
   if (method === "usdt") {
+    const q = await siteAdUsdtQuote(ad).catch(() => null);
+    if (q?.ok) return NextResponse.json({ auto: true, method: "usdt", amount: q.amount, usd: q.usd, usdt: q.address, network: q.network, expiresInMin: q.expiresInMin, code });
     return NextResponse.json({
       manual: true,
       method: "usdt",
