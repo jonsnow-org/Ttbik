@@ -9,6 +9,8 @@ import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
+import { FEATURE_CALLBACK, SHOP_BUTTON, parseShopStart, withFeaturedFirst } from "@/lib/jobs/shopRules";
+import { featureButton, featureListing, featuredListingIds, featuredUntil, sendMyShop, sendShopInBot } from "@/lib/jobs/shop";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
   TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
@@ -121,6 +123,7 @@ type StoreWantedStep = "title" | "description" | "budget";
 type StoreWantedDraft = { title?: string; description?: string; budget?: number | null };
 
 type PendingAction =
+  | { mode: "after_verify"; payload: string } // a shop_/item_ deep link opened before phone verification, resumed right after it
   | { mode: "profile_wizard"; step: ProfileStep; data: ProfileDraft }
   | { mode: "job_posting_wizard"; step: JobPostingStep; data: JobPostingDraft }
   | { mode: "job_posting_description_review"; data: JobPostingDraft; suggested: string }
@@ -192,7 +195,7 @@ function storeMenu(): Keyboard {
   return new Keyboard()
     .text("💰 أمر بيع").text("🛍 أمر شراء").row()
     .text("🔍 بحث عن منتج").text("🔍 تصفح المنتجات").row()
-    .text("📂 طلباتي").row()
+    .text("📂 طلباتي").text(SHOP_BUTTON).row()
     .text(backLabel())
     .resized();
 }
@@ -659,14 +662,28 @@ async function sendStoreResults(bot: TelegramBot, chatId: number, keyword: strin
     skip: offset,
     take: RESULTS_PAGE_SIZE,
   });
-  if (listings.length === 0) {
+  // ⭐ Paid featured listings (src/lib/jobs/shop.ts) lead the first page of browse and search.
+  let featured: typeof listings = [];
+  if (offset === 0) {
+    const ids = await featuredListingIds().catch(() => [] as string[]);
+    if (ids.length) {
+      const rows = await prisma.storeListing.findMany({
+        where: {
+          id: { in: ids }, status: "ACTIVE", sellerId: { notIn: [...blocked, viewerId] },
+          ...(keyword ? { OR: [{ title: { contains: keyword, mode: "insensitive" } }, { description: { contains: keyword, mode: "insensitive" } }] } : {}),
+        },
+      });
+      featured = ids.map((id) => rows.find((r) => r.id === id)).filter((r): r is (typeof rows)[number] => !!r);
+    }
+  }
+  if (listings.length === 0 && featured.length === 0) {
     await bot.api.sendMessage(chatId, offset === 0 ? "😔 لا توجد منتجات مطابقة حالياً." : "🔚 لا يوجد المزيد من النتائج.", { reply_markup: mainMenu() });
     return;
   }
   const kb = new InlineKeyboard();
-  const lines = listings.map((l, i) => {
+  const lines = withFeaturedFirst(listings, featured).map(({ item: l, featured: star }, i) => {
     kb.text(`👁 عرض ${i + 1}`, `jview|listing|${l.id}`).row();
-    return `${i + 1}. 🛒 ${l.title} — $${l.price.toFixed(2)}`;
+    return `${i + 1}. ${star ? "⭐" : "🛒"} ${l.title} — $${l.price.toFixed(2)}`;
   });
   if (listings.length === RESULTS_PAGE_SIZE) kb.text("➡️ 5 نتائج أخرى", `jmore|listing|${encodeURIComponent(keyword)}|${offset + RESULTS_PAGE_SIZE}`);
   const title = keyword ? `🔍 نتائج البحث عن "${keyword}":` : "🛒 منتجات معروضة:";
@@ -863,7 +880,12 @@ async function sendStoreListingCard(bot: TelegramBot, chatId: number, id: string
     `💳 الدفع: ${l.paymentMethod === "ESCROW" ? "عبر البوت (حجز حتى الاستلام)" : "يدوي"}\n` +
     `📌 الحالة: ${orderStatusLabel(l.status)}`;
   const kb = new InlineKeyboard();
+  const featuredTill = l.status === "ACTIVE" ? await featuredUntil(l.id).catch(() => null) : null;
   if (isOwner) {
+    if (l.status === "ACTIVE") {
+      const fb = featureButton(l.id);
+      kb.text(featuredTill ? `⭐ مميّز حتى ${featuredTill.toISOString().slice(0, 10)} · مدّد` : fb.text, fb.data).row();
+    }
     if (l.status === "ACTIVE" || l.status === "PAUSED") {
       kb.text("✏️ تعديل", `jeditlisting|${l.id}`).row();
       kb.text(l.status === "ACTIVE" ? "⏸ إيقاف" : "▶️ تفعيل", `jtogglelisting|${l.id}`).text("🗑 حذف", `jdeletelisting|${l.id}`);
@@ -1441,6 +1463,19 @@ async function sendAdminInboxSummary(bot: TelegramBot, chatId: number) {
  * A Telegram Stars payment is credited FIRST, before any admin/ban/mute gate: money that was paid must never be dropped because the payer is the
  * platform owner (his messages took a text-menu path that ignored everything but text) or is muted. Idempotent on the Stars charge id.
  */
+/** shop_<slug> / item_<id> deep links: open the shop or the product card; a buyer without a profile is then walked into it. */
+async function openShopStart(bot: TelegramBot, chatId: number, userId: string, payload: string) {
+  const p = parseShopStart(payload);
+  if (!p) return;
+  if (p.kind === "shop") await sendShopInBot(bot, chatId, p.slug, userId);
+  else await sendStoreListingCard(bot, chatId, p.id, userId);
+  const profile = await prisma.jobsProfile.findUnique({ where: { userId } });
+  if (!profile) {
+    await bot.api.sendMessage(chatId, "للشراء أكمل ملفك القصير أولاً (دقيقة واحدة):");
+    await startProfileWizard(bot, chatId, userId);
+  }
+}
+
 async function handleJobsStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any): Promise<void> {
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
@@ -1623,12 +1658,22 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.jobsUser.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
       await bot.api.sendMessage(chatId, "✅ تم التحقق من رقم هاتفك.", { reply_markup: mainMenu() });
+      const waiting = user.pendingAction as PendingAction | null;
+      if (waiting?.mode === "after_verify") {
+        await setPending(tgUserId, null);
+        await openShopStart(bot, chatId, tgUserId, waiting.payload);
+      }
     } else {
       await bot.api.sendMessage(chatId, "⚠️ يجب مشاركة رقم هاتفك أنت.");
     }
     return;
   }
   if (!user.phoneVerified) {
+    const startPayload = String(msg.text || "").startsWith("/start ") ? String(msg.text).slice(7).trim() : "";
+    if (parseShopStart(startPayload)) {
+      await recordBotVisit(botRow.id, tgUserId);
+      await setPending(tgUserId, { mode: "after_verify", payload: startPayload });
+    }
     await bot.api.sendMessage(chatId, "📱 التحقق من رقم الهاتف خطوة إلزامية قبل استخدام هذا البوت.", {
       reply_markup: new Keyboard().requestContact("📱 مشاركة رقم الهاتف").resized(),
     });
@@ -1676,6 +1721,10 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     }
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
+    if (parseShopStart(payload)) {
+      await openShopStart(bot, chatId, tgUserId, payload);
+      return;
+    }
     const profile = await prisma.jobsProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
       await bot.api.sendMessage(chatId, startGuide("JOBS"));
@@ -1969,6 +2018,10 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await bot.api.sendMessage(chatId, "اكتب كلمة مفتاحية تصف ما يبحث عنه المشترون:", { reply_markup: plainBackMenu() });
     return;
   }
+  if (text === SHOP_BUTTON) {
+    await sendMyShop(bot, chatId, tgUserId);
+    return;
+  }
   if (text === "📂 طلباتي") {
     await bot.api.sendMessage(chatId, "📂 طلباتي:", { reply_markup: myOrdersMenu() });
     return;
@@ -2144,6 +2197,19 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
+  if (data.startsWith(FEATURE_CALLBACK)) {
+    const r = await featureListing(tgUserId, data.slice(FEATURE_CALLBACK.length), chargeJobsUser);
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    if (r.ok) {
+      await bot.api.sendMessage(chatId, `⭐ منتجك مميّز حتى ${r.until.toISOString().slice(0, 10)}: يظهر أولاً في التصفح والبحث وعلى صفحة متجرك.`);
+    } else if (r.reason === "balance") {
+      await bot.api.sendMessage(chatId, `💰 رصيدك $${Number(r.balance || 0).toFixed(2)} لا يكفي. اشحن رصيدك بنجوم تيليجرام ثم اضغط «⭐ تمييز» مرة أخرى:`, { reply_markup: starsDepositKeyboard("jstars") });
+    } else {
+      await bot.api.sendMessage(chatId, r.reason === "not_owner" ? "هذا ليس منتجك." : "فعّل المنتج أولاً ثم ميّزه.");
+    }
+    return;
+  }
+
   if (data.startsWith("jview|")) {
     const [, kind, id] = data.split("|");
     if (kind === "posting") await sendJobPostingCard(bot, chatId, id, tgUserId);
