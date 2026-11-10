@@ -170,7 +170,8 @@ function mainMenu(): Keyboard {
     .text("👤 ملفي الشخصي").text("💍 مواصفات الشريك").row()
     .text("🔍 البحث عن شريك").text("🔀 مراسلة عشوائية").row()
     .text("💌 من أعجب بي").text("ℹ️ معلومات").row()
-    .text("⭐ الترقيات والمزايا").text(CARD_BUTTON)
+    .text("⭐ الترقيات والمزايا").text(CARD_BUTTON).row()
+    .text(MATCHMAKER_BUTTON)
     .resized();
 }
 // Upgrade button labels. With the first-purchase discount (server-checked) the label shows the
@@ -192,23 +193,33 @@ export function isUpgradeLabel(text: string, k: keyof typeof UPGRADE_LABELS): bo
 }
 // ✨ Cheap entry offer, mirrored in the Mini App catalogue (key "vipTrial"): one Stars invoice, activates on payment.
 export const VIP_TRIAL_BUTTON = `✨ جرّب الذهبية ${VIP_TRIAL_DAYS} أيام (${Math.round(PRICE_VIP_TRIAL * 100)} ⭐)`;
+/** Every label on the upgrades keyboard, in order (the handlers match these exact strings). */
+export function upgradesMenuLabels(discount = false, tonConfigured = isNativeTonConfigured()): string[] {
+  return [
+    "💰 رصيدي وإيداع",
+    ...(tonConfigured ? ["🔷 إيداع TON / USDT مباشر"] : []),
+    VIP_TRIAL_BUTTON,
+    MATCHMAKER_BUTTON,
+    upgradeLabel("boost", discount),
+    upgradeLabel("verify", discount),
+    upgradeLabel("photos", discount),
+    upgradeLabel("visitors", discount),
+    upgradeLabel("filters", discount),
+    ANON_FILTERS_BUTTON(discount),
+    "🎯 بحث دقيق (للمشتركين)",
+    upgradeLabel("vip", discount),
+    "🕶 وضع التخفي (ضمن الذهبية)",
+  ];
+}
+// Owner spec (2026-11-10): a grid of two buttons per row instead of one long column; «back» alone on the last row.
 function upgradesMenu(discount = false): Keyboard {
-  const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
-  kb.text(VIP_TRIAL_BUTTON).row();
-  kb.text(MATCHMAKER_BUTTON).row();
-  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
-  return kb
-    .text(upgradeLabel("boost", discount)).row()
-    .text(upgradeLabel("verify", discount)).row()
-    .text(upgradeLabel("photos", discount)).row()
-    .text(upgradeLabel("visitors", discount)).row()
-    .text(upgradeLabel("filters", discount)).row()
-    .text(ANON_FILTERS_BUTTON(discount)).row()
-    .text("🎯 بحث دقيق (للمشتركين)").row()
-    .text(upgradeLabel("vip", discount)).row()
-    .text("🕶 وضع التخفي (ضمن الذهبية)").row()
-    .text(backLabel())
-    .resized();
+  const kb = new Keyboard();
+  upgradesMenuLabels(discount).forEach((label, i) => {
+    kb.text(label);
+    if (i % 2 === 1) kb.row();
+  });
+  if (upgradesMenuLabels(discount).length % 2 === 1) kb.row();
+  return kb.text(backLabel()).resized();
 }
 function infoMenu(): Keyboard {
   const kb = new Keyboard().text("📩 مراسلة الأدمن").text("🔗 دعوة رابط البوت").row();

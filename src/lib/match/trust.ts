@@ -9,13 +9,13 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { chargeMatchUser } from "@/lib/match/entitlements";
 import { containsContactInfo } from "@/lib/match/contactGuard";
-import { botUsername } from "@/lib/match/hybrid";
+import { botUsername, publicCardKeyboard } from "@/lib/match/hybrid";
 import { publicCardText, toPublicProfile } from "@/lib/match/inline";
 import { trackFunnel } from "@/lib/match/growth";
 import { sendStarsInvoice, starsPayload } from "@/lib/starsPayment";
 import {
   CARD_INLINE_QUERY, MATCHMAKER_INTRO, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER,
-  cardLink, cardShareText, checkMatchmakerNote, parseCardStart, shortfallStars,
+  MATCHMAKER_CANDIDATES, cardLink, cardShareText, checkMatchmakerNote, parseCardStart, rankMatchmakerCandidates, shortfallStars, suggestCallback,
 } from "@/lib/match/trustRules";
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
@@ -30,6 +30,10 @@ export function ensureTrustTables(): Promise<void> {
       );
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS match_matchmaker_status_idx ON match_matchmaker (status, created_at DESC)`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS match_matchmaker_user_idx ON match_matchmaker (user_id, created_at DESC)`);
+      // Profiles already suggested for a request, so the same one is never sent twice.
+      await prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS match_matchmaker_sent (req_id BIGINT NOT NULL, profile_id TEXT NOT NULL, sent_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (req_id, profile_id))`
+      );
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;
@@ -159,13 +163,15 @@ export async function consumeMatchmakerNote(bot: TelegramBot, chatId: number, us
     const p = await prisma.matchProfile.findUnique({ where: { userId } });
     const card = p ? publicCardText(toPublicProfile(p)) : `#${userId.slice(-6)}`;
     await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `💍 طلب خاطبة جديد #${reqId}\n\n${card}\n\n📝 يبحث عن:\n${check.note}`, { reply_markup: adminKeyboard(reqId) }).catch(() => null);
+    await sendCandidates(bot, Number(SUPER_ADMIN_ID), reqId);
   }
   return true;
 }
 
 function adminKeyboard(reqId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📨 أرسل اقتراحاً", `mm_msg|${reqId}`).row()
+    .text("🔎 ملفات مقترحة", `mm_cand|${reqId}`).row()
+    .text("📨 أرسل رسالة نصية", `mm_msg|${reqId}`).row()
     .text("✅ أُنجز", `mm_done|${reqId}`).text("↩️ استرداد", `mm_ref|${reqId}`);
 }
 
@@ -174,6 +180,80 @@ async function requestRow(reqId: string) {
   const r = await prisma.$queryRaw<{ id: bigint; user_id: string; status: string; paid: unknown; note: string | null }[]>`
     SELECT id, user_id, status, paid, note FROM match_matchmaker WHERE id = ${BigInt(reqId)}`;
   return r[0] ?? null;
+}
+
+/**
+ * The best approved profiles for one request (opposite gender, same bot, visible, not banned, no block either way,
+ * not already suggested), ranked by the requester's partner preferences, the note and recent activity.
+ */
+export async function findMatchmakerCandidates(reqId: string) {
+  const row = await requestRow(reqId);
+  if (!row) return null;
+  const me = await prisma.matchProfile.findUnique({ where: { userId: row.user_id }, include: { user: { select: { botId: true } } } });
+  if (!me) return { row, list: [] };
+  const want = me.gender === "MALE" ? "FEMALE" : "MALE";
+  const [pref, pool, blocks, sent] = await Promise.all([
+    prisma.partnerPreference.findUnique({ where: { userId: row.user_id } }),
+    prisma.matchProfile.findMany({
+      where: { status: "APPROVED", isHidden: false, gender: want, userId: { not: row.user_id }, user: { botId: me.user.botId, isBanned: false } },
+      include: { user: { select: { lastActiveAt: true } } },
+      orderBy: { user: { lastActiveAt: "desc" } },
+      take: 300,
+    }),
+    prisma.matchBlock.findMany({ where: { OR: [{ blockerId: row.user_id }, { blockedId: row.user_id }] }, select: { blockerId: true, blockedId: true } }),
+    prisma.$queryRaw<{ profile_id: string }[]>`SELECT profile_id FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)}`,
+  ]);
+  const blocked = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
+  const done = new Set(sent.map((x) => x.profile_id));
+  const fresh = pool.filter((p) => !blocked.has(p.userId) && !done.has(p.id));
+  const ranked = rankMatchmakerCandidates(
+    { userId: row.user_id, gender: me.gender, pref, note: row.note },
+    fresh.map((p) => ({ ...p, lastActiveAt: p.user.lastActiveAt })),
+  );
+  const byId = new Map(fresh.map((p) => [p.id, p]));
+  return { row, list: ranked.map((c) => byId.get(c.id)!).filter(Boolean), alreadySent: done.size };
+}
+
+/** Admin: the ranked candidates as cards, each with a one-tap «📤 اقترح» that sends it to the requester. */
+export async function sendCandidates(bot: TelegramBot, adminChatId: number, reqId: string): Promise<void> {
+  const found = await findMatchmakerCandidates(reqId).catch(() => null);
+  if (!found) {
+    await bot.api.sendMessage(adminChatId, "هذا الطلب غير موجود.").catch(() => null);
+    return;
+  }
+  if (!found.list.length) {
+    await bot.api.sendMessage(adminChatId,
+      `⚠️ لا يوجد الآن أي ملف معتمد مناسب لطلب #${reqId}${found.alreadySent ? ` (أُرسل له ${found.alreadySent} من قبل)` : ""}.\nإن لم تجد يدوياً، اضغط «↩️ استرداد» ليعود المبلغ لرصيده.`,
+      { reply_markup: adminKeyboard(reqId) }).catch(() => null);
+    return;
+  }
+  await bot.api.sendMessage(adminChatId, `🔎 أفضل ${found.list.length} ملفات لطلب #${reqId} (حسب مواصفاته وطلبه ونشاط الملف). اضغط «📤 اقترح» تحت الملف ليصل إليه فوراً:`).catch(() => null);
+  for (const p of found.list.slice(0, MATCHMAKER_CANDIDATES)) {
+    const days = p.user.lastActiveAt ? Math.floor((Date.now() - p.user.lastActiveAt.getTime()) / 86400_000) : null;
+    const active = days === null ? "" : days <= 0 ? "\n🟢 نشط اليوم" : `\n🕒 آخر نشاط قبل ${days} يوم`;
+    await bot.api.sendMessage(adminChatId, `${publicCardText(toPublicProfile(p))}${active}`, {
+      reply_markup: new InlineKeyboard().text(`📤 اقترح هذا الملف لطلب #${reqId}`, suggestCallback(reqId, p.id)),
+    }).catch(() => null);
+  }
+}
+
+/** Admin tapped «📤 اقترح»: send that profile's anonymous card (with like / chat-request buttons) to the requester, once. */
+export async function sendSuggestion(bot: TelegramBot, botRow: BotRow, reqId: string, profileId: string): Promise<"sent" | "closed" | "gone" | "dup" | "failed"> {
+  const row = await requestRow(reqId);
+  if (!row || row.status !== "OPEN") return "closed";
+  const p = await prisma.matchProfile.findUnique({ where: { id: profileId }, include: { user: { select: { botId: true, isBanned: true } } } });
+  if (!p || p.status !== "APPROVED" || p.isHidden || p.user.isBanned || p.user.botId !== botRow.id || p.userId === row.user_id) return "gone";
+  const n = await prisma.$executeRaw`INSERT INTO match_matchmaker_sent (req_id, profile_id) VALUES (${BigInt(reqId)}, ${profileId}) ON CONFLICT DO NOTHING`;
+  if (n !== 1) return "dup";
+  const sent = await bot.api.sendMessage(Number(row.user_id), `💍 اقتراح من الخاطبة (طلب #${reqId}):\n\n${publicCardText(toPublicProfile(p))}\n\nإن أعجبك، اطلب دردشة مجهولة أو أرسل إعجاباً من الأزرار.`, {
+    reply_markup: publicCardKeyboard(p.userId),
+  }).catch(() => null);
+  if (!sent) {
+    await prisma.$executeRaw`DELETE FROM match_matchmaker_sent WHERE req_id = ${BigInt(reqId)} AND profile_id = ${profileId}`.catch(() => null);
+    return "failed";
+  }
+  await prisma.$executeRaw`UPDATE match_matchmaker SET replies = replies + 1 WHERE id = ${BigInt(reqId)}`;
+  return "sent";
 }
 
 /** Admin text after «📨 أرسل اقتراحاً» (admin pending mode mm_reply). */
@@ -208,7 +288,7 @@ export async function handleTrustCallback(bot: TelegramBot, botRow: BotRow, cq: 
   if (!data.startsWith("mm_")) return false;
   const userId = String(cq.from.id);
   const chatId = Number(cq.message?.chat?.id ?? userId);
-  const [kind, reqId] = data.split("|");
+  const [kind, reqId, extra] = data.split("|");
   const ack = (text?: string) => bot.api.answerCallbackQuery(cq.id, text ? { text } : undefined).catch(() => null);
   if (kind === "mm_buy") {
     await ack();
@@ -221,6 +301,16 @@ export async function handleTrustCallback(bot: TelegramBot, botRow: BotRow, cq: 
   }
   const row = await requestRow(reqId);
   if (!row) { await ack("غير موجود"); return true; }
+  if (kind === "mm_cand") {
+    await ack();
+    await sendCandidates(bot, chatId, reqId);
+    return true;
+  }
+  if (kind === "mm_sug") {
+    const r = /^[0-9a-fA-F-]{36}$/.test(extra || "") ? await sendSuggestion(bot, botRow, reqId, extra.toLowerCase()) : "gone";
+    await ack({ sent: "✅ وصل الاقتراح", closed: "الطلب مغلق", gone: "الملف لم يعد متاحاً", dup: "أُرسل هذا الملف من قبل", failed: "تعذّر الإرسال" }[r]);
+    return true;
+  }
   if (kind === "mm_msg") {
     await setUserPending(userId, { mode: "mm_reply", reqId });
     await ack();
