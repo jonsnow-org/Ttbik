@@ -34,6 +34,9 @@ if [ -f "$OR/agent/ZENOBIA_SILK_ON" ]; then
   # the proceeds (above a 0.9 reserve, once a day, only while nothing is unfinished) go to this ONE committed address: the owner's wallet
   [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_SWEEP_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")" -e ZNB_SWEEP_RESERVE=0.9)
 fi
+# ZNB_SITE is the site API the ledger polls (season hash, passport queue, "minted" notices): $SITE_URL from common.sh, i.e. the gate since
+# 2026-11-10 (owner: «نعم اعمل سكربت زنوبيا»); vercel.app answers 402. The passport/silk URLs above are NOT changed: they are part of the
+# collections' on-chain init, so changing them would change the collection addresses.
 docker run -d --name zenobia-ledger --restart unless-stopped --memory 256m \
   -v "$ZDIR":/state -e ZNB_DIR=/state -e ZNB_NETWORK=mainnet -e ZNB_SITE="$SITE_URL" ${TC_KEY:+-e TONCENTER_API_KEY="$TC_KEY"} \
   ${EXTRA[@]+"${EXTRA[@]}"} zenobia-ledger >/dev/null

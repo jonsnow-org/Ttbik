@@ -25,7 +25,8 @@ import { TonClient, WalletContractV4, internal, SendMode, beginCell, toNano, fro
 
 const NETWORK = process.env.ZNB_NETWORK === "testnet" ? "testnet" : "mainnet";
 const DIR = process.env.ZNB_DIR || "/state";
-const SITE = (process.env.ZNB_SITE || "https://ttbik.vercel.app").replace(/\/$/, "");
+// the site API it reads/notifies (not an on-chain value): the gate, since vercel.app answers 402 (owner-approved 2026-11-10)
+const SITE = (process.env.ZNB_SITE || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const EVERY_MS = Number(process.env.ZNB_EVERY_MS || 10 * 60_000);
 const POST_AMOUNT = toNano("0.001"); // fixed: season posts have no other amount
 const MIN_BALANCE = toNano("0.02"); // do not even try below this
