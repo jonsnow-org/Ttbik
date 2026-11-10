@@ -86,6 +86,13 @@ out={
  "bots_health": (lambda t: (json.loads(t) if t.strip().startswith("{") else t[:200]))(rd(f"{STATE}/bots_health.json")),
  "restore_selftest": rd(f"{STATE}/restore_selftest").strip(),
  "auto_restore": os.path.exists(f"{OR}/agent/AUTO_RESTORE_ON"),
+ # Zenobia ledger health (public data only: its status note, which seasons it posted, the site host it polls, masked log tail; never the key file)
+ "zenobia": (lambda st: {
+     "note": st.get("note"), "updated": st.get("updated"), "network": st.get("network"),
+     "posted": {k: ("unconfirmed" if isinstance(v, dict) and v.get("unconfirmed") else "ok") for k, v in sorted((st.get("posted") or {}).items())[-4:]},
+     "site": re.sub(r'^(https?://[^/]+).*', r'\1', sh("docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' zenobia-ledger | sed -n 's/^ZNB_SITE=//p'")),
+     "log_tail": mask(sh("docker logs --tail 8 zenobia-ledger 2>&1"))[-1500:],
+   } if st is not None else None)((lambda t: json.loads(t) if t.strip().startswith("{") else None)(rd("/var/lib/zenobia/status.json"))),
  "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
 }
 print(json.dumps(out))
