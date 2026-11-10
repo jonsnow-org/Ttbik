@@ -9,6 +9,7 @@
 // Idempotent: a request is claimed OPEN -> PAID in the same database transaction as the credit,
 // and the on-chain hash is unique.
 import { prisma } from "@/lib/prisma";
+import { usdtAddress } from "@/lib/usdtWallet";
 
 export type Chain = "USDT_TRC20" | "TRX" | "DOGE";
 export const CHAINS: Chain[] = ["USDT_TRC20", "TRX", "DOGE"];
@@ -31,7 +32,7 @@ export function receiveAddress(chain: Chain): string | null {
     const a = (process.env.DEPOSIT_DOGE_ADDRESS || "").trim();
     return /^D[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(a) ? a : null;
   }
-  const a = (process.env.DEPOSIT_TRON_ADDRESS || process.env.USDT_ADDRESS || "").trim();
+  const a = (process.env.DEPOSIT_TRON_ADDRESS || usdtAddress() || "").trim();
   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(a) ? a : null;
 }
 export function availableChains(): Chain[] {

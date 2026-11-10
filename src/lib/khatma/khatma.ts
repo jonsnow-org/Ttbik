@@ -11,6 +11,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
+import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 import {
   DEDICATION_MAX, INTENTS, JUZ_COUNT, KHATMA_CMD, MAX_OPEN_PER_USER, MEMORIAL_START_PREFIX, MEMORIAL_TIERS, NAME_MAX, SPONSOR_DAYS, SPONSOR_PRICE_USD, STARS_KIND, TITLE_MAX,
   arNum, boardKeyboard, boardText, cleanText, completionText, emptyBoard, isComplete, isSlug, makeSlug, memorialTitle, parseJuzCallback, sponsorLine, tap, tierById, type JuzState,
@@ -443,7 +444,7 @@ export async function paySponsor(code: string, method: "stars" | "nowpayments" |
   const s = await sponsorByCode(code);
   if (!s) return { ok: false as const, error: "الكود غير موجود." };
   if (s.status !== "PENDING_PAYMENT") return { ok: false as const, error: "هذا الطلب مدفوع أو مغلق." };
-  if (method === "usdt") return { ok: true as const, manual: true, amount: s.price, usdt: process.env.USDT_ADDRESS || "", network: process.env.USDT_NETWORK || "TRC20", note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
+  if (method === "usdt") return { ok: true as const, manual: true, amount: s.price, usdt: usdtAddress(), network: usdtNetwork(), note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };
     const bot = await findAdmenBot();

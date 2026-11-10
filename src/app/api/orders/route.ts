@@ -5,6 +5,7 @@ import { sendOrderAlert, sendAdminNotice } from "@/lib/telegram";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
 import { decideOrder, usdtHashAlreadyUsed } from "@/lib/orders";
 import { usdtAutoVerifySupported, verifyTrc20UsdtPayment } from "@/lib/usdtVerify";
+import { usdtAddress as usdtWalletAddress, usdtNetwork as usdtNetwork_ } from "@/lib/usdtWallet";
 
 export async function POST(req: NextRequest) {
   // Public endpoint, no auth — without this, a burst of fake orders each
@@ -78,8 +79,8 @@ export async function POST(req: NextRequest) {
   // /api/orders/verify-usdt (polled from the order-status page) keeps
   // retrying automatically -- this single attempt here just catches the
   // common case where the customer already paid before submitting the form.
-  const usdtAddress = (process.env.USDT_ADDRESS || "").trim();
-  const usdtNetwork = process.env.USDT_NETWORK || "TRC20";
+  const usdtAddress = usdtWalletAddress();
+  const usdtNetwork = usdtNetwork_();
   if (paymentMethod === "usdt" && usdtAddress && usdtAutoVerifySupported(usdtNetwork)) {
     const reused = await usdtHashAlreadyUsed(String(transferReference), order.id);
     const check = reused ? { ok: false } : await verifyTrc20UsdtPayment(transferReference, usdtAddress, service.price_usd);

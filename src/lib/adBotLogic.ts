@@ -14,6 +14,7 @@ import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, 
 import { ownerWalletSummary, sweepOwnerProfits, setPayoutsPaused } from "@/lib/ownerPayout";
 import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
+import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -939,8 +940,8 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         amount: "100",
         holder: process.env.BANK_HOLDER || "-",
         account: process.env.BANK_ACCOUNT_NUMBER || "-",
-        usdtNet: process.env.USDT_NETWORK || "TRC20",
-        usdtAddr: process.env.USDT_ADDRESS || "-",
+        usdtNet: usdtNetwork(),
+        usdtAddr: usdtAddress() || "-",
       }),
       { reply_markup: amountEntryMenu(lang) }
     );

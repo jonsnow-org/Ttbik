@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
+import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 import {
   BADGE_DAYS, BADGE_PRICE_USD, auditChannel, canMove, makeDealCode, normalizeChannel, parseChannelPage, parsePostLink, postMatchesDeal,
   splitDeal, validDealPrice, type AuditReport,
@@ -206,7 +207,7 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
   if (!d) return { ok: false as const, error: "الكود غير موجود." };
   if (d.status !== "PENDING_PAYMENT") return { ok: false as const, error: "هذا الطلب مدفوع أو مغلق." };
   if (method === "usdt") {
-    return { ok: true as const, manual: true, amount: d.price, usdt: process.env.USDT_ADDRESS || "", network: process.env.USDT_NETWORK || "TRC20", note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
+    return { ok: true as const, manual: true, amount: d.price, usdt: usdtAddress(), network: usdtNetwork(), note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
   }
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };

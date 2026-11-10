@@ -4,6 +4,7 @@ import { decideOrder, usdtHashAlreadyUsed } from "@/lib/orders";
 import { usdtAutoVerifySupported, verifyTrc20UsdtPayment } from "@/lib/usdtVerify";
 import { sendAdminNotice } from "@/lib/telegram";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
+import { usdtAddress as usdtWalletAddress, usdtNetwork as usdtNetwork_ } from "@/lib/usdtWallet";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +38,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ done: false });
   }
 
-  const usdtAddress = (process.env.USDT_ADDRESS || "").trim();
-  const usdtNetwork = process.env.USDT_NETWORK || "TRC20";
+  const usdtAddress = usdtWalletAddress();
+  const usdtNetwork = usdtNetwork_();
   if (!usdtAddress || !usdtAutoVerifySupported(usdtNetwork)) {
     return NextResponse.json({ done: false });
   }
