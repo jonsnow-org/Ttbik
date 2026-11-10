@@ -32,7 +32,6 @@ const PASSWORD_TEMPLATES = [
   "STREAK_BOT",
   "PRAYER_BOT",
   "CAPSULE_BOT",
-  "SITE_BANNER_ADMIN",
   "CHANNEL_PUBLISH_BOT",
   // creator hub (/create) — src/lib/hubBotLogic.ts
   "HUB_APP_BOT",
@@ -129,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
 
     let purchase: { id: string; amount: number } | null = null;
-    if (tpl === "SITE_BANNER_ADMIN" || tpl === "CHANNEL_PUBLISH_BOT") {
+    if (tpl === "CHANNEL_PUBLISH_BOT") {
       if (ownerId !== "420066855" && ownerId !== process.env.SUPER_ADMIN_TELEGRAM_ID) {
         return NextResponse.json({ success: false, error: "هذا القالب للمالك فقط." }, { status: 403 });
       }
@@ -214,9 +213,6 @@ export async function POST(req: NextRequest) {
       TG_CALL_MS,
       "انتهت مهلة ربط الويبهوك مع تليجرام — حاول مجدداً."
     );
-    if (tpl === "SITE_BANNER_ADMIN") {
-      await tempBot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: siteUrl } } }).catch(() => null);
-    }
     if (tpl === "MARRIAGE_BOT") {
       // Own commands + Mini App menu button (clears any command list left on the token).
       const { ensureMatchBotSetup } = await import("@/lib/matchBotLogic");

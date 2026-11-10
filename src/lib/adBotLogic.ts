@@ -1,6 +1,8 @@
 import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
-import { creatorPct, splitCreatorCut } from "@/lib/botSales";
+import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
+import { BOT_SALE_CALLBACK, handleBotSaleCallback, isGetbotRequest, sendPlans, type Tg } from "@/lib/botSalesChat";
+import { isOwnerBot, ownerBotGetbotLink, parseOwnerBotCommand, setOwnerBotId } from "@/lib/builderOwnerBot";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest, remitAppUrl } from "@/lib/remit/remit";
 import { SITE_URL } from "@/lib/siteUrl";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
@@ -603,6 +605,31 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 
 // Owner-only mode: the owner can lock a bot row so only the platform owner (SUPER_ADMIN) can use it -- for a private admin bot.
 // Stored in bot_settings under private_bot:<row id>; anything unreadable counts as "public" so a database hiccup never locks everyone out.
+async function ownerBotIdSafe(): Promise<string> {
+  const { ownerBotId } = await import("@/lib/builderOwnerBot");
+  return ownerBotId().catch(() => "");
+}
+
+function tgFor(token: string): Tg {
+  return (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+// «أريد بوتاً مماثلاً»: the automatic checkout (free or paid plan, code delivered on payment) lives on the builder's owner bot
+// (config: src/lib/builderOwnerBot.ts). On the owner bot itself → the plans; on any other builder bot → a button to it; no owner bot
+// configured → the info only, without a dead link. The old manual path (bank details + transfer reference) is gone: it showed
+// private payment details.
+async function sendWantOwnBot(bot: TelegramBot, botRow: BotRow, chatId: number, tgUserId: string, lang?: Lang) {
+  const l: Lang = lang ?? asLang((await prisma.user.findUnique({ where: { id: tgUserId }, select: { language: true } }).catch(() => null))?.language);
+  if (await isOwnerBot(botRow.id)) {
+    await sendPlans(tgFor(botRow.token), chatId);
+    return;
+  }
+  const link = await ownerBotGetbotLink().catch(() => null);
+  await bot.api.sendMessage(chatId, link ? t(l, "wantOwnBotInfo") : t(l, "wantOwnBotInfo").split("\n\n").slice(0, -1).join("\n\n"), link ? {
+    reply_markup: new InlineKeyboard().url(l === "ar" ? "🤖 احصل على بوتك الآن" : "🤖 Get your bot now", link),
+  } : undefined).catch(() => null);
+}
+
 async function isPrivateBot(botId: string): Promise<boolean> {
   try {
     const { supabaseAdmin } = await import("@/lib/supabase");
@@ -625,6 +652,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
   if (update.callback_query) {
+    // 🤖 «احصل على بوت مشابه» checkout buttons: only on the builder's owner bot (src/lib/builderOwnerBot.ts)
+    const cq = update.callback_query;
+    if (BOT_SALE_CALLBACK.test(String(cq.data || "")) && (await isOwnerBot(botRow.id))) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      const u = (await bot.api.getMe().catch(() => null))?.username;
+      await handleBotSaleCallback(tgFor(botRow.token), cq.message?.chat?.id, String(cq.from?.id ?? ""), String(cq.data), { site: SITE_URL.replace(/\/$/, ""), stars: false, returnUrl: u ? `https://t.me/${u}` : SITE_URL });
+      return;
+    }
     await handleCarouselCallback(bot, botRow, update.callback_query);
     return;
   }
@@ -690,6 +725,19 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await bot.api.sendMessage(chatId, "✅ تم إرسال ردك للمستخدم.");
       return;
     }
+  }
+
+  // The platform owner (recognised by his Telegram ID) picks THIS bot as the builder's owner bot: /ownerbot (or /ownerbot off).
+  const ownerBotCmd = parseOwnerBotCommand(text);
+  if (ownerBotCmd && tgUserId === SUPER_ADMIN_ID) {
+    await setOwnerBotId(ownerBotCmd.off ? null : botRow.id).catch(() => null);
+    await bot.api.sendMessage(chatId, ownerBotCmd.off ? "✅ أُلغي تعيين بوت المنصة." : "✅ صار هذا البوت بوت المنصة: زر «احصل على بوت مشابه» في كل بوتات المنشئ يفتح هنا، والبيع والأكواد تعمل هنا.").catch(() => null);
+    return;
+  }
+  // 🤖 «احصل على بوت مشابه» (/start getbot, /getbot): the checkout on the owner bot, a link to it from every other builder bot.
+  if (isGetbotRequest(text, GETBOT_BUTTON)) {
+    await sendWantOwnBot(bot, botRow, chatId, tgUserId);
+    return;
   }
 
   if (text.startsWith("/start")) {
@@ -947,9 +995,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // The old manual path (bank details + transfer reference + approval) is gone from the menus: it showed private payment details.
   if (text === t(lang, "btnWantOwnBot") || text === t(lang, "btnProceedPurchase")) {
     await setPending(user.id, null);
-    await bot.api.sendMessage(chatId, t(lang, "wantOwnBotInfo"), {
-      reply_markup: new InlineKeyboard().url(lang === "ar" ? "🤖 احصل على بوتك الآن" : "🤖 Get your bot now", "https://t.me/Admen10bot?start=getbot"),
-    });
+    await sendWantOwnBot(bot, botRow, chatId, tgUserId, lang);
     return;
   }
   if (text === t(lang, "btnMyAds")) {
@@ -1306,7 +1352,9 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // Only the platform owner (SUPER_ADMIN) has the owner panel, on every bot. If the platform's main bot was ever activated
   // with someone else's ID, that person is its supervisor; "🔁 نقل ملكية هذا البوت" moves it back in two taps.
   if (text === "🤖 البوتات والمشرفون" && tgUserId === SUPER_ADMIN_ID) {
-    const rows = await prisma.bot.findMany({ orderBy: { created_at: "asc" }, take: 40 });
+    // Builder bots only: the site bot is not part of the builder (legacy SITE_BANNER_ADMIN rows are never listed).
+    const rows = await prisma.bot.findMany({ where: { template: { not: "SITE_BANNER_ADMIN" } }, orderBy: { created_at: "asc" }, take: 40 });
+    const platformBotId = await ownerBotIdSafe();
     const lines = await Promise.all(
       rows.map(async (r) => {
         let uname = "?";
@@ -1319,12 +1367,12 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         }
         const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
         const money = r.template === "AD_BOT" ? ` — عمولة المشرف: جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}` : "";
-        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.id === platformBotId ? " — ⭐ بوت المنصة" : ""}${r.isActive ? "" : " (متوقف)"}${money}`;
       }),
     );
     await bot.api.sendMessage(
       chatId,
-      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
+      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن. ⭐ = بوت المنصة (${platformBotId ? "غيّره بإرسال /ownerbot في البوت المطلوب" : "غير معيّن: أرسل /ownerbot في بوت المنصة"}).\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
       { reply_markup: ADMIN_MENU },
     );
     return;

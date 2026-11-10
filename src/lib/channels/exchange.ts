@@ -1,6 +1,6 @@
 /**
  * «بورصة القنوات» (2026-11-10): free shareable channel audit + ad deals between advertisers and
- * Arabic Telegram channels, paid on the existing rails (Stars through the Admen bot, NOWPayments,
+ * Arabic Telegram channels, paid on the existing rails (Stars through the site bot, NOWPayments,
  * USDT confirmed by the admin) and held in escrow by the platform until the post is verified.
  * Escrow is strictly for these ad deals. 85% goes to the channel, 15% is the platform's commission.
  * Own tables (created on first use); no prisma schema change.
@@ -8,7 +8,7 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
-import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
+import { adStars, bindSiteBot, findSiteBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
 import { usdtAddress, usdtNetwork } from "@/lib/usdtWallet";
 import {
@@ -192,8 +192,8 @@ export async function createBadgeOrder(token: string) {
   return { ok: true as const, code, price: BADGE_PRICE_USD };
 }
 
-async function admenSend(text: string) {
-  const bot = await findAdmenBot();
+async function siteBotSend(text: string) {
+  const bot = await findSiteBot();
   const chat = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID;
   if (!bot || !chat) return;
   await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
@@ -201,7 +201,7 @@ async function admenSend(text: string) {
   }).catch(() => null);
 }
 
-/** Payment link for a deal or badge: Stars (Admen invoice link), NOWPayments invoice, or USDT details for a manual check. */
+/** Payment link for a deal or badge: Stars (site bot invoice link), NOWPayments invoice, or USDT details for a manual check. */
 export async function payDeal(code: string, method: "stars" | "nowpayments" | "usdt") {
   const d = await dealByCode(code);
   if (!d) return { ok: false as const, error: "الكود غير موجود." };
@@ -211,9 +211,9 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
   }
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };
-    const bot = await findAdmenBot();
+    const bot = await findSiteBot();
     if (!bot) return { ok: false as const, error: "بوت الدفع غير متاح." };
-    await bindAdmenBot().catch(() => null);
+    await bindSiteBot().catch(() => null);
     const stars = adStars(d.price);
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
@@ -246,9 +246,9 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
   if (d.kind === "BADGE") {
     await prisma.$executeRaw`UPDATE channel_deals SET status = 'RELEASED', closed_at = now() WHERE code = ${code}`;
     await prisma.$executeRaw`UPDATE channel_listings SET verified_until = GREATEST(COALESCE(verified_until, now()), now()) + make_interval(days => ${BADGE_DAYS}), updated_at = now() WHERE username = ${d.channel}`;
-    await admenSend(`☑️ دُفعت شارة توثيق @${d.channel} (${code}) — ${d.price}$ عبر ${via}`);
+    await siteBotSend(`☑️ دُفعت شارة توثيق @${d.channel} (${code}) — ${d.price}$ عبر ${via}`);
   } else {
-    await admenSend(`📣 صفقة قناة مدفوعة ${code}\n@${d.channel} — ${d.price}$ (للقناة ${d.payout}$، عمولة ${d.commission}$)\nالمعلن: ${d.advertiser_contact}\nالرابط: ${d.target_url}\nعبر: ${via}\n\nأرسل نص الإعلان لصاحب القناة أو اطلب منه فتح رابط الإدارة.`);
+    await siteBotSend(`📣 صفقة قناة مدفوعة ${code}\n@${d.channel} — ${d.price}$ (للقناة ${d.payout}$، عمولة ${d.commission}$)\nالمعلن: ${d.advertiser_contact}\nالرابط: ${d.target_url}\nعبر: ${via}\n\nأرسل نص الإعلان لصاحب القناة أو اطلب منه فتح رابط الإدارة.`);
   }
   return { ok: true, first: true };
 }
@@ -273,7 +273,7 @@ export async function submitPost(token: string, code: string, link: string) {
   const next = ok ? "VERIFIED" : "POSTED";
   if (!canMove(d.status, next) && d.status !== next) return { ok: false as const, error: "حالة الصفقة لا تسمح." };
   await prisma.$executeRaw`UPDATE channel_deals SET status = ${next}, post_link = ${`https://t.me/${l.username}/${postId}`}, posted_at = COALESCE(posted_at, now()) WHERE code = ${code} AND status IN ('PAID','POSTED')`;
-  await admenSend(`${ok ? "✅ تحقق آلي" : "🟡 بحاجة مراجعة يدوية"}: منشور الصفقة ${code} في @${l.username}\nhttps://t.me/${l.username}/${postId}`);
+  await siteBotSend(`${ok ? "✅ تحقق آلي" : "🟡 بحاجة مراجعة يدوية"}: منشور الصفقة ${code} في @${l.username}\nhttps://t.me/${l.username}/${postId}`);
   return { ok: true as const, verified: ok };
 }
 

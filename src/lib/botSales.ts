@@ -1,4 +1,5 @@
-// 🤖 «احصل على بوت مشابه» (owner, 2026-11-10): self-serve activation codes for the ad-bot builder, sold inside @Admen10bot.
+// 🤖 «احصل على بوت مشابه» (owner, 2026-11-10): self-serve activation codes for the ad-bot builder, sold in the site bot and in the builder's owner bot
+// (config-driven, src/lib/builderOwnerBot.ts; chat flow in src/lib/botSalesChat.ts).
 // Two plans, both on the builder's existing split (adBotLogic payoutTask: 50% the user who does the task / 20% the bot's supervisor /
 // 30% the platform, then the 5% referral and 5% B2B commissions out of the platform's part):
 //   FREE — no payment; the supervisor's cut is 10% instead of 20% and the other 10% goes to the platform (one free code per person).

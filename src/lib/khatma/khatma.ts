@@ -9,7 +9,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SITE_URL } from "@/lib/siteUrl";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
-import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
+import { adStars, bindSiteBot, findSiteBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
 import { openPayers, usdtCheck, usdtQuote } from "@/lib/payments/usdtOrders";
 import {
@@ -451,7 +451,7 @@ export async function adminSponsorAction(code: string, action: "confirm_paid" | 
 export const SPONSOR_STARS_PREFIX = "KSP:";
 const apiSite = () => (process.env.NEXT_PUBLIC_SITE_URL || gateUrl()).replace(/\/$/, "");
 
-/** Pay a sponsorship slot on the existing rails: Stars (Admen bot invoice link), NOWPayments, or manual USDT. */
+/** Pay a sponsorship slot on the existing rails: Stars (site bot invoice link), NOWPayments, or manual USDT. */
 export async function paySponsor(code: string, method: "stars" | "nowpayments" | "usdt") {
   const s = await sponsorByCode(code);
   if (!s) return { ok: false as const, error: "الكود غير موجود." };
@@ -465,9 +465,9 @@ export async function paySponsor(code: string, method: "stars" | "nowpayments" |
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };
     // Contest slots are paid to the contest bot itself, so the Stars that buy the winners' Telegram prizes are in its own balance.
-    const bot = s.product === "contest" ? await prisma.bot.findFirst({ where: { template: "STREAK_BOT", isActive: true }, orderBy: { created_at: "asc" } }) : await findAdmenBot();
+    const bot = s.product === "contest" ? await prisma.bot.findFirst({ where: { template: "STREAK_BOT", isActive: true }, orderBy: { created_at: "asc" } }) : await findSiteBot();
     if (!bot) return { ok: false as const, error: "بوت الدفع غير متاح." };
-    if (s.product !== "contest") await bindAdmenBot().catch(() => null);
+    if (s.product !== "contest") await bindSiteBot().catch(() => null);
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: SPONSOR_PRODUCTS[s.product].title, description: `${SPONSOR_PRODUCTS[s.product].what} لمدة ${SPONSOR_PRODUCTS[s.product].days} أيام: ${s.name} (${code})`.slice(0, 255), payload: `${SPONSOR_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: adStars(s.price) }] }),
@@ -518,7 +518,7 @@ export async function checkSponsorUsdt(code: string): Promise<{ paid: boolean; s
   });
   if (r.paid) {
     const admin = process.env.SUPER_ADMIN_TELEGRAM_ID;
-    const bot = admin ? await findAdmenBot().catch(() => null) : null;
+    const bot = admin ? await findSiteBot().catch(() => null) : null;
     if (bot && admin) await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: admin, text: `💵 رعاية مدفوعة تلقائياً بـ USDT: ${s.name} · ${s.price}$ · ${code} (${s.product})` }) }).catch(() => null);
   }
   const fresh = await sponsorByCode(code);

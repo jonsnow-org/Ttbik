@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { sweepSponsorUsdt } from "@/lib/khatma/khatma";
 import { retryPendingPrizes, settleDueSponsors } from "@/lib/contests/prizes";
 import { remitSweep } from "@/lib/remit/listings";
-import { findAdmenBot, sweepSiteAdUsdt } from "@/lib/siteAds";
+import { sweepSiteAdUsdt } from "@/lib/siteAds";
+import { deliverBotCode } from "@/lib/botSalesChat";
 import { codeMessage, sweepBotOrdersUsdt } from "@/lib/botSales";
 import { gateUrl } from "@/lib/hostingOps";
 
@@ -18,10 +19,7 @@ export async function GET(req: NextRequest) {
   const sponsorsPaid = await step(sweepSponsorUsdt);
   const siteAdsPaid = await step(sweepSiteAdUsdt);
   const botCodes = await step(async () => {
-    const bot = await findAdmenBot();
-    return sweepBotOrdersUsdt(async (buyerId, code) => {
-      if (bot) await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: buyerId, text: codeMessage(code, buyerId, gateUrl(), false) }) });
-    });
+    return sweepBotOrdersUsdt((buyerId, code) => deliverBotCode(buyerId, codeMessage(code, buyerId, gateUrl(), false)));
   });
   const contests = await step(settleDueSponsors);
   const prizeRetries = await step(retryPendingPrizes);

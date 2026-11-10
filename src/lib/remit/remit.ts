@@ -3,7 +3,7 @@
 // never receives, holds or forwards anyone's money.
 //
 // Only exchangers whose affiliate program the owner can join without ID checks are kept here; nothing shows for one until the owner
-// sets his referral link or partner id (Telegram /ref on @Admen10bot, or env REMIT_REF_<KEY>).
+// sets his referral link or partner id (the owner's /ref command in the site bot, or env REMIT_REF_<KEY>).
 
 export type Provider = { key: string; name: string; url: string; note: string };
 
@@ -30,7 +30,7 @@ export function botParam(v: unknown): string | null {
   return /^[A-Za-z0-9_-]{4,40}$/.test(s) ? s : null;
 }
 
-/** The remittance section's button in the bots (main menu of @Admen10bot and of every ad bot made by the builder). */
+/** The remittance section's button in the bots (main menu of every ad bot made by the builder; the site bot has its own office, src/lib/remit/office.ts). */
 export const REMIT_BUTTON = "💸 حوالات USDT";
 export function isRemitRequest(text: string | null | undefined): boolean {
   const t = String(text || "").trim();

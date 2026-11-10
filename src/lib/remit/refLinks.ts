@@ -1,4 +1,4 @@
-// The owner's referral links for /remit, settable from Telegram without a redeploy: the Admen bot's admin command
+// The owner's referral links for /remit, settable from Telegram without a redeploy: the owner's command in the site bot
 //   /ref                     list every provider key and its current link
 //   /ref CHANGENOW https://… set (https only)
 //   /ref CHANGENOW off       back to the official site

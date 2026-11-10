@@ -7,7 +7,7 @@ import { activeListings } from "@/lib/remit/listings";
 import { pickWidget } from "@/lib/remit/widgets";
 import { SITE_URL } from "@/lib/siteUrl";
 
-// The remittance section of the bots (@Admen10bot and every ad bot made by the builder open this page as a Mini App, with ?bot=<id>).
+// The remittance section of the bots (the site bot and every ad bot made by the builder open this page as a Mini App, with ?bot=<id>).
 // It exists to earn: the partner exchanger's widget, the owner's referral buttons, and paid company listings. Nothing else.
 const PATH = "/remit";
 export const dynamic = "force-dynamic"; // partner ids, referral links and paid listings change without a redeploy

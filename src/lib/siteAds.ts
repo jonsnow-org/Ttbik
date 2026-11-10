@@ -8,7 +8,6 @@ export const AD_PLANS = [
   { days: 30, price: 40, label: "30 يوماً" },
 ] as const;
 
-const ADMEN = "admen10bot";
 
 export function planFor(days: number) {
   return AD_PLANS.find((p) => p.days === days) || null;
@@ -23,42 +22,62 @@ export function makeCode() {
   return `ADV-${new Date().getFullYear()}-${tail}`;
 }
 
-export async function findAdmenBot() {
-  const bots = await prisma.bot.findMany({ select: { id: true, token: true, isActive: true, template: true } });
-  for (const bot of bots) {
-    if (bot.template === "SITE_BANNER_ADMIN") return bot;
+// ── The site bot (بوت الموقع) ─────────────────────────────────────────────────────────────────────────────────────────
+// The site bot is a standalone bot served only by /api/ads/telegram (site ads, wallet/balance, the site Mini App). It is NOT a bot
+// of the ads & earn builder: it never reads or writes the builder's Bot table and has no AD_BOT/owner-bot role.
+// Its token comes from, in order: env SITE_BOT_TOKEN, then the site_bot config table (one row, key 'main').
+export type SiteBot = { id: string; token: string };
+
+let siteBotReady: Promise<void> | null = null;
+function ensureSiteBotTable(): Promise<void> {
+  if (!siteBotReady) siteBotReady = prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS site_bot (key TEXT PRIMARY KEY, token TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+    // a token lives here: never readable through the database's public API roles
+    .then(() => prisma.$executeRawUnsafe(`ALTER TABLE site_bot ENABLE ROW LEVEL SECURITY`))
+    .then(() => undefined).catch((e) => { siteBotReady = null; throw e; });
+  return siteBotReady;
+}
+
+let siteBotCache: { at: number; v: SiteBot | null } | null = null;
+export async function findSiteBot(): Promise<SiteBot | null> {
+  const env = (process.env.SITE_BOT_TOKEN || "").trim();
+  if (env) return { id: "site", token: env };
+  if (siteBotCache && Date.now() - siteBotCache.at < 60_000) return siteBotCache.v;
+  let v: SiteBot | null = null;
+  try {
+    await ensureSiteBotTable();
+    const rows = await prisma.$queryRaw<{ token: string }[]>`SELECT token FROM site_bot WHERE key = 'main' LIMIT 1`;
+    if (rows[0]?.token) v = { id: "site", token: rows[0].token };
+  } catch {
+    v = null;
+  }
+  siteBotCache = { at: Date.now(), v };
+  return v;
+}
+
+let siteBotNameCache: { at: number; v: string } | null = null;
+/** The site bot's @username (without @), from Telegram getMe; env SITE_BOT_USERNAME if Telegram can't be reached. */
+export async function siteBotUsername(): Promise<string> {
+  if (siteBotNameCache && Date.now() - siteBotNameCache.at < 3_600_000) return siteBotNameCache.v;
+  const bot = await findSiteBot().catch(() => null);
+  let v = "";
+  if (bot) {
     try {
       const res = await fetch(`https://api.telegram.org/bot${bot.token}/getMe`, { signal: AbortSignal.timeout(6000) });
       const data = await res.json();
-      if (String(data?.result?.username || "").toLowerCase() === ADMEN) return bot;
+      v = String(data?.result?.username || "");
     } catch {
-      continue;
+      v = "";
     }
   }
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (token) {
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(6000) });
-      const data = await res.json();
-      if (String(data?.result?.username || "").toLowerCase() === ADMEN) {
-        return { id: "env", token, isActive: true, template: "SITE_BANNER_ADMIN" };
-      }
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  v = v || String(process.env.SITE_BOT_USERNAME || "").replace(/^@/, "");
+  if (v) siteBotNameCache = { at: Date.now(), v };
+  return v;
 }
 
-export async function bindAdmenBot() {
-  const bot = await findAdmenBot();
-  if (!bot) return { ok: false, error: "البوت @Admen10bot غير موجود في جدول البوتات" };
-  if (bot.id !== "env") {
-    await prisma.bot.update({
-      where: { id: bot.id },
-      data: { isActive: false, template: "SITE_BANNER_ADMIN" },
-    }).catch(() => null);
-  }
+/** Points the site bot's webhook and Mini App menu button at the gate (idempotent). Changes nothing in the database. */
+export async function bindSiteBot() {
+  const bot = await findSiteBot();
+  if (!bot) return { ok: false, error: "بوت الموقع غير مُعدّ (SITE_BOT_TOKEN أو جدول site_bot)", webhook: "" };
   const base = gateUrl().replace(/\/$/, ""); // gate first: never a bare vercel.app link
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
   await fetch(`https://api.telegram.org/bot${bot.token}/setChatMenuButton`, {
@@ -78,16 +97,16 @@ export async function bindAdmenBot() {
     }),
   });
   const hookData = await hook.json().catch(() => null);
-  return { ok: Boolean(hookData?.ok), id: bot.id, detached: true, webhook: hookData?.description || "" };
+  return { ok: Boolean(hookData?.ok), id: bot.id, webhook: hookData?.description || "" };
 }
 
-async function admenToken() {
-  const bot = await findAdmenBot();
-  return bot?.token || process.env.TELEGRAM_BOT_TOKEN || "";
+async function siteBotToken() {
+  const bot = await findSiteBot();
+  return bot?.token || "";
 }
 
 export async function notifyAdmin(text: string, code: string) {
-  const token = await admenToken();
+  const token = await siteBotToken();
   const chat = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID;
   if (!token || !chat) return { ok: false, error: "telegram-not-configured" };
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -125,13 +144,7 @@ export async function creditBanner(code: string) {
   // Claim the credit atomically first, so two concurrent IPNs/approvals can never both add the revenue.
   const claim = await prisma.siteBannerAd.updateMany({ where: { reservationCode: code, credited: false }, data: { credited: true } });
   if (claim.count !== 1) return ad;
-  const bot = await findAdmenBot();
-  if (bot) {
-    await prisma.bot.update({
-      where: { id: bot.id },
-      data: { totalRevenue: { increment: ad.totalPrice }, ownerBalance: { increment: ad.totalPrice } },
-    });
-  }
+  // Site-ad revenue is the sum of the PAID siteBannerAd rows (bannerBalance); nothing is written to the builder's Bot table.
   return { ...ad, credited: true };
 }
 
@@ -139,11 +152,10 @@ export async function bannerBalance() {
   const paid = await prisma.siteBannerAd.findMany({ where: { paymentStatus: "PAID" } });
   const total = paid.reduce((sum, ad) => sum + ad.totalPrice, 0);
   const active = paid.filter((ad) => ad.adStatus === "ACTIVE").length;
-  const bot = await findAdmenBot();
-  return { total, count: paid.length, active, botBalance: bot ? (await prisma.bot.findUnique({ where: { id: bot.id } }))?.ownerBalance ?? total : total };
+  return { total, count: paid.length, active, botBalance: total };
 }
 
-// ⭐ Telegram Stars checkout for site ads (2026-11-10). The Admen bot issues the invoice and receives the payment
+// ⭐ Telegram Stars checkout for site ads (2026-11-10). The site bot issues the invoice and receives the payment
 // (pre_checkout_query + successful_payment on /api/ads/telegram). 100 Stars = $1, the same rate as every bot here.
 export const SITE_AD_STARS_PREFIX = "SITEAD:";
 export function adStars(priceUsd: number): number {
@@ -155,9 +167,9 @@ export function siteAdStarsEnabled(): boolean {
 }
 export async function siteAdStarsInvoice(ad: { reservationCode: string; totalPrice: number; durationDays: number; altText: string }): Promise<{ ok: true; link: string; stars: number } | { ok: false; error: string }> {
   if (!siteAdStarsEnabled()) return { ok: false, error: "الدفع بالنجوم غير مفعّل بعد." };
-  const bot = await findAdmenBot();
-  if (!bot) return { ok: false, error: "بوت الإعلانات غير متاح." };
-  await bindAdmenBot().catch(() => null); // makes sure the webhook also receives pre_checkout_query
+  const bot = await findSiteBot();
+  if (!bot) return { ok: false, error: "بوت الموقع غير متاح." };
+  await bindSiteBot().catch(() => null); // makes sure the webhook also receives pre_checkout_query
   const stars = adStars(ad.totalPrice);
   const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
     method: "POST",

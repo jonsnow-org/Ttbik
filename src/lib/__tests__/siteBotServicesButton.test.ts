@@ -1,10 +1,11 @@
-// @Admen10bot is served by /api/ads/telegram (its webhook is set by bindAdmenBot), not the AD_BOT template:
+// The site bot (@Admen10bot) is served by /api/ads/telegram (webhook set by bindSiteBot); it is not a builder (AD_BOT) bot:
 // «🧭 خدمات وأرباح» and /services must work there, and /start shows them.
 jest.mock("next/server", () => ({
   NextRequest: class {},
   NextResponse: { json: (body: any, init?: any) => ({ body, status: init?.status || 200 }) },
 }));
-const db: any = { bot: { findMany: jest.fn(async () => [{ id: "admen", token: "t", isActive: true, template: "SITE_BANNER_ADMIN" }]), update: jest.fn(async () => ({})) } };
+const noBotTable = jest.fn(async () => { throw new Error("the site bot touched the builder's Bot table"); });
+const db: any = { bot: { findMany: noBotTable, findFirst: noBotTable, findUnique: noBotTable, update: noBotTable } };
 jest.mock("@/lib/prisma", () => ({ prisma: db }));
 const tg: { method: string; body: any }[] = [];
 (global as any).fetch = jest.fn(async (url: string, init?: any) => {
@@ -19,9 +20,9 @@ import { SERVICE_LINKS } from "@/config/navigation";
 const hook = (text: string) => POST({ json: async () => ({ message: { chat: { id: 7 }, from: { id: 7 }, text } }), headers: { get: () => null } } as any);
 const sent = () => tg.filter((c) => c.method === "sendMessage").map((c) => c.body);
 
-beforeEach(() => { tg.length = 0; delete process.env.TELEGRAM_WEBHOOK_SECRET; });
+beforeEach(() => { tg.length = 0; delete process.env.TELEGRAM_WEBHOOK_SECRET; process.env.SITE_BOT_TOKEN = "t"; });
 
-describe("@Admen10bot services entry point", () => {
+describe("site bot services entry point", () => {
   it.each([SERVICES_BUTTON, "/services", "/services@Admen10bot"])("%s → one message of web_app buttons for every service", async (text) => {
     await hook(text);
     const msgs = sent();

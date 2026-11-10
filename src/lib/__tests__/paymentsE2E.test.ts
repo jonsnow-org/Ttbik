@@ -21,10 +21,12 @@ const db: any = {
       if (where.paymentStatus?.not && ad.paymentStatus === where.paymentStatus.not) return { count: 0 };
       if (where.credited === false && ad.credited) return { count: 0 };
       Object.assign(ad, data);
+      if (data.credited === true) state.revenue += ad.totalPrice; // the one-time revenue claim (creditBanner)
       return { count: 1 };
     }),
   },
-  bot: { findMany: jest.fn(async () => [{ id: "admen", token: "t", isActive: true, template: "SITE_BANNER_ADMIN" }]), update: jest.fn(async ({ data }: any) => { state.revenue += data.totalRevenue.increment; }) },
+  // The site bot is not a builder bot: site-ad payments must never read or write the builder's Bot table.
+  bot: { findMany: jest.fn(async () => { throw new Error("site ads touched the Bot table"); }), findUnique: jest.fn(async () => { throw new Error("site ads touched the Bot table"); }), update: jest.fn(async () => { throw new Error("site ads touched the Bot table"); }) },
   // all-or-nothing like Postgres: snapshot, run, restore on throw
   $transaction: jest.fn(async (fn: any) => {
     const snap = { tx: [...state.tx], users: new Map(state.users) };
@@ -58,7 +60,7 @@ const req = (body: any, sig = sign(body)) => {
 import { POST as walletIpn } from "@/app/api/payments/webhook/route";
 import { POST as adsIpn } from "@/app/api/ads/ipn/route";
 import { POST as adsPay } from "@/app/api/ads/pay/route";
-import { POST as admenHook } from "@/app/api/ads/telegram/route";
+import { POST as siteBotHook } from "@/app/api/ads/telegram/route";
 import { parseStarsPayload, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { isRealDeposit, summarize } from "@/lib/revenue";
 
@@ -67,6 +69,7 @@ beforeEach(() => {
   process.env.TELEGRAM_ADMIN_CHAT_ID = "777";
   process.env.TELEGRAM_WEBHOOK_SECRET = "hook-secret";
   process.env.CRON_SECRET = "cron-test";
+  process.env.SITE_BOT_TOKEN = "t"; // the site bot's own config, not the Bot table
   tg.length = 0;
   state.tx = []; state.users = new Map(); state.ads = new Map(); state.notified = []; state.revenue = 0;
 });
@@ -138,8 +141,8 @@ describe("revenue report: real money vs internal credit", () => {
   });
 });
 
-describe("⭐ Telegram Stars → site ad (Admen bot)", () => {
-  const hook = (update: any, secret = "hook-secret") => admenHook({ json: async () => update, headers: { get: (h: string) => (h === "x-telegram-bot-api-secret-token" ? secret : null) } } as any);
+describe("⭐ Telegram Stars → site ad (site bot)", () => {
+  const hook = (update: any, secret = "hook-secret") => siteBotHook({ json: async () => update, headers: { get: (h: string) => (h === "x-telegram-bot-api-secret-token" ? secret : null) } } as any);
   const pay = (body: any) => adsPay({ json: async () => body } as any);
   const pcq = (amount: number) => ({ pre_checkout_query: { id: "q1", currency: "XTR", total_amount: amount, invoice_payload: "SITEAD:ADV-STAR" } });
   const paid = (amount: number, charge = "ch_1") => ({ message: { chat: { id: 42 }, from: { id: 42 }, successful_payment: { currency: "XTR", total_amount: amount, invoice_payload: "SITEAD:ADV-STAR", telegram_payment_charge_id: charge } } });

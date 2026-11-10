@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { SITE_URL } from "@/lib/siteUrl";
 import { gateUrl } from "@/lib/hostingOps";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
-import { adStars, bindAdmenBot, findAdmenBot, siteAdStarsEnabled } from "@/lib/siteAds";
+import { adStars, bindSiteBot, findSiteBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { openPayers, usdtCheck, usdtQuote } from "@/lib/payments/usdtOrders";
 
 export const REMIT_PREFIX = "RMT-";
@@ -60,19 +60,19 @@ export const autoApprove = (env: Record<string, string | undefined> = process.en
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || gateUrl() || SITE_URL).replace(/\/$/, "");
 export const listingUrl = (code: string, secret: string) => `${SITE_URL}/remit/listing/${code}?k=${secret}`;
 
-async function admen(method: string, body: unknown) {
-  const bot = await findAdmenBot().catch(() => null);
+async function siteBotCall(method: string, body: unknown) {
+  const bot = await findSiteBot().catch(() => null);
   if (!bot) return null;
   const r = await fetch(`https://api.telegram.org/bot${bot.token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
   return r?.json().catch(() => null);
 }
 async function notifyOwner(text: string, buttons?: { text: string; callback_data: string }[][]) {
   const admin = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID;
-  if (admin) await admen("sendMessage", { chat_id: admin, text, reply_markup: buttons ? { inline_keyboard: buttons } : undefined, link_preview_options: { is_disabled: true } });
+  if (admin) await siteBotCall("sendMessage", { chat_id: admin, text, reply_markup: buttons ? { inline_keyboard: buttons } : undefined, link_preview_options: { is_disabled: true } });
 }
 async function notifyCompany(code: string, text: string) {
   const r = (await prisma.$queryRaw<{ chat_id: string | null }[]>`SELECT chat_id FROM remit_listings WHERE code = ${code}`)[0];
-  if (r?.chat_id) await admen("sendMessage", { chat_id: r.chat_id, text, link_preview_options: { is_disabled: true } });
+  if (r?.chat_id) await siteBotCall("sendMessage", { chat_id: r.chat_id, text, link_preview_options: { is_disabled: true } });
 }
 
 export async function applyListing(input: ApplyInput) {
@@ -154,9 +154,9 @@ export async function payListing(code: string, k: string, method: "usdt" | "nowp
   }
   if (method === "stars") {
     if (!siteAdStarsEnabled()) return { ok: false as const, error: "الدفع بالنجوم غير مفعّل بعد." };
-    const bot = await findAdmenBot();
+    const bot = await findSiteBot();
     if (!bot) return { ok: false as const, error: "بوت الدفع غير متاح." };
-    await bindAdmenBot().catch(() => null);
+    await bindSiteBot().catch(() => null);
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: conf.title, description: `${conf.what}: ${l.name} (${code})`.slice(0, 255), payload: `${REMIT_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: adStars(l.price) }] }),
@@ -202,7 +202,7 @@ export async function clicksByDay(code: string) {
   return prisma.$queryRaw<{ day: Date; n: number }[]>`SELECT day, n FROM remit_clicks WHERE code = ${code} AND day > CURRENT_DATE - 30 ORDER BY day DESC`;
 }
 
-/** Admen bot /start rmt_<code>_<secret>: links the company's chat for approval, payment and renewal messages. */
+/** Site bot /start rmt_<code>_<secret>: links the company's chat for approval, payment and renewal messages. */
 export async function linkCompanyChat(payload: string, chatId: string): Promise<string | null> {
   const m = /^rmt_(RMT-[0-9A-F]{8})_([0-9a-f]{24})$/.exec(payload);
   if (!m) return null;
