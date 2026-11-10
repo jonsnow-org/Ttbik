@@ -63,7 +63,13 @@ else {
 }
 const kp = await mnemonicToPrivateKey(words);
 words = null;
-const client = new TonClient({ endpoint, apiKey: process.env.TONCENTER_API_KEY || undefined });
+// A rejected toncenter key (401/403) stopped every tick before any send on 2026-11-10; fall back to the public keyless endpoint (1 rps; retry() waits on 429).
+let apiKey = process.env.TONCENTER_API_KEY || undefined;
+if (apiKey) {
+  try { await new TonClient({ endpoint, apiKey }).getMasterchainInfo(); }
+  catch (e) { if (/40[13]/.test(String(e?.message || e))) { log("toncenter key rejected; using the public endpoint without a key"); apiKey = undefined; } }
+}
+const client = new TonClient({ endpoint, apiKey });
 const wallet = client.open(WalletContractV4.create({ workchain: 0, publicKey: kp.publicKey }));
 const address = wallet.address.toString({ testOnly: NETWORK === "testnet", bounceable: false });
 fs.writeFileSync(`${DIR}/address`, address + "\n");
