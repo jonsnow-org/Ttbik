@@ -50,7 +50,7 @@ export function pushKeyboard(type: NotifyType, openUrl: string, openText = "👀
   };
 }
 
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 export async function loadPrefs(db: any, uid: string): Promise<Prefs> {
   const { data, error } = await db.from("media_notify_prefs").select("push_off,off_types").eq("user_id", uid).maybeSingle();

@@ -596,7 +596,7 @@ async function sendSuperAdminPanel(bot: TelegramBot, chatId: number) {
 // functional menu, not an admin-only dead end.
 async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, lang: Lang) {
   const fresh = await prisma.bot.findUnique({ where: { id: botRow.id } });
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
   await bot.api.sendMessage(
     chatId,
     `🛠 أنت منشئ هذا البوت\n\nرصيد أرباحك الجاهز للسحب: ${fmt(Number(fresh?.ownerBalance || 0))}\nرصيد قيد الحجز (48 ساعة): ${fmt(Number(fresh?.pendingBalance || 0))}\n\n🎁 رابط إحالة منشئي بوتات آخرين (تربح 5% من صافي أرباح المنصة من كل بوت يُفعَّل عبره):\n${site}/bots?ref=${botRow.ownerId}`,
@@ -888,7 +888,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     body += t(lang, "referralEarningInfo");
     body += `\n\n${t(lang, "referralLink", { link: `https://t.me/${me.username}?start=${user.id}` })}`;
     if (isOwnerViewing) {
-      const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+      const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
       body += t(lang, "referralOwnerB2B", { link: `${site}/bots?ref=${botRow.ownerId}` });
     }
 
@@ -934,13 +934,13 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     [t("en", "btnSiteLink")]: "link",
   };
   if (socialButtons[text]) {
-    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     const link = socialStartUrl(site, String(tgUserId), socialButtons[text]);
     await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), { reply_markup: accountsMenu(lang, await hasYoutubeLink(String(tgUserId))) });
     return;
   }
   if ([t(lang, "btnYoutubeLink"), t("ar", "btnYoutubeLink"), t("en", "btnYoutubeLink"), t(lang, "btnYoutubeChange"), t("ar", "btnYoutubeChange"), t("en", "btnYoutubeChange")].includes(text)) {
-    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     const link = youtubeStartUrl(site, user.id);
     const linked = await hasYoutubeLink(String(tgUserId));
     if (!link) {
@@ -983,7 +983,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
   if (text === t(lang, "btnFreeTools")) {
-    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     await bot.api.sendMessage(chatId, t(lang, "freeToolsPromo", { link: `${site}/free-tools?utm_source=adbot&utm_medium=telegram` }));
     return;
   }
@@ -1129,7 +1129,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const fresh = await prisma.user.findUnique({ where: { id: user.id } });
     const balance = Number(fresh?.balance || 0);
     if (amount > balance) {
-      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/pay?uid=${user.id}`;
       await bot.api.sendMessage(chatId, t(lang, "myAdTopupInsufficient", { amount: fmt(amount), balance: fmt(balance), link }));
       return;
     }
@@ -1144,7 +1144,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return true;
     });
     if (!toppedUp) {
-      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/pay?uid=${user.id}`;
       await bot.api.sendMessage(chatId, t(lang, "myAdTopupInsufficient", { amount: fmt(amount), balance: fmt(balance), link }));
       return;
     }
@@ -1317,7 +1317,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // using the exact same URL format the deploy flow itself uses.
   if (text === "🔌 فحص الويبهوك" && tgUserId === SUPER_ADMIN_ID) {
     const info = await bot.api.getWebhookInfo();
-    const expectedUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/api/telegram/${botRow.id}`;
+    const expectedUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/api/telegram/${botRow.id}`;
     const urlMatches = info.url === expectedUrl;
     const lines = [
       `🔌 حالة ويبهوك هذا البوت:`,
@@ -2137,7 +2137,7 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
     actionUrl = `https://t.me/${telegramHandle}?start=adv_${click.id}`;
   } else {
     const click = await mintAdClick(ad.id, tgUserId, currentBotId);
-    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     actionUrl = `${site}/watch/${click.id}`;
   }
   kb.url(CAROUSEL_ACTION_LABEL[type][lang], actionUrl).row();
@@ -2381,7 +2381,7 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
   }
 
   if (data.startsWith("wh_fix|") && tgUserId === SUPER_ADMIN_ID) {
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     await bot.api.setWebhook(`${siteUrl}/api/telegram/${botRow.id}`, { secret_token: botRow.webhookSecret });
     await bot.api.answerCallbackQuery(cq.id, { text: "✅ أُعيد تسجيل الويبهوك" }).catch(() => null);
     await bot.api.sendMessage(chatId, "✅ تم إعادة تسجيل ويبهوك هذا البوت بالرابط والمفتاح الصحيحين.").catch(() => null);
@@ -2467,14 +2467,14 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     if (!verified) {
       const proofType: Record<string, SocialPlatform> = { TWITTER: "twitter", TIKTOK: "tiktok", FACEBOOK: "facebook", INSTAGRAM: "instagram", LINK: "link" };
       if (proofType[ad.type]) {
-        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
         const link = socialStartUrl(site, tgUserId, proofType[ad.type]);
         await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "socialNeedCode"), show_alert: true }).catch(() => null);
         await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link })).catch(() => null);
         return;
       }
       if (ad.type === "YOUTUBE") {
-        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
         const link = youtubeStartUrl(site, tgUserId);
         const linked = await hasYoutubeLink(tgUserId);
         const alert = !linked ? t(lang, "youtubeNeedLinkAlert") : t(lang, "youtubeNotSubscribedAlert");
@@ -2594,7 +2594,7 @@ async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: E
   const fresh = await prisma.user.findUnique({ where: { id: user.id } });
   const balance = Number(fresh?.balance || 0);
   if (budget > balance) {
-    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/pay?uid=${user.id}`;
     await bot.api.sendMessage(chatId, t(lang, "adInsufficientBalance", { budget: fmt(budget), balance: fmt(balance), link }), { reply_markup: reviewInsufficientMenu(lang) });
     return;
   }
@@ -2644,7 +2644,7 @@ async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: E
     return true;
   });
   if (!launched) {
-    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/pay?uid=${user.id}`;
     await bot.api.sendMessage(chatId, t(lang, "adInsufficientBalance", { budget: fmt(budget), balance: fmt(balance), link }), { reply_markup: reviewInsufficientMenu(lang) });
     return;
   }
@@ -2851,7 +2851,7 @@ async function decideBotPurchase(bot: TelegramBot, chatId: number, idSuffix: str
   if (approve) {
     const code = generatePurchaseCode();
     await prisma.botPurchase.update({ where: { id: purchase.id }, data: { status: "APPROVED", code } });
-    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     await bot.api
       .sendMessage(
         Number(purchase.buyerId),
@@ -2869,6 +2869,6 @@ async function decideBotPurchase(bot: TelegramBot, chatId: number, idSuffix: str
 }
 
 async function sendDepositOptions(bot: TelegramBot, chatId: number, userId: string, lang: Lang) {
-  const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${userId}`;
+  const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/pay?uid=${userId}`;
   await bot.api.sendMessage(chatId, t(lang, "depositChoose", { link }), { reply_markup: walletMenu(lang) });
 }

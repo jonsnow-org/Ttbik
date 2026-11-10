@@ -19,7 +19,7 @@ import { crisisMessage, detectCrisis, LEGAL_COUNTRIES, LEGAL_DISCLAIMER, MIND_DI
 export const HUB_TEMPLATES = ["HUB_APP_BOT", "HUB_LEGAL_BOT", "HUB_MIND_BOT", "HUB_DIALECT_BOT", "HUB_REPURPOSE_BOT", "HUB_POINTS_BOT"] as const;
 export const isHubTemplate = (t: string) => (HUB_TEMPLATES as readonly string[]).includes(t);
 
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const MOODS = ["😞", "🙁", "😐", "🙂", "😄"];
 
 function kb(rows: string[][]): Keyboard {

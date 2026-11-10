@@ -20,7 +20,7 @@ import { getConfig } from "@/lib/znbtConfig";
  * Literium and Athar captions are fixed texts: a model-written caption once leaked "**" markdown into the channel.
  */
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const STATE_KEY = "channel_rotation_state";
 const LITERIUM_URL = "https://literium.ai.studio/";
 const ATHAR_GETGEMS = "https://getgems.io/collection/EQAuIOwjzSmGQfL925LjD5eG0Qk1zJNRk4Ap8jzSOwnCRIYf";

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // The webhook goes to whatever the site's public address is now (deploy/hosting/site.json via NEXT_PUBLIC_SITE_URL);
 // after a hosting move, "rehookBots" re-points this bot together with all the others.
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 
 export async function POST(req: NextRequest) {
   if (!await isOwnerServer()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

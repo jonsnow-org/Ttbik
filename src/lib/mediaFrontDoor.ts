@@ -9,7 +9,7 @@ import { mediaBotToken, mediaDb } from "@/lib/mediaSocial";
  * the last resort (not primary UX).
  */
 
-export const MINI_APP_URL = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/mini-app`;   // follows the public address (the gate after a move)
+export const MINI_APP_URL = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "")}/mini-app`;   // follows the public address (the gate after a move)
 const RENDER_URL_KEY = "media_bot_render_url"; // the backup engine (kept for compatibility)
 const PRIMARY_URL_KEY = "media_bot_primary_url";
 
@@ -107,7 +107,7 @@ export function miniAppKeyboard() {
 }
 
 export function frontDoorUrl(): string {
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
   return `${site}/api/media-bot/webhook`;
 }
 

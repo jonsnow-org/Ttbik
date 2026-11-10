@@ -593,7 +593,7 @@ export const AI_TOOLS: readonly AiToolItem[] = [
     id: "mailchimp-ai",
     name: "Mailchimp AI",
     category: "marketing",
-    url: "https://mailchimp.com/features/ai/",
+    url: "https://mailchimp.com/",
     ar: "لدعم حملات البريد الإلكتروني وصياغة المحتوى التسويقي وإدارة الجمهور.",
     en: "For email campaigns, marketing content, and audience management support.",
   },

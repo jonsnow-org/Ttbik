@@ -101,7 +101,7 @@ async function handleUpdate(newToken: string | null | undefined, botId: string |
     const newBot = new Bot(newToken);
     const info = await newBot.api.getMe(); // validates the new token actually works
 
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     const webhookUrl = `${siteUrl}/api/telegram/${botRow.id}`;
     await newBot.api.setWebhook(webhookUrl, { secret_token: botRow.webhookSecret });
 

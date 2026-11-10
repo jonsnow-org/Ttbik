@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
     // Webhook BEFORE Bot row (owner spec, 2026-09-02): failed setWebhook never leaves an orphaned row.
     const botId = crypto.randomUUID();
     const webhookSecret = crypto.randomBytes(32).toString("hex");
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
     const webhookUrl = `${siteUrl}/api/telegram/${botId}`;
     await withTimeout(
       tempBot.api.setWebhook(webhookUrl, { secret_token: webhookSecret }),

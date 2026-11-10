@@ -31,7 +31,7 @@ import sitemap from "@/app/sitemap";
  * kept in bot_settings under STATE_KEY.
  */
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
 const STATE_KEY = "channel_publisher_state";
 const MAX_UPDATES_PER_RUN = 2;
 const ANNOUNCEMENT_MAX_AGE_DAYS = 14;

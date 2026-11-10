@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   // High-entropy bearer secret — never Math.random()
   const editToken = randomBytes(24).toString("hex");
 
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app";
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev";
 
   try {
     const row = await prisma.digitalCard.create({
