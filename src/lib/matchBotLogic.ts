@@ -32,6 +32,8 @@ import {
   purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, grantReferralVip, purchaseVipTrial, vipTrialAvailable, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
+import { sendOwnCard, ownCardInlineResults, cardReferrer, parseCardStart, showMatchmaker, buyMatchmaker, consumeMatchmakerNote, sendMatchmakerReply, listMatchmakerRequests, handleTrustCallback } from "@/lib/match/trust";
+import { CARD_BUTTON, MATCHMAKER_BUTTON, MATCHMAKER_STARS_KIND, isCardInlineQuery } from "@/lib/match/trustRules";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
@@ -151,7 +153,12 @@ type PendingAction =
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
   | { mode: "advanced_filter_wizard"; step: "city" | "maritalStatus"; data: { city?: string | null; maritalStatus?: string | null } }
   | { mode: "superlike_note"; targetUserId: string; resume?: { queue: string[]; index: number; current?: string; msgId?: number; strict?: boolean } }
-  | { mode: "fake_chatting"; fakeBotId: number; step: number; lastAt: number };
+  | { mode: "fake_chatting"; fakeBotId: number; step: number; lastAt: number }
+  | { mode: "mm_note"; reqId: string }
+  | { mode: "mm_reply"; reqId: string }
+  | { mode: "after_verify"; payload: string };
+
+const MATCHMAKER_ADMIN_BUTTON = "💍 طلبات الخاطبة";
 
 const SKIP_LABEL = "⏭ غير محدد / لا يهم";
 
@@ -163,7 +170,7 @@ function mainMenu(): Keyboard {
     .text("👤 ملفي الشخصي").text("💍 مواصفات الشريك").row()
     .text("🔍 البحث عن شريك").text("🔀 مراسلة عشوائية").row()
     .text("💌 من أعجب بي").text("ℹ️ معلومات").row()
-    .text("⭐ الترقيات والمزايا")
+    .text("⭐ الترقيات والمزايا").text(CARD_BUTTON)
     .resized();
 }
 // Upgrade button labels. With the first-purchase discount (server-checked) the label shows the
@@ -188,6 +195,7 @@ export const VIP_TRIAL_BUTTON = `✨ جرّب الذهبية ${VIP_TRIAL_DAYS} �
 function upgradesMenu(discount = false): Keyboard {
   const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
   kb.text(VIP_TRIAL_BUTTON).row();
+  kb.text(MATCHMAKER_BUTTON).row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb
     .text(upgradeLabel("boost", discount)).row()
@@ -210,6 +218,7 @@ function infoMenu(): Keyboard {
 function adminMenu(botId?: string): Keyboard {
   const kb = new Keyboard()
     .text("📊 الإحصائيات").text("📋 الملفات المعلقة").row()
+    .text(MATCHMAKER_ADMIN_BUTTON).row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
     .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
@@ -234,6 +243,7 @@ const ADMIN_COMMANDS = new Set([
   "🔓 رفع حظر/كتم",
   "📥 الرسائل الواردة",
   "🩺 فحص البحث",
+  MATCHMAKER_ADMIN_BUTTON,
 ]);
 const DELETE_CONFIRM_LABEL = "✅ نعم، احذف نهائياً";
 function confirmDeleteMenu(): Keyboard {
@@ -2609,6 +2619,20 @@ async function handleMatchStarsPayment(bot: TelegramBot, botRow: BotRow, msg: an
       await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
     }
   }
+  // 💍 Human matchmaker paid with Stars: credit the shortfall, then charge the balance and open the request.
+  if (parsed?.kind === MATCHMAKER_STARS_KIND && parsed.userId === tgUserId) {
+    const usd = usdForStars(Number(sp.total_amount || 0));
+    const outcome = await creditStarsPayment(
+      "match-stars-mm",
+      async (tx) => { await tx.matchTransaction.create({ data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id } }); },
+      async (tx) => { await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } }); },
+    );
+    if (outcome === "ok") {
+      void trackFunnel(tgUserId, "stars_paid", "matchmaker", "bot");
+      await buyMatchmaker(bot, botRow, chatId, tgUserId);
+    }
+    return;
+  }
   // ⚡ «اشترِ الآن بالنجوم» (app + bot): tops up the exact shortfall, then activates the
   // feature from balance. Idempotent: the Stars charge id is the ledger's unique txHash,
   // so a redelivered update credits nothing and activates nothing twice.
@@ -2630,12 +2654,36 @@ async function handleMatchStarsPayment(bot: TelegramBot, botRow: BotRow, msg: an
   }
 }
 
+/** Right after verification: open the profile/card link the newcomer arrived with, or nudge them to create their profile. */
+async function resumeAfterVerify(bot: TelegramBot, botRow: BotRow, chatId: number, userId: string, pending: PendingAction | null): Promise<void> {
+  if (pending?.mode === "after_verify") {
+    await setPending(userId, null).catch(() => null);
+    const ref = parseProfileStart(pending.payload) ?? parseCardStart(pending.payload);
+    if (ref) {
+      await openProfileDeepLink(bot, botRow, chatId, userId, ref).catch(() => null);
+    }
+  }
+  const has = await prisma.matchProfile.findUnique({ where: { userId }, select: { id: true } }).catch(() => null);
+  if (!has) {
+    await bot.api.sendMessage(chatId, "📝 خطوة أخيرة: أنشئ ملفك الآن (دقيقتان) حتى يراك الآخرون وتستطيع المراسلة. اضغط «👤 ملفي الشخصي».", { reply_markup: mainMenu() }).catch(() => null);
+  }
+}
+
 export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
   // Hybrid mode (2026-10-14, additive): inline search + consent chat requests.
   if (update.inline_query) {
+    if (isCardInlineQuery(update.inline_query.query)) {
+      const iq = update.inline_query;
+      const results = await ownCardInlineResults(bot, botRow, String(iq.from?.id || "")).catch(() => []);
+      await bot.api
+        .answerInlineQuery(iq.id, results, { cache_time: 5, is_personal: true, ...(results.length ? {} : { button: { text: "أنشئ ملفك أولاً لتظهر بطاقتك 🔒", start_parameter: "inline_register" } }) } as any)
+        .catch(() => null);
+      return;
+    }
     await handleMatchInlineQuery(bot, botRow, update.inline_query);
     return;
   }
+  if (update.callback_query && (await handleTrustCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query && (await handleHybridCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query) {
     await handleMatchCallback(bot, botRow, update.callback_query);
@@ -2687,6 +2735,15 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
         await replyToInbox(bot, chatId, adminPending.messageId, adminPending.targetUserId, text);
         return;
       }
+      if (adminPending.mode === "mm_reply") {
+        await sendMatchmakerReply(bot, chatId, adminPending.reqId, text);
+        return;
+      }
+    }
+    if (text === MATCHMAKER_ADMIN_BUTTON) {
+      if (adminPending) await setPending(tgUserId, null);
+      await listMatchmakerRequests(bot, chatId);
+      return;
     }
     if (adminPending) await setPending(tgUserId, null);
     await handleAdminMessage(bot, botRow.id, chatId, text, tgUserId);
@@ -2709,7 +2766,9 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // ref_<id> (own link) or ath_<id> (the same referral, shared from Athar — see docs/MATCH_ATHAR.md).
   const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+(?:ref|ath)_(\d+)/) : null;
   if (typeof msg.text === "string" && /^\/start(?:@\w+)?\s+ath_\d+/.test(msg.text)) void trackFunnel(tgUserId, "athar_arrival", refMatch?.[1], "bot");
-  const user = await ensureMatchUser(botRow.id, tgUserId, refMatch?.[1]);
+  // 🪪 A member's own shared card (c_<profile>) credits that member as the referrer.
+  const cardRef = !refMatch && startPayload?.startsWith("c_") ? await cardReferrer(startPayload).catch(() => undefined) : undefined;
+  const user = await ensureMatchUser(botRow.id, tgUserId, refMatch?.[1] ?? cardRef);
   await recordBotVisit(botRow.id, tgUserId);
   await prisma.matchUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
 
@@ -2727,6 +2786,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.matchUser.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
       await bot.api.sendMessage(chatId, "✅ تم التحقق من رقم هاتفك.", { reply_markup: mainMenu() });
+      await resumeAfterVerify(bot, botRow, chatId, tgUserId, user.pendingAction as PendingAction | null);
     } else {
       await bot.api.sendMessage(chatId, "⚠️ يجب مشاركة رقم هاتفك أنت، وليس رقم شخص آخر.");
     }
@@ -2737,10 +2797,15 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     // Verification by the Telegram account itself (no phone number stored): needs a public @username or Telegram Premium.
     const ok = await verifyByTelegram(tgUserId, { username: msg.from?.username, isPremium: !!msg.from?.is_premium }).catch(() => false);
     await bot.api.sendMessage(chatId, ok ? "✅ تم التحقق من حسابك على تيليجرام (بلا رقم هاتف)." : "⚠️ حسابك بلا اسم مستخدم (@username) ولا Premium. أضف اسم مستخدم في إعدادات تيليجرام ثم أرسل /verify، أو شارك رقمك بالزر.", ok ? { reply_markup: mainMenu() } : undefined);
+    if (ok) await resumeAfterVerify(bot, botRow, chatId, tgUserId, user.pendingAction as PendingAction | null);
     return;
   }
 
   if (!user.phoneVerified) {
+    // Keep the profile/card link a newcomer arrived with, so it opens right after verification instead of being lost.
+    if (startPayload && (parseProfileStart(startPayload) || parseCardStart(startPayload))) {
+      await setPending(tgUserId, { mode: "after_verify", payload: startPayload }).catch(() => null);
+    }
     await bot.api.sendMessage(
       chatId,
       "📱 التحقق خطوة إلزامية قبل استخدام هذا البوت، لحماية جميع الأعضاء. شارك رقمك بالزر، أو أرسل /verify للتحقق بحساب تيليجرام بدون رقم.",
@@ -2754,7 +2819,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (typeof msg.text === "string" && msg.text.startsWith("/start")) {
     await ensureMatchBotSetup(bot, botRow.id).catch(() => null);
     await ensureMiniAppMenu(bot, botRow, chatId);
-    const profileRef = parseProfileStart(startPayload);
+    const profileRef = parseProfileStart(startPayload) ?? parseCardStart(startPayload);
     const curMode = (user.pendingAction as any)?.mode;
     if (profileRef && curMode !== "random_chatting" && curMode !== "fake_chatting") {
       await openProfileDeepLink(bot, botRow, chatId, tgUserId, profileRef);
@@ -2848,6 +2913,20 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (text === "/start") {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, startGuide("MATCH"), { reply_markup: mainMenu() });
+    return;
+  }
+
+  // «زواج بثقة» (2026-11-10): own shareable card + paid human matchmaker.
+  if (pending?.mode === "mm_note") {
+    await consumeMatchmakerNote(bot, chatId, tgUserId, pending.reqId, text);
+    return;
+  }
+  if (text === CARD_BUTTON || text === "/card") {
+    await sendOwnCard(bot, botRow, chatId, tgUserId);
+    return;
+  }
+  if (text === MATCHMAKER_BUTTON) {
+    await showMatchmaker(bot, chatId);
     return;
   }
 
@@ -3043,7 +3122,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `• لا تُشارَك بياناتك حتى تختار أنت بدء التواصل.\n` +
       `• ملفك يظهر فور حفظه، وتراجعه الإدارة لاحقاً وقد ترفضه إن خالف الشروط.\n` +
       `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت، أو جعله ظاهراً لأهل دولتك فقط من «👤 ملفي الشخصي».\n\n` +
-      `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، يُرفع ملفك مجاناً 24 ساعة.\n\n` +
+      `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، تحصل على يوم ذهبي مجاني 👑. وأسهل دعوة: «🪪 بطاقتي للمشاركة».\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
     await bot.api.sendMessage(chatId, info, { reply_markup: infoMenu() });
     return;
@@ -3056,7 +3135,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     const me = await bot.api.getMe();
     await bot.api.sendMessage(
       chatId,
-      `🔗 شارك هذا الرابط مع أصدقائك لدعوتهم لاستخدام البوت:\n\nhttps://t.me/${me.username}?start=ref_${tgUserId}\n\n🎁 عند اعتماد الإدارة لملف أي صديق دعوته عبر هذا الرابط، تحصل تلقائياً على رفع مجاني لملفك لمدة 24 ساعة.`,
+      `🔗 شارك هذا الرابط مع أصدقائك لدعوتهم لاستخدام البوت:\n\nhttps://t.me/${me.username}?start=ref_${tgUserId}\n\n🎁 عند اعتماد ملف أي صديق دعوته عبر هذا الرابط، تحصل تلقائياً على يوم ذهبي مجاني 👑 (كل المزايا).`,
       { reply_markup: infoMenu() }
     );
     return;
