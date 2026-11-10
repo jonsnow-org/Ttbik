@@ -281,7 +281,7 @@ def _launcher_script(session: str, app: str) -> str | None:
         home = shlex.quote(str(box.session_home(session)))
         log = shlex.quote(str(box.session_home(session) / ".desktop" / "files-launch.log"))
         # the output goes to a log so a window that never appears can be diagnosed (a taskbar button has no terminal)
-        return f"#!/bin/sh\n(date; echo launching files) >> {log} 2>&1\nexec pcmanfm --new-window {home} >> {log} 2>&1\n"
+        return f"#!/bin/sh\n(date; echo launching files) >> {log} 2>&1\nexec pcmanfm {home} >> {log} 2>&1\n"
     return None
 
 
@@ -840,7 +840,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
         elif app == "files":
             if not shutil.which("pcmanfm"):
                 return {"ok": False, "error": "The file manager is not installed in this Studio."}
-            cmd = ["pcmanfm", "--new-window", str(box.session_home(session))]
+            cmd = ["pcmanfm", str(box.session_home(session))]
         elif app == "browser":
             url = str(job.get("url") or "about:blank").strip()
             if url != "about:blank":
