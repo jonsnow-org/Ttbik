@@ -34,16 +34,4 @@ describe("builder owner bot config", () => {
     expect(await m.ownerBotId()).toBe("off-1");
     expect(await m.ownerBot()).toBeNull();
   });
-  it("parses /ownerbot and /ownerbot off", () => {
-    const m = load();
-    expect(m.parseOwnerBotCommand("/ownerbot")).toEqual({ off: false });
-    expect(m.parseOwnerBotCommand("/ownerbot@x_bot off")).toEqual({ off: true });
-    expect(m.parseOwnerBotCommand("/ownerbots")).toBeNull();
-  });
-});
-
-describe("builder bots' Mini App", () => {
-  it("menu button opens /bot-app/<bot id> on the gate", () => {
-    expect(load().botAppUrl("https://gate.example/", "ad-1")).toBe("https://gate.example/bot-app/ad-1");
-  });
 });

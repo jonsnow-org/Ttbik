@@ -2,8 +2,7 @@ import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./yo
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
 import { BOT_SALE_CALLBACK, handleBotSaleCallback, isGetbotRequest, sendPlans, type Tg } from "@/lib/botSalesChat";
-import { isOwnerBot, ownerBotGetbotLink, parseOwnerBotCommand, setBotAppMenu, setOwnerBotId } from "@/lib/builderOwnerBot";
-import { gateUrl } from "@/lib/hostingOps";
+import { isOwnerBot, ownerBotGetbotLink } from "@/lib/builderOwnerBot";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest, remitAppUrl } from "@/lib/remit/remit";
 import { SITE_URL } from "@/lib/siteUrl";
 import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
@@ -606,11 +605,6 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 
 // Owner-only mode: the owner can lock a bot row so only the platform owner (SUPER_ADMIN) can use it -- for a private admin bot.
 // Stored in bot_settings under private_bot:<row id>; anything unreadable counts as "public" so a database hiccup never locks everyone out.
-async function ownerBotIdSafe(): Promise<string> {
-  const { ownerBotId } = await import("@/lib/builderOwnerBot");
-  return ownerBotId().catch(() => "");
-}
-
 function tgFor(token: string): Tg {
   return (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
@@ -728,14 +722,6 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     }
   }
 
-  // The platform owner (recognised by his Telegram ID) picks THIS bot as the builder's owner bot: /ownerbot (or /ownerbot off).
-  const ownerBotCmd = parseOwnerBotCommand(text);
-  if (ownerBotCmd && tgUserId === SUPER_ADMIN_ID) {
-    await setOwnerBotId(ownerBotCmd.off ? null : botRow.id).catch(() => null);
-    if (!ownerBotCmd.off) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
-    await bot.api.sendMessage(chatId, ownerBotCmd.off ? "✅ أُلغي تعيين بوت المنصة." : "✅ صار هذا البوت بوت المنصة: زر «احصل على بوت مشابه» في كل بوتات المنشئ يفتح هنا، والبيع والأكواد تعمل هنا.").catch(() => null);
-    return;
-  }
   // 🤖 «احصل على بوت مشابه» (/start getbot, /getbot): the checkout on the owner bot, a link to it from every other builder bot.
   if (isGetbotRequest(text, GETBOT_BUTTON)) {
     await sendWantOwnBot(bot, botRow, chatId, tgUserId);
@@ -1356,7 +1342,6 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   if (text === "🤖 البوتات والمشرفون" && tgUserId === SUPER_ADMIN_ID) {
     // Builder bots only: the site bot is not part of the builder (legacy SITE_BANNER_ADMIN rows are never listed).
     const rows = await prisma.bot.findMany({ where: { template: { not: "SITE_BANNER_ADMIN" } }, orderBy: { created_at: "asc" }, take: 40 });
-    const platformBotId = await ownerBotIdSafe();
     const lines = await Promise.all(
       rows.map(async (r) => {
         let uname = "?";
@@ -1369,12 +1354,12 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         }
         const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
         const money = r.template === "AD_BOT" ? ` — عمولة المشرف: جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}` : "";
-        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.id === platformBotId ? " — ⭐ بوت المنصة" : ""}${r.isActive ? "" : " (متوقف)"}${money}`;
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
       }),
     );
     await bot.api.sendMessage(
       chatId,
-      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن. ⭐ = بوت المنصة (${platformBotId ? "غيّره بإرسال /ownerbot في البوت المطلوب" : "غير معيّن: أرسل /ownerbot في بوت المنصة"}).\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
+      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
       { reply_markup: ADMIN_MENU },
     );
     return;

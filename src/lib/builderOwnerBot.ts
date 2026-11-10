@@ -3,8 +3,8 @@
 // says WHICH bot is the platform's own bot, i.e. where builder flows send people (e.g. «احصل على بوت مشابه») and which bot sells
 // and delivers activation codes.
 //
-// Selection, in order: env BUILDER_OWNER_BOT_ID (a Bot row id), then bot_settings key `builder_owner_bot` (set by the owner with
-// /ownerbot inside that bot; /ownerbot off clears it). Unset → every feature that needs it degrades gracefully (no link shown).
+// Selection, in order: env BUILDER_OWNER_BOT_ID (a Bot row id), then bot_settings key `builder_owner_bot` (a Bot row id).
+// Unset (the default) → every feature that needs it degrades gracefully (no link shown).
 // The site bot (بوت الموقع, /api/ads/telegram) is NOT and can never be this bot: it is not in the Bot table.
 import { prisma } from "@/lib/prisma";
 
@@ -27,15 +27,6 @@ export async function ownerBotId(): Promise<string> {
   }
   idCache = { at: Date.now(), v };
   return v;
-}
-
-/** Owner only (the caller checks the owner's Telegram ID): makes `botId` the builder's owner bot, or clears it with null. */
-export async function setOwnerBotId(botId: string | null): Promise<void> {
-  const { supabaseAdmin } = await import("@/lib/supabase");
-  if (botId) await supabaseAdmin().from("bot_settings").upsert({ key: OWNER_BOT_SETTING, value: botId, updated_at: new Date().toISOString() });
-  else await supabaseAdmin().from("bot_settings").delete().eq("key", OWNER_BOT_SETTING);
-  idCache = null;
-  botCache = null;
 }
 
 export async function isOwnerBot(botId: string): Promise<boolean> {
@@ -70,69 +61,4 @@ export async function ownerBot(): Promise<OwnerBot | null> {
 export async function ownerBotGetbotLink(): Promise<string | null> {
   const b = await ownerBot().catch(() => null);
   return b ? `https://t.me/${b.username}?start=getbot` : null;
-}
-
-/** "/ownerbot" or "/ownerbot off". Pure. */
-export function parseOwnerBotCommand(text: string): { off: boolean } | null {
-  const m = /^\/ownerbot(?:@\w+)?(?:\s+(off|clear|إلغاء))?\s*$/i.exec(String(text || "").trim());
-  return m ? { off: !!m[1] } : null;
-}
-
-
-/** The owner bot's token when it is provided by env instead of the /bots form: BUILDER_OWNER_BOT_TOKEN (alias SHAM_TEST0_BOT_TOKEN). */
-export function ownerBotEnvToken(): string {
-  return String(process.env.BUILDER_OWNER_BOT_TOKEN || process.env.SHAM_TEST0_BOT_TOKEN || "").trim();
-}
-
-export type EnsureResult = { ok: boolean; note: string; id?: string; username?: string; webhook?: string };
-/**
- * Idempotent: registers the env-provided owner bot as an AD_BOT row of the builder (owner = SUPER_ADMIN_TELEGRAM_ID, the owner's
- * existing ID), points its webhook at the gate and selects it as the builder's owner bot. No env token → nothing happens.
- * Never takes over a row of another template. Called by the hourly hosting-gate-sync and by POST /api/admin/bots/bind-owner-bot.
- */
-export async function ensureOwnerBotFromEnv(gateBase: string): Promise<EnsureResult> {
-  const token = ownerBotEnvToken();
-  if (!token) return { ok: false, note: "no env token (BUILDER_OWNER_BOT_TOKEN / SHAM_TEST0_BOT_TOKEN)" };
-  const ownerId = String(process.env.SUPER_ADMIN_TELEGRAM_ID || "").trim();
-  if (!/^\d{5,15}$/.test(ownerId)) return { ok: false, note: "SUPER_ADMIN_TELEGRAM_ID not set" };
-  const tg = async (method: string, body?: unknown) => {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(8000) });
-    return res.json().catch(() => null);
-  };
-  const me = await tg("getMe").catch(() => null);
-  const username = String(me?.result?.username || "");
-  if (!me?.ok || !username) return { ok: false, note: "Telegram rejected the env token (getMe)" };
-  const base = gateBase.replace(/\/$/, "");
-  let row = await prisma.bot.findFirst({ where: { token }, select: { id: true, template: true, isActive: true, webhookSecret: true } });
-  if (row && row.template !== "AD_BOT") return { ok: false, note: `this token belongs to a ${row.template} bot; not taken over`, id: row.id, username };
-  if (row && !row.isActive) return { ok: false, note: "the bot's row is deactivated; activate it in /admin/platform first", id: row.id, username };
-  if (!row) {
-    // same order as /api/bots/deploy: webhook first, so a failed setWebhook never leaves an orphaned row
-    const crypto = await import("crypto");
-    const id = crypto.randomUUID();
-    const webhookSecret = crypto.randomBytes(32).toString("hex");
-    const hook = await tg("setWebhook", { url: `${base}/api/telegram/${id}`, secret_token: webhookSecret }).catch(() => null);
-    if (!hook?.ok) return { ok: false, note: `setWebhook failed: ${String(hook?.description || "").slice(0, 80)}`, username };
-    row = await prisma.bot.create({ data: { id, token, template: "AD_BOT", ownerId, webhookSecret }, select: { id: true, template: true, isActive: true, webhookSecret: true } });
-  } else {
-    const info = await tg("getWebhookInfo").catch(() => null);
-    const want = `${base}/api/telegram/${row.id}`;
-    if (info?.result?.url !== want) await tg("setWebhook", { url: want, secret_token: row.webhookSecret }).catch(() => null);
-  }
-  if (!String(process.env.BUILDER_OWNER_BOT_ID || "").trim() && (await ownerBotId().catch(() => "")) !== row.id) await setOwnerBotId(row.id);
-  await setBotAppMenu(token, base, row.id).catch(() => false); // its Mini App: the platform's services
-  const info = await tg("getWebhookInfo").catch(() => null);
-  return { ok: info?.result?.url === `${base}/api/telegram/${row.id}`, note: "owner bot bound", id: row.id, username, webhook: String(info?.result?.url || "") };
-}
-
-/** The builder bots' Mini App (the platform's services), opened from the chat's menu button. Pure. */
-export function botAppUrl(gateBase: string, botId: string): string {
-  return `${gateBase.replace(/\/$/, "")}/bot-app/${encodeURIComponent(botId)}`;
-}
-/** Sets the bot's menu button to its Mini App. Done for the owner bot and for every bot deployed from the builder from now on;
- *  existing supervisor bots and other platform bots are left exactly as they are. */
-export async function setBotAppMenu(token: string, gateBase: string, botId: string): Promise<boolean> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: botAppUrl(gateBase, botId) } } }), signal: AbortSignal.timeout(8000) }).catch(() => null);
-  const data = await res?.json().catch(() => null);
-  return !!data?.ok;
 }

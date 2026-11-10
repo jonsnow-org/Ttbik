@@ -213,12 +213,6 @@ export async function POST(req: NextRequest) {
       TG_CALL_MS,
       "انتهت مهلة ربط الويبهوك مع تليجرام — حاول مجدداً."
     );
-    if (tpl === "AD_BOT") {
-      // The builder bots' Mini App (the platform's services) on the menu button
-      const { setBotAppMenu } = await import("@/lib/builderOwnerBot");
-      const { gateUrl } = await import("@/lib/hostingOps");
-      await setBotAppMenu(token, gateUrl(), botId).catch(() => false);
-    }
     if (tpl === "MARRIAGE_BOT") {
       // Own commands + Mini App menu button (clears any command list left on the token).
       const { ensureMatchBotSetup } = await import("@/lib/matchBotLogic");
