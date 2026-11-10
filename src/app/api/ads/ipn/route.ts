@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
 import { markSiteAdPaid } from "@/lib/siteAds";
+import { markDealPaid } from "@/lib/channels/exchange";
 
 // NOWPayments IPN for site banners (ADV-…).
 // Hardened 2026-11-10:
@@ -17,8 +18,14 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body !== "object") return NextResponse.json({ error: "invalid body" }, { status: 400 });
   if (!verifyNowPaymentsSignature(body, req.headers.get("x-nowpayments-sig") || "")) return NextResponse.json({ error: "bad sig" }, { status: 401 });
   const code = String(body.order_id || "").toUpperCase();
-  if (!code.startsWith("ADV-")) return NextResponse.json({ ok: true });
   const status = String(body.payment_status || "");
+  // Channel exchange deals (CHD-) and ☑️ badges (CHB-): money is held in escrow until the post is verified.
+  if (code.startsWith("CHD-") || code.startsWith("CHB-")) {
+    if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
+    const r = await markDealPaid(code, "NOWPayments", Number(body.price_amount));
+    return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
+  }
+  if (!code.startsWith("ADV-")) return NextResponse.json({ ok: true });
   if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
   const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
   if (!ad) return NextResponse.json({ ok: true, ignored: "unknown order" });

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { activateAd, adStars, bannerBalance, findAdmenBot, markSiteAdPaid, SITE_AD_STARS_PREFIX, siteAdStarsEnabled } from "@/lib/siteAds";
 import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
+import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/exchange";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
 const KEYBOARD = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
@@ -41,6 +42,9 @@ export async function POST(req: NextRequest) {
     if (payload.startsWith(SITE_AD_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: payload.slice(SITE_AD_STARS_PREFIX.length) } }).catch(() => null);
       ok = !!ad && ad.paymentStatus !== "PAID" && ad.adStatus !== "REJECTED" && Number(pcq.total_amount) >= adStars(ad.totalPrice);
+    } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
+      const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
+      ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
     }
     await fetch(`https://api.telegram.org/bot${bot.token}/answerPreCheckoutQuery`, {
       method: "POST",
@@ -51,6 +55,19 @@ export async function POST(req: NextRequest) {
   }
   // …and credit it when Telegram confirms (only on a webhook verified by the secret token).
   const sp = update?.message?.successful_payment;
+  if (sp && String(sp.invoice_payload || "").startsWith(CHANNEL_STARS_PREFIX)) {
+    if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
+    const code = String(sp.invoice_payload).slice(CHANNEL_STARS_PREFIX.length);
+    const deal = await dealByCode(code).catch(() => null);
+    if (deal && Number(sp.total_amount) >= adStars(deal.price)) {
+      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
+      const msg = deal.kind === "BADGE"
+        ? `✅ وصل الدفع (${sp.total_amount} ⭐). شارة ☑️ لقناة @${deal.channel} مفعّلة لسنة.`
+        : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
+      if (r.ok) await send(update.message.chat.id, msg).catch(() => null);
+    }
+    return NextResponse.json({ ok: true });
+  }
   if (sp && String(sp.invoice_payload || "").startsWith(SITE_AD_STARS_PREFIX)) {
     if (!siteAdStarsEnabled() || sp.currency !== "XTR") return NextResponse.json({ ok: true });
     const code = String(sp.invoice_payload).slice(SITE_AD_STARS_PREFIX.length);
