@@ -3,7 +3,8 @@ jest.mock("@/lib/prisma", () => ({ prisma: db }));
 import { chooseGift, MIN_POINTS, pickWinners, prizeFor } from "@/lib/contests/prizes";
 import { parseRefCommand } from "@/lib/remit/refLinks";
 import { autoApprove, secretOk, validateApplication } from "@/lib/remit/listings";
-import { PROVIDERS, providerLink } from "@/lib/remit/remit";
+import { botParam, isRemitRequest, PROVIDERS, providerLink, remitAppUrl } from "@/lib/remit/remit";
+import { changenowLinkId, pickWidget } from "@/lib/remit/widgets";
 
 const at = (m: number) => new Date(Date.UTC(2026, 10, 10, 0, m));
 
@@ -50,7 +51,35 @@ describe("remittance listings and referral links", () => {
   it("has unique keys and https official links only", () => {
     expect(new Set(PROVIDERS.map((p) => p.key)).size).toBe(PROVIDERS.length);
     for (const p of PROVIDERS) expect(p.url.startsWith("https://")).toBe(true);
-    expect(PROVIDERS.length).toBeGreaterThanOrEqual(20);
+    expect(PROVIDERS.map((p) => p.key)).toEqual(["CHANGENOW", "FIXEDFLOAT", "EXOLIX", "STEALTHEX"]);
+  });
+  it("turns the owner's ChangeNOW link into the partner widget, and hides it without one", () => {
+    expect(changenowLinkId("https://changenow.io/?link_id=123040aec1d261")).toBe("123040aec1d261");
+    expect(changenowLinkId("https://changenow.io/exchange?from=btc&to=eth&link_id=79406750004bb8")).toBe("79406750004bb8");
+    expect(changenowLinkId("123040aec1d261")).toBe("123040aec1d261");
+    expect(changenowLinkId("https://evil.example/?link_id=123040aec1d261")).toBeNull();
+    expect(changenowLinkId("https://changenow.io/")).toBeNull();
+    expect(pickWidget({}, {})).toBeNull();
+    const w = pickWidget({ CHANGENOW: "https://changenow.io/?link_id=123040aec1d261" }, {})!;
+    expect(w.provider).toBe("CHANGENOW");
+    const u = new URL(w.src);
+    expect(u.origin + u.pathname).toBe("https://changenow.io/embeds/exchange-widget/v2/widget.html");
+    expect(u.searchParams.get("link_id")).toBe("123040aec1d261");
+    expect(u.searchParams.get("to")).toBe("usdttrc20");
+    expect(pickWidget({ STEALTHEX_WIDGET: "abc123def" }, {})!.src).toBe("https://stealthex.io/widget/abc123def/");
+    expect(pickWidget({ CHANGENOW: "https://changenow.io/?link_id=123040aec1d261", STEALTHEX_WIDGET: "abc123def" }, {})!.provider).toBe("CHANGENOW");
+  });
+  it("accepts a bare partner id in /ref", () => {
+    expect(parseRefCommand("/ref CHANGENOW 123040aec1d261")).toEqual({ kind: "set", key: "CHANGENOW", url: "https://changenow.io/?link_id=123040aec1d261" });
+    expect(parseRefCommand("/ref STEALTHEX abc123def")).toEqual({ kind: "set", key: "STEALTHEX_WIDGET", url: "abc123def" });
+    expect(parseRefCommand("/ref STEALTHEX_WIDGET off")).toEqual({ kind: "clear", key: "STEALTHEX_WIDGET" });
+  });
+  it("tags the bot that opened the remittance section", () => {
+    expect(remitAppUrl("https://x.dev/", "cm123abc")).toBe("https://x.dev/remit?bot=cm123abc&src=tg");
+    expect(isRemitRequest("💸 حوالات USDT")).toBe(true);
+    expect(isRemitRequest("/remit")).toBe(true);
+    expect(botParam("cm123abc")).toBe("cm123abc");
+    expect(botParam("<script>")).toBeNull();
   });
   it("validates an application and requires the licence + consent", () => {
     const base = { name: "شام للصرافة", country: "سوريا", license: "مصرف سوريا المركزي", contact: "@cham_exchange", agree: true };

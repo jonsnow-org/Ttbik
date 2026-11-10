@@ -7,9 +7,10 @@ import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/e
 import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
 import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
+import { REMIT_BUTTON, remitAppUrl } from "@/lib/remit/remit";
 
 const SITE = gateUrl().replace(/\/$/, ""); // gate address: fails over to the standby hosts automatically
-const KEYBOARD = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
+const KEYBOARD = { keyboard: [[{ text: REMIT_BUTTON, web_app: { url: remitAppUrl(SITE, "admen10bot") } }], [{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
     } else if (chatId) {
-      await send(chatId, text === "المحفظة" ? "المحفظة تُفتح من التطبيق المصغر." : text === "شراء" ? "الشراء يتم داخل التطبيق المصغر." : "بوت الموقع: الرصيد، المحفظة، الشراء، وزر الموقع.");
+      await send(chatId, text === "المحفظة" ? "المحفظة تُفتح من التطبيق المصغر." : text === "شراء" ? "الشراء يتم داخل التطبيق المصغر." : "بوت الموقع: 💸 حوالات USDT، الرصيد، المحفظة، الشراء، وزر الموقع.");
     }
     return NextResponse.json({ ok: true });
   }
