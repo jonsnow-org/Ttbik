@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       const r = await markSponsorPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
       if (r.first) {
         const fresh = await sponsorByCode(code).catch(() => null);
-        await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك للختمات (${code}) من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}.`).catch(() => null);
+        await send(update.message.chat.id, `✅ وصل الدفع (${sp.total_amount} ⭐). رعايتك (${code}) من ${fresh?.starts_at?.toISOString().slice(0, 10) || "اليوم"} إلى ${fresh?.ends_at?.toISOString().slice(0, 10) || ""}.`).catch(() => null);
       }
     }
     return NextResponse.json({ ok: true });

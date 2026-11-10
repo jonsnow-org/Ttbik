@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const m = ["stars", "nowpayments", "usdt"].includes(b.method) ? b.method : "usdt";
     r = await paySponsor(String(b.code || "").toUpperCase(), m).catch(() => ({ ok: false, error: "تعذّر إنشاء الدفع." }));
   } else {
-    r = await createSponsorOrder({ name: String(b.name || ""), url: String(b.url || ""), contact: String(b.contact || "") }).catch(() => ({ ok: false, error: "تعذّر الحفظ." }));
+    r = await createSponsorOrder({ name: String(b.name || ""), url: String(b.url || ""), contact: String(b.contact || ""), product: String(b.product || "khatma"), prize: String(b.prize || "") }).catch(() => ({ ok: false, error: "تعذّر الحفظ." }));
   }
   return NextResponse.json(r, { status: r.ok ? 200 : 400 });
 }
