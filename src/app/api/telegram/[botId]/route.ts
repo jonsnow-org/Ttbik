@@ -146,8 +146,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const chatType = body.message?.chat?.type ?? body.callback_query?.message?.chat?.type;
       if (chatType && chatType !== "private" && botRow.template === "STREAK_BOT") {
         // 📖 Group khatma (the one exception): STREAK_BOT answers in a group only to /khatma and taps on its own board.
+        // 🏆 Group contests (src/lib/contests) answer /contest, /top and their own buttons; everything else goes to the khatma handler.
+        const { handleContestGroupUpdate } = await import("@/lib/contests/contests");
         const { handleKhatmaGroupUpdate } = await import("@/lib/khatma/khatma");
-        await handleKhatmaGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:khatma-group", e, { botId: botRow?.id }); });
+        const contest = await handleContestGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:contest-group", e, { botId: botRow?.id }); return true; });
+        if (!contest) await handleKhatmaGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:khatma-group", e, { botId: botRow?.id }); });
         return NextResponse.json({ status: "ok" });
       }
       if (chatType && chatType !== "private") {

@@ -6,7 +6,8 @@ async function post(body: unknown) {
   return r.json().catch(() => ({ ok: false, error: "خطأ في الاتصال" }));
 }
 
-export default function SponsorForm({ price, days }: { price: number; days: number }) {
+export default function SponsorForm({ price, days, product = "khatma" }: { price: number; days: number; product?: "khatma" | "contest" }) {
+  const [prize, setPrize] = useState("");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [contact, setContact] = useState("");
@@ -16,7 +17,7 @@ export default function SponsorForm({ price, days }: { price: number; days: numb
   const [busy, setBusy] = useState(false);
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setMsg("");
-    const r = await post({ action: "create", name, url, contact });
+    const r = await post({ action: "create", name, url, contact, product, prize });
     setBusy(false);
     if (r.ok) setCode(r.code); else setMsg(r.error || "تعذّر");
   };
@@ -45,6 +46,7 @@ export default function SponsorForm({ price, days }: { price: number; days: numb
   return (
     <form onSubmit={create} className="space-y-2 text-sm">
       <input required value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="اسم الجهة الراعية (متجر، مؤسسة خيرية…)" className="w-full rounded-lg border p-2" aria-label="اسم الراعي" />
+      {product === "contest" && <input required value={prize} onChange={(e) => setPrize(e.target.value)} maxLength={80} placeholder="الجائزة التي تموّلها (مثال: 20$ USDT للاعب الأول)" className="w-full rounded-lg border p-2" aria-label="الجائزة" />}
       <input dir="ltr" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://… (اختياري)" className="w-full rounded-lg border p-2" aria-label="الرابط" />
       <input required dir="ltr" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@your_username" className="w-full rounded-lg border p-2" aria-label="معرّفك" />
       {msg && <p className="text-rose-700">{msg}</p>}
