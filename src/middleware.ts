@@ -38,6 +38,7 @@ export const config = {
     "/embed/:path*",
     "/coder-app",
     "/coder-app/:path*",
+    "/bot-app/:path*",
     "/en",
     "/en/:path*",
   ],

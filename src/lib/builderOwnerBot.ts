@@ -114,16 +114,17 @@ export async function ensureOwnerBotFromEnv(gateBase: string): Promise<EnsureRes
     if (info?.result?.url !== want) await tg("setWebhook", { url: want, secret_token: row.webhookSecret }).catch(() => null);
   }
   if (!String(process.env.BUILDER_OWNER_BOT_ID || "").trim() && (await ownerBotId().catch(() => "")) !== row.id) await setOwnerBotId(row.id);
-  await setBotAppMenu(token, base, row.id).catch(() => false); // its Mini App: the platform's services
+  await setBotAppMenu(token, base, row.id).catch(() => false); // its own Mini App (ads & earn, wallet, remittances, channel exchange)
   const info = await tg("getWebhookInfo").catch(() => null);
   return { ok: info?.result?.url === `${base}/api/telegram/${row.id}`, note: "owner bot bound", id: row.id, username, webhook: String(info?.result?.url || "") };
 }
 
-/** The builder bots' Mini App (the platform's services), opened from the chat's menu button. Pure. */
-export function botAppUrl(gateBase: string, botId: string): string {
-  return `${gateBase.replace(/\/$/, "")}/bot-app/${encodeURIComponent(botId)}`;
+/** The ads & earn bot's own Mini App (src/app/bot-app/[botId]), optionally opened on one section (`?s=remit`). Pure. */
+export function botAppUrl(gateBase: string, botId: string, section?: string, params: Record<string, string> = {}): string {
+  const q = new URLSearchParams({ ...(section && section !== "home" ? { s: section } : {}), ...params }).toString();
+  return `${gateBase.replace(/\/$/, "")}/bot-app/${encodeURIComponent(botId)}${q ? `?${q}` : ""}`;
 }
-/** Sets the bot's menu button to the builder Mini App (all features, for every user). Done for the owner bot and for supervisor bots;
+/** Sets the bot's menu button to its own Mini App (every feature, for every user). Done for the owner bot and for supervisor bots;
  *  bots owned by the owner that are not the owner bot (e.g. the platform's supervisory bot) are never touched. */
 export async function setBotAppMenu(token: string, gateBase: string, botId: string): Promise<boolean> {
   const res = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: botAppUrl(gateBase, botId) } } }), signal: AbortSignal.timeout(8000) }).catch(() => null);

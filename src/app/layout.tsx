@@ -101,6 +101,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     );
   }
 
+  // The ads & earn bots' own Mini App (/bot-app/<botId>): a standalone Telegram app with its own sections, none of the site's chrome.
+  if (pathname.startsWith("/bot-app")) {
+    return (
+      <html lang="ar" dir="rtl">
+        <body className="font-sans antialiased" style={{ background: "var(--tg-theme-secondary-bg-color, #f1f2f6)" }}>
+          {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+          <script src="https://telegram.org/js/telegram-web-app.js" />
+          {children}
+        </body>
+      </html>
+    );
+  }
+
   if (isMiniApp) {
     return (
       <html lang="ar" dir="rtl">

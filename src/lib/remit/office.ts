@@ -80,7 +80,7 @@ async function setDraft(chatId: string, d: Draft | null): Promise<void> {
   if (!d) await prisma.$executeRaw`DELETE FROM remit_office_state WHERE chat_id = ${chatId}`;
   else await prisma.$executeRaw`INSERT INTO remit_office_state (chat_id, state) VALUES (${chatId}, ${JSON.stringify(d)}::jsonb) ON CONFLICT (chat_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`;
 }
-type Transfer = { track: string; chat_id: string; cn_id: string; coin: string; from_amount: number; to_amount: number; address: string; recipient: string | null; from_country: string | null; to_country: string | null; status: string; payin: string; payin_extra: string | null; payout_hash: string | null; created_at: Date };
+export type Transfer = { track: string; chat_id: string; cn_id: string; coin: string; from_amount: number; to_amount: number; address: string; recipient: string | null; from_country: string | null; to_country: string | null; status: string; payin: string; payin_extra: string | null; payout_hash: string | null; created_at: Date };
 export async function transferByTrack(track: string): Promise<Transfer | null> {
   await ensure();
   const r = await prisma.$queryRaw<Transfer[]>`SELECT * FROM remit_transfers WHERE track = ${track}`;
@@ -285,31 +285,78 @@ export async function officeCallback(ctx: Ctx, chatId: string, data: string): Pr
   return true;
 }
 
-async function createTransfer(ctx: Ctx, chatId: string, d: Draft, key: string | null) {
+export type CreatedTransfer = { track: string; coin: Coin; fromAmount: number; toAmount: number; payin: string; payinExtra: string | null };
+/**
+ * Creates the partner exchange and records the transfer and the recipient (the chat and the Mini App share it). `chatId` is the
+ * sender's Telegram chat, i.e. his user id in a private chat. Returns null when the draft is incomplete; throws the partner's error.
+ */
+export async function createTransferRecord(chatId: string, d: Draft, key: string): Promise<CreatedTransfer | null> {
   const c: Coin | null = coinById(d.coin || "");
-  if (!key || !c || !d.amount || !d.addr || !TRON_ADDRESS.test(d.addr)) { await officeMenu(ctx, chatId); return; }
+  if (!key || !c || !d.amount || !d.addr || !TRON_ADDRESS.test(d.addr)) return null;
   const track = newTrack();
-  let ex;
+  const ex = await createExchange(key, c, d.amount, d.addr, track);
+  await ensure();
+  await prisma.$executeRaw`INSERT INTO remit_transfers (track, chat_id, cn_id, coin, from_amount, to_amount, address, recipient, from_country, to_country, payin, payin_extra) VALUES (${track}, ${chatId}, ${ex.id}, ${c.id}, ${ex.fromAmount}, ${ex.toAmount || d.quote || 0}, ${d.addr}, ${d.name || null}, ${d.from || null}, ${d.to || null}, ${ex.payinAddress}, ${ex.payinExtraId})`;
+  await prisma.$executeRaw`INSERT INTO remit_recipients (chat_id, address, name) VALUES (${chatId}, ${d.addr}, ${d.name || null}) ON CONFLICT (chat_id, address) DO UPDATE SET used_at = now(), name = COALESCE(EXCLUDED.name, remit_recipients.name)`;
+  return { track, coin: c, fromAmount: ex.fromAmount, toAmount: ex.toAmount || d.quote || 0, payin: ex.payinAddress, payinExtra: ex.payinExtraId };
+}
+
+async function createTransfer(ctx: Ctx, chatId: string, d: Draft, key: string | null) {
+  if (!key) { await officeMenu(ctx, chatId); return; }
+  let t: CreatedTransfer | null;
   try {
-    ex = await createExchange(key, c, d.amount, d.addr, track);
+    t = await createTransferRecord(chatId, d, key);
   } catch (e) {
     await say(ctx, chatId, `⚠️ تعذّر إنشاء الحوالة الآن (${String((e as Error).message || "").slice(0, 80)}). جرّب بعد قليل أو بمبلغ آخر.`, [[{ text: "✏️ تعديل المبلغ", callback_data: "ro:amt" }]]);
     return;
   }
-  await ensure();
-  await prisma.$executeRaw`INSERT INTO remit_transfers (track, chat_id, cn_id, coin, from_amount, to_amount, address, recipient, from_country, to_country, payin, payin_extra) VALUES (${track}, ${chatId}, ${ex.id}, ${c.id}, ${ex.fromAmount}, ${ex.toAmount || d.quote || 0}, ${d.addr}, ${d.name || null}, ${d.from || null}, ${d.to || null}, ${ex.payinAddress}, ${ex.payinExtraId})`;
-  await prisma.$executeRaw`INSERT INTO remit_recipients (chat_id, address, name) VALUES (${chatId}, ${d.addr}, ${d.name || null}) ON CONFLICT (chat_id, address) DO UPDATE SET used_at = now(), name = COALESCE(EXCLUDED.name, remit_recipients.name)`;
+  if (!t) { await officeMenu(ctx, chatId); return; }
+  const { track, coin: c } = t;
   await setDraft(chatId, null);
   await say(ctx, chatId, [
     `✅ أُنشئت الحوالة ${track}`,
     "",
-    `أرسل الآن بالضبط: ${fmt(ex.fromAmount)} ${c.label}`,
+    `أرسل الآن بالضبط: ${fmt(t.fromAmount)} ${c.label}`,
     `إلى العنوان:`,
-    ex.payinAddress,
-    ...(ex.payinExtraId ? ["", `⚠️ مع المذكرة (Memo) إلزامياً: ${ex.payinExtraId}`] : []),
+    t.payin,
+    ...(t.payinExtra ? ["", `⚠️ مع المذكرة (Memo) إلزامياً: ${t.payinExtra}`] : []),
     "",
-    `يصل للمستلم ≈ ${fmt(ex.toAmount || d.quote || 0, 2)} ${RECEIVE.label} خلال دقائق من تأكيد دفعتك. سنبلغك هنا بكل تغيير في الحالة.`,
+    `يصل للمستلم ≈ ${fmt(t.toAmount, 2)} ${RECEIVE.label} خلال دقائق من تأكيد دفعتك. سنبلغك هنا بكل تغيير في الحالة.`,
   ].join("\n"), [[{ text: "🧾 الإيصال", callback_data: `ro:rc:${track}` }, { text: "🔄 تحديث الحالة", callback_data: `ro:upd:${track}` }]]);
+}
+
+/** Quote for a draft amount: the partner's live minimum first, then the estimate (chat and Mini App). */
+export async function quoteAmount(c: Coin, amount: number, key: string): Promise<{ ok: true; quote: number; min: number | null } | { ok: false; reason: "min" | "quote"; min: number | null }> {
+  const min = await minAmount(c);
+  if (min && amount < min) return { ok: false, reason: "min", min };
+  try {
+    const q = await estimate(key, c, amount);
+    return { ok: true, quote: q.toAmount, min };
+  } catch {
+    return { ok: false, reason: "quote", min };
+  }
+}
+
+/** The sender's last transfers, newest first. */
+export async function transfersOf(chatId: string, limit = 10): Promise<Transfer[]> {
+  await ensure();
+  return prisma.$queryRaw<Transfer[]>`SELECT * FROM remit_transfers WHERE chat_id = ${chatId} ORDER BY created_at DESC LIMIT ${limit}`;
+}
+export const savedRecipients = (chatId: string) => recipients(chatId);
+export async function deleteRecipient(chatId: string, address: string): Promise<void> {
+  await ensure();
+  await prisma.$executeRaw`DELETE FROM remit_recipients WHERE chat_id = ${chatId} AND address = ${address}`;
+}
+
+/** Reads the partner's status and stores a change (compare-and-swap on the old status). null when the partner can't be reached. */
+export async function syncTransferStatus(t: Transfer, key: string): Promise<{ changed: boolean; transfer: Transfer; payoutHash: string | null } | null> {
+  const s = await exchangeStatus(key, t.cn_id).catch(() => null);
+  if (!s) return null;
+  const changed = s.status !== t.status;
+  if (changed || s.payoutHash !== t.payout_hash) {
+    await prisma.$executeRaw`UPDATE remit_transfers SET status = ${s.status}, payout_hash = ${s.payoutHash}, to_amount = COALESCE(${s.amountTo}, to_amount), updated_at = now() WHERE track = ${t.track} AND status = ${t.status}`;
+  }
+  return { changed, transfer: { ...t, status: s.status, to_amount: s.amountTo || t.to_amount, payout_hash: s.payoutHash }, payoutHash: s.payoutHash };
 }
 
 async function history(ctx: Ctx, chatId: string) {
@@ -320,15 +367,11 @@ async function history(ctx: Ctx, chatId: string) {
 }
 
 async function refresh(ctx: Ctx, t: Transfer, key: string, reply: boolean): Promise<boolean> {
-  const s = await exchangeStatus(key, t.cn_id).catch(() => null);
-  if (!s) { if (reply) await say(ctx, t.chat_id, "تعذّر جلب الحالة الآن، حاول بعد قليل."); return false; }
-  const changed = s.status !== t.status;
-  if (changed || s.payoutHash !== t.payout_hash) {
-    await prisma.$executeRaw`UPDATE remit_transfers SET status = ${s.status}, payout_hash = ${s.payoutHash}, to_amount = COALESCE(${s.amountTo}, to_amount), updated_at = now() WHERE track = ${t.track} AND status = ${t.status}`;
-  }
+  const r = await syncTransferStatus(t, key);
+  if (!r) { if (reply) await say(ctx, t.chat_id, "تعذّر جلب الحالة الآن، حاول بعد قليل."); return false; }
+  const { changed, transfer: fresh } = r;
   if (changed || reply) {
-    const fresh = { ...t, status: s.status, to_amount: s.amountTo || t.to_amount };
-    const extra = s.status === "finished" && s.payoutHash ? `\n🔗 https://tronscan.org/#/transaction/${s.payoutHash}` : "";
+    const extra = fresh.status === "finished" && r.payoutHash ? `\n🔗 https://tronscan.org/#/transaction/${r.payoutHash}` : "";
     await say(ctx, t.chat_id, `${changed ? "🔔 تحديث الحوالة\n" : ""}${receiptText(fresh, ctx.site)}${extra}`);
   }
   return changed;
