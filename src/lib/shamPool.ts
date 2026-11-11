@@ -22,7 +22,7 @@ export const poolConfig = () => ({
 });
 
 /** The overflow Studio of Sham v2, or null when switched off or pointed at another model's endpoint. */
-const forbiddenOverflow = (base: string): boolean => /(?:nova-inference-server|nova-computer-hub|coder-inference|sham-v1|sham-v2-video)/i.test(base);
+const forbiddenOverflow = (base: string): boolean => /(?:nova-inference-server|coder-inference|sham-v1|sham-v2-video)/i.test(base);
 export function overflowConfigured(): string | null {
   const raw = (process.env.SHAM_V2_OVERFLOW_URL ?? DEFAULT_V2_OVERFLOW_URL).trim();
   if (!raw || /^(off|none|0)$/i.test(raw)) return null;

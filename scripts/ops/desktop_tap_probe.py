@@ -13,7 +13,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import modelscope_computer_smoke as m  # noqa: E402
 
-API = "https://studio-novaai2026-nova-computer-hub.api-inference.modelscope.net"
+API = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
 W, H = 640, 1070        # what the Mini App asks for on a phone
 OUT = os.environ.get("PROBE_FRAMES_DIR", "probe-frames")
 

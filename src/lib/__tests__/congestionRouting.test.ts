@@ -33,7 +33,7 @@ describe("Nova: its own five Studios", () => {
     const used = chats(hits);
     expect(used).toHaveLength(2);
     expect(used.every((x) => NOVA.indexOf(x) >= 2)).toBe(true);
-    expect(hits.some((h) => /nova-(inference-server|computer-hub)/.test(h))).toBe(false);
+    expect(hits.some((h) => h.includes("nova-inference-server"))).toBe(false);
     expect(a.reply && b.reply).toBeTruthy();
   });
   it("a Studio that answers 503 / is down is skipped for the next one", async () => {
@@ -55,7 +55,7 @@ describe("Sham v2: sham-v2-server, then the overflow", () => {
     process.env.SHAM_V2_OVERFLOW_URL = "off";
     const bases = shamVariant.run("v2", () => shamBases());
     expect(bases.every((b) => !/coder-inference-server/.test(b))).toBe(true);
-    expect(bases.some((b) => /nova-(inference-server|computer-hub)/.test(b))).toBe(false);
+    expect(bases.some((b) => /nova-inference-server/.test(b))).toBe(false);
   });
   it("simulated congestion with two users: the primary is taken, the second user's call goes to the verified overflow; a failed primary is skipped", async () => {
     _resetPoolForTests();
