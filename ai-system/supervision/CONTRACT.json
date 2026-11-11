@@ -687,6 +687,14 @@
       "reads": [],
       "writes": []
     },
+    "kernel_log": {
+      "file": ".github/workflows/sham-kernel-log.yml",
+      "title": "نهاية سجل دفتر كاكل واحد وحالته (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "repair_remerge_push": {
       "file": ".github/workflows/sham-repair-remerge-push.yml",
       "title": "دفع دفتر الاسترجاع والإصلاح إلى كاكل",
