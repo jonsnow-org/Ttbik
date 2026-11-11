@@ -128,23 +128,22 @@ async function requireVerifiedIdentity(telegramId: string): Promise<AssetIdentit
 
 type Verifier = { token: string; username: string; id: string; source: string };
 async function verifierBots(): Promise<Verifier[]> {
-  const found: Verifier[] = [];
   const [owner, site] = await Promise.all([ownerBot().catch(() => null), findSiteBot().catch(() => null)]);
   const candidates = [
     owner ? { token: owner.token, username: owner.username, source: "builder-owner" } : null,
     site ? { token: site.token, username: "", source: "site-owner" } : null,
   ].filter((x): x is { token: string; username: string; source: string } => !!x);
-  for (const c of candidates) {
-    if (found.some((x) => x.token === c.token)) continue;
+  const unique = candidates.filter((c, index) => candidates.findIndex((x) => x.token === c.token) === index);
+  const resolved = await Promise.all(unique.map(async (candidate): Promise<Verifier | null> => {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${c.token}/getMe`, { signal: AbortSignal.timeout(7000) });
+      const res = await fetch(`https://api.telegram.org/bot${candidate.token}/getMe`, { signal: AbortSignal.timeout(5000) });
       const data: any = await res.json();
-      if (data?.ok && data.result?.id) found.push({ token: c.token, username: String(data.result.username || c.username || ""), id: String(data.result.id), source: c.source });
-    } catch { /* try the other owner bot */ }
-  }
-  return found;
+      if (!data?.ok || !data.result?.id) return null;
+      return { token: candidate.token, username: String(data.result.username || candidate.username || ""), id: String(data.result.id), source: candidate.source };
+    } catch { return null; }
+  }));
+  return resolved.filter((x): x is Verifier => !!x);
 }
-
 export async function assetVerifierBotNames(): Promise<string[]> {
   return (await verifierBots()).map((b) => b.username ? `@${b.username}` : b.source);
 }
@@ -152,7 +151,7 @@ export async function assetVerifierBotNames(): Promise<string[]> {
 async function telegramCall<T = any>(token: string, method: string, body: Record<string, unknown>): Promise<T | null> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
     });
     const data: any = await res.json();
     return data?.ok ? data.result as T : null;
@@ -161,26 +160,25 @@ async function telegramCall<T = any>(token: string, method: string, body: Record
 
 async function verifyChatOwner(type: "CHANNEL" | "GROUP", identifier: string, telegramId: string) {
   const bots = await verifierBots();
-  let sawChat = false;
-  let sawAdminBot = false;
-  for (const verifier of bots) {
-    const chat: any = await telegramCall(verifier.token, "getChat", { chat_id: identifier.startsWith("-") ? identifier : `@${identifier.replace(/^@/, "")}` });
-    if (!chat?.id || !chat?.type) continue;
-    sawChat = true;
-    const expected = type === "CHANNEL" ? chat.type === "channel" : ["group", "supergroup"].includes(String(chat.type));
-    if (!expected) continue;
-    const botMember: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(verifier.id) });
-    if (!botMember || !["administrator", "creator"].includes(String(botMember.status))) continue;
-    sawAdminBot = true;
-    const owner: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(telegramId) });
-    if (owner?.status === "creator") return { ok: true as const, chatId: String(chat.id), title: String(chat.title || identifier), verifierBot: verifier.username || verifier.source };
-  }
   if (!bots.length) return { ok: false as const, error: "لا يوجد بوت تحقق متاح حالياً. تحقق من إعداد بوت المالك وبوت الموقع." };
-  if (!sawChat) return { ok: false as const, error: "تعذّر الوصول إلى القناة أو المجموعة. تأكد من المعرّف وأن أحد بوتي التحقق موجود فيها." };
-  if (!sawAdminBot) return { ok: false as const, error: "أضف أحد بوتي المنصة مشرفاً في القناة أو المجموعة مع صلاحية رؤية الأعضاء، ثم أعد التحقق." };
+  const checks = await Promise.all(bots.map(async (verifier) => {
+    const chat: any = await telegramCall(verifier.token, "getChat", { chat_id: identifier.startsWith("-") ? identifier : `@${identifier.replace(/^@/, "")}` });
+    if (!chat?.id || !chat?.type) return { sawChat: false, sawAdminBot: false, owner: false, chat: null, verifier };
+    const expected = type === "CHANNEL" ? chat.type === "channel" : ["group", "supergroup"].includes(String(chat.type));
+    if (!expected) return { sawChat: true, sawAdminBot: false, owner: false, chat, verifier };
+    const [botMember, owner] = await Promise.all([
+      telegramCall<any>(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(verifier.id) }),
+      telegramCall<any>(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(telegramId) }),
+    ]);
+    const sawAdminBot = !!botMember && ["administrator", "creator"].includes(String(botMember.status));
+    return { sawChat: true, sawAdminBot, owner: sawAdminBot && owner?.status === "creator", chat, verifier };
+  }));
+  const success = checks.find((x) => x.owner && x.chat);
+  if (success) return { ok: true as const, chatId: String(success.chat.id), title: String(success.chat.title || identifier), verifierBot: success.verifier.username || success.verifier.source };
+  if (!checks.some((x) => x.sawChat)) return { ok: false as const, error: "تعذّر الوصول إلى القناة أو المجموعة. تأكد من المعرّف وأن أحد بوتي التحقق موجود فيها." };
+  if (!checks.some((x) => x.sawAdminBot)) return { ok: false as const, error: "أضف أحد بوتي المنصة مشرفاً في القناة أو المجموعة مع صلاحية رؤية الأعضاء، ثم أعد التحقق." };
   return { ok: false as const, error: "الحساب الحالي ليس مالكاً أصلياً (creator) لهذا الأصل، لذلك لم يُقبل العرض." };
 }
-
 async function releaseExpiredReservations() {
   await ensureAssetMarketTables();
   // Close expired reservations atomically. Never unlock a newer reservation on the same listing.
