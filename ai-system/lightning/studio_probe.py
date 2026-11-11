@@ -18,7 +18,7 @@ def say(msg: str) -> None:
 
 
 def main() -> int:
-    if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
+    if not ((os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")) or os.environ.get("LIGHTNING_AUTH_TOKEN")):
         say("لا مفاتيح Lightning في البيئة — لا فحص")
         return 0
     try:
@@ -37,6 +37,7 @@ def main() -> int:
                 break
             except Exception as exc:
                 last = exc
+                say(f"  اسم «{uname or '(مستنتَج)'}» رُفض: {type(exc).__name__}: {str(exc)[:160]}")     # every refusal, not only the last one
         if not spaces and last is not None:
             raise last
         say("مساحات الفريق في الحساب: " + ", ".join(str(getattr(s, "name", s)) for s in spaces))

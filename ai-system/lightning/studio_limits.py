@@ -36,7 +36,7 @@ def attrs_like(obj, words=("plan", "limit", "quota", "credit", "tier", "max", "f
 
 
 def main() -> int:
-    if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
+    if not ((os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")) or os.environ.get("LIGHTNING_AUTH_TOKEN")):
         say("لا مفاتيح Lightning في البيئة — لا فحص")
         return 0
     from lightning_sdk import Machine, Studio, Teamspace, User

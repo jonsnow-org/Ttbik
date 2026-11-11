@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: claude/free-services-marketplace-h6rwk2
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'claude/free-services-marketplace-h6rwk2' }}      # a dispatch runs the code of the branch it was started from
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -39,6 +39,8 @@ jobs:
         env:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          # the SDK (2026.10+, after the Oct 16 incident) refuses the old key login: "set LIGHTNING_AUTH_TOKEN" — the owner adds this secret
+          LIGHTNING_AUTH_TOKEN: ${{ secrets.LIGHTNING_AUTH_TOKEN }}
           # owner's explicit approval (2026-10-10): Kaggle + HF keys go only into a private file inside her own Studio, never printed
           SHAM_STUDIO_SECRETS: "1"
           KAGGLE_USERNAME: jonsnowjonsnow
