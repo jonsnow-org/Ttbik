@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const tag = q.get("tag") || "", asset = q.get("asset") || "", to = (q.get("to") || "general") as keyof typeof CHANNELS;
   // Vercel stopped (402): a caption built from an old episode/site value still naming ttbik.vercel.app is sent with the live address.
   const caption = rewriteLegacyLinks(q.get("caption") || "").slice(0, 1000);
-  if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !(to in CHANNELS)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
+  if (!/^(?:promo-ep-\d{1,4}|promo-campaign-[a-z0-9-]+-\d{8})$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !(to in CHANNELS)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
   if (!caption || !isSafeForChannel(caption)) return NextResponse.json({ ok: false, reason: "caption-blocked" });
   const yt = to === "youtube";
   if (yt && !(await youtubeReady())) return NextResponse.json({ ok: false, reason: "youtube-not-set-up" });
