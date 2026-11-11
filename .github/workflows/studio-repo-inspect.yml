@@ -15,12 +15,12 @@ jobs:
           echo "::add-mask::$T"
           M=https://www.modelscope.cn/openapi/v1/studios/novaai2026
           echo "== hub build"
-          curl -sS -H "Authorization: Bearer $T" "$M/nova-inference-server/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -E "commitTime|ERROR|Successfully|push|STEP|error" | grep -v "Layer already\|Fetch error" | head -20 | cut -c1-240
+          true && curl -sS -H "Authorization: Bearer $T" "$M/nova-inference-server/logs/build" > /dev/null; echo skip-build | sed 's/\\n/\n/g; s/","/\n/g' | grep -E "commitTime|ERROR|Successfully|push|STEP|error" | grep -v "Layer already\|Fetch error" | head -20 | cut -c1-240
           echo "== hub status"; curl -sS -H "Authorization: Bearer $T" "$M/nova-inference-server" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d;print(d.get('status'),d.get('runtime'),d.get('hardware'),d.get('base_image'),d.get('sdk_version'))"
           echo "== sham-v2 run log head (a working Studio, for comparison)"
           curl -sS -H "Authorization: Bearer $T" "$M/sham-v2-server/logs/run" | python3 -c "
           import json,sys;d=json.load(sys.stdin);l=(d.get('data') or {}).get('logs') or []
           t='\n'.join(l) if isinstance(l,list) else str(l)
-          print('\n'.join(x[:200] for x in t.splitlines() if x.strip() and '█' not in x][:30]))"
+          print('\n'.join([x[:200] for x in t.splitlines() if x.strip() and '█' not in x][:30]))"
           GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" s 2>&1 | sed "s/${T}/***/g" || true
           cd s && git log --format='%h %ad %s' --date=iso -2 && grep -n "APP_REVISION =" app.py; ls; cat .gitattributes; head -c 600 README.md
