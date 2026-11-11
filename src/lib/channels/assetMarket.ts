@@ -9,7 +9,7 @@ import { ownerBot } from "@/lib/builderOwnerBot";
 import { findSiteBot } from "@/lib/siteAds";
 import { detectChannelPayoutNetwork } from "@/lib/channels/payoutAddress";
 import {
-  ASSET_MARKET_MAX_PRICE, ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
+  ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
   makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
 } from "@/lib/channels/assetMarketRules";
 
@@ -242,7 +242,7 @@ export async function createAssetListing(input: {
     const identifier = normalizeAssetIdentifier(input.assetType, input.identifier);
     if (!identifier) return { ok: false as const, error: "معرّف القناة أو المجموعة أو البوت غير صالح." };
     const price = Number(input.price);
-    if (!Number.isFinite(price) || price < ASSET_MARKET_MIN_PRICE || price > ASSET_MARKET_MAX_PRICE) return { ok: false as const, error: `السعر يجب أن يكون بين ${ASSET_MARKET_MIN_PRICE}$ و${ASSET_MARKET_MAX_PRICE}$.` };
+    if (!Number.isFinite(price) || price < ASSET_MARKET_MIN_PRICE) return { ok: false as const, error: `الحد الأدنى للسعر ${ASSET_MARKET_MIN_PRICE}$. لا يوجد سقف أعلى محدد حالياً.` };
     const payoutNetwork = detectChannelPayoutNetwork(input.payoutAddress);
     if (!payoutNetwork) return { ok: false as const, error: "عنوان استلام المستحقات غير صالح. استخدم عنوان USDT-TRC20 أو TON صحيحاً." };
     const titleInput = String(input.title || "").trim().slice(0, 120);
@@ -324,7 +324,7 @@ export async function createAssetSale(listingId: string, buyerTelegramId: string
       `;
       return { ok: true as const, code, price: split.price, commission: split.commission, payout: split.payout, assetType: String(l.asset_type), identifier: String(l.identifier), title: String(l.title) };
     });
-    if (out.ok) await notifySaleParties(code, `🛒 تم حجز عرض ${out.title} (${out.identifier})\nالصفقة: ${code}\nالمبلغ: ${out.price}$\nعمولة المنصة 15% · مستحق البائع ${out.payout}$\nأكمل الدفع خلال 30 دقيقة. لا ترسل المال مباشرة للبائع.`);
+    if (out.ok) await notifySaleParties(code, `🛒 تم حجز عرض ${out.title} (${out.identifier})\nالصفقة: ${code}\nالمبلغ: ${out.price}$\nلا توجد عمولة سوق مفعّلة حالياً · يستحق البائع كامل المبلغ ${out.payout}$\nأكمل الدفع خلال 30 دقيقة. لا ترسل المال مباشرة للبائع.`);
     return out;
   } catch (e) {
     const msg = String((e as Error)?.message || "");
