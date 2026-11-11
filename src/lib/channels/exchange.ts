@@ -334,8 +334,8 @@ export async function adminDeals() {
   const deals = await prisma.$queryRaw<any[]>`SELECT d.*, l.payout_address, l.payout_network, l.owner_contact FROM channel_deals d LEFT JOIN channel_listings l ON l.username = d.channel ORDER BY d.created_at DESC LIMIT 200`;
   const listings = await prisma.$queryRaw<any[]>`SELECT username, title, owner_contact, price, status, verified_until, created_at FROM channel_listings ORDER BY created_at DESC LIMIT 200`;
   const num = (x: any) => ({ ...x, price: Number(x.price), commission: x.commission != null ? Number(x.commission) : undefined, payout: x.payout != null ? Number(x.payout) : undefined });
-  const held = deals.filter((d) => d.kind === "AD" && ["PAID", "POSTED", "VERIFIED"].includes(d.status)).reduce((s, d) => s + Number(d.price), 0);
-  const earned = deals.filter((d) => d.status === "RELEASED").reduce((s, d) => s + Number(d.commission), 0);
+  const held = deals.filter((d) => ["AD", "ASSET_SALE"].includes(d.kind) && ["PAID", "POSTED", "VERIFIED"].includes(d.status)).reduce((s, d) => s + Number(d.price), 0);
+  const earned = deals.filter((d) => ["AD", "ASSET_SALE"].includes(d.kind) && d.status === "RELEASED").reduce((s, d) => s + Number(d.commission), 0);
   return { deals: deals.map(num), listings: listings.map(num), assetListings: assetMarket.listings, assetSales: assetMarket.sales, heldUsd: Math.round(held * 100) / 100, commissionUsd: Math.round(earned * 100) / 100 };
 }
 
@@ -381,8 +381,8 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
 export async function channelExchangeRevenue(): Promise<{ commissionUsd: number; badgesUsd: number; heldUsd: number }> {
   await ensureChannelTables();
   const r = await prisma.$queryRaw<{ c: unknown; b: unknown; h: unknown }[]>`
-    SELECT COALESCE(SUM(commission) FILTER (WHERE kind='AD' AND status='RELEASED'),0) c,
+    SELECT COALESCE(SUM(commission) FILTER (WHERE kind IN ('AD','ASSET_SALE') AND status='RELEASED'),0) c,
            COALESCE(SUM(price) FILTER (WHERE kind='BADGE' AND status='RELEASED'),0) b,
-           COALESCE(SUM(price) FILTER (WHERE kind='AD' AND status IN ('PAID','POSTED','VERIFIED')),0) h FROM channel_deals`;
+           COALESCE(SUM(price) FILTER (WHERE kind IN ('AD','ASSET_SALE') AND status IN ('PAID','POSTED','VERIFIED')),0) h FROM channel_deals`;
   return { commissionUsd: Number(r[0]?.c || 0), badgesUsd: Number(r[0]?.b || 0), heldUsd: Number(r[0]?.h || 0) };
 }
