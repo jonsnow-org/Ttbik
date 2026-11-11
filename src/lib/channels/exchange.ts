@@ -18,7 +18,7 @@ import {
   splitDeal, validDealPrice, type AuditReport,
 } from "@/lib/channels/auditRules";
 import { detectChannelPayoutNetwork, isValidTronTransactionHash } from "@/lib/channels/payoutAddress";
-import { ensureAssetMarketTables, onAssetSalePaid, adminAssetMarketData, adminAssetMarketAction } from "@/lib/channels/assetMarket";
+import { ensureAssetMarketTables, onAssetSalePaid, adminAssetMarketData, adminAssetMarketAction, assetSalePaymentIsAvailable } from "@/lib/channels/assetMarket";
 
 export const CHANNEL_STARS_PREFIX = "CHDEAL:";
 const UA = "Mozilla/5.0 (compatible; ShamAI-ChannelAudit/1.0)";
@@ -226,6 +226,7 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
   const d = await dealByCode(code);
   if (!d) return { ok: false as const, error: "الكود غير موجود." };
   if (actorTgId && d.advertiser_tg_id && d.advertiser_tg_id !== actorTgId) return { ok: false as const, error: "هذا الطلب لا يخص حساب تيليجرام هذا." };
+  if (d.kind === "ASSET_SALE" && !(await assetSalePaymentIsAvailable(code))) return { ok: false as const, error: "انتهت مهلة حجز الأصل أو لم يعد العرض محجوزاً لهذه الصفقة. أنشئ حجزاً جديداً قبل الدفع." };
   if (d.status !== "PENDING_PAYMENT") return { ok: false as const, error: "هذا الطلب مدفوع أو مغلق." };
   if (method === "usdt") {
     return { ok: true as const, manual: true, amount: d.price, usdt: usdtAddress(), network: usdtNetwork(), note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
@@ -372,8 +373,10 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
     await ensureAssetMarketTables();
     await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = ${to}, updated_at = now() WHERE code = ${code}`;
     if (to === "REFUNDED" || to === "CANCELLED") {
-      await prisma.$executeRaw`UPDATE telegram_asset_listings SET status = 'LISTED', updated_at = now()
-        WHERE id = (SELECT listing_id FROM telegram_asset_sales WHERE code = ${code}) AND status = 'RESERVED'`;
+      await prisma.$executeRaw`UPDATE telegram_asset_listings l SET status = 'LISTED', updated_at = now()
+        WHERE l.id = (SELECT listing_id FROM telegram_asset_sales WHERE code = ${code}) AND l.status = 'RESERVED'
+          AND NOT EXISTS (SELECT 1 FROM telegram_asset_sales active WHERE active.listing_id = l.id
+            AND active.status NOT IN ('RELEASED','REFUNDED','CANCELLED'))`;
     }
   }
   return { ok: n === 1, error: n === 1 ? undefined : "تغيّرت الحالة، أعد التحميل" };
