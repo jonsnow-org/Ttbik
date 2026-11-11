@@ -355,16 +355,16 @@ if __name__ == "__main__":
     assert a["type"] == "audio" and base64.b64decode(a["b64"])[:4] == b"RIFF"
     # Without a motion tokenizer the video path is honestly unavailable (notice), never a slideshow.
     assert make_media(model, Tok(), img_tok, aud_tok, "video", "x")["type"] == "notice"
-    # With the motion tokenizer, the model writes its OWN clip: a real MP4.
     import importlib.util
-    if importlib.util.find_spec("imageio") is not None:     # the Studio installs imageio(-ffmpeg); a bare CI check job may not
-        v = make_media(model, Tok(), img_tok, aud_tok, "video", "قطة تجري", motion_tokenizer=mot_tok, num_frames=4)
-        assert v["type"] == "video" and v["mime"] == "video/mp4", v["type"]
-        mp4 = base64.b64decode(v["b64"])
-        assert mp4[4:8] == b"ftyp", mp4[:12]
-        assert len(mp4) > 200, len(mp4)
-    else:
-        print("imageio not installed: MP4 encoding part of the self-test skipped")
+    if importlib.util.find_spec("imageio") is None:   # the Studio installs imageio(-ffmpeg); a bare CI check job may not: stand in for the encoder only
+        globals()["_mp4"] = lambda frames, fps=8: b"\x00\x00\x00\x18ftypisom" + bytes(256 + int(frames.shape[0]))
+        print("imageio not installed: MP4 encoder replaced by a stub in this self-test (the token/frame path is still exercised)")
+    # With the motion tokenizer, the model writes its OWN clip: a real MP4.
+    v = make_media(model, Tok(), img_tok, aud_tok, "video", "قطة تجري", motion_tokenizer=mot_tok, num_frames=4)
+    assert v["type"] == "video" and v["mime"] == "video/mp4", v["type"]
+    mp4 = base64.b64decode(v["b64"])
+    assert mp4[4:8] == b"ftyp", mp4[:12]
+    assert len(mp4) > 200, len(mp4)
     d = datetime.date(2026, 10, 12)
     # the model decides: when its first token is a media start, a media result comes back; when it is text, text comes back
     assert generate_any(model, Tok(), img_tok, aud_tok, "أعطني صورة أرنب", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)["type"] == "image"
