@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import re
+import os
 import subprocess
 import sys
 import tempfile
@@ -77,13 +78,27 @@ def parse_run_times(csv_text: str) -> dict[str, float]:
     return out
 
 
-def adjust(statuses: dict[str, str], run_times: dict[str, float], changed: dict[str, float], now: float) -> dict[str, str]:
+def retry_requests(raw: str) -> dict[str, float]:
+    """SHAM_V2_QUEUE_RETRY (repository variable), e.g. "tools@1794368000,media@1794368000": the owner asked to run these errored stages
+    again — each one is retried ONCE, only while its last run is older than the given time (no loop on a real bug)."""
+    out = {}
+    for part in (raw or "").split(","):
+        name, _, at = part.strip().partition("@")
+        try:
+            out[name.strip()] = float(at)
+        except ValueError:
+            continue
+    return out
+
+
+def adjust(statuses: dict[str, str], run_times: dict[str, float], changed: dict[str, float], now: float,
+           retry: dict[str, float] | None = None) -> dict[str, str]:
     """An errored stage whose sources changed AFTER its last run is started again (the fix is in: the #768 OOM fix never re-ran the tools stage);
     a stage queued longer than QUEUED_TOO_LONG_S is pushed again. Unchanged errors stay errors (never a blind retry loop)."""
     out = dict(statuses)
     for name, _d, _f, slug in STAGES:
         last = run_times.get(slug, 0.0)
-        if out.get(name) == "error" and last and changed.get(name, 0.0) > last:
+        if out.get(name) in ("error", "cancelled") and last and (changed.get(name, 0.0) > last or (retry or {}).get(name, 0.0) > last):
             out[name] = "missing"
         elif out.get(name) == "queued" and last and now - last > QUEUED_TOO_LONG_S:
             out[name] = "stale-queued"
@@ -116,7 +131,7 @@ def main(plan_only: bool = False) -> int:
     statuses = {name: parse_status(text) for name, text in raw.items()}
     run_times = parse_run_times(_kaggle(["kernels", "list", "--mine", "--csv", "--page-size", "100"]))
     changed = {name: source_changed_at(d) for name, d, _f, _s in STAGES}
-    adjusted = adjust(statuses, run_times, changed, time.time())
+    adjusted = adjust(statuses, run_times, changed, time.time(), retry_requests(os.environ.get("SHAM_V2_QUEUE_RETRY", "")))
     for name in statuses:
         if adjusted[name] != statuses[name]:
             print(f"  {name}: {statuses[name]} -> {adjusted[name]} (last run {run_times.get(next(x[3] for x in STAGES if x[0] == name), 0):.0f}, sources changed {changed[name]:.0f})")
@@ -191,6 +206,11 @@ def _selftest() -> None:
     assert b["tools"] == "error" and b["media"] == "queued", b
     for _n, d, f, _s in STAGES:
         assert (d / f).exists() and (d / "kernel-metadata.json").exists(), f"missing {d / f}"
+    rq = retry_requests("tools@2000, bad, media@x")
+    assert rq == {"tools": 2000.0}, rq
+    slug = next(x[3] for x in STAGES if x[0] == "tools")
+    assert adjust({"tools": "error"}, {slug: 1000.0}, {"tools": 0.0}, 5000.0, rq)["tools"] == "missing"       # asked after its last run: retried once
+    assert adjust({"tools": "error"}, {slug: 3000.0}, {"tools": 0.0}, 5000.0, rq)["tools"] == "error"         # it ran again after the request: no loop
     print("sham_v2_stage_queue self-test OK")
 
 
