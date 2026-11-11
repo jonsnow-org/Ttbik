@@ -23,12 +23,16 @@ on:
         description: "Hours per training cycle (0.5 - 10)"
         required: false
         default: "5"
+      job:
+        description: "What this Studio trains: live (general) | images | audio | chat | tools | text"
+        required: false
+        default: "live"
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-sham-trainer-${{ inputs.repo || 'sham-trainer-1' }}
+  group: deploy-sham-trainer-${{ inputs.site || 'cn' }}-${{ inputs.repo || 'sham-trainer-1' }}
   cancel-in-progress: false
 
 env:
@@ -102,6 +106,7 @@ jobs:
           KT: ${{ secrets.KAGGLE_API_TOKEN }}
           NAME: ${{ inputs.name || 'ms1' }}
           HOURS: ${{ inputs.hours || '5' }}
+          JOB: ${{ inputs.job || 'live' }}
           STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
         run: |
           set -eu
@@ -118,6 +123,7 @@ jobs:
           set_secret KAGGLE_API_TOKEN "$KT"
           set_secret SHAM_TRAINER_NAME "$NAME"
           set_secret SHAM_TRAINER_HOURS "$HOURS"
+          set_secret SHAM_TRAINER_JOB "$JOB"
           set_secret HF_ENDPOINT https://hf-mirror.com
           rm -f secret.json secret-response.json
 

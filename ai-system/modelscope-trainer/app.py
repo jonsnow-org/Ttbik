@@ -4,7 +4,7 @@ Same job as the GitHub CPU trainer and the Oracle one: sham_live.run(...) starts
 (sham-crawl-<SHAM_TRAINER_NAME> + its corpus) to Kaggle; the merge job finds every sham-crawl-* dataset by itself and judges it through the same gate, so nothing else changes.
 Device: sham_live picks CUDA when the Studio has a GPU and CPU otherwise (the free tier is CPU), so the same file serves both.
 
-Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, HF_ENDPOINT (hf-mirror: huggingface.co is
+Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text), HF_ENDPOINT (hf-mirror: huggingface.co is
 blocked from China). Nothing here prints a secret. Offline self-test: python app.py --selftest
 """
 from __future__ import annotations
@@ -25,6 +25,19 @@ STATE: dict = {"phase": "starting", "cycle": 0, "device": "?", "started": time.s
 _LOCK = threading.Lock()
 
 
+# What each Studio is FOR (SHAM_TRAINER_JOB). Chosen from the 2026-11-11 structure review of Sham v1: the picture generator writes only ~28 distinct codes of 256 (loss 7.70, the codec itself is fine at 20 dB),
+# chat/tool skills sit at a plateau behind the merge gate (text 4.62 / chat 2.01 / media 7.25), audio has little training share. Each profile is only a set of environment shares for sham_live:
+# nothing but WHAT is collected and mixed changes; the guard, the held-out measures and the merge gate stay the same.
+PROFILES = {
+    "live":   {},                                                                                                                # the general mix (same as the GitHub / Oracle trainers)
+    "images": {"SHAM_LIVE_KINDS": "image", "SHAM_REHEARSAL_SHARE": "0.25", "SHAM_GENERAL_SHARE": "0.30", "SHAM_TOOLS_MIX": "0.02"},   # caption -> picture codes, text kept alive by rehearsal + general windows
+    "audio":  {"SHAM_LIVE_KINDS": "audio", "SHAM_REHEARSAL_SHARE": "0.25", "SHAM_GENERAL_SHARE": "0.30", "SHAM_TOOLS_MIX": "0.02"},
+    "chat":   {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.45", "SHAM_GENERAL_SHARE": "0.25", "SHAM_TOOLS_MIX": "0.08", "SHAM_CHAT_MULTITURN": "1"},     # dialogue + memory
+    "tools":  {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.30", "SHAM_GENERAL_SHARE": "0.25", "SHAM_TOOLS_MIX": "0.40"},                                # the 44 tools and their paths
+    "text":   {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.20", "SHAM_GENERAL_SHARE": "0.55", "SHAM_TOOLS_MIX": "0.03"},                                # general text and code (the plateau)
+}
+
+
 def settings(env=None) -> dict:
     env = os.environ if env is None else env
     name = re.sub(r"[^a-z0-9]+", "-", (env.get("SHAM_TRAINER_NAME") or "ms1").lower()).strip("-") or "ms1"
@@ -36,7 +49,9 @@ def settings(env=None) -> dict:
         workers = min(16, max(1, int(env.get("SHAM_TRAINER_WORKERS") or 2)))
     except ValueError:
         workers = 2
-    return {"name": name, "hours": hours, "workers": workers, "source_set": env.get("SHAM_TRAINER_SOURCES") or "gh"}
+    job = (env.get("SHAM_TRAINER_JOB") or "live").strip().lower()
+    job = job if job in PROFILES else "live"
+    return {"name": name, "hours": hours, "workers": workers, "source_set": env.get("SHAM_TRAINER_SOURCES") or "gh", "job": job}
 
 
 def _set(**kw) -> None:
@@ -54,6 +69,8 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     cfg = settings()
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
+    for k, v in PROFILES[cfg["job"]].items():          # the job's shares, before sham_live is imported (it reads some of them at import time)
+        os.environ.setdefault(k, v)
     if run_fn is None:
         sys.path.insert(0, str(SHAM))
         import sham_live
@@ -99,6 +116,8 @@ if __name__ == "__main__":
     if "--selftest" in sys.argv:
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
+        assert settings({"SHAM_TRAINER_JOB": "Images"})["job"] == "images" and settings({"SHAM_TRAINER_JOB": "zzz"})["job"] == "live"
+        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text"}
         calls = []
 
         def fake(**kw):

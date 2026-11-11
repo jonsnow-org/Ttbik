@@ -65,8 +65,34 @@ def dataset_names(name: str | None) -> tuple[str, str]:
     slug = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
     return f"sham-crawl-{slug}", f"sham-crawl-{slug}-corpus"
 TARGETS = {"text": 0.45, "image": 0.30, "audio": 0.15, "video": 0.10}
+
+
+def collection_plan(env=None) -> tuple[dict, set | None]:
+    """What the spiders collect: (kind -> share, kinds to keep or None). SHAM_LIVE_KINDS="image" (or "image,text") narrows collection to those kinds; SHAM_LIVE_TARGETS="image:0.8,text:0.2"
+    sets their shares (normalised). Both unset = exactly the shares above. Used by the ModelScope Studio trainers (a Studio that only trains pictures collects only pictures);
+    the held-out sets and everything else keep using TARGETS, so the merge gate's measures do not change."""
+    env = os.environ if env is None else env
+    kinds = {k.strip() for k in (env.get("SHAM_LIVE_KINDS") or "").split(",") if k.strip() in TARGETS} or None
+    shares = dict(TARGETS)
+    raw = (env.get("SHAM_LIVE_TARGETS") or "").strip()
+    if raw:
+        parsed = {}
+        for part in raw.split(","):
+            k, _, v = part.partition(":")
+            try:
+                if k.strip() in TARGETS and float(v) > 0:
+                    parsed[k.strip()] = float(v)
+            except ValueError:
+                pass
+        if parsed:
+            total = sum(parsed.values())
+            shares = {k: v / total for k, v in parsed.items()}
+    elif kinds:
+        total = sum(TARGETS[k] for k in kinds)
+        shares = {k: TARGETS[k] / total for k in kinds}
+    return shares, kinds
 HOLDOUT_PER_KIND = 12
-REHEARSAL_SHARE = 0.15
+REHEARSAL_SHARE = min(0.6, max(0.0, float(os.environ.get("SHAM_REHEARSAL_SHARE") or 0.15)))   # dialogue rehearsal share (the Studio trainers raise it for chat-heavy jobs)
 LR, MIN_LR_RATIO, WARMUP = 5e-5, 0.1, 200
 EMA_DECAY = 0.999
 SAVE_EVERY_GPU, SAVE_EVERY_CPU = 20 * 60, 60 * 60   # a check = two held-out evaluations: rarer on a slow CPU
@@ -517,8 +543,12 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         _sources = [x for x in gh_sources() if video or x.kind != "video"]
     else:
         _sources = default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video)
+    _shares, _kinds = collection_plan()
+    if _kinds:
+        _sources = [x for x in _sources if x.kind in _kinds]
+        print(f"جمع {', '.join(sorted(_kinds))} فقط (SHAM_LIVE_KINDS)")
     spider = Spider(_sources,
-                    seen, raw_q, TARGETS if video else {k: v for k, v in TARGETS.items() if k != "video"},
+                    seen, raw_q, _shares if video else {k: v for k, v in _shares.items() if k != "video"},
                     workers=workers, seed=step).start()
     encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device, motion_tok)
     stop = threading.Event()
