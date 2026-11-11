@@ -25,7 +25,7 @@ export const ASSET_MARKET_MAX_PRICE = 25000;
 export function normalizeAssetIdentifier(type: TelegramAssetType, input: unknown): string | null {
   let value = String(input ?? "").trim();
   if (type === "CHANNEL" || type === "GROUP") {
-    value = value.replace(/^https?:\/\//i, "").replace(/^(www\.)?(t|telegram)\.me\//i, "").replace(/^@/, "");
+    value = value.replace(/^https?:\/\//i, "").replace(/^(www\.)?(t|telegram)\.me\//i, "").replace(/^s\//i, "").replace(/^@/, "");
     value = value.split(/[/?#\s]/)[0] || "";
     if (/^-100\d{5,20}$/.test(value) || /^-\d{5,20}$/.test(value)) return value;
   } else {
