@@ -7,25 +7,16 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - env:
-          KAGGLE_USERNAME: jonsnowjonsnow
-          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          pip install -q kaggle==2.2.5
-          for k in sham-v2-tools-train sham-repair-remerge sham-arabic-sft; do
-            echo "===== LOG $k"; mkdir -p o/$k; kaggle kernels output jonsnowjonsnow/$k -p o/$k --file-pattern "^NO_FILES_ONLY_LOG$" > /dev/null 2>&1 || true
-            ls o/$k | head; f=$(ls o/$k/*.log 2>/dev/null | head -1)
-            [ -n "$f" ] && python3 -c "
-          import json,sys
-          raw=open('$f',encoding='utf-8',errors='replace').read()
-          try:
-              ev=json.loads(raw); txt=''.join(e.get('data','') for e in ev)
-          except Exception:
-              txt=raw
-          lines=[l for l in txt.splitlines() if l.strip()]
-          err=[i for i,l in enumerate(lines) if 'Error' in l or 'Traceback' in l]
-          s=max(0,(err[0]-5) if err else len(lines)-40)
-          print('\\n'.join(l[:240] for l in lines[s:s+45]))"
+          MS=https://www.modelscope.cn
+          for R in sham-v2-server; do
+            echo "===== $R git log"
+            git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${R}.git" r 2>&1 | sed "s/${T}/***/g"
+            git -C r log --format='%H %ad %s' --date=iso -8; git -C r branch -a
+            echo "===== $R build log (commit / fetch lines)"
+            curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -iE "commit|fetch|checkout|clone|branch|###" | head -40 | cut -c1-300
           done
