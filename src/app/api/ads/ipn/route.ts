@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
   // Channel exchange deals (CHD-) and ☑️ badges (CHB-): money is held in escrow until the post is verified.
   if (code.startsWith("CHD-") || code.startsWith("CHB-")) {
     if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
-    const r = await markDealPaid(code, "NOWPayments", Number(body.price_amount));
+    const providerRef = String(body.payin_hash || body.payment_id || "").trim().slice(0, 160);
+    const r = await markDealPaid(code, "NOWPayments", Number(body.price_amount), providerRef || undefined);
     return NextResponse.json({ ok: true, duplicate: !r.first, accepted: r.ok });
   }
   // 🌙 Khatma sponsorship slots (KSP-).

@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 
-export type ClickData = { ok: true; verified: boolean; issuedAt: string; requiredSeconds: number; targetUrl: string };
+export type ClickData = {
+  ok: true;
+  started: boolean;
+  remainingSeconds: number;
+  requiredSeconds: number;
+  description: string | null;
+  targetUrl: string;
+};
 
-// Same handful of stable, always-available signals as before — kept
-// un-hashed here (no crypto.subtle await) so this can run and be handed to
-// sendBeacon in the exact same synchronous tick as the redirect below, with
-// no gap where the redirect could fire before the beacon is queued.
 function rawFingerprint(): string {
   return [
     navigator.userAgent,
@@ -29,59 +32,81 @@ export default function WatchClient({
   initialData: ClickData | null;
   initialError: string | null;
 }) {
-  const firedRef = useRef(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
 
-  // Redirects the CURRENT tab — never a new window — to the advertiser's
-  // link the instant this page loads. Owner report, 2026-09-06:
-  // window.open(targetUrl, "_blank") here was being flagged and blocked as
-  // a popup by mobile Chrome / Telegram's in-app browser, no matter how
-  // early it ran in the render — opening a NEW browsing context from page
-  // JS is never treated as the same user gesture as the Telegram button
-  // tap that opened this page, even on mount with zero awaits before it.
-  // A same-tab redirect (location.replace) is an ordinary navigation, not
-  // a popup, so it is never subject to that block. The fingerprint beacon
-  // fires in the same tick, fire-and-forget — it's an anti-abuse signal
-  // only, not a gate, so it never delays or blocks the redirect.
   useEffect(() => {
-    if (!initialData || firedRef.current) return;
-    firedRef.current = true;
+    if (initialData?.started && startedAt === null) {
+      setStartedAt(Date.now() - (initialData.requiredSeconds - initialData.remainingSeconds) * 1000);
+    }
+  }, [initialData, startedAt]);
+
+  useEffect(() => {
+    if (!initialData) return;
     try {
       const payload = JSON.stringify({ fingerprint: rawFingerprint() });
       navigator.sendBeacon(`/api/watch/${token}/complete`, new Blob([payload], { type: "application/json" }));
     } catch {
-      /* best-effort anti-fraud signal only */
+      // Anti-abuse signal only. It never starts or completes the paid timer.
     }
-    window.location.replace(initialData.targetUrl);
   }, [initialData, token]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, []);
 
   if (initialError) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-12 text-center" dir="rtl">
-        <p className="text-red-700">{initialError}</p>
-      </div>
+      <main className="mx-auto max-w-lg px-4 py-12 text-center" dir="rtl">
+        <p className="text-lg font-extrabold text-red-700">{initialError}</p>
+        <p className="mt-3 text-sm text-slate-600">ارجع إلى البوت واختر مهمة أخرى.</p>
+      </main>
     );
   }
+  if (!initialData) return null;
 
-  if (!initialData) {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-12 text-center text-slate-500" dir="rtl">
-        جارِ التحميل...
-      </div>
-    );
-  }
+  const remaining = startedAt === null
+    ? initialData.requiredSeconds
+    : Math.max(0, Math.ceil((initialData.requiredSeconds * 1000 - (now - startedAt)) / 1000));
+  const hasStarted = startedAt !== null;
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-12 text-center" dir="rtl">
-      <h1 className="text-2xl font-extrabold text-slate-900">شاهد واربح</h1>
-      <p className="mt-4 text-sm text-slate-600">
-        جارِ تحويلك الآن إلى الإعلان... إذا لم يتم تحويلك تلقائياً خلال لحظات، اضغط الزر أدناه.
-      </p>
-      <a href={initialData.targetUrl} className="mt-6 block w-full rounded-xl bg-brand-700 py-3 text-sm font-bold text-white">
-        🔗 فتح الإعلان
-      </a>
-      <p className="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
-        بعد مشاهدة الإعلان، عد إلى البوت واضغط «✅ تحقق من الإنجاز» — لا حاجة لفعل أي شيء آخر في هذه الصفحة.
-      </p>
-    </div>
+    <main className="mx-auto min-h-screen max-w-lg bg-slate-50 px-4 py-8 text-slate-900" dir="rtl">
+      <section className="rounded-3xl bg-white p-5 text-center shadow-sm">
+        <div className="text-3xl">👀</div>
+        <h1 className="mt-2 text-2xl font-black">شاهد واربح</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          افتح صفحة الإعلان من الزر أدناه. يبدأ احتساب وقت الزيارة عند ضغطك الفعلي على الزر، وليس عند عرض هذه الصفحة.
+        </p>
+        {initialData.description && (
+          <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{initialData.description}</p>
+        )}
+        {!hasStarted ? (
+          <form action={`/watch/${token}/open`} method="POST" target="_blank" onSubmit={() => { setStartedAt(Date.now()); setNow(Date.now()); }}>
+            <button type="submit" className="mt-5 w-full rounded-2xl bg-blue-700 px-4 py-4 text-base font-extrabold text-white">
+              🔗 افتح الإعلان وابدأ الزيارة
+            </button>
+          </form>
+        ) : (
+          <div className="mt-5 rounded-2xl bg-blue-50 p-4">
+            <div className="text-sm font-bold text-blue-900">
+              {remaining > 0 ? "تم تسجيل فتح الإعلان. أبقِ الصفحة مفتوحة حتى يكتمل المؤقت." : "اكتمل وقت الزيارة."}
+            </div>
+            <div className="mt-2 text-4xl font-black tabular-nums text-blue-800">{remaining > 0 ? `${remaining} ث` : "✓"}</div>
+            {remaining === 0 && (
+              <form action={`/watch/${token}/open`} method="POST" target="_blank">
+                <button type="submit" className="mt-3 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-extrabold text-white">
+                  فتح الإعلان مجدداً
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+        <p className="mt-5 rounded-xl border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-600">
+          بعد فتح الإعلان وانتظار {initialData.requiredSeconds} ثانية، ارجع إلى التطبيق المصغّر أو محادثة البوت واضغط «تحقّق واستلم». لا نعتبر مجرد عرض البطاقة زيارة.
+        </p>
+      </section>
+    </main>
   );
 }

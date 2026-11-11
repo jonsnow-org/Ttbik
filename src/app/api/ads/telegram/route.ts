@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     const code = String(sp.invoice_payload).slice(CHANNEL_STARS_PREFIX.length);
     const deal = await dealByCode(code).catch(() => null);
     if (deal && Number(sp.total_amount) >= adStars(deal.price)) {
-      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`);
+      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160));
       const msg = deal.kind === "BADGE"
         ? `✅ وصل الدفع (${sp.total_amount} ⭐). شارة ☑️ لقناة @${deal.channel} مفعّلة لسنة.`
         : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;

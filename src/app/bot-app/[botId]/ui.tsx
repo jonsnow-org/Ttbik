@@ -89,10 +89,27 @@ export function AppProvider({ botId, initial, lang, setLang, children }: { botId
     if (tg?.openLink) { try { tg.openLink(url); return; } catch { /* fall through */ } }
     window.open(url, "_blank", "noopener");
   }, [tg]);
-  const copy = useCallback((text: string) => {
-    const done = () => toast(lang === "en" ? "Copied" : "تم النسخ ✓");
-    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, done);
-    else done();
+  const copy = useCallback(async (text: string) => {
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch { /* fall back for Telegram webviews and non-secure contexts */ }
+    if (!copied) {
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      field.style.pointerEvents = "none";
+      document.body.appendChild(field);
+      field.select();
+      try { copied = document.execCommand("copy"); } catch { copied = false; }
+      field.remove();
+    }
+    toast(copied ? (lang === "en" ? "Copied" : "تم النسخ ✓") : (lang === "en" ? "Copy failed. Select and copy manually." : "تعذّر النسخ؛ حدّد النص وانسخه يدوياً."), copied ? "ok" : "err");
   }, [toast, lang]);
 
   // Telegram's BackButton: visible on every screen but the home screen.
@@ -139,7 +156,7 @@ export function MainAction({ text, onClick, disabled, busy, color }: { text: str
   }, [native, tg, text, disabled, busy, color]);
   if (native) return null;
   return (
-    <div className="sticky bottom-0 z-20 -mx-4 mt-4 px-4 pb-4 pt-2" style={{ background: "linear-gradient(to top, var(--app-bg) 70%, transparent)" }}>
+    <div className="sticky bottom-0 z-20 -mx-4 mt-4 px-4 pt-2" style={{ background: "linear-gradient(to top, var(--app-bg) 70%, transparent)", paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}>
       <button type="button" onClick={onClick} disabled={disabled || busy}
         className="w-full rounded-xl py-3.5 text-base font-extrabold shadow-sm transition active:scale-[0.99] disabled:opacity-50"
         style={{ background: color || "var(--app-btn)", color: "var(--app-btn-text)" }}>{busy ? "…" : text}</button>
@@ -319,7 +336,7 @@ export const THEME: React.CSSProperties = {
 
 export function AppFrame({ lang, children }: { lang: Lang; children: React.ReactNode }) {
   return (
-    <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
+    <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100dvh", paddingBottom: "env(safe-area-inset-bottom, 0px)", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
       {children}
     </div>
   );

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const d = await dealByCode(String(req.nextUrl.searchParams.get("code") || "").toUpperCase()).catch(() => null);
   if (!d) return NextResponse.json({ ok: false, error: "غير موجود" }, { status: 404 });
-  return NextResponse.json({ ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link } });
+  return NextResponse.json({ ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link, paymentReference: d.payment_reference || null, settlementReference: d.settlement_reference || null } });
 }
 export async function POST(req: NextRequest) {
   if (isRateLimited(`ch-deal:${requestIp(req)}`, 15, 600_000)) return NextResponse.json({ ok: false, error: "طلبات كثيرة. حاول بعد دقائق." }, { status: 429 });

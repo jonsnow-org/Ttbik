@@ -8,7 +8,8 @@ export async function GET(req: NextRequest) {
   const l = await listingByToken(String(req.nextUrl.searchParams.get("token") || "")).catch(() => null);
   if (!l) return NextResponse.json({ ok: false, error: "رابط غير صحيح" }, { status: 404 });
   const deals = l.viaPending || l.status !== "LISTED" ? [] : await dealsForChannel(l.username).catch(() => []);
-  const { verify_code, payout_address, viaPending, ...rest } = l;
+  const { verify_code, payout_address, payout_network, owner_tg_id, viaPending, ...rest } = l;
+  void payout_network; void owner_tg_id;
   void payout_address; void viaPending;
   return NextResponse.json({ ok: true, listing: { ...rest, verifyCode: l.status === "LISTED" ? null : verify_code }, deals });
 }

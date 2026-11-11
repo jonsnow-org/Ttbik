@@ -26,7 +26,7 @@ jest.mock("@/lib/remit/office", () => ({
   apiKey: jest.fn(async () => "k"),
   quoteAmount: jest.fn(async () => ({ ok: true, quote: 98.5, min: 2 })),
   createTransferRecord: (...a: any[]) => createTransferRecord(...a),
-  transferByTrack: jest.fn(async () => ({ track: "HW-ABC123", chat_id: "4242", cn_id: "x", coin: "usdtbsc", from_amount: 100, to_amount: 98.5, address: "T" + "a".repeat(33), recipient: null, from_country: "tr", to_country: "sy", status: "waiting", payin: "Tpayin", payin_extra: null, payout_hash: null, created_at: new Date() })),
+  transferByTrack: jest.fn(async () => ({ track: "HW-ABC123", chat_id: "4242", cn_id: "x", coin: "usdtbsc", from_amount: 100, to_amount: 98.5, address: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", recipient: null, from_country: "tr", to_country: "sy", status: "waiting", payin: "Tpayin", payin_extra: null, payout_hash: null, created_at: new Date() })),
 }));
 
 import { handleAdAppAction } from "@/lib/botApp/adApp";
@@ -54,7 +54,7 @@ describe("bot-app actions", () => {
     const bad: any = await handleAdAppAction(botRow, tg, "remit_create", { coin: "usdtbsc", amount: "100", addr: "0xabc" });
     expect(bad.ok).toBe(false);
     expect(createTransferRecord).not.toHaveBeenCalled();
-    const addr = "T" + "a".repeat(33);
+    const addr = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
     const ok: any = await handleAdAppAction(botRow, tg, "remit_create", { coin: "usdtbsc", amount: "100", addr, to: "sy", from: "tr", chat_id: "999" });
     expect(ok.ok).toBe(true);
     expect(createTransferRecord.mock.calls[0][0]).toBe("4242");
@@ -64,7 +64,7 @@ describe("bot-app actions", () => {
   it("ex_pay (manual USDT): the user reads «المنصة», never «الأدمن»", async () => {
     payDeal.mockResolvedValue({ ok: true, manual: true, amount: 20, usdt: "Tplatform", network: "TRC20", note: "يؤكده الأدمن يدوياً." });
     const r: any = await handleAdAppAction(botRow, tg, "ex_pay", { code: "chd-abcd1234", method: "usdt" });
-    expect(payDeal).toHaveBeenCalledWith("CHD-ABCD1234", "usdt");
+    expect(payDeal).toHaveBeenCalledWith("CHD-ABCD1234", "usdt", "4242");
     expect(r.note).toContain("المنصة");
     expect(r.note).not.toMatch(/الأدمن|المالك/);
   });

@@ -13,7 +13,7 @@ import JobsMiniApp from "./JobsMiniApp";
 //  - JOBS_BOT (jobs & store, @Saragptbotbot): store, seller shops, offers & orders, work, tenders, balance, profile.
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "التطبيق", robots: { index: false, follow: false } };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1, userScalable: false, viewportFit: "cover" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function BotAppPage({ params, searchParams }: { params: Promise<{ botId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { botId } = await params;
