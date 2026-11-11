@@ -13,7 +13,6 @@ const card = (p, [W, H], kind) => {
   const tall = kind === "story", wide = kind === "link";
   const onlyEnglish = EN || projectLanguage(p) === "en";
   const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
-  const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
   const u = tall ? 1.15 : wide ? 0.72 : 0.8; // type scale
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box;margin:0}
