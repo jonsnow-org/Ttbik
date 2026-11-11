@@ -156,6 +156,19 @@ jobs:
           if git diff --cached --quiet; then echo "Studio repository already contains the computer app."; else git commit -m "Replace MiniCPM runtime with dedicated computer hub"; fi
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
 
+      - name: Move the Studio to the current base image + Gradio SDK
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          # 2026-11-11: since Nov 10 the hub never reached the studio-launcher: its runtime log stops right after the ossfs mounts. It still ran the
+          # old ubuntu22.04-py312-torch2.1 image with Gradio 6.17.3, while every Studio that starts (sham-v2-server …) runs
+          # ubuntu22.04-py311-torch2.9.1-modelscope1.35.0 + Gradio 6.29.1. Align the hub (takes effect on the deploy below).
+          set -uo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o settings.json -w '%{http_code}' -X PATCH \
+            -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d '{"base_image":"ubuntu22.04-py311-torch2.9.1-modelscope1.35.0","sdk_version":"6.29.1"}' \
+            "$MS/openapi/v1/studios/$OWNER/$REPO/settings" || true)
+          echo "settings PATCH HTTP $code"; head -c 400 settings.json; echo
       - name: Deploy and wait for computer-only readiness
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
