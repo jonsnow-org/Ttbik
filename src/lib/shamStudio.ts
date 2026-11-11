@@ -43,7 +43,7 @@ export function shamBases(): string[] {
   const configured = (v2 ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
   // Primary lists may contain only their assigned model endpoints. The v2 overflow is added separately by orderV2 only after verifying its served checkpoint.
   // Old Nova inference URLs, Nova coder URLs, the other Sham variant and the v2 overflow role are never treated as primary endpoints.
-  const raw = configured.filter((x) => !/nova-inference-server|coder-inference|sham-v2-overflow/i.test(x) && !(v2 ? /sham-v1/i : /sham-v2/i).test(x));
+  const raw = configured.filter((x) => !/nova-inference-server|nova-computer-hub|coder-inference|sham-v2-overflow/i.test(x) && !(v2 ? /sham-v1/i : /sham-v2/i).test(x));
   const bases = raw.length ? raw : [v2 ? DEFAULT_V2_URL : DEFAULT_URL];
   const k = rotate++ % Math.max(1, bases.length);
   const rotated = [...bases.slice(k), ...bases.slice(0, k)];

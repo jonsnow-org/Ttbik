@@ -20,7 +20,7 @@ export function parseStudioUrl(raw: string): { owner: string; name: string; url:
 
 // the code's own defaults (used when the env names are unset): Nova chat + image + media, LFM chat + media, Sham v2, and the computer hub
 const DEFAULTS = ["coder-inference-server", "epicrealism-image-test", "nova-media-server", "lfm25-inference-server", "lfm25-media-server", "sham-v2-server",
-  "nova-inference-server"].map((n) => `https://studio-novaai2026-${n}.api-inference.modelscope.net`);
+  "nova-computer-hub"].map((n) => `https://studio-novaai2026-${n}.api-inference.modelscope.net`);
 
 export function studiosToKeepAwake(env: Record<string, string | undefined> = process.env) {
   const seen = new Map<string, { owner: string; name: string; url: string }>();
