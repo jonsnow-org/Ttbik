@@ -281,7 +281,15 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
       return { ok: false, first: false };
     }
   }
-  if (n !== 1) return { ok: true, first: false };
+  if (n !== 1) {
+    // A payment row may already be PAID while the linked asset-sale row still needs
+    // recovery (for example, a transient DB error after the first update).
+    if (d.kind === "ASSET_SALE" && d.status === "PAID") {
+      const assetSaleAccepted = await onAssetSalePaid(code, payerTelegramId);
+      return { ok: true, first: false, assetSaleAccepted };
+    }
+    return { ok: true, first: false };
+  }
   let assetSaleAccepted: boolean | undefined;
   if (d.kind === "ASSET_SALE") {
     await ensureAssetMarketTables();

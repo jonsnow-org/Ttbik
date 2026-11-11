@@ -402,7 +402,7 @@ export async function onAssetSalePaid(code: string, payerTelegramId?: string): P
     return true;
   }
   const late = await prisma.$executeRaw`UPDATE telegram_asset_sales s SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
-    WHERE s.code = ${code} AND s.status IN ('PENDING_PAYMENT','CANCELLED')
+    WHERE s.code = ${code} AND s.status IN ('PENDING_PAYMENT','CANCELLED') AND s.payment_late = FALSE
       AND (s.expires_at < now() OR s.status = 'CANCELLED'
         OR (${payerId}::text IS NOT NULL AND s.buyer_telegram_id <> ${payerId}::text)
         OR NOT EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED'))`;
