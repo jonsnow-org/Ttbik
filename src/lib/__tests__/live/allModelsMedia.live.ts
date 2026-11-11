@@ -3,12 +3,20 @@
 import fs from "fs";
 import path from "path";
 import { drive, handleCoderSections, later, saveState } from "@/lib/coderSections";
-import { handleNovaBotUpdate, shamMediaFastLane } from "@/lib/novaBotLogic";
+import { continueShamRun, handleNovaBotUpdate, shamMediaFastLane } from "@/lib/novaBotLogic";
 import { shamVariant } from "@/lib/shamStudio";
 import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
 
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
+// Sham's durable media hand-off (novaBotLogic shamKickNextLeg) reads the bot row through prisma before it signs /api/sham/continue: the probe's
+// bot "bot1" is not in that database, so every Sham picture failed with «تعذّر بدء إنشاء الوسائط في الخلفية» (2026-11-07 and 2026-11-11 probes).
+jest.mock("@/lib/prisma", () => {
+  const actual = jest.requireActual("@/lib/prisma");
+  const row = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" };
+  const bot = new Proxy(actual.prisma.bot, { get: (t: any, k) => (k === "findUnique" ? async (a: any) => (a?.where?.id === "bot1" ? row : t.findUnique(a)) : t[k]) });
+  return { ...actual, prisma: new Proxy(actual.prisma, { get: (t: any, k) => (k === "bot" ? bot : t[k]) }) };
+});
 jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
@@ -51,6 +59,13 @@ async function once(model: string, kind: "image" | "video" | "audio" | "chat", t
       const b = JSON.parse(String(init?.body || "{}"));
       const [who, ...rest] = String(b.chatId).split("#");
       later(() => drive(bot, botRow, Number(who), b.chain, db, 30000, rest.join("#")));
+      return new Response("{}", { status: 202 });
+    }
+    if (String(input).endsWith("/api/sham/continue")) {
+      // the next Sham leg runs in-process, exactly as src/app/api/sham/continue/route.ts would (it would otherwise reach the real production site)
+      const b = JSON.parse(String(init?.body || "{}"));
+      const [who, ...rest] = String(b.chatId).split("#");
+      later(() => continueShamRun(bot, Number(who), b.botId, rest.join("#")));
       return new Response("{}", { status: 202 });
     }
     return realFetch(input, init);
