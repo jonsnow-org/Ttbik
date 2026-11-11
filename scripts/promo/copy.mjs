@@ -114,10 +114,11 @@ export function renderCampaign(p) {
 }
 
 export function generateCampaignPacks({ only = "", out = OUT_DEFAULT } = {}) {
-  const projects = loadProjects().filter((p) => !SKIP_PROJECT_IDS.has(p.id) && (!only || p.id === only));
-  if (only && projects.length === 0) throw new Error(`unknown or protected project id: ${only}`);
+  const all = loadProjects();
+  if (only && !all.some((p) => p.id === only)) throw new Error(`unknown campaign id: ${only}`);
+  const projects = all.filter((p) => !SKIP_PROJECT_IDS.has(p.id) && (!only || p.id === only));
   fs.mkdirSync(out, { recursive: true });
-  const index = ["# Promotion packs", "", "Generated from scripts/promo/projects.json. Review the copy before publishing.", ""];
+  const index = ["# Promotion packs", "", "Generated from scripts/promo/projects.json. Review the copy before publishing.", "", "Protected campaign entries are intentionally omitted.", ""];
   for (const p of projects) {
     const file = path.join(out, `${p.id}.md`);
     fs.writeFileSync(file, renderCampaign(p), "utf8");
