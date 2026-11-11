@@ -10,7 +10,7 @@ import { findSiteBot } from "@/lib/siteAds";
 import { detectChannelPayoutNetwork } from "@/lib/channels/payoutAddress";
 import {
   ASSET_MARKET_MAX_PRICE, ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
-  normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
+  makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
 } from "@/lib/channels/assetMarketRules";
 
 let ready: Promise<void> | null = null;
@@ -305,7 +305,7 @@ export async function createAssetSale(listingId: string, buyerTelegramId: string
   await releaseExpiredReservations();
   const buyer = await requireVerifiedIdentity(buyerTelegramId).catch((e) => null);
   if (!buyer) return { ok: false as const, error: "يجب إكمال هويتك وتوثيق رقم هاتفك قبل الشراء." };
-  const code = `CHM-${crypto.randomBytes(8).toString("hex").toUpperCase().slice(0, 8)}`;
+  const code = makeAssetSaleCode(crypto.randomBytes(8));
   try {
     const out = await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<any[]>`SELECT * FROM telegram_asset_listings WHERE id = ${listingId} AND status = 'LISTED' FOR UPDATE`;
