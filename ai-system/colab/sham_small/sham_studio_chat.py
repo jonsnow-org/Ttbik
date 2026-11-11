@@ -23,6 +23,11 @@ import os
 import torch
 
 
+# modules that hold the Studio's LIVE state (the loaded model, caches, background jobs): never re-imported from the hot copy
+_KEEP_LOADED = frozenset({"serve", "web_access", "cpu_video", "sham_media_ready", "sham_general_text", "sham_auto_config", "sham_cell_sync",
+                          "sham_trigger_restarter", "sham_bank", "sham_kb", "sham_gguf", "sham_encoder_np"})
+
+
 def _prefer_own_copies() -> None:
     """When this file runs as the SIGNED hot copy (Studio _hot/sham_small), its sibling modules (model, sham_stream, …) must come from the
     same folder. Live 2026-11-11: ModelScope's build runner kept shipping a cached Oct 29 build, whose deployed model.py was already
@@ -37,6 +42,8 @@ def _prefer_own_copies() -> None:
         if not f or "." in name:
             continue
         d = os.path.dirname(os.path.abspath(f))
+        if name in _KEEP_LOADED or hasattr(mod, "_state"):
+            continue     # live 2026-11-11: dropping `serve` emptied serve._state, so chat failed with KeyError 'model'. Runtime state stays.
         if d != here and os.path.basename(d) == "sham_small" and os.path.isfile(os.path.join(here, name + ".py")):
             _sys.modules.pop(name, None)
 
