@@ -3,7 +3,7 @@
  * Every identity has one private ModelScope Studio and one private model repo.
  * This module never tries another Studio and refuses mismatched model/hash output.
  */
-export type PhotoModelId = "coder" | "sham_v2";
+export type PhotoModelId = "coder";
 export type PhotoWeightProfile = {
   modelId: PhotoModelId; displayName: string; sourceModel: string; modelRepo: string;
   endpointEnv: string; defaultEndpoint: string; resolution: string; steps: number; cfg: number; negative: string; validationStatus: "previously_passed" | "needs_retest"; expectedCheckpointSha256?: string;
@@ -26,14 +26,9 @@ export const PHOTO_WEIGHT_PROFILES: Record<PhotoModelId, PhotoWeightProfile> = {
     expectedCheckpointSha256: "657a6b9cf3594b1c30f1b7bc35418e07caaaa0ca668fbefb13bbecc5391181e0",
     resolution: "512 × 768", steps: 24, cfg: 7, negative: COMMON_NEGATIVE,
     validationStatus: "previously_passed" },
-  // Sham v2 keeps its own Studio.
-  sham_v2: { modelId: "sham_v2", displayName: "Sham v2", sourceModel: "SG161222/Realistic_Vision_V6.0_B1_noVAE",
-    modelRepo: "novaai2026/realistic-vision-v6-test-models", endpointEnv: "SHAM_V2_IMAGE_STUDIO_URL",
-    defaultEndpoint: "https://studio-novaai2026-realistic-vision-v6-test.api-inference.modelscope.net",
-    expectedCheckpointSha256: "c48bfd159cd7a6507b128685e963c398fa72399cefafaf603781df50ce836cc7",
-    resolution: "512 × 512", steps: 25, cfg: 5.5, negative: COMMON_NEGATIVE,   // the Realistic Vision Studio's slider has a minimum of 25 (live check 2026-11-01: «Value 24 is less than minimum value 25»)
-    validationStatus: "previously_passed" },
-};;;
+  // Sham v2 has no entry: it makes every picture with its OWN internal generator (sham-v2-server). realistic-vision-v6-test was the removed
+  // Gemma candidate's weight (owner 2026-11-11: no external generator for Sham v2).
+};
 
 const cleanBase = (value: string): string => value.trim().replace(/\/+$/, "");
 export function photoWeightProfile(model: string | undefined): PhotoWeightProfile | null {
