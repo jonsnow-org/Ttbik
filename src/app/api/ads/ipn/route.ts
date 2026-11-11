@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
   if (!verifyNowPaymentsSignature(body, req.headers.get("x-nowpayments-sig") || "")) return NextResponse.json({ error: "bad sig" }, { status: 401 });
   const code = String(body.order_id || "").toUpperCase();
   const status = String(body.payment_status || "");
-  // Channel exchange deals (CHD-) and ☑️ badges (CHB-): money is held in escrow until the post is verified.
-  if (code.startsWith("CHD-") || code.startsWith("CHB-")) {
+  // Channel ad deals (CHD-), badges (CHB-) and asset sales (CHM-): money remains held until proof is complete.
+  if (code.startsWith("CHD-") || code.startsWith("CHB-") || code.startsWith("CHM-")) {
     if (status !== "finished" && status !== "confirmed") return NextResponse.json({ ok: true, ignored: status });
     const providerRef = String(body.payin_hash || body.payment_id || "").trim().slice(0, 160);
     const r = await markDealPaid(code, "NOWPayments", Number(body.price_amount), providerRef || undefined);
