@@ -120,6 +120,16 @@ jobs:
                 -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
                 --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
             fi
+            if [ "$code" = "409" ]; then
+              # POST says the key already exists, so the PUT above failed only transiently (run 42749220811): retry the update.
+              for i in 1 2 3; do
+                sleep $((i * 10))
+                code=$(curl -sS -o secret-response.json -w '%{http_code}' -X PUT \
+                  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                  --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+                if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then break; fi
+              done
+            fi
             if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
               echo "::error::ModelScope rejected secret update for $key (HTTP $code)"
               head -c 500 secret-response.json; echo
