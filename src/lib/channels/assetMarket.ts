@@ -151,7 +151,7 @@ async function verifyChatOwner(type: "CHANNEL" | "GROUP", identifier: string, te
   let sawChat = false;
   let sawAdminBot = false;
   for (const verifier of bots) {
-    const chat: any = await telegramCall(verifier.token, "getChat", { chat_id: identifier });
+    const chat: any = await telegramCall(verifier.token, "getChat", { chat_id: identifier.startsWith("-") ? identifier : `@${identifier.replace(/^@/, "")}` });
     if (!chat?.id || !chat?.type) continue;
     sawChat = true;
     const expected = type === "CHANNEL" ? chat.type === "channel" : ["group", "supergroup"].includes(String(chat.type));
@@ -186,7 +186,7 @@ export async function publicAssetListings() {
   return rows.map((r) => ({
     id: String(r.id), assetType: r.asset_type as TelegramAssetType, identifier: String(r.identifier),
     title: String(r.title), description: String(r.description), price: Number(r.asking_price),
-    seller: r.seller_snapshot, verificationMode: String(r.verification_mode), createdAt: new Date(r.created_at).toISOString(),
+    seller: { firstName: String(r.seller_snapshot?.firstName || ""), lastName: r.seller_snapshot?.lastName || null, username: String(r.seller_snapshot?.username || "") }, verificationMode: String(r.verification_mode), createdAt: new Date(r.created_at).toISOString(),
   }));
 }
 
@@ -368,7 +368,7 @@ export async function onAssetSalePaid(code: string) {
 
 export async function adminAssetMarketData() {
   await ensureAssetMarketTables();
-  const listings = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, asking_price, status, seller_telegram_id, seller_snapshot, verification_mode, review_reference, created_at
+  const listings = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, asking_price, payout_address, payout_network, status, seller_telegram_id, seller_snapshot, verification_mode, review_reference, created_at
     FROM telegram_asset_listings WHERE status IN ('PENDING_REVIEW','LISTED','RESERVED') ORDER BY created_at DESC LIMIT 100`;
   const sales = await prisma.$queryRaw<any[]>`SELECT s.code, s.status, s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot, s.seller_confirmed, s.buyer_confirmed,
       s.transfer_evidence, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
