@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
       ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
-      if (deal && ok && deal.kind === "ASSET_SALE") ok = await assetSalePaymentIsAvailable(deal.code);
+      if (deal && ok && deal.kind === "ASSET_SALE") ok = String(pcq.from?.id || "") === String(deal.advertiser_tg_id || "") && await assetSalePaymentIsAvailable(deal.code);
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
@@ -113,7 +113,8 @@ export async function POST(req: NextRequest) {
     const code = String(sp.invoice_payload).slice(CHANNEL_STARS_PREFIX.length);
     const deal = await dealByCode(code).catch(() => null);
     if (deal && Number(sp.total_amount) >= adStars(deal.price)) {
-      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160));
+      const payerTelegramId = String(update.message.from?.id || "");
+      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160), deal.kind === "ASSET_SALE" ? payerTelegramId : undefined);
       const msg = deal.kind === "BADGE"
         ? `✅ وصل الدفع (${sp.total_amount} ⭐). شارة ☑️ لقناة @${deal.channel} مفعّلة لسنة.`
         : deal.kind === "ASSET_SALE"
