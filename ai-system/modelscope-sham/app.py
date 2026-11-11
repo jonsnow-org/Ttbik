@@ -276,6 +276,10 @@ def _worker() -> None:
     while True:
         try:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
+            # snapshot_download only ADDS files to its local cache: a file deleted from the model repo (sham_media_ready.py, 2026-11-11) stayed in the cached studio_code/ and made the
+            # signature check fail for good on a Studio that was not restarted. The signed code is small, so it is fetched fresh every cycle (the running worker uses its own copy, HOT).
+            for stale in (HERE / "_models").rglob("studio_code") if (HERE / "_models").exists() else []:
+                shutil.rmtree(stale, ignore_errors=True)
             model_dir = _download()
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
             sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
