@@ -70,6 +70,14 @@
       "role": "نصوص مدرّب CPU على GitHub",
       "writer": "gh_cpu_trainer"
     },
+    "sham-crawl-ms1": {
+      "role": "مدرّب Sham على استوديو ModelScope (نموذج)",
+      "writer": "ms_studio_trainer"
+    },
+    "sham-crawl-ms1-corpus": {
+      "role": "نصوص مدرّب استوديو ModelScope",
+      "writer": "ms_studio_trainer"
+    },
     "sham-crawl-gh-collect-corpus": {
       "role": "الزاحف العام على GitHub (نصوص فقط)",
       "writer": "gh_collector"
@@ -682,6 +690,29 @@
     "kaggle_inspect": {
       "file": ".github/workflows/sham-kaggle-inspect.yml",
       "title": "فحص كاكل للقراءة فقط: حالة الدفاتر وآخر سطور سجلها",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "ms_studio_trainer": {
+      "file": "ai-system/modelscope-trainer/app.py",
+      "title": "مدرّب شام الحي داخل استوديو ModelScope (GPU إن وُجد وإلا CPU)، ينشر نسله الخاص",
+      "kind": "server-job",
+      "accelerator": "CPU (ModelScope Studio) / GPU إن توفر",
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-ms1"
+      ],
+      "writes": [
+        "sham-crawl-ms1",
+        "sham-crawl-ms1-corpus"
+      ]
+    },
+    "ms_studio_trainer_deploy": {
+      "file": ".github/workflows/deploy-sham-trainer-studio.yml",
+      "title": "نشر استوديو مدرّب شام الحي على ModelScope",
       "kind": "workflow",
       "accelerator": "CPU (GitHub)",
       "reads": [],
