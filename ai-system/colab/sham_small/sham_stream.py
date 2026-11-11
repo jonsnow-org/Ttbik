@@ -31,7 +31,8 @@ from sham_decoding import penalize_text_logits
 def iter_tokens(model, prompt_ids: list[int], max_new_tokens: int, *, temperature: float = 0.6, top_k: int | None = 40, top_p: float | None = 0.9,
                 text_vocab: int | None = None, extra_allowed: tuple[int, ...] = (), eos_id: int | None = None, stop_ids: set[int] | None = None,
                 repetition_penalty: float = 1.1, frequency_penalty: float = 0.05, no_repeat_ngram: int = 4, anchor: int | None = None,
-                window: int | None = None, embed_weight: torch.Tensor | None = None, bank_chunks: int = 4, bank_chunk_size: int = 64, stats: dict | None = None) -> Iterator[int]:
+                window: int | None = None, embed_weight: torch.Tensor | None = None, bank_chunks: int = 4, bank_chunk_size: int = 64, stats: dict | None = None,
+                banned_ids: list[int] | None = None) -> Iterator[int]:
     """Yield generated token ids until EOS / a stop id / max_new_tokens. `text_vocab`: sampling is limited to ids below it (plus `extra_allowed`).
     The window defaults to the model's max_seq_len; the first `anchor` tokens (default: up to a quarter of the window) always stay."""
     model.eval()
@@ -92,6 +93,8 @@ def iter_tokens(model, prompt_ids: list[int], max_new_tokens: int, *, temperatur
             if keep_ids:
                 mask[:, keep_ids] = 0.0
             last = last + mask
+        if banned_ids:                               # tokens of a script that is in none of the conversation's messages (sham_studio_chat.script_banned_ids)
+            last[:, banned_ids] = float("-inf")
         tok = _generate._sample_from_logits(last, temperature=temperature, top_k=top_k, top_p=top_p, allowed_range=allowed)
         t = int(tok[0, 0])
         new.append(t)

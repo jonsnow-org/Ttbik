@@ -199,7 +199,8 @@ def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: 
     guard = ToolCallGuard(tokenizer, tool_names_from_prompt(tool_prompt)) if tool_prompt and _on("SHAM_TOOLCALL_GUARD") else None
     use = bool(guard and guard.usable)
     if not use and not think:           # a plain answer: Sham v1's rolling-window loop (length not capped by the context); tool prompts keep the guarded loop below
-        plain = [t for t in _roll_tokens(model, ids[0].tolist(), tokenizer, max(1, int(max_new_tokens)), end, temperature) if t != end and t < tokenizer.vocab_size]
+        plain = [t for t in _roll_tokens(model, ids[0].tolist(), tokenizer, max(1, int(max_new_tokens)), end, temperature,
+                                         script_banned_ids(tokenizer, _message_texts(messages))) if t != end and t < tokenizer.vocab_size]
         return tokenizer.decode(plain).strip()
     out = generate_tokens(model, ids, max_new_tokens=n, eos_id=end, repetition_penalty=1.0 if use else 1.05,
                           allowed_ranges=[(0, tokenizer.vocab_size)] * n,
@@ -209,7 +210,66 @@ def qwen3_chat_messages(model, tokenizer, messages: list[dict], max_new_tokens: 
     return repair_call(answer) if use else answer
 
 
-def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature: float):
+# 2026-11-11 (live smoke): «العاصمة của سوريا هي دمشق» — the Qwen3 donor body drifts into a script nobody used in the conversation (Vietnamese,
+# CJK, Cyrillic …). Tokens whose text contains a letter of a script that appears in NONE of the messages are not sampled. This is about the
+# alphabet only, never about content: a user who writes (or asks with) that script gets it. SHAM_SCRIPT_GUARD=0 turns it off.
+_SCRIPTS = {
+    "vietnamese": "[\u1ea0-\u1ef9\u01a0\u01a1\u01af\u01b0\u0110\u0111\u0102\u0103]",
+    "cjk": "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff]",
+    "cyrillic": "[\u0400-\u04ff]",
+    "thai": "[\u0e00-\u0e7f]",
+    "devanagari": "[\u0900-\u097f]",
+    "hebrew": "[\u0590-\u05ff]",
+    "greek": "[\u0370-\u03ff]",
+    "armenian_georgian": "[\u0530-\u058f\u10a0-\u10ff]",
+}
+_SCRIPT_TOKENS: dict = {}
+
+
+def _script_token_ids(tokenizer) -> dict:
+    """{script: [token ids whose text contains that script]} for this tokenizer (built once: one decode per vocabulary id)."""
+    import re
+    key = id(tokenizer)
+    if key not in _SCRIPT_TOKENS:
+        pats = {k: re.compile(v) for k, v in _SCRIPTS.items()}
+        found = {k: [] for k in pats}
+        for i in range(int(tokenizer.vocab_size)):
+            try:
+                t = tokenizer.decode([i])
+            except Exception:
+                continue
+            for k, p in pats.items():
+                if p.search(t):
+                    found[k].append(i)
+        _SCRIPT_TOKENS[key] = found
+    return _SCRIPT_TOKENS[key]
+
+
+def script_banned_ids(tokenizer, texts: list[str]) -> list[int]:
+    """Token ids of every guarded script that occurs in none of `texts` (the conversation)."""
+    import re
+    if not _on("SHAM_SCRIPT_GUARD"):
+        return []
+    joined = "\n".join(t for t in texts if isinstance(t, str))
+    out: list[int] = []
+    for k, ids in _script_token_ids(tokenizer).items():
+        if not re.search(_SCRIPTS[k], joined):
+            out += ids
+    return out
+
+
+def _message_texts(messages: list[dict]) -> list[str]:
+    out = []
+    for m in messages or []:
+        c = m.get("content") if isinstance(m, dict) else None
+        if isinstance(c, str):
+            out.append(c)
+        elif isinstance(c, list):
+            out += [x.get("text", "") for x in c if isinstance(x, dict)]
+    return out
+
+
+def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature: float, banned_ids: list[int] | None = None):
     """Token ids of a plain answer written with sham_stream's ROLLING window (the same loop Sham v1 uses): the reply is not capped by the 2048-token
     context, and the scrolled-out chunks come back through the bank. `ids` is the whole prompt; the sampling matches qwen3_chat_messages."""
     from sham_stream import iter_tokens
@@ -224,7 +284,8 @@ def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature
                 extra["embed_weight"] = model.token_embedding.weight         # the bank of scrolled-out chunks keys on Sham's own embeddings
         except Exception:
             fast = None
-    yield from iter_tokens(fast or model, list(ids), n, text_vocab=tokenizer.vocab_size, eos_id=end, stop_ids={end}, repetition_penalty=1.05, **extra, **sample)
+    yield from iter_tokens(fast or model, list(ids), n, text_vocab=tokenizer.vocab_size, eos_id=end, stop_ids={end}, repetition_penalty=1.05,
+                           banned_ids=banned_ids or None, **extra, **sample)
 
 
 def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: int, temperature: float = 0.0):
@@ -235,11 +296,13 @@ def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: in
     context = int(getattr(getattr(model, "cfg", None), "max_seq_len", MAX_PROMPT_TOKENS))
     n = max(1, int(max_new_tokens))
     prompt_ids = _qwen3_messages_prompt_ids(tokenizer, messages, max(1, context - min(n, context // 2) - 8))
-    prompt_ids.extend(tokenizer.encode(" thinking\n\n</think>\n\n"))
+    # 2026-11-11: this read " thinking\n\n</think>" (no "<think>"), unlike the non-streamed path — a malformed empty-thinking span in front of
+    # every streamed answer. Both paths now give the model the same "<think>\n\n</think>\n\n".
+    prompt_ids.extend(tokenizer.encode("<think>\n\n</think>\n\n"))
     end = tokenizer.encode("<|im_end|>")[-1]
     held: list[int] = []
     prev = ""
-    for token in _roll_tokens(model, prompt_ids, tokenizer, n, end, temperature):
+    for token in _roll_tokens(model, prompt_ids, tokenizer, n, end, temperature, script_banned_ids(tokenizer, _message_texts(messages))):
         if token == end or token >= tokenizer.vocab_size:
             break
         held.append(token)
