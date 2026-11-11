@@ -11,7 +11,8 @@ const SIZES = { square: [1080, 1080], story: [1080, 1920], link: [1200, 630] };
 
 const card = (p, [W, H], kind) => {
   const tall = kind === "story", wide = kind === "link";
-  const onlyEnglish = EN || projectLanguage(p) === "en";p.id === "athar" || onlyEnglish ? 0 : 1;
+  const onlyEnglish = EN || projectLanguage(p) === "en";
+  const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
   const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
   const u = tall ? 1.15 : wide ? 0.72 : 0.8; // type scale
   return `<!doctype html><meta charset="utf-8"><style>
