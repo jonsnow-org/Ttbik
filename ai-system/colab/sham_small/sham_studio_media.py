@@ -23,7 +23,30 @@ from __future__ import annotations
 import base64
 import io
 
+import os
 import torch
+
+
+def _prefer_own_copies() -> None:
+    """When this file runs as the SIGNED hot copy (Studio _hot/sham_small), its sibling modules (model, sham_stream, …) must come from the
+    same folder. Live 2026-11-11: ModelScope's build runner kept shipping a cached Oct 29 build, whose deployed model.py was already
+    imported by the app, so the hot chat died with "cannot import name 'MOTION_VOCAB_BASE' from 'model'". Drop every already-imported
+    module that has a newer sibling here, and put this folder first, so the deployed (possibly stale) copies never shadow the hot ones."""
+    import sys as _sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if not _sys.path or os.path.abspath(_sys.path[0]) != here:
+        _sys.path.insert(0, here)
+    for name, mod in list(_sys.modules.items()):
+        f = getattr(mod, "__file__", None)
+        if not f or "." in name:
+            continue
+        d = os.path.dirname(os.path.abspath(f))
+        if d != here and os.path.basename(d) == "sham_small" and os.path.isfile(os.path.join(here, name + ".py")):
+            _sys.modules.pop(name, None)
+
+
+_prefer_own_copies()
+
 
 from model import (
     AUDIO_VOCAB_SIZE,
@@ -332,6 +355,10 @@ if __name__ == "__main__":
     assert a["type"] == "audio" and base64.b64decode(a["b64"])[:4] == b"RIFF"
     # Without a motion tokenizer the video path is honestly unavailable (notice), never a slideshow.
     assert make_media(model, Tok(), img_tok, aud_tok, "video", "x")["type"] == "notice"
+    import importlib.util
+    if importlib.util.find_spec("imageio") is None:   # the Studio installs imageio(-ffmpeg); a bare CI check job may not: stand in for the encoder only
+        globals()["_mp4"] = lambda frames, fps=8: b"\x00\x00\x00\x18ftypisom" + bytes(256 + int(frames.shape[0]))
+        print("imageio not installed: MP4 encoder replaced by a stub in this self-test (the token/frame path is still exercised)")
     # With the motion tokenizer, the model writes its OWN clip: a real MP4.
     v = make_media(model, Tok(), img_tok, aud_tok, "video", "قطة تجري", motion_tokenizer=mot_tok, num_frames=4)
     assert v["type"] == "video" and v["mime"] == "video/mp4", v["type"]
