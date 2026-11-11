@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS telegram_asset_sales (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE telegram_asset_sales ADD COLUMN IF NOT EXISTS payment_late BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE UNIQUE INDEX IF NOT EXISTS telegram_asset_one_open_sale_idx
   ON telegram_asset_sales (listing_id)
   WHERE status NOT IN ('RELEASED','REFUNDED','CANCELLED');
