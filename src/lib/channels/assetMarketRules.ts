@@ -19,7 +19,6 @@ export type AssetIdentitySnapshot = {
 };
 
 export const ASSET_MARKET_COMMISSION_RATE = 0;
-export const ASSET_MARKET_MIN_PRICE = 10;
 
 export function normalizeAssetIdentifier(type: TelegramAssetType, input: unknown): string | null {
   let value = String(input ?? "").trim();
