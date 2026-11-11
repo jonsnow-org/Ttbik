@@ -26,7 +26,7 @@ export function eligibleCampaigns(projects = loadProjects()) {
 }
 
 export function chooseCampaign({ date = new Date().toISOString().slice(0, 10), only = "" } = {}) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
     throw new Error(`invalid campaign date: ${date}`);
   }
   const campaigns = eligibleCampaigns();
