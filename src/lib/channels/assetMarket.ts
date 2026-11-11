@@ -9,7 +9,7 @@ import { ownerBot } from "@/lib/builderOwnerBot";
 import { findSiteBot } from "@/lib/siteAds";
 import { detectChannelPayoutNetwork } from "@/lib/channels/payoutAddress";
 import {
-  ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
+  assetIdentityProblem, assetIdentitySnapshot,
   makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
 } from "@/lib/channels/assetMarketRules";
 
@@ -241,8 +241,9 @@ export async function createAssetListing(input: {
     const seller = await requireVerifiedIdentity(sellerTelegramId);
     const identifier = normalizeAssetIdentifier(input.assetType, input.identifier);
     if (!identifier) return { ok: false as const, error: "معرّف القناة أو المجموعة أو البوت غير صالح." };
-    const price = Number(input.price);
-    if (!Number.isFinite(price) || price < ASSET_MARKET_MIN_PRICE) return { ok: false as const, error: `الحد الأدنى للسعر ${ASSET_MARKET_MIN_PRICE}$. لا يوجد سقف أعلى محدد حالياً.` };
+    const priceInput = Number(input.price);
+    const price = Math.round(priceInput * 100) / 100;
+    if (!Number.isFinite(priceInput) || !Number.isFinite(price) || price <= 0) return { ok: false as const, error: "أدخل سعراً موجباً وصالحاً بالدولار." };
     const payoutNetwork = detectChannelPayoutNetwork(input.payoutAddress);
     if (!payoutNetwork) return { ok: false as const, error: "عنوان استلام المستحقات غير صالح. استخدم عنوان USDT-TRC20 أو TON صحيحاً." };
     const titleInput = String(input.title || "").trim().slice(0, 120);
