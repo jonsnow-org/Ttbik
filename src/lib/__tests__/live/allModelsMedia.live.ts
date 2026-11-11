@@ -17,6 +17,13 @@ jest.mock("@/lib/prisma", () => {
   const bot = new Proxy(actual.prisma.bot, { get: (t: any, k) => (k === "findUnique" ? async (a: any) => (a?.where?.id === "bot1" ? row : t.findUnique(a)) : t[k]) });
   return { ...actual, prisma: new Proxy(actual.prisma, { get: (t: any, k) => (k === "bot" ? bot : t[k]) }) };
 });
+// the saved Sham run (sham_runs2) lives in the production database; the probe has none, so it is kept in memory between the in-process legs
+jest.mock("@/lib/shamExec", () => {
+  const runs = new Map<string, any>();
+  return { ...jest.requireActual("@/lib/shamExec"),
+    shamSaveRun: async (run: any) => { runs.set(run.runId, JSON.parse(JSON.stringify(run))); },
+    shamTakeRun: async (_chat: number, runId: string) => { const r = runs.get(runId) ?? null; runs.delete(runId); return r; } };
+});
 jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
