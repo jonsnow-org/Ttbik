@@ -1,5 +1,5 @@
 import {
-  ASSET_MARKET_MAX_PRICE, ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
+  ASSET_MARKET_COMMISSION_RATE, ASSET_MARKET_MIN_PRICE, assetIdentityProblem, assetIdentitySnapshot,
   makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale,
 } from "@/lib/channels/assetMarketRules";
 
