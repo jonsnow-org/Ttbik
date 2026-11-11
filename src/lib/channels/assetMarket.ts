@@ -371,7 +371,7 @@ export async function adminAssetMarketData() {
   const listings = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, asking_price, status, seller_telegram_id, seller_snapshot, verification_mode, review_reference, created_at
     FROM telegram_asset_listings WHERE status IN ('PENDING_REVIEW','LISTED','RESERVED') ORDER BY created_at DESC LIMIT 100`;
   const sales = await prisma.$queryRaw<any[]>`SELECT s.code, s.status, s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot, s.seller_confirmed, s.buyer_confirmed,
-      s.transfer_evidence, l.asset_type, l.identifier, l.title, d.price, d.payout, d.payment_reference, d.settlement_reference
+      s.transfer_evidence, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
     FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id=s.listing_id JOIN channel_deals d ON d.code=s.code
     WHERE s.status NOT IN ('RELEASED','REFUNDED','CANCELLED') ORDER BY s.created_at DESC LIMIT 100`;
   return {
