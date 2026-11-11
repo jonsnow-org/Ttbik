@@ -38,7 +38,7 @@ export default function AdminChannelDeals() {
   if (!d) return null;
   const open = d.deals.filter((x) => x.kind !== "ASSET_SALE" && !["RELEASED", "REFUNDED", "CANCELLED"].includes(x.status));
   const pendingBotListings = (d.assetListings || []).filter((x) => x.asset_type === "BOT" && x.status === "PENDING_REVIEW");
-  const assetSales = (d.assetSales || []).filter((x) => !["RELEASED", "REFUNDED"].includes(x.status) && (x.status !== "CANCELLED" || x.payment_late));
+  const assetSales = (d.assetSales || []).filter((x) => !["RELEASED", "REFUNDED"].includes(x.status));
   const reviewAssetListing = async (id: string, approve: boolean) => {
     const reference = approve ? window.prompt("مرجع مراجعة BotFather / دليل فحص ملكية البوت (8 أحرف على الأقل):")?.trim() : (window.prompt("سبب رفض العرض (اختياري):") || "");
     if (approve && (!reference || reference.length < 8)) { setMsg("⚠️ أدخل مرجع مراجعة قبل نشر عرض البوت."); return; }
@@ -105,6 +105,7 @@ export default function AdminChannelDeals() {
                   {x.settlement_reference && <p className="mt-1 break-all text-xs text-emerald-700" dir="ltr">Settlement: {x.settlement_reference}</p>}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {x.status === "PENDING_PAYMENT" && <><button onClick={() => act(x.code, "confirm_paid")} className="rounded-full bg-amber-100 px-3 py-1">وصل USDT</button><button onClick={() => act(x.code, "cancel")} className="rounded-full bg-slate-200 px-3 py-1">إلغاء الحجز</button></>}
+                    {x.status === "CANCELLED" && !x.payment_late && <button onClick={() => act(x.code, "confirm_paid")} className="rounded-full bg-amber-100 px-3 py-1">تحقق من دفعة USDT المتأخرة</button>}
                     {x.status === "POSTED" && x.asset_type === "BOT" && x.seller_confirmed && x.buyer_confirmed && <button onClick={() => act(x.code, "verify")} className="rounded-full bg-sky-100 px-3 py-1">اعتماد نقل BotFather</button>}
                     {x.status === "VERIFIED" && <button onClick={() => act(x.code, "release")} className="rounded-full bg-emerald-100 px-3 py-1">حوّلت مستحق البائع</button>}
                     {(["PAID", "POSTED"].includes(x.status) || x.payment_late) && <button onClick={() => act(x.code, "refund")} className="rounded-full bg-red-100 px-3 py-1">أعدت المبلغ</button>}
