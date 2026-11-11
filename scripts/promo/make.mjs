@@ -107,7 +107,7 @@ async function build(browser, p) {
     SECS = 3.4;
   }
   const bodies = [];
-  bodies.push((i) => page(p, i, total, `${logo}<div class="name a" style="--d:.25s">${esc(p.name)}</div>${two(p, p.tagline, 0.45)}`));
+  bodies.push((i) => page(p, i, total, `${logo}<div class="name a" style="--d:.25s">${esc(projectLanguage(p) === "en" ? projectName(p, "en") : p.name)}</div>${two(p, p.tagline, 0.45)}`));
   p.points.forEach((pt, k) => bodies.push((i) => page(p, i, total, `${logoMarkup(p, "logo sm")}<div class="pt"><div class="num a" style="--d:.15s">${String(k + 1).padStart(2, "0")}</div>${two(p, pt, 0.3)}</div>`)));
   for (const s of shots) bodies.push((i) => page(p, i, total, `<div class="phone"><img src="${dataUri(s.png)}"></div>${two(p, s.caption, 0.7)}`));
   bodies.push((i) => page(p, i, total, `${logo}${two(p, p.cta, 0.3)}<div class="cta" style="--d:.8s">${esc(p.handle)}</div>`));
