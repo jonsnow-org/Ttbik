@@ -463,7 +463,7 @@ function AssetMarket() {
     if (!identityReady) { toast("أكمل توثيق هويتك ورقم هاتفك قبل عرض الأصل.", "err"); await requestIdentity(); return; }
     const price = Number(form.price);
     if (!form.identifier.trim() || !(price > 0) || !Number.isFinite(price) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
-      toast("أكمل المعرّف والوصف. الحد الأدنى للسعر 10 دولارات دون سقف أعلى، وأدخل محفظة استلام صحيحة.", "err"); return;
+      toast("أكمل المعرّف والوصف، وأدخل سعراً موجباً ومحفظة استلام صحيحة.", "err"); return;
     }
     setBusy(true);
     const r = await api<any>("ex_asset_create", { ...form, price });
@@ -556,7 +556,7 @@ function AssetMarket() {
             </Field>
             <Field label="اسم الأصل"><input className={inputCls} style={inputStyle} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="اسم القناة أو المجموعة أو البوت" /></Field>
             <Field label="وصف الأصل"><textarea rows={4} maxLength={1800} className={`${inputCls} resize-none`} style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="المجال، الجمهور، المميزات، سبب البيع، وأي معلومات مهمة..." /></Field>
-            <Field label="سعر البيع بالدولار (10 فأكثر، دون سقف أعلى)"><input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="100" /></Field>
+            <Field label="سعر البيع بالدولار (مبلغ موجب)"><input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="100" /></Field>
             <Field label="محفظة استلام مستحق البيع (USDT-TRC20 أو TON)"><input dir="ltr" className={`${inputCls} font-mono text-xs`} style={inputStyle} value={form.payoutAddress} onChange={(e) => setForm({ ...form, payoutAddress: e.target.value.trim() })} placeholder="عنوان المحفظة" /></Field>
           </Section>
           <MainAction text="إرسال العرض للتحقق" onClick={create} disabled={busy || !identityReady} busy={busy} color="#7c3aed" />
