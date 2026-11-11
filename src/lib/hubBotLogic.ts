@@ -3,6 +3,7 @@
 // Natural language + reply keyboards, no slash commands besides Telegram's own /start. Fully isolated: own tables (hub_*), no shared
 // logic with Athar/Nova/Zenobia. Users are keyed by a salted one-way hash of their Telegram id (hubUid) — the mental-support bot also
 // skips BotVisit so its users' raw ids are never stored. Points are shared with the website hub.
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit } from "@/lib/botVisit";
@@ -19,7 +20,7 @@ import { crisisMessage, detectCrisis, LEGAL_COUNTRIES, LEGAL_DISCLAIMER, MIND_DI
 export const HUB_TEMPLATES = ["HUB_APP_BOT", "HUB_LEGAL_BOT", "HUB_MIND_BOT", "HUB_DIALECT_BOT", "HUB_REPURPOSE_BOT", "HUB_POINTS_BOT"] as const;
 export const isHubTemplate = (t: string) => (HUB_TEMPLATES as readonly string[]).includes(t);
 
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const site = () => publicSiteUrl();
 const MOODS = ["😞", "🙁", "😐", "🙂", "😄"];
 
 function kb(rows: string[][]): Keyboard {

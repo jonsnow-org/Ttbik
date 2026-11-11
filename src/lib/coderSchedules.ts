@@ -7,6 +7,7 @@
 // Each run is a full agent task in its own slot with a fresh step counter (the hard ceiling is per run), the same permission tiers and
 // the user's policy for context "scheduled"; confirmations come to the chat as ✅/❌ and the run waits. Results go to the user's chat.
 // The chat id and hook secret are stored encrypted (CODER_TOKEN_KEY); rows are keyed by the salted chat hash.
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -208,7 +209,7 @@ async function ghFetch(token: string, method: string, path: string, body?: unkno
 }
 
 export function hookUrl(id: string): string {
-  const base = (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/+$/, "");
+  const base = (process.env.CODER_SELF_URL || publicSiteUrl()).replace(/\/+$/, "");
   return `${base}/api/coder/hooks/github?s=${id}`;
 }
 

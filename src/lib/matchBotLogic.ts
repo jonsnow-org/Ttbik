@@ -2,7 +2,7 @@ import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
-import { SITE_URL } from "@/lib/siteUrl";
+import { SITE_URL, publicSiteUrl } from "@/lib/siteUrl";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
@@ -865,7 +865,7 @@ function seriousnessLabel(score: number): string {
   return `🟠 مؤشر الجدية: أساسي (${score}%)`;
 }
 
-const SITE_ORIGIN = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE_ORIGIN = publicSiteUrl();
 const PHOTO_LOCKED = `${SITE_ORIGIN}/img/match-locked.jpg`;
 const PHOTO_NONE = `${SITE_ORIGIN}/img/match-nophoto.jpg`;
 

@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -17,7 +18,7 @@ import { makeLinkToken } from "@/lib/zenobiaTonProof";
 
 const CHANNEL_URL = "https://t.me/Zenobiaton";
 const BUY_URL = "https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD"; // the coin's page on Blum (the owner's link)
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 export type Lang = "en" | "ar";
 
 export const QUOTE_EN =

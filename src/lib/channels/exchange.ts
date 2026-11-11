@@ -5,6 +5,7 @@
  * Escrow is strictly for these ad deals. 85% goes to the channel, 15% is the platform's commission.
  * Own tables (created on first use); no prisma schema change.
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
@@ -18,7 +19,7 @@ import {
 
 export const CHANNEL_STARS_PREFIX = "CHDEAL:";
 const UA = "Mozilla/5.0 (compatible; ShamAI-ChannelAudit/1.0)";
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || gateUrl()).replace(/\/$/, "");
+const site = () => publicSiteUrl();
 
 let ready: Promise<void> | null = null;
 export function ensureChannelTables(): Promise<void> {

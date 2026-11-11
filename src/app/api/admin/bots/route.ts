@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -88,7 +89,7 @@ async function tablesReady(template: string): Promise<boolean | null> {
   }
 }
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE_URL = publicSiteUrl();
 
 type AdminBotRow = {
   id: string;

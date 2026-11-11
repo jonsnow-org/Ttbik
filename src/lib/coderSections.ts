@@ -7,6 +7,7 @@
 // job, sending finished parts (< 4096 chars each) as they come. Before the 60 s function limit it hands itself to /api/coder/continue
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
+import { publicBase } from "@/lib/siteUrl";
 import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
@@ -221,7 +222,7 @@ export function verifyContinue(secret: string, botId: string, chatId: string, ch
 }
 
 export function selfUrl(): string {
-  return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
+  return publicBase(process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL);
 }
 // token updated 2026-10-22T14:04Z
 // token updated

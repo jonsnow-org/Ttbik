@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "فاتورة العملات غير مفعّلة. اختر تحويل USDT." }, { status: 400 });
   }
   // the IPN must reach the live engine: never the paused vercel.app address
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || gateUrl()).replace(/\/$/, "");
+  const base = publicSiteUrl();
   const result = await createInvoice({
     priceAmount: ad.totalPrice,
     orderId: code,

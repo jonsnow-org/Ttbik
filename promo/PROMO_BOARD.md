@@ -17,7 +17,7 @@
 - المصدر: promo/render.py + promo/build.sh
 - التوليد: workflow promo-video.yml → Release باسم promo-N يحتوي sham-ai-promo.mp4 وصور s1–s4 (نسخة الشرائح البسيطة — تصلح لتلجرام/فيسبوك فقط)
 - **خط الفيديو الاحترافي (Remotion، مجاني بالكامل):** promo/remotion/ + workflow promo-remotion.yml
-  - 1080×1920، 20–30 ث، 30fps: خطّاف أول ثانية، تسجيل شاشة حقيقي للموقع (Playwright موبايل)، ترجمة عربية كلمة-بكلمة متزامنة، خاتمة «جرّبها ببلاش» + ttbik.vercel.app
+  - 1080×1920، 20–30 ث، 30fps: خطّاف أول ثانية، تسجيل شاشة حقيقي للموقع (Playwright موبايل)، ترجمة عربية كلمة-بكلمة متزامنة، خاتمة «جرّبها ببلاش» + ttbik-gate.jonsnowx1r.workers.dev (توقّف Vercel ‏402، 2026-11-11)
   - الصوت: edge-tts ar-SY-AmanyNeural (أنثى سورية) بسرعة ‎-5%‎، موسيقى مولّدة مخفوضة تحت الصوت
   - الحلقات: promo/remotion/episodes.json (أداة واحدة لكل حلقة). كل تشغيل يولّد أول حلقة بلا Release.
   - الجدول: الأحد/الثلاثاء/الخميس 10:00 إسطنبول + تشغيل يدوي (workflow_dispatch، مع خيار رقم حلقة)

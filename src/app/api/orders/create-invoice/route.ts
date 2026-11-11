@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const orderId = crypto.randomUUID();
   const orderCode = generateOrderCode();
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const base = publicSiteUrl();
 
   const invoice = await createInvoice({
     priceAmount: service.price_usd,

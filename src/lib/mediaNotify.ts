@@ -3,6 +3,7 @@
 //   bot:     a Telegram message with two buttons: open the thing, and stop this kind of message.
 //            Stopping bot messages is a paid feature (the media bot's 💎 upgrade); free accounts keep them.
 // The deciding rules are pure functions so they can be tested without a database.
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { isBlockedEitherWay, isPlaceholderTitle, mediaDb, tgApi } from "./mediaSocial";
 import { write } from "./mediaSafe";
 
@@ -50,7 +51,7 @@ export function pushKeyboard(type: NotifyType, openUrl: string, openText = "👀
   };
 }
 
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const site = () => publicSiteUrl();
 
 export async function loadPrefs(db: any, uid: string): Promise<Prefs> {
   const { data, error } = await db.from("media_notify_prefs").select("push_off,off_types").eq("user_id", uid).maybeSingle();

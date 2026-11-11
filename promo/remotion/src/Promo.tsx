@@ -120,7 +120,7 @@ const CTA: React.FC<{ ctaTitle: string; ctaLine: string; brand: string }> = ({ c
     <AbsoluteFill style={{ background: `rgba(8,20,40,${0.88 * bg})`, alignItems: "center", justifyContent: "center" }}>
       <div dir={DIR} style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 150, color: "#fff", transform: `scale(${s * pulse})`,
         textShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>{ctaTitle}</div>
-      <div style={{ marginTop: 50, fontFamily: FONT, fontWeight: 900, fontSize: 76, color: "#0b1f3a", background: GOLD,
+      <div style={{ marginTop: 50, fontFamily: FONT, fontWeight: 900, fontSize: Math.min(76, Math.floor(1700 / Math.max(1, ctaLine.length))), color: "#0b1f3a", direction: "ltr", background: GOLD,
         padding: "10px 50px 20px", borderRadius: 30, transform: `translateY(${(1 - spring({ frame: frame - 8, fps: FPS })) * 300}px)` }}>
         {ctaLine}
       </div>
@@ -130,7 +130,7 @@ const CTA: React.FC<{ ctaTitle: string; ctaLine: string; brand: string }> = ({ c
   );
 };
 
-export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها مجاناً", ctaLine = "ttbik.vercel.app" }) => {
+export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها مجاناً", ctaLine = "ttbik-gate.jonsnowx1r.workers.dev" }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   DIR = lang === "en" ? "ltr" : "rtl";

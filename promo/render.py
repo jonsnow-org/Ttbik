@@ -4,6 +4,9 @@ os.makedirs(OUT, exist_ok=True)
 from PIL import Image, ImageDraw, ImageFont, features
 assert features.check("raqm")
 W, H = 1080, 1920
+# The live site (Vercel stopped, 402): the gate from deploy/hosting/site.json, never ttbik.vercel.app.
+import json as _json, os as _os
+SITE_HOST = _json.load(open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "deploy", "hosting", "site.json")))["gateUrl"].split("://", 1)[-1].rstrip("/")
 B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 R = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 CY, MG, WH, MU = (34, 211, 238), (244, 114, 182), (255, 255, 255), (170, 190, 215)
@@ -39,7 +42,7 @@ def card(d, y, label, accent, h=150):
     text(d, ((W - 90 - 36 - 50) // 2 + 60, y + h // 2 - 34), label, B, 54, WH, maxw=W - 90 - 36 - 50 - 150)
 
 def footer(d):
-    text(d, (W // 2, 1560), "ttbik.vercel.app", B, 60, CY, ar=False)
+    text(d, (W // 2, 1560), SITE_HOST, B, 60, CY, maxw=W - 160, ar=False)
 
 slides = []
 # 1 — brand
@@ -71,7 +74,7 @@ img = bg(); d = ImageDraw.Draw(img, "RGBA")
 text(d, (W // 2, 560), "جرّبها الآن", B, 190, WH)
 text(d, (W // 2, 860), "كل الروابط في الوصف", B, 66, MU, maxw=900)
 d.rounded_rectangle((140, 1020, W - 140, 1230), radius=60, fill=CY)
-text(d, (W // 2, 1070), "ttbik.vercel.app", B, 84, (5, 11, 30), ar=False)
+text(d, (W // 2, 1090), SITE_HOST, B, 84, (5, 11, 30), maxw=W - 340, ar=False)
 text(d, (W // 2, 1320), "شام AI", B, 90, MG)
 slides.append(img)
 

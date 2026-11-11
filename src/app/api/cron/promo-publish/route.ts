@@ -1,3 +1,4 @@
+import { rewriteLegacyLinks } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { channelBotToken, isSafeForChannel } from "@/lib/channelPublisher";
 import { posterToken } from "@/lib/coinsChannel";
@@ -19,7 +20,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const tag = q.get("tag") || "", asset = q.get("asset") || "", to = (q.get("to") || "general") as keyof typeof CHANNELS;
-  const caption = (q.get("caption") || "").slice(0, 1000);
+  // Vercel stopped (402): a caption built from an old episode/site value still naming ttbik.vercel.app is sent with the live address.
+  const caption = rewriteLegacyLinks(q.get("caption") || "").slice(0, 1000);
   if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !(to in CHANNELS)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
   if (!caption || !isSafeForChannel(caption)) return NextResponse.json({ ok: false, reason: "caption-blocked" });
   const yt = to === "youtube";

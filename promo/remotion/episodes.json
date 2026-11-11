@@ -1,5 +1,5 @@
 {
- "site": "https://ttbik.vercel.app",
+ "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
  "voice": "ar-SA-ZariyahNeural",
  "rate": "-5%",
  "gate": "https://ttbik-gate.jonsnowx1r.workers.dev",
@@ -48,7 +48,7 @@
    "path": "/free-tools/qr-generator",
    "title": "مولّد رمز QR",
    "hook": "رمز QR في ثانية… مجاناً!",
-   "input": "https://ttbik.vercel.app",
+   "input": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "script": "هل تريد رمز كيو آر لمتجرك أو لرابطك؟ مع شام إيه آي تكتب الرابط فيظهر الرمز فوراً، جاهزاً للطباعة والمشاركة. بلا تسجيل وبلا اشتراك. جرّبه مجاناً الآن.",
    "ctaTitle": "جرّبها مجاناً"
   },

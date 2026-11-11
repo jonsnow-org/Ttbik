@@ -3,6 +3,7 @@
  * a new offer, a counter, an accepted deal, a receipt or a dispute in the bot chat, whichever surface the other side used.
  * Every notification that concerns an order or offer carries a «📱 افتح في التطبيق» button to that section of the bot's own app.
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { botAppUrl } from "@/lib/builderOwnerBot";
@@ -15,7 +16,7 @@ export const APP_OPEN_LABEL = "📱 افتح في التطبيق";
 export const appLink = (botId: string, section: string, params: Record<string, string> = {}) => botAppUrl(gateUrl(), botId, section, params);
 const send = (bot: TelegramBot, to: string, text: string, kb?: InlineKeyboard) => bot.api.sendMessage(Number(to), text, kb ? { reply_markup: kb } : {}).then(() => true).catch(() => false);
 export function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const base = publicSiteUrl();
   return `${base}/pay/jobs?uid=${userId}`;
 }
 export function receivedDisputeKeyboard(orderId: string, botId?: string): InlineKeyboard {

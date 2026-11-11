@@ -1,9 +1,9 @@
 // Runs the scheduled jobs of vercel.json against the site's public address (the gate), so they follow whichever server is active.
 // Usage: node scripts/hosting/run-crons.mjs "<cron expression>"   (the jobs of that schedule)   |   --all   |   --path /api/cron/x
-// Needs CRON_SECRET; SITE_BASE defaults to the Vercel address. Exit code 1 when any job fails (after two retries on a 5xx or a network error).
+// Needs CRON_SECRET; SITE_BASE defaults to the gate (Vercel stopped, 402). Exit code 1 when any job fails (after two retries on a 5xx or a network error).
 import { readFileSync } from "node:fs";
 
-const SITE = (process.env.SITE_BASE || "https://ttbik.vercel.app").replace(/\/$/, "");
+const SITE = (process.env.SITE_BASE && !/ttbik[a-z0-9-]*\.vercel\.app/i.test(process.env.SITE_BASE) ? process.env.SITE_BASE : "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, ""); // Vercel stopped (402): never the vercel.app address
 const secret = process.env.CRON_SECRET || "";
 if (!secret) { console.error("CRON_SECRET is missing"); process.exit(1); }
 const crons = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")).crons || [];

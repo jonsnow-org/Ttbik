@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isTikTok, mediaBotUsername, mediaDb } from "@/lib/mediaSocial";
@@ -11,7 +12,7 @@ import AdSlot from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 async function loadPost(id: string) {
   const db = await mediaDb();

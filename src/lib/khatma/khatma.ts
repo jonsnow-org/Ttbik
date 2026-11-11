@@ -7,7 +7,7 @@ import crypto from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { SITE_URL } from "@/lib/siteUrl";
+import { SITE_URL, publicSiteUrl } from "@/lib/siteUrl";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { adStars, bindSiteBot, findSiteBot, siteAdStarsEnabled } from "@/lib/siteAds";
 import { gateUrl } from "@/lib/hostingOps";
@@ -507,7 +507,7 @@ export async function adminSponsorAction(code: string, action: "confirm_paid" | 
 }
 
 export const SPONSOR_STARS_PREFIX = "KSP:";
-const apiSite = () => (process.env.NEXT_PUBLIC_SITE_URL || gateUrl()).replace(/\/$/, "");
+const apiSite = () => publicSiteUrl();
 
 /** Pay a sponsorship slot on the existing rails: Stars (site bot invoice link), NOWPayments, or manual USDT. */
 export async function paySponsor(code: string, method: "stars" | "nowpayments" | "usdt") {

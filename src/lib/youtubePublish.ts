@@ -1,6 +1,7 @@
 // Uploads the promo videos to the owner's YouTube channel with the YouTube Data API v3 (resumable upload, scope youtube.upload).
 // Credentials: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET (Google Cloud, set by the owner) and one refresh token, from YOUTUBE_REFRESH_TOKEN or
 // from the one-time consent at /api/youtube/oauth (stored in the database). Nothing here is ever printed or returned.
+import { publicSiteUrl } from "@/lib/siteUrl";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
@@ -9,7 +10,7 @@ const SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 let ready: Promise<void> | null = null;
 const ensure = () => (ready ??= prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS youtube_publish_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => { ready = null; throw e; }));
 
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const site = () => publicSiteUrl();
 // A Desktop-type OAuth client only accepts loopback redirects, so by default the consent ends on http://localhost (the page fails to load on purpose);
 // the owner pastes that address into /api/youtube/oauth and the code in it is exchanged here. A Web-type client can set YOUTUBE_REDIRECT_URI to <site>/api/youtube/oauth instead.
 export const redirectUri = () => process.env.YOUTUBE_REDIRECT_URI || "http://localhost";
