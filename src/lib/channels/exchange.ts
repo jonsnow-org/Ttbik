@@ -18,7 +18,7 @@ import {
   splitDeal, validDealPrice, type AuditReport,
 } from "@/lib/channels/auditRules";
 import { detectChannelPayoutNetwork, isValidTronTransactionHash } from "@/lib/channels/payoutAddress";
-import { ensureAssetMarketTables, onAssetSalePaid, adminAssetMarketData, adminAssetMarketAction, assetSalePaymentIsAvailable } from "@/lib/channels/assetMarket";
+import { ensureAssetMarketTables, onAssetSalePaid, adminAssetMarketData, adminAssetMarketAction, assetSalePaymentIsAvailable, assetSaleDetails } from "@/lib/channels/assetMarket";
 
 export const CHANNEL_STARS_PREFIX = "CHDEAL:";
 const UA = "Mozilla/5.0 (compatible; ShamAI-ChannelAudit/1.0)";
@@ -366,6 +366,12 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
   if (d.kind === "ASSET_SALE" && action === "verify") {
     const reviewed = await adminAssetMarketAction(code, "verify_bot_sale", String(reference || ""));
     return { ok: reviewed.ok, error: reviewed.error };
+  }
+  if (d.kind === "ASSET_SALE" && action === "refund") {
+    const sale = await assetSaleDetails(code, String(process.env.SUPER_ADMIN_TELEGRAM_ID || ""));
+    if (d.status === "VERIFIED" || sale?.sellerConfirmed || sale?.buyerConfirmed) {
+      return { ok: false, error: "تم الإبلاغ عن نقل الملكية أو إثباته. لا يمكن استرداد الصفقة آلياً؛ يجب فتح مراجعة نزاع والتحقق من إعادة الأصل أولاً." };
+    }
   }
   if (d.kind === "ASSET_SALE" && action === "refund" && d.status === "VERIFIED") {
     return { ok: false, error: "لا يمكن استرداد صفقة بعد إثبات انتقال الملكية. افتح نزاعاً إدارياً بدلاً من عكس الصفقة تلقائياً." };
