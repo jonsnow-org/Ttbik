@@ -7,14 +7,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright-core";
-import { arg, ARABIC_FONTS, LATIN_FONTS, dataUri, esc, fineLine, loadProjects, site } from "./common.mjs";
+import { arg, ARABIC_FONTS, LATIN_FONTS, dataUri, esc, fineLine, loadProjects, logoMarkup, narrationText, projectLanguage, site } from "./common.mjs";
 
 const only = arg("only", ""), out = arg("out", "promo-out"), format = arg("format", "vertical");
 const [W, H] = format === "wide" ? [1920, 1080] : [1080, 1920];
 const V = H > W; // vertical
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
 const SITE = site();
-const SECS = 3.4, FPS = 25, OUT_T = 0.35; // seconds per scene, frames per second, fade-out length
+let SECS = 3.4;
+const FPS = 25, OUT_T = 0.35; // seconds per scene, frames per second, fade-out length
+const FFPROBE = process.env.FFPROBE || "ffprobe";
 
 const css = (p, i, n) => `
 *{box-sizing:border-box;margin:0}
@@ -33,6 +35,8 @@ body{position:relative;background:linear-gradient(160deg,${p.bg[1]},${p.bg[0]} 7
 .ar{font-size:${V ? 60 : 50}px;line-height:1.55;color:${p.accent};font-family:${ARABIC_FONTS};direction:rtl;font-weight:600}
 .logo{width:${V ? 340 : 260}px;height:${V ? 340 : 260}px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 8px ${p.accent}55,0 30px 90px #000a;animation:rise .9s cubic-bezier(.2,.8,.2,1) both,pulse ${SECS}s ease-in-out infinite}
 .logo.sm{width:${V ? 190 : 150}px;height:${V ? 190 : 150}px}
+.logo.monogram{display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,${p.accent},#071321 78%);color:#fff;font-weight:1000;font-size:${V ? 190 : 150}px;letter-spacing:-.06em}
+.logo.sm.monogram{font-size:${V ? 104 : 86}px}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 8px ${p.accent}55,0 30px 90px #000a}50%{box-shadow:0 0 0 22px ${p.accent}22,0 30px 90px #000a}}
 .name{font-size:${V ? 88 : 72}px;font-weight:900;color:${p.accent};letter-spacing:.3px}
 .pt{display:flex;flex-direction:column;gap:18px;padding:${V ? "44px 52px" : "30px 50px"};border-radius:36px;background:#ffffff0e;border:2px solid ${p.accent}44;backdrop-filter:blur(6px);max-width:${V ? 900 : 1300}px}
@@ -52,8 +56,8 @@ body{position:relative;background:linear-gradient(160deg,${p.bg[1]},${p.bg[0]} 7
 .fine{position:absolute;bottom:${V ? 52 : 28}px;left:0;right:0;text-align:center;font-size:26px;opacity:.6}`;
 
 const prog = (i, n) => `<div class="prog">${Array.from({ length: n }, (_, k) => `<i class="${k < i ? "done" : k === i ? "cur" : "todo"}"><b></b></i>`).join("")}</div>`;
-const two = (pair, d = 0.2) => `<div class="en a" style="--d:${d}s">${esc(pair[0])}</div><div class="ar a" style="--d:${d + 0.18}s">${esc(pair[1])}</div>`;
-const page = (p, i, n, body) => `<!doctype html><meta charset="utf-8"><style>${css(p, i, n)}</style><body><div class="orb o1"></div><div class="orb o2"></div><div class="grid"></div>${prog(i, n)}<div class="stage">${body}</div><div class="fine">${esc(fineLine(p))}</div></body>`;
+const two = (p, pair, d = 0.2) => `<div class="en a" style="--d:${d}s">${esc(pair[0])}</div>${projectLanguage(p) === "en" ? "" : `<div class="ar a" style="--d:${d + 0.18}s">${esc(pair[1])}</div>`}`;
+const page = (p, i, n, body) => `<!doctype html><meta charset="utf-8"><style>${css(p, i, n)}</style><body><div class="orb o1"></div><div class="orb o2"></div><div class="grid"></div>${prog(i, n)}<div class="stage">${body}</div><div class="fine">${esc(fineLine(p, projectLanguage(p)))}</div></body>`;
 
 /** Pauses every CSS animation at time t (ms) and photographs the page: a deterministic frame, however slow the machine. */
 async function capture(pg, html, dir, name) {
@@ -72,7 +76,7 @@ async function capture(pg, html, dir, name) {
 
 async function build(browser, p) {
   const dir = path.join(out, p.id); fs.mkdirSync(dir, { recursive: true });
-  const logo = dataUri(p.logo);
+  const logo = logoMarkup(p);
   // 1) real screenshots of the live pages (a failed page is skipped, never fatal)
   const shots = [];
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: "en-US", ignoreHTTPSErrors: true });
@@ -90,13 +94,25 @@ async function build(browser, p) {
 
   // 2) the scene list: title, one scene per point, one per live page, call to action
   const total = 2 + p.points.length + shots.length;
+  // Athar remains on its existing silent render path; public project campaigns get narration.
+  let voiceFile = "";
+  if (p.id !== "athar") {
+    voiceFile = path.join(dir, "voice.mp3");
+    const voice = projectLanguage(p) === "en" ? "en-US-AriaNeural" : "ar-SA-ZariyahNeural";
+    execFileSync(process.env.PYTHON || "python3", ["scripts/promo/tts.py", "--text", narrationText(p), "--voice", voice, "--out", voiceFile], { stdio: "inherit" });
+    const voiceSeconds = Number(execFileSync(FFPROBE, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", voiceFile], { encoding: "utf8" }).trim());
+    if (!Number.isFinite(voiceSeconds) || voiceSeconds <= 0) throw new Error(`[${p.id}] narration has no measurable duration`);
+    SECS = Math.max(3.4, Math.min(8, voiceSeconds / total + 0.4));
+  } else {
+    SECS = 3.4;
+  }
   const bodies = [];
-  bodies.push((i) => page(p, i, total, `<img class="logo" src="${logo}"><div class="name a" style="--d:.25s">${esc(p.name)}</div>${two(p.tagline, 0.45)}`));
-  p.points.forEach((pt, k) => bodies.push((i) => page(p, i, total, `<img class="logo sm" src="${logo}"><div class="pt"><div class="num a" style="--d:.15s">${String(k + 1).padStart(2, "0")}</div>${two(pt, 0.3)}</div>`)));
-  for (const s of shots) bodies.push((i) => page(p, i, total, `<div class="phone"><img src="${dataUri(s.png)}"></div>${two(s.caption, 0.7)}`));
-  bodies.push((i) => page(p, i, total, `<img class="logo" src="${logo}">${two(p.cta, 0.3)}<div class="cta" style="--d:.8s">${esc(p.handle)}</div>`));
+  bodies.push((i) => page(p, i, total, `${logo}<div class="name a" style="--d:.25s">${esc(p.name)}</div>${two(p, p.tagline, 0.45)}`));
+  p.points.forEach((pt, k) => bodies.push((i) => page(p, i, total, `${logoMarkup(p, "logo sm")}<div class="pt"><div class="num a" style="--d:.15s">${String(k + 1).padStart(2, "0")}</div>${two(p, pt, 0.3)}</div>`)));
+  for (const s of shots) bodies.push((i) => page(p, i, total, `<div class="phone"><img src="${dataUri(s.png)}"></div>${two(p, s.caption, 0.7)}`));
+  bodies.push((i) => page(p, i, total, `${logo}${two(p, p.cta, 0.3)}<div class="cta" style="--d:.8s">${esc(p.handle)}</div>`));
 
-  // 3) frames -> clips -> one file (with a silent audio track, as social uploaders expect one)
+  // 4) frames -> clips -> one file with narration and a low-volume original music bed.
   const clips = [];
   const pgr = await browser.newPage({ viewport: { width: W, height: H } });
   for (let i = 0; i < bodies.length; i++) clips.push(await capture(pgr, bodies[i](i), dir, `s${i}`));
@@ -104,8 +120,18 @@ async function build(browser, p) {
   const list = path.join(dir, "list.txt");
   fs.writeFileSync(list, clips.map((c) => `file '${path.resolve(c)}'`).join("\n"));
   const final = path.join(out, `${p.id}-${format}.mp4`);
-  execFileSync(FFMPEG, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-shortest", "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", final]);
-  console.log("made", final, `${(fs.statSync(final).size / 1e6).toFixed(1)} MB`, `${(bodies.length * SECS).toFixed(1)} s`);
+  const encode = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list];
+  const music = arg("music", "");
+  if (voiceFile && music && fs.existsSync(music)) {
+    encode.push("-i", voiceFile, "-stream_loop", "-1", "-i", path.resolve(music), "-filter_complex", "[1:a]volume=1.0[voice];[2:a]volume=0.12[music];[voice][music]amix=inputs=2:duration=longest:dropout_transition=2,alimiter=limit=0.95[a]", "-map", "0:v", "-map", "[a]");
+  } else if (voiceFile) {
+    encode.push("-i", voiceFile, "-map", "0:v", "-map", "1:a");
+  } else {
+    encode.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-map", "0:v", "-map", "1:a");
+  }
+  encode.push("-shortest", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", final);
+  execFileSync(FFMPEG, encode);
+  console.log("made", final, `${(fs.statSync(final).size / 1e6).toFixed(1)} MB`, `${(bodies.length * SECS).toFixed(1)} s`, voiceFile ? "with narration" : "legacy silent render");
 }
 
 fs.mkdirSync(out, { recursive: true });
