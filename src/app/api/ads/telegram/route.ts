@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { activateAd, adStars, bannerBalance, findSiteBot, markSiteAdPaid, SITE_AD_STARS_PREFIX, siteAdStarsEnabled, siteBotUsername } from "@/lib/siteAds";
 import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
-import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/exchange";
+import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid, assetSalePaymentIsAvailable } from "@/lib/channels/exchange";
 import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
 import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
       ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
+      if (ok && deal.kind === "ASSET_SALE") ok = await assetSalePaymentIsAvailable(deal.code);
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
