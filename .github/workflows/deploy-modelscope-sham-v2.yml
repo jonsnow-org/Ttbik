@@ -27,11 +27,6 @@ on:
     branches:
       - claude/free-services-marketplace-h6rwk2
 
-concurrency:
-  group: deploy-modelscope-sham-v2
-  # A stalled deploy must not block the next repair/redeploy attempt.
-  cancel-in-progress: true
-
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
@@ -40,6 +35,11 @@ env:
 jobs:
   deploy:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Job-level (2026-11-11): at workflow level, a workflow_run whose job is then SKIPPED (the sync it follows was cancelled) still cancelled the
+    # running deploy (runs 42948472775, 42949165293 died mid-build). Only a deploy that really runs replaces a stalled one now.
+    concurrency:
+      group: deploy-modelscope-sham-v2
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
