@@ -23,7 +23,30 @@ from __future__ import annotations
 import base64
 import io
 
+import os
 import torch
+
+
+def _prefer_own_copies() -> None:
+    """When this file runs as the SIGNED hot copy (Studio _hot/sham_small), its sibling modules (model, sham_stream, …) must come from the
+    same folder. Live 2026-11-11: ModelScope's build runner kept shipping a cached Oct 29 build, whose deployed model.py was already
+    imported by the app, so the hot chat died with "cannot import name 'MOTION_VOCAB_BASE' from 'model'". Drop every already-imported
+    module that has a newer sibling here, and put this folder first, so the deployed (possibly stale) copies never shadow the hot ones."""
+    import sys as _sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if not _sys.path or os.path.abspath(_sys.path[0]) != here:
+        _sys.path.insert(0, here)
+    for name, mod in list(_sys.modules.items()):
+        f = getattr(mod, "__file__", None)
+        if not f or "." in name:
+            continue
+        d = os.path.dirname(os.path.abspath(f))
+        if d != here and os.path.basename(d) == "sham_small" and os.path.isfile(os.path.join(here, name + ".py")):
+            _sys.modules.pop(name, None)
+
+
+_prefer_own_copies()
+
 
 from model import (
     AUDIO_VOCAB_SIZE,
