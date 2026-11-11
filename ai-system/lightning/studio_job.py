@@ -54,8 +54,9 @@ def say(msg: str) -> None:
 
 
 def open_studio():
-    from lightning_sdk import Machine, Studio, Teamspace, User
-    studio = Studio(name=STUDIO, teamspace=Teamspace(name=TEAMSPACE, user=User(name=USER)))
+    from lightning_sdk import Machine, Studio
+    from lightning_access import teamspace
+    studio = Studio(name=STUDIO, teamspace=teamspace(TEAMSPACE))
     return studio, Machine
 
 
