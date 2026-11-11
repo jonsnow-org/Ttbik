@@ -393,15 +393,18 @@ export async function confirmAssetReceipt(code: string, buyerTelegramId: string)
 
 export async function onAssetSalePaid(code: string) {
   await ensureAssetMarketTables();
-  const accepted = await prisma.$executeRaw`UPDATE telegram_asset_sales
+  const accepted = await prisma.$executeRaw`UPDATE telegram_asset_sales s
     SET status = 'PAID', updated_at = now()
-    WHERE code = ${code} AND status = 'PENDING_PAYMENT' AND expires_at >= now()`;
+    WHERE s.code = ${code} AND s.status = 'PENDING_PAYMENT' AND s.expires_at >= now()
+      AND EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED')`;
   if (accepted === 1) {
     await notifySaleParties(code, `💳 تأكد دفع الصفقة ${code}. يستطيع البائع الآن بدء التسليم. احتفظا بمرجع الصفقة، ولا ترسلا أي رموز دخول أو كلمات مرور.`);
     return;
   }
-  const late = await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
-    WHERE code = ${code} AND status IN ('PENDING_PAYMENT','CANCELLED') AND expires_at < now()`;
+  const late = await prisma.$executeRaw`UPDATE telegram_asset_sales s SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
+    WHERE s.code = ${code} AND s.status IN ('PENDING_PAYMENT','CANCELLED')
+      AND (s.expires_at < now() OR s.status = 'CANCELLED'
+        OR NOT EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED'))`;
   if (late === 1) {
     // Release only this expired reservation. If another buyer already reserved the listing, keep it reserved.
     await prisma.$executeRaw`UPDATE telegram_asset_listings l SET status = 'LISTED', updated_at = now()
