@@ -28,7 +28,7 @@ import { getMasterHotWalletAddress, getOrCreateTonMemo, isNativeTonConfigured } 
 import { apiKey as remitKey, createTransferRecord, deleteRecipient, fmt as rfmt, FROM_COUNTRIES, parseAmount, quoteAmount, savedRecipients, syncTransferStatus, TO_COUNTRIES, transferByTrack, transfersOf, type Transfer } from "@/lib/remit/office";
 import { coinById, FINAL, PAY_COINS, RECEIVE, STATUS_AR } from "@/lib/remit/changenow";
 import { createAdDeal, createBadgeOrder, dealByCode, dealsForAdvertiser, dealsForChannel, listingByToken, listingTokensForOwner, payDeal, publicListings, requestListing, submitPost, verifyListing } from "@/lib/channels/exchange";
-import { assetIdentityForUser, createAssetListing, createAssetSale, publicAssetListings, myAssetListings, myAssetSales, assetSaleDetails, reportAssetTransfer, confirmAssetReceipt, upsertAssetIdentity } from "@/lib/channels/assetMarket";
+import { assetIdentityForUser, assetVerifierBotNames, createAssetListing, createAssetSale, publicAssetListings, myAssetListings, myAssetSales, assetSaleDetails, reportAssetTransfer, confirmAssetReceipt, upsertAssetIdentity } from "@/lib/channels/assetMarket";
 import { BADGE_PRICE_USD, COMMISSION_RATE, MAX_DEAL_USD, MIN_DEAL_USD } from "@/lib/channels/auditRules";
 import { isValidTronPayoutAddress } from "@/lib/channels/payoutAddress";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
@@ -440,10 +440,10 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
     }
     case "ex_asset_list": {
       try {
-        const [listings, myListings, mySales, identity] = await Promise.all([
-          publicAssetListings(), myAssetListings(tgId), myAssetSales(tgId), assetIdentityForUser(tgId),
+        const [listings, myListings, mySales, identity, verifierBots] = await Promise.all([
+          publicAssetListings(), myAssetListings(tgId), myAssetSales(tgId), assetIdentityForUser(tgId), assetVerifierBotNames(),
         ]);
-        return { ok: true, listings, myListings, mySales, identity,
+        return { ok: true, listings, myListings, mySales, identity, verifierBots,
           rules: { commissionPct: 15, minPrice: 10, maxPrice: 25000, phoneRequired: true } };
       } catch {
         return fail("تعذّر تحميل سوق الأصول حالياً. أعد المحاولة.");
